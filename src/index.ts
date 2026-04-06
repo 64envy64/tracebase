@@ -10,6 +10,11 @@ export { ReasoningLayer } from "./core/engine.js";
 
 // Storage
 export { TraceStore } from "./core/store.js";
+export type { CachedTraceRow } from "./core/store.js";
+
+// Adaptive weights (Thompson Sampling)
+export { loadWeightState, computeWeights } from "./core/weights.js";
+export type { SignalWeights } from "./core/weights.js";
 
 // Fingerprinting & similarity
 export {
@@ -52,4 +57,7 @@ export type {
   EventHandler,
   StorageStats,
   StoreTraceInput,
+  SimilaritySignals,
+  BetaParams,
+  AdaptiveWeightState,
 } from "./types.js";

@@ -116,8 +116,9 @@ export function fingerprint(
     errorType?: string;
   },
 ): FingerprintResult {
-  const features = extractFeatures(description, context);
+  // Tokenize once, pass to both extractFeatures and buildCanonical
   const tokens = tokenize(description);
+  const features = extractFeatures(description, context, tokens);
   const canonical = buildCanonical(tokens, features);
   const hash = sha256(canonical);
 
@@ -198,6 +199,7 @@ function extractFeatures(
     framework?: string;
     errorType?: string;
   },
+  precomputedTokens?: string[],
 ): ExtractedFeatures {
   const features: ExtractedFeatures = { keywords: [] };
 
@@ -249,7 +251,7 @@ function extractFeatures(
   }
 
   // Keywords: important technical terms after stop-word removal
-  const tokens = tokenize(text);
+  const tokens = precomputedTokens ?? tokenize(text);
   features.keywords = tokens.filter(
     (t) => t.length > 2 && !STOP_WORDS.has(t),
   );

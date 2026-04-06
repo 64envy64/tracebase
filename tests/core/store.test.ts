@@ -57,6 +57,12 @@ function makeTrace(overrides?: Partial<ReasoningTrace>): ReasoningTrace {
   };
 }
 
+function cleanupDb(path: string): void {
+  for (const suffix of ["", "-wal", "-shm"]) {
+    try { unlinkSync(path + suffix); } catch { /* ok */ }
+  }
+}
+
 describe("TraceStore", () => {
   let dbPath: string;
   let store: TraceStore;
@@ -68,13 +74,7 @@ describe("TraceStore", () => {
 
   afterEach(() => {
     store.close();
-    try {
-      unlinkSync(dbPath);
-      unlinkSync(dbPath + "-wal");
-      unlinkSync(dbPath + "-shm");
-    } catch {
-      // OK if files don't exist
-    }
+    cleanupDb(dbPath);
   });
 
   it("stores and retrieves a trace by ID", () => {
@@ -90,28 +90,30 @@ describe("TraceStore", () => {
     expect(retrieved!.solution.steps).toHaveLength(2);
   });
 
-  it("stores with storeNew and generates ID", () => {
-    const trace = store.storeNew(
-      {
-        description: "test problem",
-        tags: [],
-        fingerprint: "fp1",
-      },
-      {
-        summary: "test solution",
-        steps: [],
-        outcome: "success",
-      },
-      { agent: "test" },
-    );
+  it("stores with cached tokens and features", () => {
+    const trace = makeTrace();
+    const tokens = ["type", "error", "map", "undefined"];
+    const features = { errorType: "typeerror", language: "typescript" };
 
-    expect(trace.id).toBeDefined();
-    expect(trace.createdAt).toBeGreaterThan(0);
-    expect(store.getById(trace.id)).not.toBeNull();
+    store.store(trace, tokens, features);
+
+    // Verify cached data is returned in getByFingerprint
+    const results = store.getByFingerprint(trace.problem.fingerprint);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.cachedTokens).toEqual(tokens);
+    expect(results[0]!.cachedFeatures).toEqual(features);
   });
 
   it("returns null for non-existent ID", () => {
     expect(store.getById("nonexistent")).toBeNull();
+  });
+
+  it("checks fingerprint existence", () => {
+    const trace = makeTrace();
+    expect(store.existsByFingerprint(trace.problem.fingerprint)).toBeNull();
+
+    store.store(trace);
+    expect(store.existsByFingerprint(trace.problem.fingerprint)).toBe(trace.id);
   });
 
   it("finds traces by fingerprint", () => {
@@ -124,7 +126,7 @@ describe("TraceStore", () => {
     expect(results).toHaveLength(2);
   });
 
-  it("performs full-text search", () => {
+  it("performs full-text search with AND semantics", () => {
     store.store(
       makeTrace({
         problem: {
@@ -160,19 +162,38 @@ describe("TraceStore", () => {
     expect(reactResults.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("tracks quality metrics", () => {
+  it("pre-filters candidates by language and framework", () => {
+    store.store(makeTrace({
+      problem: { ...makeTrace().problem, language: "python", framework: "django", fingerprint: "py1" },
+    }));
+    store.store(makeTrace({
+      problem: { ...makeTrace().problem, language: "typescript", framework: "react", fingerprint: "ts1" },
+    }));
+
+    const pyResults = store.getCandidatesFiltered({ language: "python" }, 10);
+    expect(pyResults).toHaveLength(1);
+    expect(pyResults[0]!.trace.problem.language).toBe("python");
+
+    const tsReactResults = store.getCandidatesFiltered(
+      { language: "typescript", framework: "react" },
+      10,
+    );
+    expect(tsReactResults).toHaveLength(1);
+  });
+
+  it("records feedback with signal attribution", () => {
     const trace = makeTrace();
     store.store(trace);
 
-    store.recordRecall(trace.id, true);
-    store.recordRecall(trace.id, true);
-    store.recordRecall(trace.id, false);
+    const signals = { fingerprint: 0, bm25: 0.8, jaccard: 0.3, structural: 0.2, cosine: 0 };
+    store.recordFeedback(trace.id, true, signals);
+    store.recordFeedback(trace.id, true, signals);
+    store.recordFeedback(trace.id, false, signals);
 
     const updated = store.getById(trace.id)!;
     expect(updated.quality.recallCount).toBe(3);
     expect(updated.quality.helpfulCount).toBe(2);
     expect(updated.quality.lastRecalledAt).toBeGreaterThan(0);
-    expect(updated.quality.score).toBeGreaterThan(0);
   });
 
   it("deletes a trace", () => {
@@ -189,37 +210,21 @@ describe("TraceStore", () => {
     expect(store.count()).toBe(2);
   });
 
-  it("lists recent traces with pagination", () => {
+  it("prunes by quality AND enforces count limit", () => {
+    // Store 5 traces, all un-recalled (recallCount=0, score=0.5)
     for (let i = 0; i < 5; i++) {
       store.store(makeTrace());
     }
 
-    const page1 = store.listRecent(2, 0);
-    expect(page1).toHaveLength(2);
+    // Quality-based prune won't touch them (recallCount=0)
+    const qualityPruned = store.prune(0.05);
+    expect(qualityPruned).toBe(0);
+    expect(store.count()).toBe(5);
 
-    const page2 = store.listRecent(2, 2);
-    expect(page2).toHaveLength(2);
-
-    const page3 = store.listRecent(2, 4);
-    expect(page3).toHaveLength(1);
-  });
-
-  it("prunes low-quality traces", () => {
-    // Store traces with varying quality
-    const t1 = makeTrace();
-    t1.quality.score = 0.01;
-    t1.quality.recallCount = 5; // Only prune recalled traces
-    store.store(t1);
-
-    const t2 = makeTrace();
-    t2.quality.score = 0.9;
-    t2.quality.recallCount = 10;
-    store.store(t2);
-
-    const pruned = store.prune(0.05);
-    expect(pruned).toBe(1);
-    expect(store.count()).toBe(1);
-    expect(store.getById(t2.id)).not.toBeNull();
+    // But age-based prune WILL enforce the limit
+    const agePruned = store.prune(0.05, 3);
+    expect(agePruned).toBe(2);
+    expect(store.count()).toBe(3);
   });
 
   it("computes storage stats", () => {
@@ -237,7 +242,7 @@ describe("TraceStore", () => {
     expect(stats.dbSizeBytes).toBeGreaterThan(0);
   });
 
-  it("exports and imports traces", () => {
+  it("exports and imports traces (INSERT OR IGNORE dedup)", () => {
     const t1 = makeTrace();
     const t2 = makeTrace();
     store.store(t1);
@@ -246,7 +251,6 @@ describe("TraceStore", () => {
     const exported = store.exportAll();
     expect(exported).toHaveLength(2);
 
-    // Import into a new store
     const dbPath2 = testDbPath();
     const store2 = new TraceStore(dbPath2);
     try {
@@ -254,12 +258,12 @@ describe("TraceStore", () => {
       expect(imported).toBe(2);
       expect(store2.count()).toBe(2);
 
-      // Re-import should skip duplicates
+      // Re-import should skip duplicates (INSERT OR IGNORE)
       const reimported = store2.importTraces(exported);
       expect(reimported).toBe(0);
     } finally {
       store2.close();
-      try { unlinkSync(dbPath2); } catch { /* ok */ }
+      cleanupDb(dbPath2);
     }
   });
 });

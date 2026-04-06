@@ -96,6 +96,29 @@ export interface QualityMetrics {
 }
 
 // ============================================================================
+// Similarity Signal Breakdown
+// ============================================================================
+
+/**
+ * Per-signal contribution scores for a recall match.
+ * Enables diagnostics and adaptive weight learning.
+ *
+ * Each field is a raw (unnormalized) score from that signal.
+ */
+export interface SimilaritySignals {
+  /** 1.0 if exact fingerprint match, 0.0 otherwise */
+  fingerprint: number;
+  /** Normalized BM25 full-text search score 0.0–1.0 */
+  bm25: number;
+  /** Jaccard token overlap 0.0–1.0 */
+  jaccard: number;
+  /** Structural feature match 0.0–1.0 */
+  structural: number;
+  /** Cosine embedding similarity 0.0–1.0 (0 if no embeddings) */
+  cosine: number;
+}
+
+// ============================================================================
 // Search / Recall
 // ============================================================================
 
@@ -117,16 +140,17 @@ export interface RecallContext {
   framework?: string;
   errorType?: string;
   tags?: string[];
-  [key: string]: unknown;
 }
 
 /** A single recall result with its similarity score. */
 export interface RecallResult {
   trace: ReasoningTrace;
-  /** Combined similarity score 0.0–1.0 */
+  /** Combined similarity score, clamped to 0.0–1.0 */
   score: number;
   /** How the match was found */
   matchType: "exact" | "similar" | "related";
+  /** Per-signal breakdown for diagnostics and weight learning */
+  signals: SimilaritySignals;
 }
 
 // ============================================================================
@@ -162,6 +186,31 @@ export interface EmbeddingProvider {
 }
 
 // ============================================================================
+// Adaptive Weights (Thompson Sampling)
+// ============================================================================
+
+/**
+ * Beta distribution parameters for one similarity signal.
+ * Ref: Thompson (1933), "On the likelihood that one unknown probability
+ *      exceeds another in view of the evidence of two samples."
+ *
+ * Posterior mean = alpha / (alpha + beta).
+ */
+export interface BetaParams {
+  alpha: number;
+  beta: number;
+}
+
+/** Persisted state for adaptive weight learning. */
+export interface AdaptiveWeightState {
+  bm25: BetaParams;
+  jaccard: BetaParams;
+  structural: BetaParams;
+  updatedAt: number;
+  feedbackCount: number;
+}
+
+// ============================================================================
 // Events
 // ============================================================================
 
@@ -170,7 +219,9 @@ export type TraceBaseEvent =
   | { type: "trace:recalled"; query: RecallQuery; results: RecallResult[] }
   | { type: "trace:pruned"; traceId: string; reason: string }
   | { type: "trace:updated"; traceId: string }
-  | { type: "quality:updated"; traceId: string; metrics: QualityMetrics };
+  | { type: "trace:deduplicated"; existingId: string; newFingerprint: string }
+  | { type: "quality:updated"; traceId: string; metrics: QualityMetrics }
+  | { type: "weights:updated"; weights: Record<string, number> };
 
 export type EventHandler = (event: TraceBaseEvent) => void;
 

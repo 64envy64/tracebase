@@ -8,15 +8,24 @@ import type {
   TraceMetadata,
   QualityMetrics,
   StorageStats,
+  SimilaritySignals,
 } from "../types.js";
 
 // ============================================================================
-// Schema
+// Schema — Version 2
+//
+// v1 → v2 changes:
+//   - Added p_tokens (cached tokenized problem for Jaccard without recompute)
+//   - Added p_features (cached extracted features for structural matching)
+//   - Added feedback_signals table (for adaptive weight learning)
+//   - Fixed FTS UPDATE trigger (only fires on content column changes)
+//   - Fixed prune to handle never-recalled traces via age-based fallback
+//   - Added index on p_file_path
 // ============================================================================
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
-const SCHEMA = `
+const SCHEMA_V2 = `
 -- Core trace storage
 CREATE TABLE IF NOT EXISTS traces (
   id            TEXT PRIMARY KEY,
@@ -33,6 +42,10 @@ CREATE TABLE IF NOT EXISTS traces (
   p_framework     TEXT,
   p_tags          TEXT NOT NULL DEFAULT '[]',
   p_fingerprint   TEXT NOT NULL,
+
+  -- Cached similarity data (computed at store time, avoids recomputation)
+  p_tokens        TEXT,   -- JSON array of normalized tokens
+  p_features      TEXT,   -- JSON object of extracted features
 
   -- Solution
   s_summary       TEXT NOT NULL,
@@ -65,11 +78,13 @@ CREATE INDEX IF NOT EXISTS idx_fingerprint  ON traces(p_fingerprint);
 CREATE INDEX IF NOT EXISTS idx_error_type   ON traces(p_error_type);
 CREATE INDEX IF NOT EXISTS idx_language     ON traces(p_language);
 CREATE INDEX IF NOT EXISTS idx_framework    ON traces(p_framework);
+CREATE INDEX IF NOT EXISTS idx_file_path    ON traces(p_file_path);
 CREATE INDEX IF NOT EXISTS idx_outcome      ON traces(s_outcome);
 CREATE INDEX IF NOT EXISTS idx_score        ON traces(q_score DESC);
 CREATE INDEX IF NOT EXISTS idx_created      ON traces(created_at DESC);
 
 -- Full-text search via FTS5 with BM25 ranking
+-- Uses porter stemmer + unicode61 tokenizer for broad matching
 CREATE VIRTUAL TABLE IF NOT EXISTS traces_fts USING fts5(
   p_description,
   s_summary,
@@ -81,18 +96,23 @@ CREATE VIRTUAL TABLE IF NOT EXISTS traces_fts USING fts5(
   tokenize='porter unicode61'
 );
 
--- Keep FTS in sync with triggers
+-- FTS sync: INSERT
 CREATE TRIGGER IF NOT EXISTS traces_fts_insert AFTER INSERT ON traces BEGIN
   INSERT INTO traces_fts(rowid, p_description, s_summary, s_explanation, p_tags, p_error_message)
   VALUES (new.rowid, new.p_description, new.s_summary, new.s_explanation, new.p_tags, new.p_error_message);
 END;
 
+-- FTS sync: DELETE
 CREATE TRIGGER IF NOT EXISTS traces_fts_delete AFTER DELETE ON traces BEGIN
   INSERT INTO traces_fts(traces_fts, rowid, p_description, s_summary, s_explanation, p_tags, p_error_message)
   VALUES ('delete', old.rowid, old.p_description, old.s_summary, old.s_explanation, old.p_tags, old.p_error_message);
 END;
 
-CREATE TRIGGER IF NOT EXISTS traces_fts_update AFTER UPDATE ON traces BEGIN
+-- FTS sync: UPDATE — only fires when FTS-indexed content columns change
+-- (avoids unnecessary FTS churn on quality metric updates)
+CREATE TRIGGER IF NOT EXISTS traces_fts_update_v2
+  AFTER UPDATE OF p_description, s_summary, s_explanation, p_tags, p_error_message ON traces
+BEGIN
   INSERT INTO traces_fts(traces_fts, rowid, p_description, s_summary, s_explanation, p_tags, p_error_message)
   VALUES ('delete', old.rowid, old.p_description, old.s_summary, old.s_explanation, old.p_tags, old.p_error_message);
   INSERT INTO traces_fts(rowid, p_description, s_summary, s_explanation, p_tags, p_error_message)
@@ -104,7 +124,58 @@ CREATE TABLE IF NOT EXISTS schema_meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Config key-value store (also used for adaptive weight state)
+CREATE TABLE IF NOT EXISTS config (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+-- Feedback signal log for adaptive weight learning
+-- Records which signals contributed to each helpful/unhelpful recall
+CREATE TABLE IF NOT EXISTS feedback_signals (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  trace_id        TEXT NOT NULL,
+  helpful         INTEGER NOT NULL,
+  sig_fingerprint REAL NOT NULL DEFAULT 0,
+  sig_bm25        REAL NOT NULL DEFAULT 0,
+  sig_jaccard     REAL NOT NULL DEFAULT 0,
+  sig_structural  REAL NOT NULL DEFAULT 0,
+  created_at      INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_trace ON feedback_signals(trace_id);
 `;
+
+// ============================================================================
+// Migration helpers
+// ============================================================================
+
+const MIGRATIONS: Record<number, string[]> = {
+  2: [
+    // Add cached token/feature columns (safe on existing tables)
+    "ALTER TABLE traces ADD COLUMN p_tokens TEXT",
+    "ALTER TABLE traces ADD COLUMN p_features TEXT",
+    // Add file path index
+    "CREATE INDEX IF NOT EXISTS idx_file_path ON traces(p_file_path)",
+    // Drop the old catch-all UPDATE trigger that fires on quality updates
+    "DROP TRIGGER IF EXISTS traces_fts_update",
+    // Create feedback_signals table
+    `CREATE TABLE IF NOT EXISTS feedback_signals (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      trace_id        TEXT NOT NULL,
+      helpful         INTEGER NOT NULL,
+      sig_fingerprint REAL NOT NULL DEFAULT 0,
+      sig_bm25        REAL NOT NULL DEFAULT 0,
+      sig_jaccard     REAL NOT NULL DEFAULT 0,
+      sig_structural  REAL NOT NULL DEFAULT 0,
+      created_at      INTEGER NOT NULL
+    )`,
+    "CREATE INDEX IF NOT EXISTS idx_feedback_trace ON feedback_signals(trace_id)",
+    // Create config table
+    "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+  ],
+};
 
 // ============================================================================
 // Store Implementation
@@ -131,17 +202,33 @@ export class TraceStore {
     this.db.pragma("temp_store = MEMORY");
   }
 
-  /** Run schema migrations. */
+  /** Run schema creation and incremental migrations. */
   private migrate(): void {
-    this.db.exec(SCHEMA);
-
     const currentVersion = this.getSchemaVersion();
-    if (currentVersion < SCHEMA_VERSION) {
-      this.db
-        .prepare(
-          "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)",
-        )
-        .run(String(SCHEMA_VERSION));
+
+    if (currentVersion === 0) {
+      // Fresh database — create full v2 schema
+      this.db.exec(SCHEMA_V2);
+      this.setSchemaVersion(SCHEMA_VERSION);
+      return;
+    }
+
+    // Incremental migration for existing databases
+    for (let v = currentVersion + 1; v <= SCHEMA_VERSION; v++) {
+      const steps = MIGRATIONS[v];
+      if (!steps) continue;
+
+      const tx = this.db.transaction(() => {
+        for (const sql of steps) {
+          try {
+            this.db.exec(sql);
+          } catch {
+            // Column/index may already exist — safe to skip
+          }
+        }
+        this.setSchemaVersion(v);
+      });
+      tx();
     }
   }
 
@@ -156,6 +243,14 @@ export class TraceStore {
     }
   }
 
+  private setSchemaVersion(v: number): void {
+    this.db
+      .prepare(
+        "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)",
+      )
+      .run(String(v));
+  }
+
   /** Prepare frequently-used statements for performance. */
   private prepareStatements() {
     return {
@@ -164,6 +259,7 @@ export class TraceStore {
           id, created_at, updated_at,
           p_description, p_error_type, p_error_message, p_stack_trace,
           p_file_path, p_language, p_framework, p_tags, p_fingerprint,
+          p_tokens, p_features,
           s_summary, s_steps, s_outcome, s_diff, s_explanation,
           m_agent, m_model, m_tokens_used, m_duration_ms, m_source, m_custom,
           q_recall_count, q_helpful_count, q_last_recalled_at, q_score,
@@ -172,6 +268,7 @@ export class TraceStore {
           @id, @created_at, @updated_at,
           @p_description, @p_error_type, @p_error_message, @p_stack_trace,
           @p_file_path, @p_language, @p_framework, @p_tags, @p_fingerprint,
+          @p_tokens, @p_features,
           @s_summary, @s_steps, @s_outcome, @s_diff, @s_explanation,
           @m_agent, @m_model, @m_tokens_used, @m_duration_ms, @m_source, @m_custom,
           @q_recall_count, @q_helpful_count, @q_last_recalled_at, @q_score,
@@ -212,16 +309,17 @@ export class TraceStore {
         "SELECT * FROM traces ORDER BY created_at DESC LIMIT ? OFFSET ?",
       ),
 
-      pruneByScore: this.db.prepare(
-        "DELETE FROM traces WHERE q_score < ? AND q_recall_count > 0",
+      deleteOldest: this.db.prepare(
+        "DELETE FROM traces WHERE id IN (SELECT id FROM traces ORDER BY created_at ASC LIMIT ?)",
       ),
 
-      getByLanguage: this.db.prepare(
-        "SELECT * FROM traces WHERE p_language = ? ORDER BY q_score DESC LIMIT ?",
-      ),
+      insertFeedback: this.db.prepare(`
+        INSERT INTO feedback_signals (trace_id, helpful, sig_fingerprint, sig_bm25, sig_jaccard, sig_structural, created_at)
+        VALUES (@trace_id, @helpful, @sig_fingerprint, @sig_bm25, @sig_jaccard, @sig_structural, @created_at)
+      `),
 
-      getByErrorType: this.db.prepare(
-        "SELECT * FROM traces WHERE p_error_type = ? ORDER BY q_score DESC LIMIT ?",
+      existsByFingerprint: this.db.prepare(
+        "SELECT id FROM traces WHERE p_fingerprint = ? LIMIT 1",
       ),
     };
   }
@@ -231,8 +329,8 @@ export class TraceStore {
   // --------------------------------------------------------------------------
 
   /** Store a new reasoning trace. Returns the generated ID. */
-  store(trace: ReasoningTrace): string {
-    const params = this.traceToRow(trace);
+  store(trace: ReasoningTrace, cachedTokens?: string[], cachedFeatures?: Record<string, unknown>): string {
+    const params = this.traceToRow(trace, cachedTokens, cachedFeatures);
     this.stmts.insert.run(params);
     return trace.id;
   }
@@ -242,6 +340,8 @@ export class TraceStore {
     problem: Problem,
     solution: Solution,
     metadata: TraceMetadata,
+    cachedTokens?: string[],
+    cachedFeatures?: Record<string, unknown>,
   ): ReasoningTrace {
     const now = Date.now();
     const trace: ReasoningTrace = {
@@ -257,7 +357,7 @@ export class TraceStore {
         score: 0.5,
       },
     };
-    this.store(trace);
+    this.store(trace, cachedTokens, cachedFeatures);
     return trace;
   }
 
@@ -267,18 +367,26 @@ export class TraceStore {
     return row ? this.rowToTrace(row) : null;
   }
 
-  /** Find traces with an exact fingerprint match. */
-  getByFingerprint(fingerprint: string, limit = 5): ReasoningTrace[] {
-    const rows = this.stmts.getByFingerprint.all(fingerprint, limit) as RawRow[];
-    return rows.map((r) => this.rowToTrace(r));
+  /** Check if a trace with this fingerprint already exists. */
+  existsByFingerprint(fingerprint: string): string | null {
+    const row = this.stmts.existsByFingerprint.get(fingerprint) as { id: string } | undefined;
+    return row?.id ?? null;
   }
 
-  /** Full-text search using SQLite FTS5 with BM25 ranking. */
+  /** Find traces with an exact fingerprint match. Returns with cached tokens/features. */
+  getByFingerprint(fingerprint: string, limit = 5): CachedTraceRow[] {
+    const rows = this.stmts.getByFingerprint.all(fingerprint, limit) as RawRow[];
+    return rows.map((r) => this.rowToCachedTrace(r));
+  }
+
+  /**
+   * Full-text search using SQLite FTS5 with BM25 ranking.
+   * Query terms are ANDed for precision.
+   */
   searchFts(
     query: string,
     limit = 10,
-  ): Array<{ trace: ReasoningTrace; rank: number }> {
-    // Escape special FTS5 characters and build query
+  ): Array<{ trace: ReasoningTrace; rank: number; cachedTokens?: string[]; cachedFeatures?: Record<string, unknown> }> {
     const sanitized = this.sanitizeFtsQuery(query);
     if (!sanitized) return [];
 
@@ -289,11 +397,41 @@ export class TraceStore {
       return rows.map((r) => ({
         trace: this.rowToTrace(r),
         rank: r.rank,
+        cachedTokens: r.p_tokens ? (JSON.parse(r.p_tokens) as string[]) : undefined,
+        cachedFeatures: r.p_features ? (JSON.parse(r.p_features) as Record<string, unknown>) : undefined,
       }));
     } catch {
-      // FTS query syntax error — fall back to simple LIKE search
       return this.searchLike(query, limit);
     }
+  }
+
+  /** Get candidates with optional pre-filtering by language/framework/errorType. */
+  getCandidatesFiltered(
+    filters: { language?: string; framework?: string; errorType?: string },
+    limit: number,
+  ): CachedTraceRow[] {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (filters.language) {
+      conditions.push("p_language = ?");
+      params.push(filters.language);
+    }
+    if (filters.framework) {
+      conditions.push("p_framework = ?");
+      params.push(filters.framework);
+    }
+    if (filters.errorType) {
+      conditions.push("p_error_type = ?");
+      params.push(filters.errorType);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const sql = `SELECT * FROM traces ${where} ORDER BY q_score DESC LIMIT ?`;
+    params.push(limit);
+
+    const rows = this.db.prepare(sql).all(...params) as RawRow[];
+    return rows.map((r) => this.rowToCachedTrace(r));
   }
 
   /** Fallback LIKE-based search when FTS query fails. */
@@ -303,7 +441,7 @@ export class TraceStore {
   ): Array<{ trace: ReasoningTrace; rank: number }> {
     const pattern = `%${query}%`;
     const stmt = this.db.prepare(`
-      SELECT *, 0 AS rank FROM traces
+      SELECT *, -1 AS rank FROM traces
       WHERE p_description LIKE ? OR s_summary LIKE ? OR p_error_message LIKE ?
       ORDER BY q_score DESC
       LIMIT ?
@@ -329,8 +467,11 @@ export class TraceStore {
     });
   }
 
-  /** Record that a trace was recalled and optionally helpful. */
-  recordRecall(id: string, helpful?: boolean): void {
+  /**
+   * Record a feedback event with signal contributions.
+   * This is the ONLY method that should modify recall counts.
+   */
+  recordFeedback(id: string, helpful: boolean, signals?: SimilaritySignals): void {
     const trace = this.getById(id);
     if (!trace) return;
 
@@ -338,10 +479,21 @@ export class TraceStore {
     q.recallCount += 1;
     if (helpful) q.helpfulCount += 1;
     q.lastRecalledAt = Date.now();
-
-    // Recompute quality score using Wilson score interval lower bound
     q.score = this.computeQualityScore(q);
     this.updateQuality(id, q);
+
+    // Log signal contributions for adaptive weight learning
+    if (signals) {
+      this.stmts.insertFeedback.run({
+        trace_id: id,
+        helpful: helpful ? 1 : 0,
+        sig_fingerprint: signals.fingerprint,
+        sig_bm25: signals.bm25,
+        sig_jaccard: signals.jaccard,
+        sig_structural: signals.structural,
+        created_at: Date.now(),
+      });
+    }
   }
 
   /** Delete a trace. */
@@ -362,10 +514,32 @@ export class TraceStore {
     return rows.map((r) => this.rowToTrace(r));
   }
 
-  /** Remove traces below a quality threshold. Returns number pruned. */
-  prune(threshold = 0.05): number {
-    const result = this.stmts.pruneByScore.run(threshold);
-    return result.changes;
+  /**
+   * Prune low-quality traces. Returns number pruned.
+   * Two strategies:
+   *   1. Quality-based: remove recalled traces below threshold
+   *   2. Age-based: remove oldest un-recalled traces exceeding maxCount
+   */
+  prune(threshold: number, maxCount?: number): number {
+    let pruned = 0;
+
+    // Strategy 1: Remove low-quality recalled traces
+    const qualityResult = this.db
+      .prepare("DELETE FROM traces WHERE q_score < ? AND q_recall_count > 0")
+      .run(threshold);
+    pruned += qualityResult.changes;
+
+    // Strategy 2: If still over limit, remove oldest un-recalled traces
+    if (maxCount && maxCount > 0) {
+      const current = this.count();
+      if (current > maxCount) {
+        const excess = current - maxCount;
+        const ageResult = this.stmts.deleteOldest.run(excess);
+        pruned += ageResult.changes;
+      }
+    }
+
+    return pruned;
   }
 
   /** Aggregate statistics about stored traces. */
@@ -451,16 +625,36 @@ export class TraceStore {
     return rows.map((r) => this.rowToTrace(r));
   }
 
-  /** Import traces from an array (skips duplicates by ID). */
+  /** Import traces from an array. Uses INSERT OR IGNORE for dedup efficiency. */
   importTraces(traces: ReasoningTrace[]): number {
     let imported = 0;
+    const insertOrIgnore = this.db.prepare(`
+      INSERT OR IGNORE INTO traces (
+        id, created_at, updated_at,
+        p_description, p_error_type, p_error_message, p_stack_trace,
+        p_file_path, p_language, p_framework, p_tags, p_fingerprint,
+        p_tokens, p_features,
+        s_summary, s_steps, s_outcome, s_diff, s_explanation,
+        m_agent, m_model, m_tokens_used, m_duration_ms, m_source, m_custom,
+        q_recall_count, q_helpful_count, q_last_recalled_at, q_score,
+        embedding_problem, embedding_solution
+      ) VALUES (
+        @id, @created_at, @updated_at,
+        @p_description, @p_error_type, @p_error_message, @p_stack_trace,
+        @p_file_path, @p_language, @p_framework, @p_tags, @p_fingerprint,
+        @p_tokens, @p_features,
+        @s_summary, @s_steps, @s_outcome, @s_diff, @s_explanation,
+        @m_agent, @m_model, @m_tokens_used, @m_duration_ms, @m_source, @m_custom,
+        @q_recall_count, @q_helpful_count, @q_last_recalled_at, @q_score,
+        @embedding_problem, @embedding_solution
+      )
+    `);
+
     const tx = this.db.transaction(() => {
       for (const trace of traces) {
-        const existing = this.getById(trace.id);
-        if (!existing) {
-          this.store(trace);
-          imported++;
-        }
+        const params = this.traceToRow(trace);
+        const result = insertOrIgnore.run(params);
+        if (result.changes > 0) imported++;
       }
     });
     tx();
@@ -485,7 +679,7 @@ export class TraceStore {
       );
   }
 
-  /** Get all traces that have embeddings, returning them with vectors. */
+  /** Get all traces that have embeddings. */
   getAllWithEmbeddings(): Array<{
     trace: ReasoningTrace;
     problemEmbedding: number[];
@@ -511,7 +705,7 @@ export class TraceStore {
     this.db.close();
   }
 
-  /** Get the raw database instance (for advanced use). */
+  /** Get the raw database instance (for advanced use / adaptive weights). */
   get rawDb(): Database.Database {
     return this.db;
   }
@@ -520,26 +714,35 @@ export class TraceStore {
   // Internal helpers
   // --------------------------------------------------------------------------
 
+  /**
+   * Sanitize and build FTS5 query.
+   * Strategy: AND for short queries (1-3 words), OR for longer ones.
+   * This balances precision (AND) with recall (OR).
+   * Ref: Robertson & Zaragoza (2009), "The Probabilistic Relevance Framework"
+   */
   private sanitizeFtsQuery(query: string): string {
-    // Remove FTS5 special characters, then wrap each word in quotes
     const cleaned = query
       .replace(/[*"():^~{}[\]\\]/g, " ")
       .trim();
 
     if (!cleaned) return "";
 
-    // Split into words, wrap in quotes, join with OR for broad matching
     const words = cleaned.split(/\s+/).filter(Boolean);
     if (words.length === 0) return "";
 
-    // Use implicit AND for multi-word queries
-    return words.map((w) => `"${w}"`).join(" OR ");
+    // Short queries: AND (all terms must match) for precision
+    // Long queries: OR (any term can match) for broader recall
+    const joiner = words.length <= 3 ? " " : " OR ";
+    return words.map((w) => `"${w}"`).join(joiner);
   }
 
   /**
    * Wilson score interval lower bound.
-   * This is the same algorithm Reddit uses for ranking.
-   * It balances between ratio of helpful/recalled and sample size.
+   * Ref: Wilson, E.B. (1927). "Probable Inference, the Law of Succession,
+   *      and Statistical Inference." JASA 22(158):209-212.
+   *
+   * Same ranking algorithm used by Reddit, Yelp, and other platforms.
+   * Properly handles small sample sizes (unlike naive helpful/recalled ratio).
    */
   private computeQualityScore(q: QualityMetrics): number {
     if (q.recallCount === 0) return 0.5; // Prior: assume moderate quality
@@ -557,7 +760,7 @@ export class TraceStore {
     return Math.max(0, Math.min(1, numerator / denominator));
   }
 
-  private traceToRow(t: ReasoningTrace): Record<string, unknown> {
+  private traceToRow(t: ReasoningTrace, cachedTokens?: string[], cachedFeatures?: Record<string, unknown>): Record<string, unknown> {
     return {
       id: t.id,
       created_at: t.createdAt,
@@ -571,6 +774,8 @@ export class TraceStore {
       p_framework: t.problem.framework ?? null,
       p_tags: JSON.stringify(t.problem.tags),
       p_fingerprint: t.problem.fingerprint,
+      p_tokens: cachedTokens ? JSON.stringify(cachedTokens) : null,
+      p_features: cachedFeatures ? JSON.stringify(cachedFeatures) : null,
       s_summary: t.solution.summary,
       s_steps: JSON.stringify(t.solution.steps),
       s_outcome: t.solution.outcome,
@@ -632,6 +837,27 @@ export class TraceStore {
       },
     };
   }
+
+  private rowToCachedTrace(r: RawRow): CachedTraceRow {
+    return {
+      trace: this.rowToTrace(r),
+      cachedTokens: r.p_tokens ? (JSON.parse(r.p_tokens) as string[]) : undefined,
+      cachedFeatures: r.p_features
+        ? (JSON.parse(r.p_features) as Record<string, unknown>)
+        : undefined,
+    };
+  }
+}
+
+// ============================================================================
+// Public types
+// ============================================================================
+
+/** A trace with its pre-computed similarity data from the DB. */
+export interface CachedTraceRow {
+  trace: ReasoningTrace;
+  cachedTokens?: string[];
+  cachedFeatures?: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -651,6 +877,8 @@ interface RawRow {
   p_framework: string | null;
   p_tags: string;
   p_fingerprint: string;
+  p_tokens: string | null;
+  p_features: string | null;
   s_summary: string;
   s_steps: string;
   s_outcome: string;
