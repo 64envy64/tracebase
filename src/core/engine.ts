@@ -13,7 +13,7 @@ import type {
 } from "../types.js";
 import { TraceStore } from "./store.js";
 import { fingerprint } from "./fingerprint.js";
-import { recall as recallSimilar } from "./similarity.js";
+import { recall as recallSimilar, cosineSimilarity } from "./similarity.js";
 import { loadConfig } from "./config.js";
 import {
   loadWeightState,
@@ -167,6 +167,70 @@ export class ReasoningLayer {
     const results = recallSimilar(this.store, query, weights);
 
     // Cache signal contributions for later feedback attribution
+    for (const result of results) {
+      this.cacheSignals(result.trace.id, result.signals);
+    }
+
+    this.emit({ type: "trace:recalled", query, results });
+    return results;
+  }
+
+  /**
+   * Store a trace and compute embeddings (async).
+   * Same as storeTrace() but also computes + stores vector embeddings
+   * when an embedding provider is configured.
+   */
+  async storeTraceAsync(input: StoreTraceInput): Promise<ReasoningTrace> {
+    const trace = this.storeTrace(input);
+
+    if (this._embeddingProvider) {
+      try {
+        const embeddings = await this._embeddingProvider.embedBatch([
+          input.problem.description,
+          input.solution.summary,
+        ]);
+        if (embeddings.length === 2) {
+          this.store.storeEmbeddings(trace.id, embeddings[0]!, embeddings[1]!);
+        }
+      } catch {
+        // Embedding failure should not fail the store
+      }
+    }
+
+    return trace;
+  }
+
+  /**
+   * Recall with semantic embedding similarity (async).
+   * Uses all signals including cosine similarity when embeddings are available.
+   * Falls back to sync recall() when no embedding provider is set.
+   */
+  async recallAsync(query: RecallQuery): Promise<RecallResult[]> {
+    this.ensureOpen();
+
+    if (!this._embeddingProvider) {
+      return this.recall(query);
+    }
+
+    // Compute query embedding
+    const queryEmbedding = await this._embeddingProvider.embed(query.problem);
+
+    // Compute cosine similarity against all stored embeddings
+    const embeddedTraces = this.store.getAllWithEmbeddings();
+    const cosineScores = new Map<string, number>();
+    for (const { trace, problemEmbedding } of embeddedTraces) {
+      const sim = cosineSimilarity(queryEmbedding, problemEmbedding);
+      if (sim > 0) {
+        cosineScores.set(trace.id, sim);
+      }
+    }
+
+    // Load adaptive weights with cosine enabled
+    const weightState = loadWeightState(this.store.rawDb);
+    const weights = computeWeights(weightState, true);
+
+    const results = recallSimilar(this.store, query, weights, cosineScores);
+
     for (const result of results) {
       this.cacheSignals(result.trace.id, result.signals);
     }

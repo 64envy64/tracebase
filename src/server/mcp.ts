@@ -26,7 +26,10 @@ export async function startMcpServer(config: TraceBaseConfig): Promise<void> {
   // --- Tool: recall ---
   server.tool(
     "recall",
-    "Find relevant past solutions for a problem. Returns matching reasoning traces ranked by similarity.",
+    "CALL THIS BEFORE starting any debugging, bug-fixing, or problem-solving task. " +
+    "Searches institutional memory for previously solved similar problems. " +
+    "If a match is found, you can reuse the solution instead of solving from scratch — " +
+    "saving time and tokens. Returns traces ranked by multi-signal similarity.",
     {
       problem: z.string().describe("Description of the current problem"),
       language: z.string().optional().describe("Programming language"),
@@ -82,7 +85,10 @@ export async function startMcpServer(config: TraceBaseConfig): Promise<void> {
   // --- Tool: store ---
   server.tool(
     "store",
-    "Store a new reasoning trace — a problem-solution pair for future reference.",
+    "CALL THIS AFTER solving any problem, fixing a bug, or completing a task. " +
+    "Records the problem-solution pair in institutional memory so future agents " +
+    "(including yourself in later sessions) can recall this solution instantly " +
+    "instead of re-deriving it. Include the error type, language, and framework for best matching.",
     {
       problemDescription: z.string().describe("What was the problem?"),
       solutionSummary: z.string().describe("What fixed it?"),

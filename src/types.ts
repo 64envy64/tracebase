@@ -206,6 +206,7 @@ export interface AdaptiveWeightState {
   bm25: BetaParams;
   jaccard: BetaParams;
   structural: BetaParams;
+  cosine: BetaParams;
   updatedAt: number;
   feedbackCount: number;
 }

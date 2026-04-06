@@ -11,46 +11,40 @@ import {
 // ============================================================================
 // Similarity Engine — Multi-Signal Recall
 //
-// Architecture (two-stage retrieval, per Bruch et al. 2023):
-//   Stage 1: Candidate generation (fast, broad)
-//     - Exact fingerprint lookup (O(1) index)
-//     - FTS5 full-text search (BM25, O(log n))
-//     - Pre-filtered SQL by language/framework/errorType
-//   Stage 2: Re-ranking (precise, narrow)
-//     - Jaccard token similarity (from cached tokens — no recompute)
-//     - Structural feature matching (from cached features — no recompute)
-//     - Quality-adjusted final score
+// Two-stage retrieval (Bruch et al. 2023):
+//   Stage 1: Candidate generation — fingerprint, FTS5, pre-filter
+//   Stage 2: Re-ranking — Jaccard, structural, cosine (when available)
 //
-// Signal combination uses adaptive weights learned from feedback
-// via Thompson Sampling (see weights.ts).
-//
-// All scores are clamped to [0, 1] before return.
+// Signal combination uses adaptive weights learned from feedback via
+// Thompson Sampling (see weights.ts). All scores clamped to [0, 1].
 // ============================================================================
 
-/** Default weights when no adaptive state is available. */
 const DEFAULT_WEIGHTS: SignalWeights = {
   bm25: 0.50,
   jaccard: 0.30,
   structural: 0.20,
+  cosine: 0,
 };
 
 /**
  * Find the most relevant past traces for a given query.
- * This is the core recall algorithm.
  *
- * @param store   The trace store
- * @param query   What to search for
- * @param weights Learned signal weights (from Thompson Sampling)
+ * @param store         The trace store
+ * @param query         What to search for
+ * @param weights       Learned signal weights
+ * @param cosineScores  Optional precomputed cosine similarities (traceId → score).
+ *                      Populated by engine.recallAsync() when embeddings are available.
  */
 export function recall(
   store: TraceStore,
   query: RecallQuery,
   weights: SignalWeights = DEFAULT_WEIGHTS,
+  cosineScores?: Map<string, number>,
 ): RecallResult[] {
   const limit = query.limit ?? 5;
   const minScore = query.minScore ?? 0.1;
 
-  // Step 1: Fingerprint the query (computed once)
+  // Step 1: Fingerprint the query
   const queryFp = fingerprint(query.problem, {
     filePath: query.context?.filePath,
     language: query.context?.language,
@@ -58,28 +52,19 @@ export function recall(
     errorType: query.context?.errorType,
   });
 
-  // Step 2: Collect candidates from multiple sources (Stage 1 retrieval)
+  // Step 2: Collect candidates from multiple sources
   const candidateMap = new Map<string, CandidateScore>();
-  const fetchLimit = limit * 4; // Overfetch for re-ranking headroom
+  const fetchLimit = limit * 4;
 
-  // 2a: Exact fingerprint matches (highest confidence, O(1))
+  // 2a: Exact fingerprint matches
   const exactMatches = store.getByFingerprint(queryFp.hash, limit);
   for (const cached of exactMatches) {
-    candidateMap.set(cached.trace.id, {
-      trace: cached.trace,
-      cachedTokens: cached.cachedTokens,
-      cachedFeatures: cached.cachedFeatures,
-      signals: { fingerprint: 1.0, bm25: 0, jaccard: 0, structural: 0, cosine: 0 },
-    });
+    candidateMap.set(cached.trace.id, makeCandidateFromCached(cached, 1.0));
   }
 
   // 2b: FTS5 full-text search with BM25
   const ftsResults = store.searchFts(query.problem, fetchLimit);
   if (ftsResults.length > 0) {
-    // BM25 normalization: log-transform for stable scaling.
-    // FTS5 bm25() returns negative values (more negative = better).
-    // We convert to positive and apply log1p for diminishing returns,
-    // then normalize to [0, 1] within the result set.
     const rawScores = ftsResults.map((r) => Math.log1p(Math.abs(r.rank)));
     const maxLog = Math.max(...rawScores);
 
@@ -88,18 +73,15 @@ export function recall(
       const normalized = maxLog > 0 ? rawScores[i]! / maxLog : 0;
 
       if (!candidateMap.has(trace.id)) {
-        candidateMap.set(trace.id, {
-          trace,
-          cachedTokens,
-          cachedFeatures,
-          signals: { fingerprint: 0, bm25: 0, jaccard: 0, structural: 0, cosine: 0 },
-        });
+        candidateMap.set(trace.id, makeCandidateFromCached(
+          { trace, cachedTokens, cachedFeatures }, 0,
+        ));
       }
       candidateMap.get(trace.id)!.signals.bm25 = normalized;
     }
   }
 
-  // 2c: Pre-filtered candidates if context specifies structural filters
+  // 2c: Pre-filtered candidates by structural context
   if (query.context?.language || query.context?.framework || query.context?.errorType) {
     const filtered = store.getCandidatesFiltered(
       {
@@ -111,19 +93,27 @@ export function recall(
     );
     for (const cached of filtered) {
       if (!candidateMap.has(cached.trace.id)) {
-        candidateMap.set(cached.trace.id, {
-          trace: cached.trace,
-          cachedTokens: cached.cachedTokens,
-          cachedFeatures: cached.cachedFeatures,
-          signals: { fingerprint: 0, bm25: 0, jaccard: 0, structural: 0, cosine: 0 },
-        });
+        candidateMap.set(cached.trace.id, makeCandidateFromCached(cached, 0));
       }
     }
   }
 
-  // Step 3: Re-rank all candidates with fine-grained similarity (Stage 2)
+  // 2d: If cosine scores are provided (from embeddings), add high-cosine candidates
+  if (cosineScores) {
+    for (const [traceId, cosine] of cosineScores) {
+      if (cosine < 0.3) continue; // only high-similarity candidates
+      const existing = candidateMap.get(traceId);
+      if (existing) {
+        existing.signals.cosine = cosine;
+      }
+      // Note: we don't add brand new candidates from cosine-only,
+      // because we'd need the full trace object. The engine pre-filters
+      // cosineScores to only include IDs already in the store.
+    }
+  }
+
+  // Step 3: Re-rank with fine-grained similarity
   for (const candidate of candidateMap.values()) {
-    // Use cached tokens/features when available; fall back to recomputing
     const traceTokens = candidate.cachedTokens ?? fingerprint(
       candidate.trace.problem.description,
       {
@@ -146,11 +136,13 @@ export function recall(
           },
         ).features;
 
-    // Jaccard token similarity
     candidate.signals.jaccard = jaccardSimilarity(queryFp.tokens, traceTokens);
-
-    // Structural feature similarity
     candidate.signals.structural = structuralSimilarity(queryFp.features, traceFeatures);
+
+    // Cosine from precomputed map (may already be set from 2d)
+    if (cosineScores && !candidate.signals.cosine) {
+      candidate.signals.cosine = cosineScores.get(candidate.trace.id) ?? 0;
+    }
   }
 
   // Step 4: Compute final weighted scores
@@ -162,26 +154,24 @@ export function recall(
     let matchType: RecallResult["matchType"];
 
     if (s.fingerprint === 1.0) {
-      // Exact fingerprint match — highest confidence
       score = 1.0;
       matchType = "exact";
     } else {
-      // Weighted combination of non-fingerprint signals
-      // Weights are normalized (sum to 1.0), so score is naturally in [0, 1]
+      // Weighted combination — weights are normalized (sum to 1.0)
       score =
         s.bm25 * weights.bm25 +
         s.jaccard * weights.jaccard +
-        s.structural * weights.structural;
+        s.structural * weights.structural +
+        s.cosine * weights.cosine;
 
       matchType = score > 0.5 ? "similar" : "related";
     }
 
-    // Quality adjustment: mild boost/penalty based on track record
-    // Maps quality 0.0–1.0 → multiplier 0.85–1.15 (narrower than before)
+    // Quality adjustment: 0.85–1.15 multiplier
     const qualityMult = 0.85 + candidate.trace.quality.score * 0.30;
     score *= qualityMult;
 
-    // Clamp to [0, 1] — documented contract
+    // Clamp to [0, 1]
     score = Math.max(0, Math.min(1, score));
 
     if (score >= minScore) {
@@ -194,15 +184,11 @@ export function recall(
     }
   }
 
-  // Sort by score descending, limit
   results.sort((a, b) => b.score - a.score);
   return results.slice(0, limit);
 }
 
-/**
- * Cosine similarity between two vectors.
- * Used when embeddings are available.
- */
+/** Cosine similarity between two vectors. */
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length === 0) return 0;
 
@@ -229,4 +215,22 @@ interface CandidateScore {
   cachedTokens?: string[];
   cachedFeatures?: Record<string, unknown>;
   signals: SimilaritySignals;
+}
+
+function makeCandidateFromCached(
+  cached: CachedTraceRow,
+  fingerprintScore: number,
+): CandidateScore {
+  return {
+    trace: cached.trace,
+    cachedTokens: cached.cachedTokens,
+    cachedFeatures: cached.cachedFeatures,
+    signals: {
+      fingerprint: fingerprintScore,
+      bm25: 0,
+      jaccard: 0,
+      structural: 0,
+      cosine: 0,
+    },
+  };
 }
