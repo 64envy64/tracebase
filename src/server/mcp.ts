@@ -209,15 +209,10 @@ export async function startMcpServer(config: TraceBaseConfig): Promise<void> {
     },
   );
 
-  // Graceful shutdown
-  process.on("SIGINT", () => {
-    layer.close();
-    process.exit(0);
-  });
-  process.on("SIGTERM", () => {
-    layer.close();
-    process.exit(0);
-  });
+  // Graceful shutdown — use once() to avoid listener accumulation
+  const cleanup = () => { layer.close(); process.exit(0); };
+  process.once("SIGINT", cleanup);
+  process.once("SIGTERM", cleanup);
 
   // Start stdio transport
   const transport = new StdioServerTransport();

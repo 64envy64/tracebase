@@ -52,10 +52,12 @@ export class ReasoningLayer {
   private _embeddingProvider?: EmbeddingProvider;
   private closed = false;
 
-  /** In-memory cache: traceId → signals from most recent recall.
-   *  Used by feedback() to attribute signals for weight learning. */
-  private recallSignalCache = new Map<string, SimilaritySignals>();
-  private static readonly SIGNAL_CACHE_MAX = 500;
+  /** LRU cache with TTL: traceId → { signals, timestamp }.
+   *  Used by feedback() to attribute signals for weight learning.
+   *  Entries expire after 30 minutes to prevent stale attribution. */
+  private recallSignalCache = new Map<string, { signals: SimilaritySignals; ts: number }>();
+  private static readonly SIGNAL_CACHE_MAX = 1000;
+  private static readonly SIGNAL_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
   constructor(config?: Partial<TraceBaseConfig>) {
     // Only read config from disk when needed fields are missing
@@ -191,8 +193,11 @@ export class ReasoningLayer {
   feedback(traceId: string, helpful: boolean): void {
     this.ensureOpen();
 
-    // Get signal contributions (from recall cache or default)
-    const signals = this.recallSignalCache.get(traceId);
+    // Get signal contributions (from LRU cache with TTL check)
+    const cached = this.recallSignalCache.get(traceId);
+    const signals = cached && (Date.now() - cached.ts < ReasoningLayer.SIGNAL_CACHE_TTL_MS)
+      ? cached.signals
+      : undefined;
 
     // Update quality metrics (increments recallCount + helpfulCount)
     this.store.recordFeedback(traceId, helpful, signals);
@@ -361,13 +366,23 @@ export class ReasoningLayer {
     this.store.prune(this.config.pruneThreshold ?? 0.05, max);
   }
 
-  /** Cache signal contributions for later feedback attribution. */
+  /** Cache signal contributions for later feedback attribution (LRU + TTL). */
   private cacheSignals(traceId: string, signals: SimilaritySignals): void {
-    // Evict oldest entries if cache is full
+    // LRU: delete and re-insert to move to end of insertion order
+    this.recallSignalCache.delete(traceId);
+
+    // Evict expired or overflow entries
     if (this.recallSignalCache.size >= ReasoningLayer.SIGNAL_CACHE_MAX) {
-      const firstKey = this.recallSignalCache.keys().next().value as string;
-      this.recallSignalCache.delete(firstKey);
+      const now = Date.now();
+      for (const [key, entry] of this.recallSignalCache) {
+        if (now - entry.ts > ReasoningLayer.SIGNAL_CACHE_TTL_MS
+          || this.recallSignalCache.size >= ReasoningLayer.SIGNAL_CACHE_MAX) {
+          this.recallSignalCache.delete(key);
+        }
+        if (this.recallSignalCache.size < ReasoningLayer.SIGNAL_CACHE_MAX) break;
+      }
     }
-    this.recallSignalCache.set(traceId, signals);
+
+    this.recallSignalCache.set(traceId, { signals, ts: Date.now() });
   }
 }

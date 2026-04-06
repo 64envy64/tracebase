@@ -232,33 +232,73 @@ All commands support `--json` for machine-readable output.
 
 ## Architecture
 
-### Matching Algorithm
+### Two-Stage Retrieval
 
-TraceBase uses a multi-signal matching approach:
+Follows the standard IR two-stage architecture (Bruch et al. 2023):
 
-1. **Structural Fingerprinting** — Extracts error types, languages, frameworks, and key tokens into a canonical hash. Same problem = same fingerprint = instant O(1) match.
+**Stage 1 — Candidate Generation** (fast, broad):
+- Exact fingerprint lookup — O(1) index scan
+- FTS5 full-text search with BM25 ranking
+- Pre-filtered SQL by language/framework/errorType
 
-2. **FTS5 Full-Text Search** — SQLite's built-in full-text search with BM25 ranking. Finds traces where the words overlap significantly.
+**Stage 2 — Re-ranking** (precise, narrow):
+- Jaccard token similarity (from pre-cached tokens — zero recomputation)
+- Structural feature matching (from pre-cached features)
+- Quality-adjusted final score, clamped to [0, 1]
 
-3. **Token-Based Similarity** — Jaccard similarity over normalized tokens (handles camelCase, snake_case, file paths).
+### Adaptive Weight Learning (Thompson Sampling)
 
-4. **Structural Feature Matching** — Weighted comparison of error type, language, framework, file extension.
+Signal weights are **not hardcoded** — they learn from your feedback.
 
-5. **Quality-Adjusted Ranking** — Traces that have been recalled and confirmed helpful get boosted. Uses the Wilson score interval (same algorithm Reddit uses for ranking).
+Each recall result includes a per-signal breakdown (`signals` field in `RecallResult`). When you call `feedback(traceId, helpful)`, the system updates Beta distribution parameters for each signal via Thompson Sampling:
+
+```
+helpful=true  → alpha_signal += contribution
+helpful=false → beta_signal  += contribution
+weight = posterior_mean = alpha / (alpha + beta), normalized
+```
+
+- **Prior strength ~10** prevents wild swings early on
+- **Converges** to optimal weights as feedback accumulates
+- **References**: Thompson (1933), Agrawal & Goyal (2012) — provable regret bounds
+
+```typescript
+// RecallResult now includes signal attribution
+const results = layer.recall({ problem: "..." });
+console.log(results[0].signals);
+// { fingerprint: 0, bm25: 0.72, jaccard: 0.45, structural: 0.38, cosine: 0 }
+
+// Feedback updates weights automatically
+layer.feedback(results[0].trace.id, true);
+
+// Inspect current learned weights
+console.log(layer.getWeights());
+// { bm25: 0.48, jaccard: 0.31, structural: 0.21 }
+```
+
+### Deduplication
+
+`storeTrace()` checks for existing traces with the same structural fingerprint. If found, returns the existing trace instead of creating a duplicate. This prevents middleware from polluting the database when the same prompt is sent repeatedly.
 
 ### Storage
 
 - **SQLite with WAL mode** — Battle-tested, embedded, zero-config. Fast concurrent reads.
 - **FTS5 with Porter stemming** — Full-text search that understands word variations.
-- **Binary embedding storage** — Ready for optional vector similarity when you want it.
+- **Cached tokens/features** — Pre-computed at store time, read at recall time. Zero recomputation per candidate.
+- **Prepared statements** — All frequent queries are prepared once at init.
+- **Schema v2** with incremental migration from v1.
 
-### Quality Score
+### Quality Score (Wilson Score Interval)
 
-Each trace tracks how often it's been recalled and whether users found it helpful. The quality score uses the **Wilson score interval lower bound** — this naturally:
+Each trace tracks recall count and helpfulness. Quality uses the **Wilson score interval lower bound** (Wilson, 1927) — same algorithm Reddit uses:
 - Starts at 0.5 (neutral prior)
 - Rewards traces with consistent positive feedback
-- Penalizes traces that are recalled but never helpful
-- Accounts for sample size (a trace recalled once with positive feedback isn't necessarily better than one recalled 100 times with 90% positive)
+- Penalizes traces recalled but never helpful
+- Properly handles small sample sizes
+
+### HTTP API Validation
+
+All POST endpoints validate required fields and return 400 with clear messages. Request body limited to 1MB.
 
 ## Configuration
 
@@ -273,8 +313,6 @@ Each trace tracks how often it's been recalled and whether users found it helpfu
 ```
 
 ## Team Sharing
-
-Export and import reasoning databases to share institutional memory across your team:
 
 ```bash
 # Export from one machine

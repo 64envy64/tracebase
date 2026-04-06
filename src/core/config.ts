@@ -17,22 +17,19 @@ export function defaultConfig(basePath: string): TraceBaseConfig {
   };
 }
 
-/** Resolve the config directory, searching up from cwd. */
+/** Resolve the config directory, searching up from cwd to filesystem root. */
 export function findConfigDir(startPath: string = process.cwd()): string | null {
   let current = startPath;
-  const root = dirname(current);
 
-  while (current !== root) {
+  // Walk up until we reach the filesystem root (dirname(x) === x)
+  while (true) {
     const candidate = join(current, CONFIG_DIR);
     if (existsSync(candidate)) return candidate;
+
     const parent = dirname(current);
-    if (parent === current) break;
+    if (parent === current) break; // reached root
     current = parent;
   }
-
-  // Check root
-  const rootCandidate = join(current, CONFIG_DIR);
-  if (existsSync(rootCandidate)) return rootCandidate;
 
   return null;
 }

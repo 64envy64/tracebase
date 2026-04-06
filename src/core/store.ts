@@ -321,6 +321,24 @@ export class TraceStore {
       existsByFingerprint: this.db.prepare(
         "SELECT id FROM traces WHERE p_fingerprint = ? LIMIT 1",
       ),
+
+      candidatesFiltered: this.db.prepare(`
+        SELECT * FROM traces
+        WHERE (@lang IS NULL OR p_language = @lang)
+          AND (@fw IS NULL OR p_framework = @fw)
+          AND (@err IS NULL OR p_error_type = @err)
+        ORDER BY q_score DESC
+        LIMIT @limit
+      `),
+
+      searchLike: this.db.prepare(`
+        SELECT *, -1 AS rank FROM traces
+        WHERE p_description LIKE @pattern
+           OR s_summary LIKE @pattern
+           OR p_error_message LIKE @pattern
+        ORDER BY q_score DESC
+        LIMIT @limit
+      `),
     };
   }
 
@@ -405,50 +423,30 @@ export class TraceStore {
     }
   }
 
-  /** Get candidates with optional pre-filtering by language/framework/errorType. */
+  /** Get candidates with optional pre-filtering by language/framework/errorType.
+   *  Uses a single prepared statement with IS NULL coalescing. */
   getCandidatesFiltered(
     filters: { language?: string; framework?: string; errorType?: string },
     limit: number,
   ): CachedTraceRow[] {
-    const conditions: string[] = [];
-    const params: unknown[] = [];
-
-    if (filters.language) {
-      conditions.push("p_language = ?");
-      params.push(filters.language);
-    }
-    if (filters.framework) {
-      conditions.push("p_framework = ?");
-      params.push(filters.framework);
-    }
-    if (filters.errorType) {
-      conditions.push("p_error_type = ?");
-      params.push(filters.errorType);
-    }
-
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-    const sql = `SELECT * FROM traces ${where} ORDER BY q_score DESC LIMIT ?`;
-    params.push(limit);
-
-    const rows = this.db.prepare(sql).all(...params) as RawRow[];
+    const rows = this.stmts.candidatesFiltered.all({
+      lang: filters.language ?? null,
+      fw: filters.framework ?? null,
+      err: filters.errorType ?? null,
+      limit,
+    }) as RawRow[];
     return rows.map((r) => this.rowToCachedTrace(r));
   }
 
-  /** Fallback LIKE-based search when FTS query fails. */
+  /** Fallback LIKE-based search when FTS query fails. Uses prepared statement. */
   private searchLike(
     query: string,
     limit: number,
   ): Array<{ trace: ReasoningTrace; rank: number }> {
-    const pattern = `%${query}%`;
-    const stmt = this.db.prepare(`
-      SELECT *, -1 AS rank FROM traces
-      WHERE p_description LIKE ? OR s_summary LIKE ? OR p_error_message LIKE ?
-      ORDER BY q_score DESC
-      LIMIT ?
-    `);
-    const rows = stmt.all(pattern, pattern, pattern, limit) as Array<
-      RawRow & { rank: number }
-    >;
+    const rows = this.stmts.searchLike.all({
+      pattern: `%${query}%`,
+      limit,
+    }) as Array<RawRow & { rank: number }>;
     return rows.map((r) => ({
       trace: this.rowToTrace(r),
       rank: r.rank,

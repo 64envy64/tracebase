@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { Command } from "commander";
 import pc from "picocolors";
 import { initCommand } from "../src/cli/commands/init.js";

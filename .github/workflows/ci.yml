@@ -40,7 +40,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npm publish --provenance --access public
+      - name: Publish (skip if version already exists)
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          PUBLISHED=$(npm view tracebase version 2>/dev/null || echo "0.0.0")
+          if [ "$CURRENT" != "$PUBLISHED" ]; then
+            npm publish --provenance --access public
+          else
+            echo "Version $CURRENT already published, skipping."
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        continue-on-error: true
