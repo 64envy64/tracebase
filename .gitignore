@@ -27,4 +27,6 @@ coverage/
 
 # Debug
 *.log
-www/
+www/node_modules/
+www/.next/
+www/out/
