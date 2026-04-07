@@ -4,14 +4,14 @@ import type { RecallInjectConfig, RecallResult } from "../types.js";
 // ============================================================================
 // Recall-Before-Call: shared injection logic
 //
-// Used by both OpenAI and Anthropic middleware to query institutional memory
-// before each LLM call and inject high-confidence prior solutions.
+// The core optimization loop of TraceBase:
+//   User message → recall() → high-confidence match? → inject → LLM call → store
 //
-// Design principles:
-//   - High threshold (0.72) to avoid false positives
-//   - Skip exact self-references (user is re-asking → prior solution didn't work)
-//   - Only inject successful traces
-//   - Never mutate the user's original params — always shallow clone
+// Design principles (Ref: Guu et al., 2020 — REALM; Lewis et al., 2020 — RAG):
+//   - High threshold (0.72) to minimize false positives
+//   - Skip exact self-references (re-asking = prior solution insufficient)
+//   - Only inject outcome:"success" traces
+//   - Never mutate user params — always shallow clone
 //   - Minimal token overhead (~50-80 tokens per injection)
 // ============================================================================
 
@@ -25,6 +25,13 @@ export interface InjectionResult {
   /** Source traces that contributed */
   sources: Array<{ traceId: string; score: number; matchType: string }>;
 }
+
+/** Why an injection was skipped — for observability/metrics. */
+export type SkipReason =
+  | "no_results"            // recall returned zero results above minScore
+  | "filtered_exact_match"  // all results were exact fingerprint matches
+  | "filtered_outcome"      // all results had non-success outcome
+  | "filtered_combined";    // combination of filters removed all candidates
 
 /**
  * Perform recall and determine if an injection should happen.
@@ -48,22 +55,47 @@ export function performRecall(
     context: config.context,
   });
 
-  if (results.length === 0) return null;
+  if (results.length === 0) {
+    notifySkipped(layer, "no_results");
+    return null;
+  }
 
-  // Post-filter
+  const beforeFilter = results.length;
   let filtered = results;
 
+  // Track filter reasons for precise diagnostics
+  let exactFiltered = 0;
+  let outcomeFiltered = 0;
+
   if (skipExact) {
+    const before = filtered.length;
     filtered = filtered.filter((r) => r.matchType !== "exact");
+    exactFiltered = before - filtered.length;
   }
 
   if (successOnly) {
+    const before = filtered.length;
     filtered = filtered.filter((r) => r.trace.solution.outcome === "success");
+    outcomeFiltered = before - filtered.length;
   }
 
   filtered = filtered.slice(0, maxInjections);
 
-  if (filtered.length === 0) return null;
+  if (filtered.length === 0) {
+    // Determine the specific reason
+    const reason: SkipReason =
+      exactFiltered === beforeFilter ? "filtered_exact_match" :
+      outcomeFiltered > 0 && exactFiltered === 0 ? "filtered_outcome" :
+      "filtered_combined";
+    notifySkipped(layer, reason, results[0]?.score);
+    return null;
+  }
+
+  notifyInjection(layer, filtered.map((r) => ({
+    traceId: r.trace.id,
+    score: r.score,
+    matchType: r.matchType,
+  })));
 
   return {
     text: formatInjectionBlock(filtered),
@@ -78,6 +110,9 @@ export function performRecall(
 /**
  * Inject prior solution text into an OpenAI-format messages array.
  * Returns a NEW array — never mutates the input.
+ *
+ * Handles system content as both string and content block array
+ * (OpenAI's newer multi-part content format).
  */
 export function injectIntoOpenAIMessages(
   messages: Array<{ role: string; content: unknown }>,
@@ -87,14 +122,23 @@ export function injectIntoOpenAIMessages(
   const systemIdx = cloned.findIndex((m) => m.role === "system");
 
   if (systemIdx >= 0) {
-    // Append to existing system message
     const existing = cloned[systemIdx]!;
-    cloned[systemIdx] = {
-      ...existing,
-      content: `${String(existing.content)}\n\n${injectionText}`,
-    };
+    const currentContent = existing.content;
+
+    let newContent: unknown;
+    if (typeof currentContent === "string") {
+      // Standard string system message
+      newContent = `${currentContent}\n\n${injectionText}`;
+    } else if (Array.isArray(currentContent)) {
+      // Content block array: [{ type: "text", text: "..." }, ...]
+      newContent = [...(currentContent as Array<{ type: string; text?: string }>), { type: "text", text: injectionText }];
+    } else {
+      // Unknown format — append as string, best effort
+      newContent = `${String(currentContent ?? "")}\n\n${injectionText}`;
+    }
+
+    cloned[systemIdx] = { ...existing, content: newContent };
   } else {
-    // Prepend new system message
     cloned.unshift({ role: "system", content: injectionText });
   }
 
@@ -117,7 +161,6 @@ export function injectIntoAnthropicSystem(
     return `${existingSystem}\n\n${injectionText}`;
   }
 
-  // Content block array
   return [...existingSystem, { type: "text", text: injectionText }];
 }
 
@@ -151,7 +194,7 @@ export function notifySkipped(
 }
 
 // ============================================================================
-// Internal
+// Internal — Injection formatting
 // ============================================================================
 
 function formatInjectionBlock(results: RecallResult[]): string {
@@ -159,14 +202,13 @@ function formatInjectionBlock(results: RecallResult[]): string {
     return formatSingleInjection(results[0]!);
   }
 
-  // Multiple injections
   return results
-    .map((r, i) => `${formatSingleInjection(r, i + 1)}`)
+    .map((r, i) => formatSingleInjection(r, i + 1))
     .join("\n\n");
 }
 
 function formatSingleInjection(r: RecallResult, index?: number): string {
-  const prefix = index !== undefined ? ` #${index}` : "";
+  const tag = index !== undefined ? `prior_solution_${index}` : "prior_solution";
   const confidence = (r.score * 100).toFixed(0);
   const summary = r.trace.solution.summary.slice(0, 300);
   const explanation = r.trace.solution.explanation
@@ -181,10 +223,10 @@ function formatSingleInjection(r: RecallResult, index?: number): string {
   const metaLine = meta ? `\nContext: ${meta}` : "";
 
   return (
-    `<prior_solution${prefix} confidence="${confidence}%" match="${r.matchType}">` +
+    `<${tag} confidence="${confidence}%" match="${r.matchType}">` +
     `\nA similar problem was previously solved:` +
     `\n${summary}${explanation}${metaLine}` +
     `\nApply this if relevant to the current problem.` +
-    `\n</prior_solution${prefix}>`
+    `\n</${tag}>`
   );
 }

@@ -1,176 +1,82 @@
 # TraceBase
 
-**Reasoning layer for AI agents — institutional memory so your agents never solve the same problem twice.**
+**The reasoning reuse layer for AI agents.**
 
-When your AI agent solves a bug, debugs an issue, or figures out a tricky deployment problem, that knowledge disappears. The next time a similar problem comes up — for you or your teammate — the agent starts from scratch. Same tokens. Same time. Same frustration.
-
-TraceBase captures, indexes, and recalls reasoning traces so every new task starts from your team's best work.
-
-## How It Works
+Every successful agent run captures a reasoning trace. Every future run draws from it, so agents get more reliable and cheaper over time.
 
 ```
-Agent encounters problem
-        │
-        ▼
-┌─────────────────┐     ┌──────────────────┐
-│  TraceBase   │────▶│  Fingerprint +   │
-│  recall()       │     │  FTS5 Search     │
-└────────┬────────┘     └──────────────────┘
-         │
-         ▼
-   Found similar?  ──yes──▶  Inject prior solution into context
-         │                   (saves tokens + time)
-         no
-         │
-         ▼
-   Agent solves it fresh
-         │
-         ▼
-┌─────────────────┐
-│  TraceBase   │──▶  Stored for next time
-│  store()        │
-└─────────────────┘
+1st call: "CORS error in Express"  → agent solves from scratch       → trace stored
+2nd call: "Access-Control missing" → prior solution injected as hint → faster, cheaper
+3rd call: same class of problem    → solved in one shot              → tokens saved
 ```
 
-## Quick Start
+---
 
-```bash
-# Initialize in your project
-npx tracebase init
+## Why
 
-# Store a solution
-npx tracebase store \
-  -d "TypeError: Cannot read property 'map' of undefined in UserList" \
-  -s "Added optional chaining: users?.map() — data was undefined before API loaded" \
-  -l typescript -f react -e TypeError
+AI agents are stateless. They forget everything between sessions. When a similar problem comes up again — for you or a teammate — the agent re-derives the same solution from scratch. Same tokens. Same latency. Same risk of a different (wrong) answer.
 
-# Recall when a similar problem comes up
-npx tracebase recall "Cannot read property of undefined in React component"
-```
+TraceBase gives agents **institutional memory**:
+- **Capture** — every problem-solution pair is stored as a reasoning trace
+- **Recall** — before each LLM call, check if a similar problem was solved before
+- **Inject** — if a high-confidence match is found, add it to the system prompt
+- **Learn** — feedback improves recall quality over time (Thompson Sampling)
 
-## SDK Usage
+The result: agents that get **more reliable** and **cheaper** with every run.
+
+---
+
+## Install
 
 ```bash
 npm install tracebase
 ```
 
-```typescript
-import { ReasoningLayer } from "tracebase";
+## Three Ways to Use TraceBase
 
-const layer = new ReasoningLayer();
+### 1. SDK Middleware (recommended — zero friction)
 
-// Store a reasoning trace
-layer.storeTrace({
-  problem: {
-    description: "ECONNREFUSED when calling payment API",
-    errorType: "ECONNREFUSED",
-    language: "typescript",
-    framework: "express",
-    tags: ["api", "payments"],
-  },
-  solution: {
-    summary: "Payment service container had crashed — restarted via docker compose",
-    steps: [
-      { type: "analysis", description: "Checked logs, saw connection refused to port 3001" },
-      { type: "action", description: "docker compose restart payments" },
-      { type: "verification", description: "Confirmed API responding on port 3001" },
-    ],
-    outcome: "success",
-    explanation: "The payments service OOMed due to a memory leak in the webhook handler",
-  },
-});
-
-// Recall relevant past solutions
-const results = layer.recall({
-  problem: "Connection refused to payment service",
-  context: { language: "typescript", framework: "express" },
-});
-
-for (const { trace, score, matchType } of results) {
-  console.log(`[${matchType}] score: ${score.toFixed(2)}`);
-  console.log(`  Solution: ${trace.solution.summary}`);
-}
-
-// Provide feedback to improve future recalls
-layer.feedback(results[0].trace.id, true); // was helpful
-
-layer.close();
-```
-
-## Agent Middleware
-
-Automatically capture reasoning traces from your existing agent code:
-
-### OpenAI
+Wrap your OpenAI or Anthropic client. Every call automatically recalls prior solutions, injects them as hints, and stores the result.
 
 ```typescript
 import OpenAI from "openai";
 import { ReasoningLayer, wrapOpenAI } from "tracebase";
 
 const layer = new ReasoningLayer();
-const openai = wrapOpenAI(new OpenAI(), layer);
+const openai = wrapOpenAI(new OpenAI(), layer, {
+  // recall-before-call: inject prior solutions into system prompt
+  minScore: 0.72,     // only high-confidence matches (default)
+  skipExactMatch: true // don't inject if user is re-asking the same question
+});
 
-// Use normally — traces captured automatically
+// That's it. Every call is now optimized.
 const response = await openai.chat.completions.create({
   model: "gpt-4o",
-  messages: [{ role: "user", content: "Fix the TypeError in auth.ts" }],
+  messages: [{ role: "user", content: "Fix the CORS error in our Express API" }],
 });
-```
 
-### Anthropic
+// Behind the scenes:
+// 1. recall() checked memory → found a prior CORS solution (score: 0.85)
+// 2. Injected into system prompt: <prior_solution confidence="85%">...</prior_solution>
+// 3. GPT-4o used the hint → faster, more accurate response
+// 4. Result stored as new trace → future recalls benefit
 
-```typescript
+// Works identically for Anthropic:
 import Anthropic from "@anthropic-ai/sdk";
-import { ReasoningLayer, wrapAnthropic } from "tracebase";
-
-const layer = new ReasoningLayer();
-const anthropic = wrapAnthropic(new Anthropic(), layer);
-
-// Traces captured from messages.create() calls
-const msg = await anthropic.messages.create({
-  model: "claude-sonnet-4-20250514",
-  max_tokens: 1024,
-  messages: [{ role: "user", content: "Debug the failing test" }],
-});
+const anthropic = wrapAnthropic(new Anthropic(), layer, { minScore: 0.72 });
 ```
 
-### Generic Agent Wrapper
+**Streaming is fully supported** — traces are captured after the stream completes.
 
-```typescript
-import { ReasoningLayer, wrapAgent } from "tracebase";
+### 2. MCP Server (for Claude Code / AI IDEs)
 
-const layer = new ReasoningLayer();
-
-async function myAgent(input: string, priorContext?: string): Promise<string> {
-  // Your agent logic here
-  // priorContext contains recalled solutions (if any)
-  return "solution";
-}
-
-const enhanced = wrapAgent(layer, myAgent, {
-  agent: "my-agent",
-  model: "gpt-4o",
-  autoRecall: true,   // check memory before running
-  autoStore: true,     // save results after running
-});
-
-const result = await enhanced("Fix the login bug");
-console.log(result.output);           // agent's response
-console.log(result.priorSolutions);   // solutions found in memory
-```
-
-## MCP Server (Claude Code Integration)
-
-Run TraceBase as an [MCP](https://modelcontextprotocol.io/) server so Claude Code can directly query and store reasoning traces:
+Connect TraceBase as an MCP server. Claude Code automatically recalls before solving and stores after solving.
 
 ```bash
-npm install @modelcontextprotocol/sdk
-
-# Start as MCP server (stdio transport)
 npx tracebase serve --mcp
 ```
 
-Add to your Claude Code MCP config (`~/.claude/claude_desktop_config.json`):
+Add to `~/.claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -183,122 +89,188 @@ Add to your Claude Code MCP config (`~/.claude/claude_desktop_config.json`):
 }
 ```
 
-**MCP Tools exposed:**
-- `recall` — Find relevant past solutions
-- `store` — Save a new reasoning trace
-- `search` — Full-text search through memory
-- `feedback` — Report if a recalled solution was helpful
-- `stats` — View storage statistics
+Claude Code gets two key tools:
+- **recall** — "Before solving any problem, check institutional memory"
+- **store** — "After solving any problem, save the solution for future agents"
+
+### 3. Direct SDK
+
+Full control over when to store and recall.
+
+```typescript
+import { ReasoningLayer } from "tracebase";
+
+const layer = new ReasoningLayer();
+
+// Store
+layer.storeTrace({
+  problem: {
+    description: "ECONNREFUSED when calling payment API",
+    errorType: "ECONNREFUSED",
+    language: "typescript",
+    framework: "express",
+    tags: ["api", "payments"],
+  },
+  solution: {
+    summary: "Payment service container crashed — restarted via docker compose",
+    steps: [
+      { type: "analysis", description: "Checked logs, saw connection refused on port 3001" },
+      { type: "action", description: "docker compose restart payments" },
+      { type: "verification", description: "Confirmed API responding" },
+    ],
+    outcome: "success",
+    explanation: "The payments service OOMed due to a memory leak in webhook handler",
+  },
+});
+
+// Recall
+const results = layer.recall({
+  problem: "Connection refused to payment service",
+  context: { language: "typescript", framework: "express" },
+});
+
+// Each result includes signal breakdown
+console.log(results[0].signals);
+// { fingerprint: 0, bm25: 0.72, jaccard: 0.45, structural: 0.38, cosine: 0 }
+
+// Feedback improves future recalls (Thompson Sampling)
+layer.feedback(results[0].trace.id, true);
+
+layer.close();
+```
+
+---
+
+## How It Works
+
+### The Recall-Before-Call Loop
+
+```
+User message arrives
+        │
+        ├── 1. recall()  ──── fingerprint match? ──── O(1) index lookup
+        │                ──── FTS5 BM25 search   ──── full-text ranking
+        │                ──── structural filter   ──── language/framework/error
+        │                ──── cosine similarity   ──── (when embeddings enabled)
+        │
+        ├── 2. Score ≥ 0.72?
+        │     YES → inject <prior_solution> into system prompt
+        │     NO  → proceed without hint
+        │
+        ├── 3. LLM call (with or without hint)
+        │
+        └── 4. store() → trace saved for future recalls
+```
+
+### Multi-Signal Ranking
+
+TraceBase combines four signals for matching, following the two-stage retrieval architecture (Bruch et al., 2023):
+
+| Signal | Stage | What it catches |
+|--------|-------|----------------|
+| **Fingerprint** | 1 | Exact same problem (O(1) lookup) |
+| **BM25 (FTS5)** | 1 | Same keywords, different phrasing |
+| **Jaccard** | 2 | Overlapping technical tokens |
+| **Structural** | 2 | Same error type / language / framework |
+| **Cosine** | 2 | Semantically similar (when embeddings enabled) |
+
+### Adaptive Weights (Thompson Sampling)
+
+Signal weights are **not hardcoded** — they learn from your feedback.
+
+Each signal has a Beta distribution prior. When you call `feedback(traceId, helpful)`:
+- `helpful=true` → `alpha += contribution`
+- `helpful=false` → `beta += contribution`
+- Weight = `alpha / (alpha + beta)`, normalized across active signals
+
+References: Thompson (1933); Agrawal & Goyal (2012) — provable regret bounds; Chapelle & Li (2011).
+
+### Semantic Embeddings (Optional)
+
+Add OpenAI embeddings for semantic recall — catches problems where the words are different but the meaning is the same.
+
+```typescript
+import OpenAI from "openai";
+import { ReasoningLayer, createOpenAIEmbeddings } from "tracebase";
+
+const layer = new ReasoningLayer();
+layer.setEmbeddingProvider(createOpenAIEmbeddings(new OpenAI()));
+
+// Async API when embeddings are active
+const trace = await layer.storeTraceAsync({ ... });  // computes + stores vector
+const results = await layer.recallAsync({ ... });     // cosine similarity included
+```
+
+### Quality Score (Wilson Interval)
+
+Each trace tracks recall count and helpfulness. Quality uses the **Wilson score interval lower bound** (Wilson, 1927) — same algorithm Reddit uses:
+- Starts at 0.5 (neutral prior)
+- Rewards traces with consistent positive feedback
+- Penalizes traces that are recalled but never confirmed helpful
+- Properly handles small sample sizes
+
+### Deduplication
+
+`storeTrace()` detects duplicate problems by structural fingerprint. Same problem = same fingerprint = returns the existing trace instead of creating a duplicate. Prevents database pollution from repeated middleware calls.
+
+---
+
+## CLI
+
+```bash
+npx tracebase init                     # Initialize in current project
+npx tracebase store -d "..." -s "..."  # Store a reasoning trace
+npx tracebase recall "..."             # Find relevant past solutions
+npx tracebase search "..."             # Full-text search
+npx tracebase stats                    # Storage statistics
+npx tracebase serve [--mcp] [-p PORT]  # Start server (MCP or HTTP)
+npx tracebase export [file]            # Export traces to JSON
+npx tracebase import <file>            # Import traces from JSON
+npx tracebase prune [-t threshold]     # Remove low-quality traces
+```
+
+All commands support `--json` for machine-readable output.
 
 ## HTTP API
 
 ```bash
 npx tracebase serve --port 3781
+
+curl -X POST localhost:3781/recall -d '{"problem": "CORS error Express"}'
+curl -X POST localhost:3781/store  -d '{"problem": {...}, "solution": {...}}'
+curl -X POST localhost:3781/feedback -d '{"traceId": "...", "helpful": true}'
+curl localhost:3781/search?q=TypeError
+curl localhost:3781/stats
+curl localhost:3781/health
 ```
+
+## Team Sharing
 
 ```bash
-# Recall
-curl -X POST http://localhost:3781/recall \
-  -H "Content-Type: application/json" \
-  -d '{"problem": "TypeError in React component"}'
-
-# Store
-curl -X POST http://localhost:3781/store \
-  -H "Content-Type: application/json" \
-  -d '{"problem": {"description": "...", "tags": []}, "solution": {"summary": "...", "steps": [], "outcome": "success"}}'
-
-# Search
-curl "http://localhost:3781/search?q=TypeError&limit=5"
-
-# Stats
-curl http://localhost:3781/stats
+npx tracebase export team-knowledge.json   # one machine
+npx tracebase import team-knowledge.json   # another machine
 ```
 
-## CLI Reference
+Duplicate traces (by ID) are automatically skipped.
 
-```
-tracebase init                     Initialize in current project
-tracebase store -d "..." -s "..."  Store a reasoning trace
-tracebase recall "..."             Find relevant past solutions
-tracebase search "..."             Full-text search
-tracebase stats                    Storage statistics
-tracebase serve [--mcp] [-p PORT]  Start server
-tracebase export [file]            Export traces to JSON
-tracebase import <file>            Import traces from JSON
-tracebase prune [-t threshold]     Remove low-quality traces
-```
+---
 
-All commands support `--json` for machine-readable output.
+## Self-Hosted vs TraceBase Cloud
 
-## Architecture
+TraceBase is fully open source and runs locally with zero external dependencies. For teams that need more, **TraceBase Cloud** (coming soon) adds:
 
-### Two-Stage Retrieval
-
-Follows the standard IR two-stage architecture (Bruch et al. 2023):
-
-**Stage 1 — Candidate Generation** (fast, broad):
-- Exact fingerprint lookup — O(1) index scan
-- FTS5 full-text search with BM25 ranking
-- Pre-filtered SQL by language/framework/errorType
-
-**Stage 2 — Re-ranking** (precise, narrow):
-- Jaccard token similarity (from pre-cached tokens — zero recomputation)
-- Structural feature matching (from pre-cached features)
-- Quality-adjusted final score, clamped to [0, 1]
-
-### Adaptive Weight Learning (Thompson Sampling)
-
-Signal weights are **not hardcoded** — they learn from your feedback.
-
-Each recall result includes a per-signal breakdown (`signals` field in `RecallResult`). When you call `feedback(traceId, helpful)`, the system updates Beta distribution parameters for each signal via Thompson Sampling:
-
-```
-helpful=true  → alpha_signal += contribution
-helpful=false → beta_signal  += contribution
-weight = posterior_mean = alpha / (alpha + beta), normalized
-```
-
-- **Prior strength ~10** prevents wild swings early on
-- **Converges** to optimal weights as feedback accumulates
-- **References**: Thompson (1933), Agrawal & Goyal (2012) — provable regret bounds
-
-```typescript
-// RecallResult now includes signal attribution
-const results = layer.recall({ problem: "..." });
-console.log(results[0].signals);
-// { fingerprint: 0, bm25: 0.72, jaccard: 0.45, structural: 0.38, cosine: 0 }
-
-// Feedback updates weights automatically
-layer.feedback(results[0].trace.id, true);
-
-// Inspect current learned weights
-console.log(layer.getWeights());
-// { bm25: 0.48, jaccard: 0.31, structural: 0.21 }
-```
-
-### Deduplication
-
-`storeTrace()` checks for existing traces with the same structural fingerprint. If found, returns the existing trace instead of creating a duplicate. This prevents middleware from polluting the database when the same prompt is sent repeatedly.
-
-### Storage
-
-- **SQLite with WAL mode** — Battle-tested, embedded, zero-config. Fast concurrent reads.
-- **FTS5 with Porter stemming** — Full-text search that understands word variations.
-- **Cached tokens/features** — Pre-computed at store time, read at recall time. Zero recomputation per candidate.
-- **Prepared statements** — All frequent queries are prepared once at init.
-- **Schema v2** with incremental migration from v1.
-
-### Quality Score (Wilson Score Interval)
-
-Each trace tracks recall count and helpfulness. Quality uses the **Wilson score interval lower bound** (Wilson, 1927) — same algorithm Reddit uses:
-- Starts at 0.5 (neutral prior)
-- Rewards traces with consistent positive feedback
-- Penalizes traces recalled but never helpful
-- Properly handles small sample sizes
-
-### HTTP API Validation
-
-All POST endpoints validate required fields and return 400 with clear messages. Request body limited to 1MB.
+| Feature | Self-Hosted (OSS) | Cloud |
+|---------|-------------------|-------|
+| Local SQLite storage | ✓ | ✓ |
+| Recall-before-call injection | ✓ | ✓ |
+| Adaptive weight learning | ✓ | ✓ |
+| MCP / HTTP / SDK | ✓ | ✓ |
+| **Cross-team sync** | — | ✓ (shared memory across machines) |
+| **Cloud backups** | — | ✓ (automatic, encrypted) |
+| **Analytics dashboard** | — | ✓ (recall rates, savings, quality) |
+| **Team management** | — | ✓ (roles, access control) |
+| **Managed embeddings** | — | ✓ (no API keys needed) |
+| **Retention policies** | — | ✓ (auto-archive, compliance) |
 
 ## Configuration
 
@@ -312,18 +284,6 @@ All POST endpoints validate required fields and return 400 with clear messages. 
 }
 ```
 
-## Team Sharing
-
-```bash
-# Export from one machine
-npx tracebase export team-knowledge.json
-
-# Import on another
-npx tracebase import team-knowledge.json
-```
-
-Duplicate traces (by ID) are automatically skipped during import.
-
 ## License
 
-MIT
+MIT — [github.com/64envy64/tracebase](https://github.com/64envy64/tracebase)

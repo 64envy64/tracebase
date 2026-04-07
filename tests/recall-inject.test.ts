@@ -91,6 +91,30 @@ describe("recall-inject module", () => {
       expect(result).toBeNull();
     });
 
+    it("emits granular skip reasons for metrics", () => {
+      // Store a failure trace
+      layer.storeTrace({
+        problem: { description: "skip reason test failure trace", language: "go", tags: [] },
+        solution: { summary: "didn't work", steps: [], outcome: "failure" },
+      });
+
+      const events: Array<{ type: string; reason?: string }> = [];
+      layer.on("recall:skipped", (e) => {
+        if (e.type === "recall:skipped") events.push(e);
+      });
+
+      // This should emit "filtered_outcome" because match exists but is failure
+      performRecall(layer, "skip reason test failure trace", {
+        minScore: 0.1,
+        skipExactMatch: false,
+        successOnly: true,
+      });
+
+      expect(events.length).toBeGreaterThanOrEqual(1);
+      const lastEvent = events[events.length - 1]!;
+      expect(lastEvent["reason"]).toBe("filtered_outcome");
+    });
+
     it("only injects success traces when successOnly=true", () => {
       layer.storeTrace({
         problem: {
@@ -130,6 +154,19 @@ describe("recall-inject module", () => {
       expect(result).toHaveLength(2);
       expect(result[0]!.role).toBe("system");
       expect(result[0]!.content).toContain("<prior_solution>");
+    });
+
+    it("handles content block array in system message", () => {
+      const messages = [
+        { role: "system", content: [{ type: "text", text: "You are helpful." }] },
+        { role: "user", content: "test" },
+      ];
+      const result = injectIntoOpenAIMessages(messages, "<prior_solution>hint</prior_solution>");
+      expect(result).toHaveLength(2);
+      const systemContent = result[0]!.content as Array<{ type: string; text?: string }>;
+      expect(Array.isArray(systemContent)).toBe(true);
+      expect(systemContent).toHaveLength(2);
+      expect(systemContent[1]!.text).toContain("prior_solution");
     });
 
     it("does not mutate the original array", () => {

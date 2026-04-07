@@ -3,8 +3,6 @@ import type { RecallInjectConfig } from "../types.js";
 import {
   performRecall,
   injectIntoOpenAIMessages,
-  notifyInjection,
-  notifySkipped,
   type InjectionResult,
 } from "./recall-inject.js";
 
@@ -65,9 +63,7 @@ export function wrapOpenAI<T extends object>(
           const newMessages = injectIntoOpenAIMessages(params.messages, injection.text);
           const newParams = { ...params, messages: newMessages };
           modifiedArgs = [newParams, ...argsList.slice(1)];
-          notifyInjection(layer, injection.sources);
-        } else {
-          notifySkipped(layer, "no_match_above_threshold");
+          // Events (recall:injected / recall:skipped) emitted inside performRecall
         }
       }
 

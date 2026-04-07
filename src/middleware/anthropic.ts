@@ -3,8 +3,6 @@ import type { RecallInjectConfig } from "../types.js";
 import {
   performRecall,
   injectIntoAnthropicSystem,
-  notifyInjection,
-  notifySkipped,
   type InjectionResult,
 } from "./recall-inject.js";
 
@@ -85,9 +83,6 @@ function makeApplyHandler(
         const newSystem = injectIntoAnthropicSystem(params.system, injection.text);
         const newParams = { ...params, system: newSystem };
         modifiedArgs = [newParams, ...argsList.slice(1)];
-        notifyInjection(layer, injection.sources);
-      } else {
-        notifySkipped(layer, "no_match_above_threshold");
       }
     }
 

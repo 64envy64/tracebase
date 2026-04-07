@@ -277,8 +277,11 @@ export interface RecallInjectConfig {
    * Minimum similarity score to inject a prior solution (0.0–1.0).
    * Higher = fewer but more precise injections. Default: 0.72
    *
-   * 0.72 means only "similar" or "exact" matches qualify.
-   * At this threshold, false positive rate is near zero in benchmarks.
+   * At 0.72, the practical effect is that only traces with strong multi-signal
+   * agreement (BM25 + Jaccard + structural) pass — which in practice filters
+   * out weak "related" matches. Note: the exact matchType boundary depends
+   * on quality multiplier (0.85–1.15), so this is a score threshold, not a
+   * matchType guarantee.
    */
   minScore?: number;
   /** Maximum prior solutions to inject per call. Default: 1 */
