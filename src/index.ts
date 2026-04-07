@@ -40,6 +40,7 @@ export {
 export { wrapAgent } from "./middleware/generic.js";
 export { wrapOpenAI } from "./middleware/openai.js";
 export { wrapAnthropic } from "./middleware/anthropic.js";
+export { performRecall, injectIntoOpenAIMessages, injectIntoAnthropicSystem } from "./middleware/recall-inject.js";
 
 // Types — re-export everything
 export type {
@@ -63,4 +64,5 @@ export type {
   SimilaritySignals,
   BetaParams,
   AdaptiveWeightState,
+  RecallInjectConfig,
 } from "./types.js";

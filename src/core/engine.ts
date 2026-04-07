@@ -309,6 +309,11 @@ export class ReasoningLayer {
     return this.store.listRecent(limit, offset);
   }
 
+  /** Emit a TraceBaseEvent (used by middleware for injection notifications). */
+  notify(event: TraceBaseEvent): void {
+    this.emit(event);
+  }
+
   /** Get aggregate storage statistics. */
   stats(): StorageStats {
     this.ensureOpen();

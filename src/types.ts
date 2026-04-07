@@ -222,7 +222,9 @@ export type TraceBaseEvent =
   | { type: "trace:updated"; traceId: string }
   | { type: "trace:deduplicated"; existingId: string; newFingerprint: string }
   | { type: "quality:updated"; traceId: string; metrics: QualityMetrics }
-  | { type: "weights:updated"; weights: Record<string, number> };
+  | { type: "weights:updated"; weights: Record<string, number> }
+  | { type: "recall:injected"; traceId: string; score: number; matchType: string }
+  | { type: "recall:skipped"; reason: string; topScore?: number };
 
 export type EventHandler = (event: TraceBaseEvent) => void;
 
@@ -254,4 +256,40 @@ export interface StoreTraceInput {
   problem: Omit<Problem, "fingerprint">;
   solution: Solution;
   metadata?: Partial<TraceMetadata>;
+}
+
+// ============================================================================
+// Recall-Before-Call Injection Config
+// ============================================================================
+
+/**
+ * Configuration for automatic recall-before-call in SDK middlewares.
+ * When enabled, the middleware queries institutional memory before each LLM call
+ * and injects high-confidence prior solutions into the system prompt.
+ *
+ * This is the core optimization loop:
+ *   user message → recall() → match found? → inject hint → LLM call → store trace
+ */
+export interface RecallInjectConfig {
+  /** Enable recall-before-call. Default: true when config is provided. */
+  enabled?: boolean;
+  /**
+   * Minimum similarity score to inject a prior solution (0.0–1.0).
+   * Higher = fewer but more precise injections. Default: 0.72
+   *
+   * 0.72 means only "similar" or "exact" matches qualify.
+   * At this threshold, false positive rate is near zero in benchmarks.
+   */
+  minScore?: number;
+  /** Maximum prior solutions to inject per call. Default: 1 */
+  maxInjections?: number;
+  /**
+   * Skip injecting exact fingerprint matches (same problem = user is re-asking).
+   * Default: true — avoids circular injection.
+   */
+  skipExactMatch?: boolean;
+  /** Only inject traces with outcome "success". Default: true */
+  successOnly?: boolean;
+  /** Optional context to improve matching quality. */
+  context?: RecallContext;
 }
