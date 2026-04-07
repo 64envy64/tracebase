@@ -2,7 +2,7 @@ import { CodeBlock } from "@/components/CodeBlock";
 import { CopyCommand } from "@/components/CopyButton";
 
 const SETUP_CODE = `import OpenAI from "openai";
-import { ReasoningLayer, wrapOpenAI } from "tracebase";
+import { ReasoningLayer, wrapOpenAI } from "tracebase-ai";
 
 const layer = new ReasoningLayer();
 const openai = wrapOpenAI(new OpenAI(), layer, {
@@ -87,7 +87,7 @@ export default function Home() {
             they accumulate expertise. Every run is built on every run before it.
           </p>
           <div className="flex flex-wrap items-center gap-4">
-            <CopyCommand command="npm install tracebase" />
+            <CopyCommand command="npm install tracebase-ai" />
           </div>
         </section>
 
@@ -287,7 +287,7 @@ export default function Home() {
           <p className="text-sm font-light mb-8" style={{ color: "var(--text-secondary)" }}>
             One install. Agents that get better with every run.
           </p>
-          <CopyCommand command="npm install tracebase" />
+          <CopyCommand command="npm install tracebase-ai" />
         </section>
 
         {/* Footer */}
@@ -300,7 +300,7 @@ export default function Home() {
           </span>
           <div className="flex items-center gap-6">
             <a href="https://github.com/64envy64/tracebase" className="text-xs font-light" style={{ color: "var(--text-tertiary)" }} target="_blank" rel="noopener noreferrer">GitHub</a>
-            <a href="https://www.npmjs.com/package/tracebase" className="text-xs font-light" style={{ color: "var(--text-tertiary)" }} target="_blank" rel="noopener noreferrer">npm</a>
+            <a href="https://www.npmjs.com/package/tracebase-ai" className="text-xs font-light" style={{ color: "var(--text-tertiary)" }} target="_blank" rel="noopener noreferrer">npm</a>
           </div>
         </footer>
       </main>

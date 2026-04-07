@@ -5,7 +5,7 @@ import type { EmbeddingProvider } from "../types.js";
  *
  * Usage:
  *   import OpenAI from "openai";
- *   import { ReasoningLayer, createOpenAIEmbeddings } from "tracebase";
+ *   import { ReasoningLayer, createOpenAIEmbeddings } from "tracebase-ai";
  *
  *   const openai = new OpenAI();
  *   const layer = new ReasoningLayer();

@@ -19,7 +19,7 @@ const WRAPPED = Symbol.for("tracebase.wrapped");
  *
  * Usage:
  *   import Anthropic from "@anthropic-ai/sdk";
- *   import { ReasoningLayer, wrapAnthropic } from "tracebase";
+ *   import { ReasoningLayer, wrapAnthropic } from "tracebase-ai";
  *
  *   const layer = new ReasoningLayer();
  *   const anthropic = wrapAnthropic(new Anthropic(), layer, { minScore: 0.72 });

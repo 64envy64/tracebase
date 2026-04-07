@@ -29,7 +29,7 @@ The result: agents that get **more reliable** and **cheaper** with every run.
 ## Install
 
 ```bash
-npm install tracebase
+npm install tracebase-ai
 ```
 
 ## Three Ways to Use TraceBase
@@ -40,7 +40,7 @@ Wrap your OpenAI or Anthropic client. Every call automatically recalls prior sol
 
 ```typescript
 import OpenAI from "openai";
-import { ReasoningLayer, wrapOpenAI } from "tracebase";
+import { ReasoningLayer, wrapOpenAI } from "tracebase-ai";
 
 const layer = new ReasoningLayer();
 const openai = wrapOpenAI(new OpenAI(), layer, {
@@ -98,7 +98,7 @@ Claude Code gets two key tools:
 Full control over when to store and recall.
 
 ```typescript
-import { ReasoningLayer } from "tracebase";
+import { ReasoningLayer } from "tracebase-ai";
 
 const layer = new ReasoningLayer();
 
@@ -191,7 +191,7 @@ Add OpenAI embeddings for semantic recall — catches problems where the words a
 
 ```typescript
 import OpenAI from "openai";
-import { ReasoningLayer, createOpenAIEmbeddings } from "tracebase";
+import { ReasoningLayer, createOpenAIEmbeddings } from "tracebase-ai";
 
 const layer = new ReasoningLayer();
 layer.setEmbeddingProvider(createOpenAIEmbeddings(new OpenAI()));

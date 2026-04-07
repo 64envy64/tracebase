@@ -19,7 +19,7 @@ const WRAPPED = Symbol.for("tracebase.wrapped");
  *
  * Usage:
  *   import OpenAI from "openai";
- *   import { ReasoningLayer, wrapOpenAI } from "tracebase";
+ *   import { ReasoningLayer, wrapOpenAI } from "tracebase-ai";
  *
  *   const layer = new ReasoningLayer();
  *   const openai = wrapOpenAI(new OpenAI(), layer, { minScore: 0.72 });
