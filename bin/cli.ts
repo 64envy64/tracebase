@@ -10,6 +10,7 @@ import { serveCommand } from "../src/cli/commands/serve.js";
 import { exportCommand, importCommand } from "../src/cli/commands/transfer.js";
 import { pruneCommand } from "../src/cli/commands/prune.js";
 import { storeCommand } from "../src/cli/commands/store.js";
+import { setupCommand } from "../src/cli/commands/setup.js";
 
 // Read version from package.json at runtime
 const pkgPath = join(__dirname, "..", "package.json");
@@ -26,6 +27,7 @@ program
   )
   .version(pkg.version);
 
+program.addCommand(setupCommand);
 program.addCommand(initCommand);
 program.addCommand(storeCommand);
 program.addCommand(recallCommand);

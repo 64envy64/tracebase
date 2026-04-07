@@ -15,14 +15,6 @@ await openai.chat.completions.create({
   messages: [{ role: "user", content: "Fix the CORS error" }]
 });`;
 
-const MCP_CONFIG = `{
-  "mcpServers": {
-    "tracebase": {
-      "command": "npx",
-      "args": ["tracebase", "serve", "--mcp"]
-    }
-  }
-}`;
 
 const DIRECT_CODE = `const layer = new ReasoningLayer();
 
@@ -87,7 +79,7 @@ export default function Home() {
             they accumulate expertise. Every run is built on every run before it.
           </p>
           <div className="flex flex-wrap items-center gap-4">
-            <CopyCommand command="npm install tracebase-ai" />
+            <CopyCommand command="npx tracebase-ai setup" />
           </div>
         </section>
 
@@ -201,20 +193,15 @@ export default function Home() {
 
           {/* Tab 2: MCP */}
           <div className="mb-16">
-            <h3 className="text-sm font-normal mb-1">MCP Server</h3>
+            <h3 className="text-sm font-normal mb-1">One command for all IDEs</h3>
             <p className="text-xs font-light mb-4" style={{ color: "var(--text-secondary)" }}>
-              For Claude Code, Cursor, and any MCP-compatible IDE.
+              Auto-detects Claude Code, Cursor, Windsurf and configures MCP for each.
             </p>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <CodeBlock code={MCP_CONFIG} filename="claude_desktop_config.json" />
-              <div className="flex flex-col gap-4">
-                <CopyCommand command="npx tracebase serve --mcp" />
-                <p className="text-xs font-light leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
-                  Claude Code gets two tools: recall (before solving) and store (after solving).
-                  Memory accumulates across sessions automatically.
-                </p>
-              </div>
-            </div>
+            <CopyCommand command="npx tracebase-ai setup" />
+            <p className="text-xs font-light leading-relaxed mt-4" style={{ color: "var(--text-tertiary)" }}>
+              Your IDE gets two tools: recall (before solving) and store (after solving).
+              Memory accumulates across sessions. No config files to edit.
+            </p>
           </div>
 
           {/* Tab 3: Direct */}
@@ -287,7 +274,7 @@ export default function Home() {
           <p className="text-sm font-light mb-8" style={{ color: "var(--text-secondary)" }}>
             One install. Agents that get better with every run.
           </p>
-          <CopyCommand command="npm install tracebase-ai" />
+          <CopyCommand command="npx tracebase-ai setup" />
         </section>
 
         {/* Footer */}
