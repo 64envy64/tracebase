@@ -77,13 +77,14 @@ export default function Home() {
         {/* Hero */}
         <section className="pt-36 pb-24">
           <h1 className="text-[42px] sm:text-[56px] font-extralight leading-[1.1] tracking-tight mb-6">
-            The reasoning reuse layer
+            Agents that compound
             <br />
-            for AI agents.
+            their own intelligence.
           </h1>
           <p className="text-base font-light leading-relaxed max-w-xl mb-10" style={{ color: "var(--text-secondary)" }}>
-            Every successful agent run captures a reasoning trace. Every future run
-            draws from it. Agents get more reliable and cheaper over time.
+            TraceBase captures every solved problem as a reasoning trace and
+            feeds it back into future runs. Your agents don&apos;t just execute &mdash;
+            they accumulate expertise. Every run is built on every run before it.
           </p>
           <div className="flex flex-wrap items-center gap-4">
             <CopyCommand command="npm install tracebase" />
@@ -281,10 +282,10 @@ export default function Home() {
         {/* CTA */}
         <section className="py-24">
           <h2 className="text-[28px] font-extralight tracking-tight mb-4">
-            Your agents shouldn&apos;t solve the same problem twice.
+            Stop paying for the same reasoning twice.
           </h2>
           <p className="text-sm font-light mb-8" style={{ color: "var(--text-secondary)" }}>
-            Install in 30 seconds.
+            One install. Agents that get better with every run.
           </p>
           <CopyCommand command="npm install tracebase" />
         </section>

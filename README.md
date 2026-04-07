@@ -1,8 +1,8 @@
 # TraceBase
 
-**The reasoning reuse layer for AI agents.**
+**Agents that compound their own intelligence.**
 
-Every successful agent run captures a reasoning trace. Every future run draws from it, so agents get more reliable and cheaper over time.
+TraceBase captures every solved problem as a reasoning trace and feeds it back into future runs. Your agents don't just execute — they accumulate expertise. Every run is built on every run before it.
 
 ```
 1st call: "CORS error in Express"  → agent solves from scratch       → trace stored
