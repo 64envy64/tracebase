@@ -42,6 +42,9 @@ export { wrapOpenAI } from "./middleware/openai.js";
 export { wrapAnthropic } from "./middleware/anthropic.js";
 export { performRecall, injectIntoOpenAIMessages, injectIntoAnthropicSystem } from "./middleware/recall-inject.js";
 
+// Knowledge Base utilities
+export { writeJsonl, readJsonl, toJsonl, fromJsonl } from "./kb/jsonl.js";
+
 // Types — re-export everything
 export type {
   ReasoningTrace,
@@ -64,5 +67,12 @@ export type {
   SimilaritySignals,
   BetaParams,
   AdaptiveWeightState,
+  TraceProvenance,
   RecallInjectConfig,
+  TokenUsageData,
+  SimilarityConfig,
+  InjectionFormatConfig,
+  FeatureConfig,
+  StructuralWeights,
+  FeatureExtractor,
 } from "./types.js";

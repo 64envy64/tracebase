@@ -14,7 +14,7 @@ import type {
 import { TraceStore } from "./store.js";
 import { fingerprint } from "./fingerprint.js";
 import { recall as recallSimilar, cosineSimilarity } from "./similarity.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, findConfigDir, initConfig } from "./config.js";
 import {
   loadWeightState,
   computeWeights,
@@ -47,7 +47,7 @@ import {
 
 export class ReasoningLayer {
   private store: TraceStore;
-  private config: TraceBaseConfig;
+  private _config: TraceBaseConfig;
   private listeners: Map<string, Set<EventHandler>> = new Map();
   private _embeddingProvider?: EmbeddingProvider;
   private closed = false;
@@ -60,15 +60,21 @@ export class ReasoningLayer {
   private static readonly SIGNAL_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
   constructor(config?: Partial<TraceBaseConfig>) {
-    // Only read config from disk when needed fields are missing
-    if (config?.storagePath) {
-      const defaults = loadConfig();
-      this.config = { ...defaults, ...config };
-    } else {
-      const resolved = loadConfig();
-      this.config = { ...resolved, ...config };
+    // Auto-init: if no .tracebase/ exists and no explicit path given,
+    // silently create it. Zero friction — first `new ReasoningLayer()`
+    // just works without requiring `tracebase init` first.
+    if (!config?.storagePath && !findConfigDir()) {
+      initConfig(process.cwd());
     }
-    this.store = new TraceStore(this.config.storagePath);
+
+    const resolved = loadConfig();
+    this._config = { ...resolved, ...config };
+    this.store = new TraceStore(this._config.storagePath);
+  }
+
+  /** Read-only access to engine configuration (used by middleware). */
+  get config(): Readonly<TraceBaseConfig> {
+    return this._config;
   }
 
   // --------------------------------------------------------------------------
@@ -93,12 +99,16 @@ export class ReasoningLayer {
     }
 
     // Compute fingerprint (also produces tokens + features for caching)
-    const fp = fingerprint(input.problem.description, {
-      filePath: input.problem.filePath,
-      language: input.problem.language,
-      framework: input.problem.framework,
-      errorType: input.problem.errorType,
-    });
+    const fp = fingerprint(
+      input.problem.description,
+      {
+        filePath: input.problem.filePath,
+        language: input.problem.language,
+        framework: input.problem.framework,
+        errorType: input.problem.errorType,
+      },
+      this._config.features,
+    );
 
     // Near-duplicate detection: same fingerprint = same problem
     const existingId = this.store.existsByFingerprint(fp.hash);
@@ -137,13 +147,18 @@ export class ReasoningLayer {
         helpfulCount: 0,
         score: 0.5,
       },
+      provenance: {
+        origin: "local",
+        author: input.metadata?.agent ?? "unknown",
+        appliedCount: 0,
+      },
     };
 
     // Store with cached tokens + features for fast recall later
     this.store.store(trace, fp.tokens, fp.features as unknown as Record<string, unknown>);
 
     // Enforce max traces limit
-    if (this.config.maxTraces && this.config.maxTraces > 0) {
+    if (this._config.maxTraces && this._config.maxTraces > 0) {
       this.enforceLimit();
     }
 
@@ -164,7 +179,14 @@ export class ReasoningLayer {
     const weightState = loadWeightState(this.store.rawDb);
     const weights = computeWeights(weightState);
 
-    const results = recallSimilar(this.store, query, weights);
+    const results = recallSimilar(
+      this.store,
+      query,
+      weights,
+      undefined,
+      this._config.similarity,
+      this._config.features,
+    );
 
     // Cache signal contributions for later feedback attribution
     for (const result of results) {
@@ -229,7 +251,14 @@ export class ReasoningLayer {
     const weightState = loadWeightState(this.store.rawDb);
     const weights = computeWeights(weightState, true);
 
-    const results = recallSimilar(this.store, query, weights, cosineScores);
+    const results = recallSimilar(
+      this.store,
+      query,
+      weights,
+      cosineScores,
+      this._config.similarity,
+      this._config.features,
+    );
 
     for (const result of results) {
       this.cacheSignals(result.trace.id, result.signals);
@@ -326,8 +355,8 @@ export class ReasoningLayer {
    */
   prune(threshold?: number): number {
     this.ensureOpen();
-    const t = threshold ?? this.config.pruneThreshold ?? 0.05;
-    return this.store.prune(t, this.config.maxTraces);
+    const t = threshold ?? this._config.pruneThreshold ?? 0.05;
+    return this.store.prune(t, this._config.maxTraces);
   }
 
   /** Export all traces as JSON-serializable array. */
@@ -429,10 +458,10 @@ export class ReasoningLayer {
    */
   private enforceLimit(): void {
     const count = this.store.count();
-    const max = this.config.maxTraces!;
+    const max = this._config.maxTraces!;
     if (count <= max) return;
 
-    this.store.prune(this.config.pruneThreshold ?? 0.05, max);
+    this.store.prune(this._config.pruneThreshold ?? 0.05, max);
   }
 
   /** Cache signal contributions for later feedback attribution (LRU + TTL). */

@@ -130,6 +130,45 @@ export async function startHttpServer(
         return;
       }
 
+      // Signal explainability endpoint
+      if (path === "/explain" && req.method === "POST") {
+        const body = await readBody(req);
+        const problem = requireString(body, "problem");
+        const results = layer.recall({
+          problem,
+          limit: optionalInt(body, "limit", 3),
+          minScore: 0.01,
+          context: typeof body["context"] === "object" && body["context"] !== null
+            ? body["context"] as RecallQuery["context"]
+            : undefined,
+        });
+
+        const weights = layer.getWeights();
+
+        json(res, 200, {
+          query: problem,
+          weights,
+          results: results.map((r) => ({
+            traceId: r.trace.id,
+            score: r.score,
+            matchType: r.matchType,
+            signals: r.signals,
+            contributions: {
+              bm25: r.signals.bm25 * weights.bm25,
+              jaccard: r.signals.jaccard * weights.jaccard,
+              structural: r.signals.structural * weights.structural,
+              cosine: r.signals.cosine * weights.cosine,
+              freshness: r.signals.freshness * weights.freshness,
+            },
+            problem: r.trace.problem.description,
+            solution: r.trace.solution.summary,
+            quality: r.trace.quality,
+            provenance: r.trace.provenance,
+          })),
+        });
+        return;
+      }
+
       json(res, 404, { error: "Not found" });
     } catch (e) {
       if (e instanceof ValidationError) {

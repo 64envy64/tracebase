@@ -1,4 +1,10 @@
-import type { RecallQuery, RecallResult, SimilaritySignals } from "../types.js";
+import type {
+  RecallQuery,
+  RecallResult,
+  SimilaritySignals,
+  SimilarityConfig,
+  FeatureConfig,
+} from "../types.js";
 import type { TraceStore, CachedTraceRow } from "./store.js";
 import type { SignalWeights } from "./weights.js";
 import {
@@ -17,44 +23,84 @@ import {
 //
 // Signal combination uses adaptive weights learned from feedback via
 // Thompson Sampling (see weights.ts). All scores clamped to [0, 1].
+//
+// BM25 normalization uses saturation function (Robertson & Zaragoza, 2009):
+//   normalized = score / (score + k)
+// This maps unbounded FTS5 scores to [0, 1] with proper diminishing returns.
 // ============================================================================
 
 const DEFAULT_WEIGHTS: SignalWeights = {
-  bm25: 0.50,
-  jaccard: 0.30,
-  structural: 0.20,
+  bm25: 0.40,
+  jaccard: 0.25,
+  structural: 0.15,
   cosine: 0,
+  freshness: 0.20,
 };
+
+/** Default similarity config — all values documented and tunable. */
+const DEFAULT_SIMILARITY_CONFIG = {
+  cosineThreshold: 0.3,
+  qualityMultiplierRange: [0.85, 1.15] as [number, number],
+  similarThreshold: 0.5,
+  candidateMultiplier: 4,
+  freshnessHalfLifeDays: 30,
+  bm25Normalization: "query-level" as const,
+  bm25SaturationK: 1.5,
+};
+
+/**
+ * Exponential time decay for temporal freshness signal.
+ * Ref: Li & Croft (2003) "Time-based language models" —
+ *      exponential decay with half-life parameter.
+ *
+ * f(t) = exp(-ln(2) * ageDays / halfLifeDays)
+ *
+ * Properties:
+ *   - f(0) = 1.0 (just created)
+ *   - f(halfLife) = 0.5
+ *   - f(2*halfLife) = 0.25
+ *   - Never reaches 0 (asymptotic decay)
+ */
+const LN2 = Math.LN2; // 0.693147...
 
 /**
  * Find the most relevant past traces for a given query.
  *
  * @param store         The trace store
  * @param query         What to search for
- * @param weights       Learned signal weights
+ * @param weights       Learned signal weights (from Thompson Sampling)
  * @param cosineScores  Optional precomputed cosine similarities (traceId → score).
  *                      Populated by engine.recallAsync() when embeddings are available.
+ * @param config        Similarity engine configuration (thresholds, etc.)
+ * @param featureConfig Feature extraction configuration (custom extractors, weights)
  */
 export function recall(
   store: TraceStore,
   query: RecallQuery,
   weights: SignalWeights = DEFAULT_WEIGHTS,
   cosineScores?: Map<string, number>,
+  config?: SimilarityConfig,
+  featureConfig?: FeatureConfig,
 ): RecallResult[] {
   const limit = query.limit ?? 5;
   const minScore = query.minScore ?? 0.1;
+  const simConfig = resolveConfig(config);
 
   // Step 1: Fingerprint the query
-  const queryFp = fingerprint(query.problem, {
-    filePath: query.context?.filePath,
-    language: query.context?.language,
-    framework: query.context?.framework,
-    errorType: query.context?.errorType,
-  });
+  const queryFp = fingerprint(
+    query.problem,
+    {
+      filePath: query.context?.filePath,
+      language: query.context?.language,
+      framework: query.context?.framework,
+      errorType: query.context?.errorType,
+    },
+    featureConfig,
+  );
 
   // Step 2: Collect candidates from multiple sources
   const candidateMap = new Map<string, CandidateScore>();
-  const fetchLimit = limit * 4;
+  const fetchLimit = limit * simConfig.candidateMultiplier;
 
   // 2a: Exact fingerprint matches
   const exactMatches = store.getByFingerprint(queryFp.hash, limit);
@@ -65,19 +111,20 @@ export function recall(
   // 2b: FTS5 full-text search with BM25
   const ftsResults = store.searchFts(query.problem, fetchLimit);
   if (ftsResults.length > 0) {
-    const rawScores = ftsResults.map((r) => Math.log1p(Math.abs(r.rank)));
-    const maxLog = Math.max(...rawScores);
+    // Compute normalized BM25 scores based on configured strategy.
+    // FTS5 rank is negative (more negative = better match), so we use abs values.
+    const rawScores = ftsResults.map((r) => Math.abs(r.rank));
+    const normalizedScores = normalizeBm25(rawScores, simConfig);
 
     for (let i = 0; i < ftsResults.length; i++) {
       const { trace, cachedTokens, cachedFeatures } = ftsResults[i]!;
-      const normalized = maxLog > 0 ? rawScores[i]! / maxLog : 0;
 
       if (!candidateMap.has(trace.id)) {
         candidateMap.set(trace.id, makeCandidateFromCached(
           { trace, cachedTokens, cachedFeatures }, 0,
         ));
       }
-      candidateMap.get(trace.id)!.signals.bm25 = normalized;
+      candidateMap.get(trace.id)!.signals.bm25 = normalizedScores[i]!;
     }
   }
 
@@ -101,7 +148,7 @@ export function recall(
   // 2d: If cosine scores are provided (from embeddings), add high-cosine candidates
   if (cosineScores) {
     for (const [traceId, cosine] of cosineScores) {
-      if (cosine < 0.3) continue; // only high-similarity candidates
+      if (cosine < simConfig.cosineThreshold) continue;
       const existing = candidateMap.get(traceId);
       if (existing) {
         existing.signals.cosine = cosine;
@@ -113,6 +160,7 @@ export function recall(
   }
 
   // Step 3: Re-rank with fine-grained similarity
+  const structuralWeights = featureConfig?.structuralWeights;
   for (const candidate of candidateMap.values()) {
     const traceTokens = candidate.cachedTokens ?? fingerprint(
       candidate.trace.problem.description,
@@ -122,6 +170,7 @@ export function recall(
         framework: candidate.trace.problem.framework,
         errorType: candidate.trace.problem.errorType,
       },
+      featureConfig,
     ).tokens;
 
     const traceFeatures: ExtractedFeatures = candidate.cachedFeatures
@@ -134,18 +183,29 @@ export function recall(
             framework: candidate.trace.problem.framework,
             errorType: candidate.trace.problem.errorType,
           },
+          featureConfig,
         ).features;
 
     candidate.signals.jaccard = jaccardSimilarity(queryFp.tokens, traceTokens);
-    candidate.signals.structural = structuralSimilarity(queryFp.features, traceFeatures);
+    candidate.signals.structural = structuralSimilarity(
+      queryFp.features,
+      traceFeatures,
+      structuralWeights,
+    );
 
     // Cosine from precomputed map (may already be set from 2d)
     if (cosineScores && !candidate.signals.cosine) {
       candidate.signals.cosine = cosineScores.get(candidate.trace.id) ?? 0;
     }
+
+    // Temporal freshness: exponential decay from creation time
+    const ageDays = (Date.now() - candidate.trace.createdAt) / (1000 * 60 * 60 * 24);
+    candidate.signals.freshness = Math.exp(-LN2 * ageDays / simConfig.freshnessHalfLifeDays);
   }
 
   // Step 4: Compute final weighted scores
+  const [qMin, qMax] = simConfig.qualityMultiplierRange;
+  const qRange = qMax - qMin;
   const results: RecallResult[] = [];
 
   for (const candidate of candidateMap.values()) {
@@ -162,13 +222,14 @@ export function recall(
         s.bm25 * weights.bm25 +
         s.jaccard * weights.jaccard +
         s.structural * weights.structural +
-        s.cosine * weights.cosine;
+        s.cosine * weights.cosine +
+        s.freshness * weights.freshness;
 
-      matchType = score > 0.5 ? "similar" : "related";
+      matchType = score > simConfig.similarThreshold ? "similar" : "related";
     }
 
-    // Quality adjustment: 0.85–1.15 multiplier
-    const qualityMult = 0.85 + candidate.trace.quality.score * 0.30;
+    // Quality adjustment: configurable multiplier range
+    const qualityMult = qMin + candidate.trace.quality.score * qRange;
     score *= qualityMult;
 
     // Clamp to [0, 1]
@@ -210,6 +271,49 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 // Internal
 // ============================================================================
 
+function resolveConfig(overrides?: SimilarityConfig) {
+  return {
+    cosineThreshold: overrides?.cosineThreshold ?? DEFAULT_SIMILARITY_CONFIG.cosineThreshold,
+    qualityMultiplierRange: overrides?.qualityMultiplierRange ?? DEFAULT_SIMILARITY_CONFIG.qualityMultiplierRange,
+    similarThreshold: overrides?.similarThreshold ?? DEFAULT_SIMILARITY_CONFIG.similarThreshold,
+    candidateMultiplier: overrides?.candidateMultiplier ?? DEFAULT_SIMILARITY_CONFIG.candidateMultiplier,
+    freshnessHalfLifeDays: overrides?.freshnessHalfLifeDays ?? DEFAULT_SIMILARITY_CONFIG.freshnessHalfLifeDays,
+    bm25Normalization: overrides?.bm25Normalization ?? DEFAULT_SIMILARITY_CONFIG.bm25Normalization,
+    bm25SaturationK: overrides?.bm25SaturationK ?? DEFAULT_SIMILARITY_CONFIG.bm25SaturationK,
+  };
+}
+
+/**
+ * Normalize raw BM25 scores to [0, 1] using the configured strategy.
+ *
+ * "query-level" (default):
+ *   Ref: Zhai & Lafferty (2004) — query-level normalization.
+ *   Divides each score by the batch maximum. Standard in multi-signal
+ *   fusion (CombMNZ, LambdaMART, etc.). Works correctly for any corpus
+ *   size including a single document.
+ *
+ * "saturation":
+ *   Ref: Robertson & Zaragoza (2009) — BM25 saturation function.
+ *   Uses score / (score + k) for absolute calibration. Best for large
+ *   corpora where BM25 produces meaningful absolute scores.
+ */
+function normalizeBm25(
+  rawScores: number[],
+  config: ReturnType<typeof resolveConfig>,
+): number[] {
+  if (rawScores.length === 0) return [];
+
+  if (config.bm25Normalization === "saturation") {
+    const k = config.bm25SaturationK;
+    return rawScores.map((s) => s / (s + k));
+  }
+
+  // Query-level normalization (default)
+  const maxScore = Math.max(...rawScores);
+  if (maxScore === 0) return rawScores.map(() => 0);
+  return rawScores.map((s) => s / maxScore);
+}
+
 interface CandidateScore {
   trace: CachedTraceRow["trace"];
   cachedTokens?: string[];
@@ -231,6 +335,7 @@ function makeCandidateFromCached(
       jaccard: 0,
       structural: 0,
       cosine: 0,
+      freshness: 0,
     },
   };
 }

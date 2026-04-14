@@ -23,6 +23,7 @@ const DEFAULT_STATE: AdaptiveWeightState = {
   jaccard: { alpha: 3, beta: 7 },     // mean=0.30
   structural: { alpha: 2, beta: 8 },  // mean=0.20
   cosine: { alpha: 4, beta: 6 },      // mean=0.40 (when embeddings enabled)
+  freshness: { alpha: 2, beta: 8 },   // mean=0.20 (soft preference for recency)
   updatedAt: 0,
   feedbackCount: 0,
 };
@@ -33,6 +34,7 @@ export interface SignalWeights {
   jaccard: number;
   structural: number;
   cosine: number;
+  freshness: number;
 }
 
 /** Load learned weights from DB, or return defaults. */
@@ -43,12 +45,13 @@ export function loadWeightState(db: Database.Database): AdaptiveWeightState {
       .get(CONFIG_KEY) as { value: string } | undefined;
     if (row) {
       const parsed = JSON.parse(row.value) as Partial<AdaptiveWeightState>;
-      // Backward compat: add cosine if migrating from v1 state
+      // Backward compat: add cosine/freshness if migrating from older state
       return {
         bm25: parsed.bm25 ?? DEFAULT_STATE.bm25,
         jaccard: parsed.jaccard ?? DEFAULT_STATE.jaccard,
         structural: parsed.structural ?? DEFAULT_STATE.structural,
         cosine: parsed.cosine ?? DEFAULT_STATE.cosine,
+        freshness: parsed.freshness ?? DEFAULT_STATE.freshness,
         updatedAt: parsed.updatedAt ?? 0,
         feedbackCount: parsed.feedbackCount ?? 0,
       };
@@ -86,16 +89,18 @@ export function computeWeights(
   const meanJaccard = posteriorMean(state.jaccard);
   const meanStructural = posteriorMean(state.structural);
   const meanCosine = hasEmbeddings ? posteriorMean(state.cosine) : 0;
+  const meanFreshness = posteriorMean(state.freshness);
 
-  const sum = meanBm25 + meanJaccard + meanStructural + meanCosine;
+  const sum = meanBm25 + meanJaccard + meanStructural + meanCosine + meanFreshness;
 
   if (sum === 0) {
-    const n = hasEmbeddings ? 4 : 3;
+    const n = hasEmbeddings ? 5 : 4;
     return {
       bm25: 1 / n,
       jaccard: 1 / n,
       structural: 1 / n,
       cosine: hasEmbeddings ? 1 / n : 0,
+      freshness: 1 / n,
     };
   }
 
@@ -104,6 +109,7 @@ export function computeWeights(
     jaccard: meanJaccard / sum,
     structural: meanStructural / sum,
     cosine: meanCosine / sum,
+    freshness: meanFreshness / sum,
   };
 }
 
@@ -116,11 +122,12 @@ export function updateWeights(
   signals: SimilaritySignals,
   helpful: boolean,
 ): AdaptiveWeightState {
-  const updates: Array<[keyof Pick<AdaptiveWeightState, "bm25" | "jaccard" | "structural" | "cosine">, number]> = [
+  const updates: Array<[keyof Pick<AdaptiveWeightState, "bm25" | "jaccard" | "structural" | "cosine" | "freshness">, number]> = [
     ["bm25", signals.bm25],
     ["jaccard", signals.jaccard],
     ["structural", signals.structural],
     ["cosine", signals.cosine],
+    ["freshness", signals.freshness],
   ];
 
   for (const [signal, contribution] of updates) {

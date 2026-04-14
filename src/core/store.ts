@@ -23,7 +23,7 @@ import type {
 //   - Added index on p_file_path
 // ============================================================================
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SCHEMA_V2 = `
 -- Core trace storage
@@ -67,6 +67,13 @@ CREATE TABLE IF NOT EXISTS traces (
   q_helpful_count     INTEGER NOT NULL DEFAULT 0,
   q_last_recalled_at  INTEGER,
   q_score             REAL NOT NULL DEFAULT 0.5,
+
+  -- Provenance (v3)
+  prov_origin         TEXT NOT NULL DEFAULT 'local',
+  prov_author         TEXT,
+  prov_verified_by    TEXT NOT NULL DEFAULT '[]',
+  prov_applied_count  INTEGER NOT NULL DEFAULT 0,
+  prov_last_applied   INTEGER,
 
   -- Embeddings (optional, stored as Float32Array binary)
   embedding_problem   BLOB,
@@ -175,6 +182,17 @@ const MIGRATIONS: Record<number, string[]> = {
     // Create config table
     "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
   ],
+  3: [
+    // Provenance columns
+    "ALTER TABLE traces ADD COLUMN prov_origin TEXT NOT NULL DEFAULT 'local'",
+    "ALTER TABLE traces ADD COLUMN prov_author TEXT",
+    "ALTER TABLE traces ADD COLUMN prov_verified_by TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE traces ADD COLUMN prov_applied_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE traces ADD COLUMN prov_last_applied INTEGER",
+    // Compound indexes for scale (Task #9)
+    "CREATE INDEX IF NOT EXISTS idx_quality_recall ON traces(q_score DESC, q_recall_count DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_has_embedding ON traces(id) WHERE embedding_problem IS NOT NULL",
+  ],
 };
 
 // ============================================================================
@@ -263,6 +281,7 @@ export class TraceStore {
           s_summary, s_steps, s_outcome, s_diff, s_explanation,
           m_agent, m_model, m_tokens_used, m_duration_ms, m_source, m_custom,
           q_recall_count, q_helpful_count, q_last_recalled_at, q_score,
+          prov_origin, prov_author, prov_verified_by, prov_applied_count, prov_last_applied,
           embedding_problem, embedding_solution
         ) VALUES (
           @id, @created_at, @updated_at,
@@ -272,6 +291,7 @@ export class TraceStore {
           @s_summary, @s_steps, @s_outcome, @s_diff, @s_explanation,
           @m_agent, @m_model, @m_tokens_used, @m_duration_ms, @m_source, @m_custom,
           @q_recall_count, @q_helpful_count, @q_last_recalled_at, @q_score,
+          @prov_origin, @prov_author, @prov_verified_by, @prov_applied_count, @prov_last_applied,
           @embedding_problem, @embedding_solution
         )
       `),
@@ -373,6 +393,11 @@ export class TraceStore {
         recallCount: 0,
         helpfulCount: 0,
         score: 0.5,
+      },
+      provenance: {
+        origin: "local",
+        author: metadata.agent,
+        appliedCount: 0,
       },
     };
     this.store(trace, cachedTokens, cachedFeatures);
@@ -635,6 +660,7 @@ export class TraceStore {
         s_summary, s_steps, s_outcome, s_diff, s_explanation,
         m_agent, m_model, m_tokens_used, m_duration_ms, m_source, m_custom,
         q_recall_count, q_helpful_count, q_last_recalled_at, q_score,
+        prov_origin, prov_author, prov_verified_by, prov_applied_count, prov_last_applied,
         embedding_problem, embedding_solution
       ) VALUES (
         @id, @created_at, @updated_at,
@@ -644,6 +670,7 @@ export class TraceStore {
         @s_summary, @s_steps, @s_outcome, @s_diff, @s_explanation,
         @m_agent, @m_model, @m_tokens_used, @m_duration_ms, @m_source, @m_custom,
         @q_recall_count, @q_helpful_count, @q_last_recalled_at, @q_score,
+        @prov_origin, @prov_author, @prov_verified_by, @prov_applied_count, @prov_last_applied,
         @embedding_problem, @embedding_solution
       )
     `);
@@ -789,6 +816,11 @@ export class TraceStore {
       q_helpful_count: t.quality.helpfulCount,
       q_last_recalled_at: t.quality.lastRecalledAt ?? null,
       q_score: t.quality.score,
+      prov_origin: t.provenance?.origin ?? "local",
+      prov_author: t.provenance?.author ?? null,
+      prov_verified_by: JSON.stringify(t.provenance?.verifiedBy ?? []),
+      prov_applied_count: t.provenance?.appliedCount ?? 0,
+      prov_last_applied: t.provenance?.lastAppliedAt ?? null,
       embedding_problem: null,
       embedding_solution: null,
     };
@@ -832,6 +864,15 @@ export class TraceStore {
         helpfulCount: r.q_helpful_count,
         lastRecalledAt: r.q_last_recalled_at ?? undefined,
         score: r.q_score,
+      },
+      provenance: {
+        origin: (((r as unknown as Record<string, unknown>).prov_origin as string) ?? "local") as "local" | "team" | "seed" | "global",
+        author: ((r as unknown as Record<string, unknown>).prov_author as string) ?? undefined,
+        verifiedBy: (r as unknown as Record<string, unknown>).prov_verified_by
+          ? JSON.parse((r as unknown as Record<string, unknown>).prov_verified_by as string) as string[]
+          : [],
+        appliedCount: ((r as unknown as Record<string, unknown>).prov_applied_count as number) ?? 0,
+        lastAppliedAt: ((r as unknown as Record<string, unknown>).prov_last_applied as number) ?? undefined,
       },
     };
   }

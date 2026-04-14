@@ -223,7 +223,7 @@ describe("ReasoningLayer", () => {
       const updatedWeights = layer.getWeights();
       // Weights should have shifted (even slightly) after feedback
       expect(updatedWeights).toBeDefined();
-      expect(updatedWeights.bm25 + updatedWeights.jaccard + updatedWeights.structural)
+      expect(updatedWeights.bm25 + updatedWeights.jaccard + updatedWeights.structural + updatedWeights.freshness)
         .toBeCloseTo(1.0, 5);
     });
   });

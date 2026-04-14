@@ -185,7 +185,7 @@ describe("TraceStore", () => {
     const trace = makeTrace();
     store.store(trace);
 
-    const signals = { fingerprint: 0, bm25: 0.8, jaccard: 0.3, structural: 0.2, cosine: 0 };
+    const signals = { fingerprint: 0, bm25: 0.8, jaccard: 0.3, structural: 0.2, cosine: 0, freshness: 0.5 };
     store.recordFeedback(trace.id, true, signals);
     store.recordFeedback(trace.id, true, signals);
     store.recordFeedback(trace.id, false, signals);

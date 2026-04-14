@@ -26,6 +26,8 @@ export interface WrapOptions {
   autoStore?: boolean;
   /** Max recall results to inject */
   recallLimit?: number;
+  /** Minimum recall score threshold. Default: 0.2 */
+  minScore?: number;
   /** Extract problem description from input */
   extractProblem?: (input: string) => string;
   /** Extract solution from output */
@@ -69,7 +71,7 @@ export function wrapAgent(
       const results = layer.recall({
         problem,
         limit: opts.recallLimit,
-        minScore: 0.2,
+        minScore: opts.minScore ?? 0.2,
       });
 
       if (results.length > 0) {
@@ -102,7 +104,7 @@ export function wrapAgent(
     if (opts.autoStore) {
       const solution = opts.extractSolution
         ? opts.extractSolution(output)
-        : { summary: output.slice(0, 500), steps: [] as SolutionStep[] };
+        : { summary: output.slice(0, layer.config.maxResponseChars ?? 500), steps: [] as SolutionStep[] };
 
       const trace = layer.storeTrace({
         problem: {

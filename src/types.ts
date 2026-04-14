@@ -15,6 +15,7 @@ export interface ReasoningTrace {
   solution: Solution;
   metadata: TraceMetadata;
   quality: QualityMetrics;
+  provenance: TraceProvenance;
 }
 
 /** The problem that was solved. */
@@ -83,6 +84,23 @@ export interface TraceMetadata {
   custom?: Record<string, unknown>;
 }
 
+/**
+ * Provenance metadata — tracks where a trace came from and how trusted it is.
+ * Enables transparency that cloud-only competitors cannot offer.
+ */
+export interface TraceProvenance {
+  /** Where this trace originated. */
+  origin: "local" | "team" | "seed" | "global";
+  /** Human or agent who created this trace (e.g., git user, agent name). */
+  author?: string;
+  /** Users/agents who confirmed this trace via feedback. */
+  verifiedBy?: string[];
+  /** How many times this trace was successfully applied (injected → positive outcome). */
+  appliedCount: number;
+  /** Timestamp of last successful application. */
+  lastAppliedAt?: number;
+}
+
 /** Tracks how useful a stored trace has been. */
 export interface QualityMetrics {
   /** How many times this trace was returned as a recall result */
@@ -116,6 +134,14 @@ export interface SimilaritySignals {
   structural: number;
   /** Cosine embedding similarity 0.0–1.0 (0 if no embeddings) */
   cosine: number;
+  /**
+   * Temporal freshness 0.0–1.0 (1.0 = just created, decays over time).
+   * Exponential decay with configurable half-life.
+   * Ref: Campos et al. (2016) "Yake! — Yet Another Keyword Extractor" —
+   *      temporal scoring for information freshness.
+   * Ref: Li & Croft (2003) — time-based language models for IR.
+   */
+  freshness: number;
 }
 
 // ============================================================================
@@ -168,6 +194,25 @@ export interface TraceBaseConfig {
   pruneThreshold?: number;
   /** Enable verbose logging (default: false) */
   verbose?: boolean;
+  /** Similarity ranking engine tuning. */
+  similarity?: SimilarityConfig;
+  /** Injection format tuning. */
+  injection?: InjectionFormatConfig;
+  /** Feature extraction and fingerprinting tuning. */
+  features?: FeatureConfig;
+  /**
+   * Max chars to store from LLM response summary in middleware traces.
+   * Higher = more context stored, more storage used.
+   * Default: 500
+   */
+  maxResponseChars?: number;
+  /**
+   * Jaccard similarity threshold for auto-feedback in middleware.
+   * When agent output overlaps with injected solution above this threshold,
+   * implicit positive feedback is recorded automatically.
+   * Default: 0.3
+   */
+  autoFeedbackThreshold?: number;
 }
 
 export interface EmbeddingConfig {
@@ -183,6 +228,148 @@ export interface EmbeddingProvider {
   embed(text: string): Promise<number[]>;
   embedBatch(texts: string[]): Promise<number[][]>;
   readonly dimensions: number;
+}
+
+// ============================================================================
+// Advanced Engine Configuration
+// ============================================================================
+
+/**
+ * Configuration for the similarity ranking engine.
+ * All thresholds are dynamically tunable — no hardcoded magic numbers.
+ */
+export interface SimilarityConfig {
+  /**
+   * Minimum cosine similarity to consider a candidate (0.0–1.0).
+   * Ref: Threshold selection for embedding-based retrieval varies by model;
+   *      text-embedding-3-small typically uses 0.3–0.4 (OpenAI, 2024).
+   * Default: 0.3
+   */
+  cosineThreshold?: number;
+  /**
+   * Quality score multiplier range [min, max].
+   * Traces with quality.score=0 get min multiplier, score=1 gets max.
+   * This implements a soft preference for battle-tested traces.
+   * Default: [0.85, 1.15]
+   */
+  qualityMultiplierRange?: [number, number];
+  /**
+   * Score threshold for "similar" vs "related" classification.
+   * Above this = "similar", below = "related", exact fingerprint = "exact".
+   * Default: 0.5
+   */
+  similarThreshold?: number;
+  /**
+   * Multiplier for candidate over-fetch in stage 1 retrieval.
+   * Higher = more candidates but slower re-ranking.
+   * Ref: Bruch et al. (2023) recommend 3–5x for two-stage retrieval.
+   * Default: 4
+   */
+  candidateMultiplier?: number;
+  /**
+   * Half-life for temporal freshness decay, in days.
+   * After this many days, a trace's freshness signal drops to 0.5.
+   * Ref: Exponential decay — f(t) = exp(-ln(2) * t / halfLife)
+   * Ref: Li & Croft (2003) — time-based language models for IR.
+   * Default: 30
+   */
+  freshnessHalfLifeDays?: number;
+  /**
+   * BM25 score normalization strategy.
+   *
+   * "query-level" (default): Normalize relative to batch maximum.
+   *   Ref: Zhai & Lafferty (2004). Standard in multi-signal fusion.
+   *   Pro: Works correctly regardless of corpus size.
+   *   Con: Top result always gets BM25=1.0 (relative, not absolute).
+   *
+   * "saturation": Absolute normalization via score / (score + k).
+   *   Ref: Robertson & Zaragoza (2009) "The Probabilistic Relevance Framework".
+   *   Pro: Absolute quality calibration for large corpora.
+   *   Con: Near-zero scores for small corpora (BM25 IDF collapses).
+   *
+   * Default: "query-level"
+   */
+  bm25Normalization?: "query-level" | "saturation";
+  /**
+   * Saturation parameter k (only used with "saturation" strategy).
+   * Lower k = faster saturation (more scores near 1.0).
+   * Higher k = wider spread of normalized scores.
+   * Default: 1.5
+   */
+  bm25SaturationK?: number;
+}
+
+/**
+ * Configuration for injection formatting.
+ * Controls how prior solutions are presented to the LLM.
+ */
+export interface InjectionFormatConfig {
+  /** Output format for injected prior solutions. Default: "xml" */
+  format?: "xml" | "json" | "markdown";
+  /** Max characters for solution summary. Default: 300 */
+  maxSummaryLength?: number;
+  /** Max characters for explanation. Default: 200 */
+  maxExplanationLength?: number;
+  /**
+   * Include quality metrics (recall count, helpful rate) in injection.
+   * Gives the LLM confidence signal about how proven a solution is.
+   * Default: false
+   */
+  includeMetrics?: boolean;
+}
+
+/**
+ * Configuration for feature extraction (domain-agnostic fingerprinting).
+ * Enables TraceBase to work beyond software engineering — insurance claims,
+ * support tickets, financial analysis, or any problem→solution domain.
+ */
+export interface FeatureConfig {
+  /** Weights for structural similarity scoring. All values are relative. */
+  structuralWeights?: StructuralWeights;
+  /**
+   * Custom feature extractors for domain-specific matching.
+   *
+   * Example — insurance claim type:
+   *   { name: "claimType", pattern: /water|fire|theft|liability/i, weight: 4 }
+   *
+   * Example — severity classification:
+   *   { name: "severity", fn: (text) => classifySeverity(text), weight: 3 }
+   */
+  extractors?: FeatureExtractor[];
+  /** Additional stop words to exclude from tokenization. */
+  additionalStopWords?: string[];
+  /** Additional error type patterns (merged with built-in). */
+  additionalErrorPatterns?: Array<{ pattern: RegExp; label: string }>;
+  /** Additional framework patterns (merged with built-in). */
+  additionalFrameworkPatterns?: Array<{ pattern: RegExp; label: string }>;
+}
+
+/** Weights for structural feature matching. All values are relative. */
+export interface StructuralWeights {
+  errorType?: number;      // default: 4
+  language?: number;       // default: 2
+  framework?: number;      // default: 2
+  fileExtension?: number;  // default: 1
+  keywords?: number;       // default: 3
+  /** Custom feature weights keyed by extractor name. */
+  [key: string]: number | undefined;
+}
+
+/**
+ * A pluggable feature extractor for domain-specific use cases.
+ *
+ * Extractors run during fingerprinting and produce features that
+ * are used in structural similarity matching with configurable weights.
+ */
+export interface FeatureExtractor {
+  /** Unique name for this extractor (used as feature key and weight key). */
+  name: string;
+  /** Regex pattern. First capture group used, or full match if no groups. */
+  pattern?: RegExp;
+  /** Custom extraction function. Takes precedence over pattern. */
+  fn?: (text: string, context?: Record<string, unknown>) => string | undefined;
+  /** Weight in structural similarity computation. Default: 2 */
+  weight?: number;
 }
 
 // ============================================================================
@@ -207,6 +394,7 @@ export interface AdaptiveWeightState {
   jaccard: BetaParams;
   structural: BetaParams;
   cosine: BetaParams;
+  freshness: BetaParams;
   updatedAt: number;
   feedbackCount: number;
 }
@@ -224,7 +412,29 @@ export type TraceBaseEvent =
   | { type: "quality:updated"; traceId: string; metrics: QualityMetrics }
   | { type: "weights:updated"; weights: Record<string, number> }
   | { type: "recall:injected"; traceId: string; score: number; matchType: string }
-  | { type: "recall:skipped"; reason: string; topScore?: number };
+  | { type: "recall:skipped"; reason: string; topScore?: number }
+  | { type: "tokens:tracked"; data: TokenUsageData };
+
+/**
+ * Token usage tracking data — emitted after each LLM call.
+ * Enables dashboard ROI metrics and benchmark comparisons.
+ */
+export interface TokenUsageData {
+  /** Tokens reported by the LLM API (if available) */
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  /** Estimated injection overhead (tokens added by TraceBase) */
+  injectionTokens: number;
+  /** Whether a prior solution was injected */
+  wasInjected: boolean;
+  /** Source of the injected trace */
+  injectedTraceId?: string;
+  /** LLM model used */
+  model?: string;
+  /** Response time in ms */
+  durationMs: number;
+}
 
 export type EventHandler = (event: TraceBaseEvent) => void;
 

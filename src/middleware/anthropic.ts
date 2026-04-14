@@ -1,5 +1,6 @@
 import type { ReasoningLayer } from "../core/engine.js";
 import type { RecallInjectConfig } from "../types.js";
+import { jaccardSimilarity } from "../core/fingerprint.js";
 import {
   performRecall,
   injectIntoAnthropicSystem,
@@ -127,9 +128,13 @@ function makeApplyHandler(
     const isFailure = response.type === "error" || response.stop_reason === "error";
     const totalTokens = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0);
 
-    safeStore(layer, problemText, responseText.slice(0, 500),
+    const maxChars = layer.config.maxResponseChars ?? 500;
+    safeStore(layer, problemText, responseText.slice(0, maxChars),
       isFailure ? "failure" : "success",
       params?.model, durationMs, totalTokens || undefined, injection);
+
+    // Emit token tracking event
+    emitTokenUsage(layer, injection, response.usage, params?.model, durationMs);
 
     return result;
   };
@@ -164,7 +169,8 @@ function wrapAnthropicStream(
     if (stored || !problemText || !content) return;
     stored = true;
     const totalTokens = inputTokens + outputTokens;
-    safeStore(layer, problemText, content.slice(0, 500),
+    const maxChars = layer.config.maxResponseChars ?? 500;
+    safeStore(layer, problemText, content.slice(0, maxChars),
       isError ? "failure" : "success",
       model, Date.now() - startTime, totalTokens || undefined, injection);
   };
@@ -236,6 +242,37 @@ function extractProblemText(
   return text || null;
 }
 
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+function emitTokenUsage(
+  layer: ReasoningLayer,
+  injection: InjectionResult | null,
+  usage: { input_tokens?: number; output_tokens?: number } | undefined,
+  model: string | undefined,
+  durationMs: number,
+): void {
+  try {
+    const total = (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0);
+    layer.notify({
+      type: "tokens:tracked",
+      data: {
+        promptTokens: usage?.input_tokens,
+        completionTokens: usage?.output_tokens,
+        totalTokens: total || undefined,
+        injectionTokens: injection ? estimateTokens(injection.text) : 0,
+        wasInjected: injection !== null && injection.sources.length > 0,
+        injectedTraceId: injection?.sources[0]?.traceId,
+        model,
+        durationMs,
+      },
+    });
+  } catch {
+    // Silent
+  }
+}
+
 function safeStore(
   layer: ReasoningLayer,
   problem: string,
@@ -265,6 +302,31 @@ function safeStore(
         custom: Object.keys(custom).length > 0 ? custom : undefined,
       },
     });
+
+    if (injection && injection.sources.length > 0 && outcome === "success") {
+      autoFeedback(layer, summary, injection);
+    }
+  } catch {
+    // Silent
+  }
+}
+
+function autoFeedback(
+  layer: ReasoningLayer,
+  agentOutput: string,
+  injection: InjectionResult,
+): void {
+  try {
+    const threshold = layer.config.autoFeedbackThreshold ?? 0.3;
+    const outputTokens = agentOutput.toLowerCase().split(/\s+/).filter(Boolean);
+    const injectionTokens = injection.text.toLowerCase().split(/\s+/).filter(Boolean);
+    const similarity = jaccardSimilarity(outputTokens, injectionTokens);
+
+    if (similarity >= threshold) {
+      for (const source of injection.sources) {
+        layer.feedback(source.traceId, true);
+      }
+    }
   } catch {
     // Silent
   }

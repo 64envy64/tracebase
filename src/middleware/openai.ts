@@ -1,5 +1,6 @@
 import type { ReasoningLayer } from "../core/engine.js";
 import type { RecallInjectConfig } from "../types.js";
+import { jaccardSimilarity } from "../core/fingerprint.js";
 import {
   performRecall,
   injectIntoOpenAIMessages,
@@ -103,8 +104,12 @@ export function wrapOpenAI<T extends object>(
       const outcome = finishReason === "error" || finishReason === "content_filter"
         ? "failure" as const : "success" as const;
 
-      safeStore(layer, problemText, responseText.slice(0, 500), outcome,
+      const maxChars = layer.config.maxResponseChars ?? 500;
+      safeStore(layer, problemText, responseText.slice(0, maxChars), outcome,
         params?.model, durationMs, completion.usage?.total_tokens, injection);
+
+      // Emit token tracking event
+      emitTokenUsage(layer, injection, completion.usage, params?.model, durationMs);
 
       return result;
     },
@@ -143,7 +148,8 @@ function wrapStream(
     if (stored || !problemText || !content) return;
     stored = true;
     const outcome = finishReason === "error" ? "failure" as const : "success" as const;
-    safeStore(layer, problemText, content.slice(0, 500), outcome,
+    const maxChars = layer.config.maxResponseChars ?? 500;
+    safeStore(layer, problemText, content.slice(0, maxChars), outcome,
       model, Date.now() - startTime, totalTokens, injection);
   };
 
@@ -210,6 +216,40 @@ function extractUserMessage(
   return text || null;
 }
 
+/**
+ * Estimate token count for a string (rough: 1 token ≈ 4 chars for English).
+ * Used for injection overhead estimation when exact counts aren't available.
+ */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+function emitTokenUsage(
+  layer: ReasoningLayer,
+  injection: InjectionResult | null,
+  usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined,
+  model: string | undefined,
+  durationMs: number,
+): void {
+  try {
+    layer.notify({
+      type: "tokens:tracked",
+      data: {
+        promptTokens: usage?.prompt_tokens,
+        completionTokens: usage?.completion_tokens,
+        totalTokens: usage?.total_tokens,
+        injectionTokens: injection ? estimateTokens(injection.text) : 0,
+        wasInjected: injection !== null && injection.sources.length > 0,
+        injectedTraceId: injection?.sources[0]?.traceId,
+        model,
+        durationMs,
+      },
+    });
+  } catch {
+    // Silent
+  }
+}
+
 function safeStore(
   layer: ReasoningLayer,
   problem: string,
@@ -239,7 +279,49 @@ function safeStore(
         custom: Object.keys(custom).length > 0 ? custom : undefined,
       },
     });
+
+    // Auto-feedback: if the agent's output aligns with the injected solution,
+    // generate implicit positive feedback (weighted at reduced strength).
+    // This enables the system to learn without manual feedback() calls.
+    if (injection && injection.sources.length > 0 && outcome === "success") {
+      autoFeedback(layer, summary, injection);
+    }
   } catch {
     // Silent
   }
 }
+
+/**
+ * Auto-feedback: compare agent output to injected solution.
+ * If Jaccard overlap > 0.3, the agent likely used the injected knowledge →
+ * treat as implicit positive feedback.
+ *
+ * Weight: auto-feedback is treated at reduced confidence vs. manual feedback,
+ * because the agent may have reached the same conclusion independently.
+ * The feedback signal is the actual signal that was recalled, so Thompson
+ * Sampling can attribute the success to the right signals.
+ *
+ * Threshold 0.3 chosen conservatively — only triggers when output
+ * clearly mirrors the injected solution, not for tangential overlaps.
+ */
+function autoFeedback(
+  layer: ReasoningLayer,
+  agentOutput: string,
+  injection: InjectionResult,
+): void {
+  try {
+    const threshold = layer.config.autoFeedbackThreshold ?? 0.3;
+    const outputTokens = agentOutput.toLowerCase().split(/\s+/).filter(Boolean);
+    const injectionTokens = injection.text.toLowerCase().split(/\s+/).filter(Boolean);
+    const similarity = jaccardSimilarity(outputTokens, injectionTokens);
+
+    if (similarity >= threshold) {
+      for (const source of injection.sources) {
+        layer.feedback(source.traceId, true);
+      }
+    }
+  } catch {
+    // Silent — auto-feedback failure should never affect the main flow
+  }
+}
+

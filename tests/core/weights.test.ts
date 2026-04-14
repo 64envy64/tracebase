@@ -55,8 +55,8 @@ describe("Adaptive Weights (Thompson Sampling)", () => {
     const state = loadWeightState(db);
     const weights = computeWeights(state);
 
-    // Weights must sum to 1.0
-    expect(weights.bm25 + weights.jaccard + weights.structural).toBeCloseTo(1.0);
+    // Weights must sum to 1.0 (bm25 + jaccard + structural + freshness, no cosine)
+    expect(weights.bm25 + weights.jaccard + weights.structural + weights.freshness).toBeCloseTo(1.0);
 
     // BM25 should have the highest weight (alpha/total = 5/10 = 0.5)
     expect(weights.bm25).toBeGreaterThan(weights.jaccard);
@@ -74,6 +74,7 @@ describe("Adaptive Weights (Thompson Sampling)", () => {
       jaccard: 0.9,
       structural: 0.1,
       cosine: 0,
+      freshness: 0.5,
     };
 
     for (let i = 0; i < 20; i++) {
@@ -99,6 +100,7 @@ describe("Adaptive Weights (Thompson Sampling)", () => {
       jaccard: 0.1,
       structural: 0.9,
       cosine: 0,
+      freshness: 0.5,
     };
 
     for (let i = 0; i < 20; i++) {
@@ -114,7 +116,7 @@ describe("Adaptive Weights (Thompson Sampling)", () => {
   it("tracks feedback count", () => {
     let state = loadWeightState(db);
     const signals: SimilaritySignals = {
-      fingerprint: 0, bm25: 0.5, jaccard: 0.3, structural: 0.2, cosine: 0,
+      fingerprint: 0, bm25: 0.5, jaccard: 0.3, structural: 0.2, cosine: 0, freshness: 0.5,
     };
 
     state = updateWeights(db, state, signals, true);
@@ -130,7 +132,7 @@ describe("Adaptive Weights (Thompson Sampling)", () => {
 
     // Equal positive and negative feedback with uniform signals
     const signals: SimilaritySignals = {
-      fingerprint: 0, bm25: 0.5, jaccard: 0.5, structural: 0.5, cosine: 0,
+      fingerprint: 0, bm25: 0.5, jaccard: 0.5, structural: 0.5, cosine: 0, freshness: 0.5,
     };
 
     for (let i = 0; i < 50; i++) {

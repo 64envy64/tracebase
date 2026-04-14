@@ -189,6 +189,58 @@ export async function startMcpServer(config: TraceBaseConfig): Promise<void> {
     },
   );
 
+  // --- Tool: explain ---
+  server.tool(
+    "explain",
+    "Show why recall ranked results the way it did — full signal breakdown with adaptive weights.",
+    {
+      problem: z.string().describe("Problem to explain ranking for"),
+      limit: z.number().optional().default(3).describe("Max results to explain"),
+    },
+    async (args) => {
+      const results = layer.recall({
+        problem: args.problem,
+        limit: args.limit,
+        minScore: 0.01,
+      });
+      const weights = layer.getWeights();
+
+      if (results.length === 0) {
+        return {
+          content: [{ type: "text" as const, text: "No matching traces found." }],
+        };
+      }
+
+      const lines: string[] = [
+        `**Adaptive Weights:** BM25=${weights.bm25.toFixed(3)} Jaccard=${weights.jaccard.toFixed(3)} Structural=${weights.structural.toFixed(3)} Cosine=${weights.cosine.toFixed(3)} Freshness=${weights.freshness.toFixed(3)}`,
+        "",
+      ];
+
+      for (const [i, r] of results.entries()) {
+        const s = r.signals;
+        lines.push(
+          `## ${i + 1}. Score: ${r.score.toFixed(4)} (${r.matchType})`,
+          `**Problem:** ${r.trace.problem.description.slice(0, 120)}`,
+          `**Solution:** ${r.trace.solution.summary.slice(0, 120)}`,
+          `**Signals:**`,
+          `  BM25: ${s.bm25.toFixed(3)} × ${weights.bm25.toFixed(3)} = ${(s.bm25 * weights.bm25).toFixed(3)}`,
+          `  Jaccard: ${s.jaccard.toFixed(3)} × ${weights.jaccard.toFixed(3)} = ${(s.jaccard * weights.jaccard).toFixed(3)}`,
+          `  Structural: ${s.structural.toFixed(3)} × ${weights.structural.toFixed(3)} = ${(s.structural * weights.structural).toFixed(3)}`,
+          `  Cosine: ${s.cosine.toFixed(3)} × ${weights.cosine.toFixed(3)} = ${(s.cosine * weights.cosine).toFixed(3)}`,
+          `  Freshness: ${s.freshness.toFixed(3)} × ${weights.freshness.toFixed(3)} = ${(s.freshness * weights.freshness).toFixed(3)}`,
+          `**Quality:** ${r.trace.quality.helpfulCount}/${r.trace.quality.recallCount} helpful (score: ${r.trace.quality.score.toFixed(2)})`,
+          r.trace.provenance?.author ? `**Provenance:** ${r.trace.provenance.origin}, by ${r.trace.provenance.author}` : "",
+          `ID: ${r.trace.id}`,
+          "---",
+        );
+      }
+
+      return {
+        content: [{ type: "text" as const, text: lines.filter(Boolean).join("\n") }],
+      };
+    },
+  );
+
   // --- Tool: stats ---
   server.tool(
     "stats",

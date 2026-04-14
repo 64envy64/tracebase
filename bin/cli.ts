@@ -11,6 +11,10 @@ import { exportCommand, importCommand } from "../src/cli/commands/transfer.js";
 import { pruneCommand } from "../src/cli/commands/prune.js";
 import { storeCommand } from "../src/cli/commands/store.js";
 import { setupCommand } from "../src/cli/commands/setup.js";
+import { explainCommand } from "../src/cli/commands/explain.js";
+import { seedCommand } from "../src/cli/commands/seed.js";
+import { syncCommand } from "../src/cli/commands/sync.js";
+import { isInitialized } from "../src/core/config.js";
 
 // Read version from package.json at runtime
 const pkgPath = join(__dirname, "..", "package.json");
@@ -37,5 +41,32 @@ program.addCommand(serveCommand);
 program.addCommand(exportCommand);
 program.addCommand(importCommand);
 program.addCommand(pruneCommand);
+program.addCommand(explainCommand);
+program.addCommand(seedCommand);
+program.addCommand(syncCommand);
 
-program.parse();
+// No args → guided quickstart instead of generic help
+if (process.argv.length <= 2) {
+  console.log();
+  console.log(pc.bold("TraceBase") + ` v${pkg.version}` + pc.dim(" — reasoning layer for AI agents"));
+  console.log();
+
+  if (!isInitialized()) {
+    console.log(pc.yellow("Not initialized.") + " Run this to get started:\n");
+    console.log(`  ${pc.cyan("npx tracebase setup")}    ${pc.dim("Auto-configure Claude Code, Cursor, Windsurf")}`);
+    console.log();
+  } else {
+    console.log(pc.green("Initialized.") + " Common commands:\n");
+    console.log(`  ${pc.cyan("tracebase recall")} ${pc.dim('"query"')}    ${pc.dim("Find past solutions")}`);
+    console.log(`  ${pc.cyan("tracebase store")} ${pc.dim("-d ... -s ...")}  ${pc.dim("Save a solution")}`);
+    console.log(`  ${pc.cyan("tracebase explain")} ${pc.dim('"query"')}  ${pc.dim("See ranking breakdown")}`);
+    console.log(`  ${pc.cyan("tracebase stats")}              ${pc.dim("Storage overview")}`);
+    console.log(`  ${pc.cyan("tracebase seed")} ${pc.dim("install ...")}   ${pc.dim("Install knowledge packs")}`);
+    console.log(`  ${pc.cyan("tracebase sync")} ${pc.dim("export/import")} ${pc.dim("Team knowledge sharing")}`);
+    console.log();
+    console.log(pc.dim("Run `tracebase --help` for all commands."));
+  }
+  console.log();
+} else {
+  program.parse();
+}
