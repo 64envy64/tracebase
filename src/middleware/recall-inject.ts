@@ -272,42 +272,43 @@ function formatSingle(
   }
 }
 
+/**
+ * Compressed directive injection format.
+ *
+ * Research-grade design based on:
+ * - C3oT (arxiv 2412.11664): shorter chains = more accurate
+ * - TALE (arxiv 2412.18547): token-budget-aware = 67% reduction
+ * - "Don't Overthink It" (arxiv 2505.17813): shorter thinking = +34.5% accuracy
+ * - Context Rot (Chroma 2025): less input = less attention dilution
+ *
+ * Key: imperative framing ("Fix:" not "A similar problem was solved"),
+ * compressed payload (under 100 tokens), positive constraints.
+ */
 function formatAsXml(
   r: RecallResult,
   cfg: Required<InjectionFormatConfig>,
   index?: number,
 ): string {
-  const tag = index !== undefined ? `prior_solution_${index}` : "prior_solution";
+  const tag = index !== undefined ? `prior_fix_${index}` : "prior_fix";
   const confidence = (r.score * 100).toFixed(0);
   const summary = escapeXml(r.trace.solution.summary.slice(0, cfg.maxSummaryLength));
-  const explanation = r.trace.solution.explanation
-    ? `\n${escapeXml(r.trace.solution.explanation.slice(0, cfg.maxExplanationLength))}`
-    : "";
 
   const meta = [
     r.trace.problem.language,
     r.trace.problem.framework,
     r.trace.problem.errorType,
   ].filter(Boolean).join(", ");
-  const metaLine = meta ? `\nContext: ${escapeXml(meta)}` : "";
+  const metaLine = meta ? ` context="${escapeXml(meta)}"` : "";
 
-  const metricsLine = cfg.includeMetrics
-    ? `\nVerified: ${r.trace.quality.helpfulCount}/${r.trace.quality.recallCount} helpful, score ${r.trace.quality.score.toFixed(2)}`
+  const metricsAttr = cfg.includeMetrics && r.trace.quality.helpfulCount > 0
+    ? ` verified="${r.trace.quality.helpfulCount}x"`
     : "";
 
-  const prov = r.trace.provenance;
-  const provenanceParts: string[] = [];
-  if (prov?.origin && prov.origin !== "local") provenanceParts.push(`origin: ${prov.origin}`);
-  if (prov?.author) provenanceParts.push(`by: ${escapeXml(prov.author)}`);
-  if (prov?.appliedCount && prov.appliedCount > 0) provenanceParts.push(`applied ${prov.appliedCount}x`);
-  const provenanceLine = provenanceParts.length > 0 ? `\nProvenance: ${provenanceParts.join(", ")}` : "";
-
   return (
-    `<${tag} confidence="${confidence}%" match="${r.matchType}">` +
-    `\nA similar problem was previously solved:` +
-    `\n${summary}${explanation}${metaLine}${metricsLine}${provenanceLine}` +
-    `\nApply this if relevant to the current problem.` +
-    `\n</${tag}>`
+    `<${tag} confidence="${confidence}%"${metricsAttr}${metaLine}>` +
+    `\n${summary}` +
+    `\n</${tag}>` +
+    `\nApply this fix directly. Do not re-derive.`
   );
 }
 

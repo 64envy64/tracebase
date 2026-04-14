@@ -70,6 +70,9 @@ Strategy:
 Use exactly one tool call per step. Be precise and efficient.
 When all tests pass, stop.`;
 
+// Augmented system prompt — imported from inject.ts for skip-to-fix strategy
+import { AUGMENTED_SYSTEM } from "./inject.js";
+
 /**
  * Run a full agentic trajectory for one fixture.
  *
@@ -82,6 +85,7 @@ export async function runAgenticTrajectory(
   language: "typescript" | "python",
   systemPrompt: string,
   maxSteps: number,
+  injection?: string | null,
 ): Promise<{ steps: AgentStep[]; success: boolean; testOutput: string; stopReason: string }> {
   const provider = model.startsWith("claude") ? "anthropic" : "azure";
   const messages: ConversationMessage[] = [];
@@ -90,8 +94,12 @@ export async function runAgenticTrajectory(
   let testOutput = "";
   let stopReason = "step_limit";
 
-  // Initial user message
-  messages.push({ role: "user", content: "The tests are failing. Fix the bug. Start by running the tests." });
+  // Build system prompt and initial message based on injection availability
+  // Key: injection goes in first user message (seen once),
+  // NOT in system prompt (would be repeated every step).
+  const parts = buildPromptParts(injection);
+  const actualSystem = parts.system;
+  messages.push({ role: "user", content: parts.initialMessage });
 
   for (let step = 1; step <= maxSteps; step++) {
     const startMs = Date.now();
@@ -99,13 +107,23 @@ export async function runAgenticTrajectory(
     let response: LLMResponse;
     try {
       if (provider === "anthropic") {
-        response = await callAnthropicWithTools(model, systemPrompt, messages);
+        response = await callAnthropicWithTools(model, actualSystem, messages);
       } else {
-        response = await callAzureWithTools(model, systemPrompt, messages);
+        response = await callAzureWithTools(model, actualSystem, messages);
       }
     } catch (err) {
-      stopReason = "error";
-      break;
+      // Retry once on transient errors
+      await new Promise((r) => setTimeout(r, 2000));
+      try {
+        if (provider === "anthropic") {
+          response = await callAnthropicWithTools(model, actualSystem, messages);
+        } else {
+          response = await callAzureWithTools(model, actualSystem, messages);
+        }
+      } catch {
+        stopReason = "error";
+        break;
+      }
     }
 
     // Extract tool call
@@ -192,9 +210,29 @@ export async function runAgenticTrajectory(
   return { steps, success, testOutput, stopReason };
 }
 
-export function buildSystemPrompt(injection?: string): string {
-  if (!injection) return BASE_SYSTEM;
-  return `${BASE_SYSTEM}\n\n${injection}`;
+/**
+ * Build system prompt and initial user message.
+ *
+ * Key insight from Context Rot research (Chroma 2025, arxiv 2510.05381):
+ * Injection in system prompt gets multiplied across every step.
+ * Instead, use AUGMENTED_SYSTEM (skip-to-fix strategy) and put the
+ * injection directive in the first user message (seen once, not repeated).
+ */
+export function buildPromptParts(injection?: string | null): {
+  system: string;
+  initialMessage: string;
+} {
+  if (!injection) {
+    return {
+      system: BASE_SYSTEM,
+      initialMessage: "The tests are failing. Fix the bug. Start by running the tests.",
+    };
+  }
+
+  return {
+    system: AUGMENTED_SYSTEM,
+    initialMessage: `${injection}\n\nThe tests are failing. Apply the known fix. Start by reading the source file.`,
+  };
 }
 
 // ============================================================================
@@ -226,36 +264,25 @@ function callAnthropicWithTools(
   const apiKey = ENV.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
 
-  // Convert messages to Anthropic format
-  const apiMessages = messages.map((m) => {
-    if (m.toolResultId) {
-      return {
-        role: "user",
-        content: [{ type: "tool_result", tool_use_id: m.toolResultId, content: String(m.content) }],
-      };
-    }
-    if (m.toolUseId && m.rawContent) {
-      return { role: "assistant", content: m.rawContent };
-    }
-    if (m.role === "assistant" && m.rawContent) {
-      return { role: "assistant", content: m.rawContent };
-    }
-    return { role: m.role, content: String(m.content) };
-  });
-
-  // Fix: re-map assistant messages that have raw content from previous responses
-  const fixedMessages = messages.map((m) => {
+  // Convert to Anthropic API format.
+  // Anthropic tool-use requires:
+  // - assistant messages with content: [{ type: "tool_use", id, name, input }]
+  // - user messages with content: [{ type: "tool_result", tool_use_id, content }]
+  const fixedMessages: Array<Record<string, unknown>> = [];
+  for (const m of messages) {
     if (m.role === "assistant" && m.content && typeof m.content !== "string") {
-      return { role: "assistant", content: m.content };
-    }
-    if (m.toolResultId) {
-      return {
+      // This is a raw Anthropic content array (from previous response)
+      fixedMessages.push({ role: "assistant", content: m.content });
+    } else if (m.toolResultId) {
+      // Tool result — must be wrapped in content array
+      fixedMessages.push({
         role: "user",
         content: [{ type: "tool_result", tool_use_id: m.toolResultId, content: String(m.content) }],
-      };
+      });
+    } else {
+      fixedMessages.push({ role: m.role, content: String(m.content) });
     }
-    return { role: m.role, content: String(m.content) };
-  });
+  }
 
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({

@@ -1,0 +1,433 @@
+{
+  "timestamp": 1776171357469,
+  "agentName": "gpt-5.3-chat",
+  "model": "gpt-5.3-chat",
+  "taskCount": 20,
+  "baseline": {
+    "totalTasks": 20,
+    "successCount": 4,
+    "successRate": 0.2,
+    "avgTokens": 536,
+    "medianTokens": 529,
+    "avgDurationMs": 14658.65,
+    "totalTokens": 10720
+  },
+  "augmented": {
+    "totalTasks": 20,
+    "successCount": 7,
+    "successRate": 0.35,
+    "avgTokens": 583.4,
+    "medianTokens": 584,
+    "avgDurationMs": 10209.25,
+    "totalTokens": 11668
+  },
+  "delta": {
+    "successRateDelta": 14.999999999999996,
+    "tokenSavingsPercent": -8.843283582089548,
+    "timeReductionPercent": 30.35340907928083,
+    "recallHitRate": 1,
+    "avgInjectionConfidence": 0.7743778748239082
+  },
+  "perTask": [
+    {
+      "taskId": "hard-django-reverse-fk-prefetch",
+      "baseline": {
+        "taskId": "hard-django-reverse-fk-prefetch",
+        "success": true,
+        "tokensUsed": 520,
+        "durationMs": 14220,
+        "agentOutput": "Problem:  \n`prefetch_related('comments')` only prefetches the reverse FK. Each `Comment.user` is still lazily loaded, so DRF accessing `comment.user` (because of `depth=2`) triggers an additional query per comment → N+1.\n\nFix: prefetch comments together with their users.\n\nUse a nested prefetch with `select_related('user')` (best) or `prefetch_related('comments__user')`.\n\nExample:\n\n```python\nfrom django.db.models import Prefetch\n\nclass ItemViewSet(ModelViewSet):\n    queryset = Item.objects.prefetch_related(\n        Prefetch(\n            'comments',\n            queryset=Comment.objects.select_related('user')\n        )\n    )\n```\n\nResulting queries:\n1. Items\n2. Comments (joined with User via `select_related`)\n\nAlternatively:\n\n```python\nqueryset = Item.objects.prefetch_related('comments__user')\n```\n\nThis reduces the endpoint to ~2–3 queries total and removes the N+1 on `User`.",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-django-reverse-fk-prefetch",
+        "success": true,
+        "tokensUsed": 599,
+        "durationMs": 10925,
+        "agentOutput": "Problem: Only `comments` is prefetched. Each `Comment.user` is still lazily loaded, causing an N+1 query per comment when the serializer (via `depth=2`) accesses `comment.user`.\n\nFix: Prefetch comments with their users using a `Prefetch` queryset that `select_related('user')`.\n\nExample:\n\n```python\nfrom django.db.models import Prefetch\nfrom .models import Comment\n\nclass ItemViewSet(ModelViewSet):\n    queryset = Item.objects.prefetch_related(\n        Prefetch(\n            'comments',\n            queryset=Comment.objects.select_related('user')\n        )\n    )\n```\n\nThis loads:\n- 1 query for `Item`\n- 1 query for `Comment` joined with `User`\n\nEliminates the N+1 from `Comment.user` and reduces total queries to ~2–3 regardless of item count.",
+        "recallHit": true,
+        "injectedScore": 0.7751162771978423
+      }
+    },
+    {
+      "taskId": "hard-react-context-rerender",
+      "baseline": {
+        "taskId": "hard-react-context-rerender",
+        "success": false,
+        "tokensUsed": 529,
+        "durationMs": 14426,
+        "agentOutput": "Problem:  \nA single `AuthContext` value contains both the `token` (changes every 5 minutes) and `user`. When the token refreshes, the provider value object changes, so React re-renders **all context consumers**, even those that only read `user.name`. `useMemo` cannot prevent this because the `token` dependency changes, producing a new object reference.\n\nFix:  \nSplit the context so frequently changing state (`token`) is isolated from stable state (`user`).\n\nExample:\n\n```tsx\ntype User = { name: string };\n\nconst UserContext = React.createContext<User | null>(null);\nconst TokenContext = React.createContext<string | null>(null);\n\nexport const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {\n  const [user, setUser] = React.useState<User | null>(null);\n  const [token, setToken] = React.useState<string | null>(null);\n\n  return (\n    <UserContext.Provider value={user}>\n      <TokenContext.Provider value={token}>\n        {children}\n      </TokenContext.Provider>\n    </",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-react-context-rerender",
+        "success": true,
+        "tokensUsed": 584,
+        "durationMs": 7492,
+        "agentOutput": "Problem:  \nThe AuthContext value includes both `token` (changes every 5 minutes) and `user`. When the token refreshes, the provider passes a new object reference. React context notifies all consumers whenever the provider value reference changes, so every component using `AuthContext` re-renders—even those only reading `user.name`. `useMemo` does not help because the value still changes when `token` changes.\n\nFix:  \nSeparate frequently-changing state from stable state so consumers subscribe only to what they need.\n\nExample:\n\n```ts\n// contexts\nexport const AuthTokenContext = createContext<string | null>(null);\nexport const UserContext = createContext<User | null>(null);\n\n// provider\nexport const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {\n  const [token, setToken] = useState<string | null>(null);\n  const [user, setUser] = useState<User | null>(null);\n\n  return (\n    <AuthTokenContext.Provider value={token}>\n      <UserContext.Provider value={user}>\n      ",
+        "recallHit": true,
+        "injectedScore": 0.8160348555148402
+      }
+    },
+    {
+      "taskId": "hard-node-stream-transform-ordering",
+      "baseline": {
+        "taskId": "hard-node-stream-transform-ordering",
+        "success": false,
+        "tokensUsed": 563,
+        "durationMs": 16072,
+        "agentOutput": "Problem:  \nEach chunk starts an async DB lookup and pushes the result when it finishes. Because the async operations complete at different times, `this.push()` is called out of order. Streams emit data in the order `push()` happens, not the order `_transform` received chunks. `highWaterMark` only increases buffering; it doesn’t enforce ordering.\n\nFix:  \nAttach a sequence number to each input, buffer completed results, and only push when the next expected index is ready.\n\nExample:\n\n```javascript\nconst { Transform } = require('stream');\n\nclass OrderedParallelTransform extends Transform {\n  constructor(opts = {}) {\n    super({ ...opts, objectMode: true });\n    this.nextIndex = 0;\n    this.writeIndex = 0;\n    this.buffer = new Map();\n  }\n\n  _transform(chunk, enc, cb) {\n    const index = this.writeIndex++;\n\n    processRecordAsync(chunk).then(result => {\n      this.buffer.set(index, result);\n\n      while (this.buffer.has(this.nextIndex)) {\n        this.push(this.buffer.get(this.nextIndex));\n",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-node-stream-transform-ordering",
+        "success": false,
+        "tokensUsed": 562,
+        "durationMs": 7887,
+        "agentOutput": "Problem:  \nYour Transform stream calls async work (DB lookups) and pushes results when each promise resolves. Because those operations complete at different times, `this.push()` happens out of order. Node streams preserve order only for synchronous transforms; once you emit after async completion, ordering is no longer guaranteed.\n\nFix:  \nAssign a sequence number to each input record and buffer completed results until the next expected sequence is ready, emitting them in order.\n\nExample:\n\n```javascript\nconst { Transform } = require('stream');\n\nclass OrderedParallelTransform extends Transform {\n  constructor(opts = {}) {\n    super({ ...opts, objectMode: true });\n    this.seq = 0;\n    this.nextToPush = 0;\n    this.results = new Map();\n  }\n\n  _transform(chunk, enc, cb) {\n    const id = this.seq++;\n\n    asyncProcess(chunk).then(result => {\n      this.results.set(id, result);\n\n      while (this.results.has(this.nextToPush)) {\n        this.push(this.results.get(this.nextToPush));\n        thi",
+        "recallHit": true,
+        "injectedScore": 0.7912557556156321
+      }
+    },
+    {
+      "taskId": "hard-prisma-transaction-deadlock",
+      "baseline": {
+        "taskId": "hard-prisma-transaction-deadlock",
+        "success": false,
+        "tokensUsed": 664,
+        "durationMs": 18420,
+        "agentOutput": "Problem  \nYou are doing a read‑modify‑write inside an interactive `$transaction` (read balance → check → update). When two requests run concurrently:\n\n1. Both transactions read the same balance.\n2. Both attempt to update.\n3. Prisma aborts one transaction due to a conflict/lock → `P2034 Transaction already closed`.\n4. Your retry logic reruns the whole transaction, causing the deduction logic to execute again.\n5. Because the check and update are separate steps, the balance can go negative.\n\nThis is a classic race condition plus non‑idempotent retry.\n\nFix  \nDo the deduction as a single atomic SQL update instead of a read‑then‑update transaction. Let the database enforce the balance check in the same statement.\n\nTypescript (Prisma):\n\n```ts\nconst result = await prisma.user.updateMany({\n  where: {\n    id: userId,\n    balance: { gte: amount },\n  },\n  data: {\n    balance: { decrement: amount },\n  },\n});\n\nif (result.count === 0) {\n  throw new Error(\"Insufficient balance\");\n}\n```\n\nWhy this works",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-prisma-transaction-deadlock",
+        "success": false,
+        "tokensUsed": 685,
+        "durationMs": 11595,
+        "agentOutput": "Problem:  \nTwo concurrent interactive `$transaction` blocks read the same balance, then both attempt to update it. One transaction gets aborted by the database, which Prisma surfaces as `P2034 (Transaction already closed)`. Retrying the whole transaction re‑executes the deduction logic, so the balance is deducted twice. The logic is not atomic and relies on a stale read.\n\nFix:  \nPerform the deduction as a single conditional atomic update instead of a read‑modify‑write transaction. Use a `WHERE` guard so the update only succeeds if sufficient balance remains.\n\nExample:\n\n```ts\nconst amount = 50;\n\nconst result = await prisma.user.updateMany({\n  where: {\n    id: userId,\n    balance: { gte: amount } // prevent negative balance\n  },\n  data: {\n    balance: { decrement: amount }\n  }\n});\n\nif (result.count === 0) {\n  throw new Error(\"Insufficient balance or concurrent update\");\n}\n```\n\nWhy this works:\n- The decrement happens in one SQL statement (atomic).\n- The `balance >= amount` guard prevents ",
+        "recallHit": true,
+        "injectedScore": 0.7258460869045544
+      }
+    },
+    {
+      "taskId": "hard-nextjs-rsc-serialization",
+      "baseline": {
+        "taskId": "hard-nextjs-rsc-serialization",
+        "success": false,
+        "tokensUsed": 574,
+        "durationMs": 13730,
+        "agentOutput": "Root cause: React Server Components (used by Next.js App Router) serialize props across the server→client boundary using a restricted structured format. Prototype objects like `Date` are not supported, so passing a `Date` instance triggers the “Only plain objects can be passed” error. Serialization strips the prototype, so methods like `toLocaleString` are lost.\n\nFix: pass a primitive representation (epoch milliseconds or ISO string) and reconstruct the `Date` in the Client Component. Epoch milliseconds is simplest and preserves the exact moment in time.\n\nServer Component:\n```ts\n// server component\nconst data = await getData();\n\nreturn <ClientComponent dateMs={data.createdAt.getTime()} />;\n```\n\nClient Component:\n```ts\n'use client';\n\ntype Props = {\n  dateMs: number;\n};\n\nexport default function ClientComponent({ dateMs }: Props) {\n  const date = new Date(dateMs);\n\n  const formatted = new Intl.DateTimeFormat(undefined, {\n    dateStyle: 'medium',\n    timeStyle: 'short',\n  }).format(date);\n",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-nextjs-rsc-serialization",
+        "success": true,
+        "tokensUsed": 742,
+        "durationMs": 15329,
+        "agentOutput": "Problem: React Server Components in Next.js only allow **plain JSON‑serializable data** across the server→client boundary. `Date` is a class instance, so React’s RSC serializer rejects it, producing:\n\n“Only plain objects can be passed to Client Components…”\n\nWhen you `JSON.stringify` the object, the `Date` becomes a string and loses its prototype, so client code no longer has `Date` methods.\n\nSolution: pass a **primitive representation** (timestamp or ISO string) from the Server Component and **reconstruct the Date on the client**.\n\nServer component:\n```ts\n// Server Component\nconst data = await getData();\n\nreturn <ClientComponent createdAt={data.createdAt.getTime()} />;\n```\n\nClient component:\n```ts\n'use client';\n\ntype Props = {\n  createdAt: number;\n};\n\nexport default function ClientComponent({ createdAt }: Props) {\n  const date = new Date(createdAt);\n\n  return (\n    <time>\n      {new Intl.DateTimeFormat(undefined, {\n        dateStyle: 'medium',\n        timeStyle: 'short',\n      }).form",
+        "recallHit": true,
+        "injectedScore": 0.8017659489896212
+      }
+    },
+    {
+      "taskId": "hard-python-asyncio-deadlock",
+      "baseline": {
+        "taskId": "hard-python-asyncio-deadlock",
+        "success": false,
+        "tokensUsed": 506,
+        "durationMs": 16612,
+        "agentOutput": "Problem:  \nFastAPI route handlers run inside an active asyncio event loop (via Uvicorn/AnyIO). The third‑party function internally calls `asyncio.run()`, which tries to create and run a new event loop. Calling it from inside an already running loop blocks the current loop, causing the request to hang (deadlock).\n\nRoot cause:  \nNested event loop execution (`asyncio.run()` inside an async FastAPI context).\n\nFix:  \nRun the library’s sync wrapper in a separate thread so its `asyncio.run()` executes outside the FastAPI event loop.\n\nExample:\n\n```python\nfrom fastapi import FastAPI\nfrom fastapi.concurrency import run_in_threadpool\n\napp = FastAPI()\n\n@app.get(\"/endpoint\")\nasync def endpoint():\n    result = await run_in_threadpool(third_party_sync_function)\n    return result\n```\n\nAlternative (if you control the code): remove `asyncio.run()` and directly `await` the coroutine.\n\n```python\n# bad\ndef wrapper():\n    return asyncio.run(inner_async())\n\n# good\nasync def wrapper():\n    return await inner_",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-python-asyncio-deadlock",
+        "success": false,
+        "tokensUsed": 496,
+        "durationMs": 7006,
+        "agentOutput": "Problem:  \nFastAPI route handlers run inside an already-running asyncio event loop (ASGI server like Uvicorn). The third‑party function internally calls `asyncio.run()`, which tries to create and run a new event loop in the same thread. When invoked from the async route, this conflicts with the existing loop and results in a hang/deadlock.\n\nFix:  \nRun the third‑party sync wrapper in a separate thread so its `asyncio.run()` executes in its own thread and event loop.\n\nExample:\n\n```python\nfrom fastapi import FastAPI\nimport asyncio\nimport third_party_lib\n\napp = FastAPI()\n\n@app.get(\"/endpoint\")\nasync def endpoint():\n    result = await asyncio.to_thread(third_party_lib.sync_function)\n    return {\"result\": result}\n```\n\nEquivalent alternative:\n\n```python\nloop = asyncio.get_running_loop()\nresult = await loop.run_in_executor(None, third_party_lib.sync_function)\n```\n\nThis isolates the library’s `asyncio.run()` in a worker thread, preventing the event loop conflict and eliminating the deadlock.",
+        "recallHit": true,
+        "injectedScore": 0.8573643509563695
+      }
+    },
+    {
+      "taskId": "hard-typescript-conditional-types",
+      "baseline": {
+        "taskId": "hard-typescript-conditional-types",
+        "success": false,
+        "tokensUsed": 614,
+        "durationMs": 17883,
+        "agentOutput": "Problem:  \nThe utility only checks `null extends T[K]`. Optional properties (`name?: string`) are typed as `string | undefined`, not `string | null`, so the condition fails and those keys resolve to `never`.\n\nFix:  \nCheck for both `undefined` (optional) and `null`, and remove the optional modifier during mapping.\n\n```ts\ntype NullableKeys<T> = {\n  [K in keyof T]-?: undefined extends T[K]\n    ? K\n    : null extends T[K]\n    ? K\n    : never\n}[keyof T];\n```\n\nAlternative (more general: any `null | undefined` presence):\n\n```ts\ntype NullableKeys<T> = {\n  [K in keyof T]-?: [T[K]] extends [NonNullable<T[K]>] ? never : K\n}[keyof T];\n```",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-typescript-conditional-types",
+        "success": false,
+        "tokensUsed": 464,
+        "durationMs": 5013,
+        "agentOutput": "Problem:  \n`NullableKeys<T>` only checks `null extends T[K]`. Optional properties (`name?: string`) are typed as `string | undefined`, so they fail the `null` check and are excluded, producing `never`.\n\nFix: include checks for both `null` and `undefined`.\n\n```ts\ntype NullableKeys<T> = {\n  [K in keyof T]-?: null extends T[K]\n    ? K\n    : undefined extends T[K]\n      ? K\n      : never\n}[keyof T];\n```\n\nThis captures:\n- nullable properties (`string | null`)\n- optional properties (`string | undefined`)\n- properties with both (`string | null | undefined`).",
+        "recallHit": true,
+        "injectedScore": 0.8398227159621448
+      }
+    },
+    {
+      "taskId": "hard-k8s-pod-eviction",
+      "baseline": {
+        "taskId": "hard-k8s-pod-eviction",
+        "success": false,
+        "tokensUsed": 579,
+        "durationMs": 13639,
+        "agentOutput": "Problem:  \nThe pod memory limit (2 Gi) is enforced by the cgroup, but the JVM heap (-Xmx1536m ≈ 1.5 Gi) does not include other JVM memory regions. Metaspace, thread stacks, direct buffers, JIT code cache, and GC structures push total process memory to ~1.8 Gi, exceeding the container limit and causing the kernel OOM killer to terminate the pod.\n\nFix:  \nLeave headroom for non‑heap memory or make the JVM container-aware and size heap as a fraction of the limit.\n\nTypical solutions:\n\nOption 1 (simplest):\nReduce heap size.\nExample:\n-XX:+UseContainerSupport  \n-Xmx1200m\n\nOption 2 (recommended for containers):\nLet JVM size heap based on container memory.\n\nExample:\n-XX:+UseContainerSupport  \n-XX:MaxRAMPercentage=70  \n-XX:InitialRAMPercentage=70\n\nOption 3 (explicit caps if direct buffers are large):\n-Xmx1200m  \n-XX:MaxMetaspaceSize=256m  \n-XX:MaxDirectMemorySize=256m\n\nRule of thumb: keep JVM heap ≤ ~60–70% of the container memory limit. For a 2 Gi pod, heap around 1.2–1.3 Gi avoids OOMKills.",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-k8s-pod-eviction",
+        "success": false,
+        "tokensUsed": 543,
+        "durationMs": 12102,
+        "agentOutput": "Problem:  \n`-Xmx1536m` only limits the Java heap. The JVM allocates additional non‑heap memory (metaspace, thread stacks, code cache, direct buffers, GC structures). In a container with a 2 Gi limit, these allocations push total RSS to ~1.8–2 Gi, causing the cgroup to exceed the limit and Kubernetes OOMKills the pod.\n\nFix:  \nSize the heap relative to container memory so non‑heap space is reserved.\n\nUse container‑aware sizing instead of fixed `-Xmx`:\n\n- Remove `-Xmx1536m`\n- Set:\n\n`-XX:MaxRAMPercentage=70`\n\nExample:\n\n`JAVA_OPTS=\"-XX:MaxRAMPercentage=70 -XX:InitialRAMPercentage=70\"`\n\nThis limits heap to ~1.4 Gi in a 2 Gi container, leaving headroom for metaspace, thread stacks, direct buffers, and JVM native memory, preventing OOMKilled.",
+        "recallHit": true,
+        "injectedScore": 0.7385764287241045
+      }
+    },
+    {
+      "taskId": "hard-graphql-dataloader-scope",
+      "baseline": {
+        "taskId": "hard-graphql-dataloader-scope",
+        "success": false,
+        "tokensUsed": 503,
+        "durationMs": 9628,
+        "agentOutput": "Problem:  \nA single DataLoader instance is created at server startup and shared across all requests. DataLoader caches results per instance, so cached records loaded during User A’s request are reused during User B’s request. Because authorization is request‑scoped but the cache is global, private data leaks between sessions.\n\nFix:  \nCreate a new DataLoader instance per request (per GraphQL context) so the cache is isolated to that user/request.\n\nExample:\n\n```ts\n// loaders.ts\nimport DataLoader from 'dataloader';\nimport { getUsersByIds } from './db';\n\nexport function createLoaders(userId: string) {\n  return {\n    userLoader: new DataLoader(async (ids: readonly string[]) => {\n      const users = await getUsersByIds(ids, userId); // enforce auth\n      const map = new Map(users.map(u => [u.id, u]));\n      return ids.map(id => map.get(id) || null);\n    })\n  };\n}\n```\n\n```ts\n// express + graphql setup\nimport express from 'express';\nimport { createLoaders } from './loaders';\n\napp.use('/graphql",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-graphql-dataloader-scope",
+        "success": false,
+        "tokensUsed": 622,
+        "durationMs": 9881,
+        "agentOutput": "Problem:  \nA single DataLoader instance is created at server startup and shared across all requests. DataLoader caches results by key within the instance, so requests from different users reuse cached values. When User A loads an entity, the cached result can be returned to User B even if B is not authorized.\n\nFix:  \nInstantiate DataLoader per request and attach it to the GraphQL context so each request has an isolated cache.\n\nTypescript example (Express + GraphQL):\n\n```ts\n// loaders.ts\nimport DataLoader from 'dataloader';\nimport { getUsersByIds } from './db';\n\nexport function createLoaders(user: AuthUser) {\n  return {\n    userLoader: new DataLoader(async (ids: readonly string[]) => {\n      const users = await getUsersByIds(ids, user); // apply auth here if needed\n      const map = new Map(users.map(u => [u.id, u]));\n      return ids.map(id => map.get(id) || null);\n    })\n  };\n}\n```\n\n```ts\n// server.ts\nimport express from 'express';\nimport { createLoaders } from './loaders';\nimport { g",
+        "recallHit": true,
+        "injectedScore": 0.7704510226175844
+      }
+    },
+    {
+      "taskId": "hard-rust-lifetime-closure",
+      "baseline": {
+        "taskId": "hard-rust-lifetime-closure",
+        "success": false,
+        "tokensUsed": 392,
+        "durationMs": 9827,
+        "agentOutput": "Problem: `thread::spawn` requires the closure to be `'static` because the thread may outlive the current function. Your closure borrows `config`, which is owned by the stack frame of the current function, so the borrow checker rejects it. Using `move` transfers ownership of `config`, preventing further use in the caller.\n\nFix: Wrap `config` in `Arc` so multiple threads can own it safely. Clone the `Arc` for each spawned thread.\n\nRead‑only config:\n```rust\nuse std::sync::Arc;\nuse std::thread;\n\nlet config = Arc::new(config);\n\nfor _ in 0..n {\n    let cfg = Arc::clone(&config);\n    thread::spawn(move || {\n        use_config(&cfg);\n    });\n}\n\n// original thread can still use config\nuse_config(&config);\n```\n\nIf threads must mutate it:\n```rust\nuse std::sync::{Arc, Mutex};\n\nlet config = Arc::new(Mutex::new(config));\n\nlet cfg = Arc::clone(&config);\nthread::spawn(move || {\n    let mut c = cfg.lock().unwrap();\n    modify(&mut c);\n});\n```",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-rust-lifetime-closure",
+        "success": false,
+        "tokensUsed": 503,
+        "durationMs": 9921,
+        "agentOutput": "Problem: `thread::spawn` requires the closure to be `'static`. Borrowing `&config` ties the closure to the current stack frame, so the borrow checker rejects it because the thread may outlive the function. Using `move` transfers ownership of `config`, preventing further use in the caller.\n\nFix: Wrap `config` in `Arc` and clone the `Arc` for each spawned thread.\n\nExample:\n\n```\nuse std::sync::Arc;\nuse std::thread;\n\nlet config = Arc::new(config);\n\nfor _ in 0..n {\n    let cfg = Arc::clone(&config);\n    thread::spawn(move || {\n        // use cfg\n    });\n}\n\n// config still usable via Arc\n```\n\nIf threads must mutate it:\n\n```\nuse std::sync::{Arc, Mutex};\n\nlet config = Arc::new(Mutex::new(config));\n\nlet cfg = Arc::clone(&config);\nthread::spawn(move || {\n    let mut c = cfg.lock().unwrap();\n    // modify c\n});\n```",
+        "recallHit": true,
+        "injectedScore": 0.7577474328245082
+      }
+    },
+    {
+      "taskId": "hard-webpack-circular-chunk",
+      "baseline": {
+        "taskId": "hard-webpack-circular-chunk",
+        "success": false,
+        "tokensUsed": 541,
+        "durationMs": 15051,
+        "agentOutput": "Problem:  \nThe barrel file re‑exports symbols from both lazy route modules. Each route imports from the barrel, so at build time Webpack sees:\n\nrouteA → barrel → routeB  \nrouteB → barrel → routeA\n\nBecause both routes are lazy entry points, Webpack creates two async chunks that depend on each other. This produces a circular chunk graph, so when one chunk loads it tries to load the other, which may already be in a pending/failed state, leading to ChunkLoadError (“Loading chunk X failed”). `splitChunks` cannot resolve it because the cycle originates from the module graph itself.\n\nFix:  \nRemove the cross‑route barrel dependency. Ensure lazy routes do not import each other (even indirectly).\n\nTypical fixes:\n\n1) Move shared code into a neutral module:\n- create `shared.ts`\n- both routes import from `shared.ts`\n- barrel does not re-export route modules.\n\n2) Do not re-export route modules from the same barrel used by those routes.\n\nBad:\nindex.ts\nexport * from './routeA'\nexport * from './routeB'",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-webpack-circular-chunk",
+        "success": false,
+        "tokensUsed": 591,
+        "durationMs": 9109,
+        "agentOutput": "Problem:  \nThe shared barrel file re-exports symbols from both lazy route modules, while those route modules import from the barrel. This creates a circular dependency graph:\n\nrouteA → barrel → routeB  \nrouteB → barrel → routeA\n\nWebpack must place each lazy route in its own async chunk, but the barrel forces each chunk to reference the other at evaluation time. The runtime then tries to load the other chunk while evaluating the first, producing circular async chunk loading and `ChunkLoadError: Loading chunk X failed`.\n\n`splitChunks` cannot fix this because the cycle exists at the module graph level.\n\nFix:  \nBreak the barrel-induced cycle. Do not re-export lazy route modules from a shared barrel that they also import.\n\nReplace barrel imports with direct module imports or move shared code to a true shared module.\n\nExample:\n\nBefore (problem):\n// features/index.ts\nexport * from './routeA';\nexport * from './routeB';\nexport * from './shared';\n\n// routeA.ts\nimport { sharedFn } from '../featur",
+        "recallHit": true,
+        "injectedScore": 0.7894831158303093
+      }
+    },
+    {
+      "taskId": "hard-postgres-partial-index",
+      "baseline": {
+        "taskId": "hard-postgres-partial-index",
+        "success": true,
+        "tokensUsed": 742,
+        "durationMs": 20418,
+        "agentOutput": "Problem: Planner misestimates selectivity. PostgreSQL assumes column independence and doesn’t understand that `status='pending'` is extremely rare. With default stats it estimates too many rows for `(status, created_at)`, so it chooses a sequential scan despite the B‑tree index.\n\nFix (most reliable): create a partial index only for pending rows.\n\nsql\nCREATE INDEX idx_orders_pending_created_at\nON orders (created_at)\nWHERE status = 'pending';\n\nThis index is tiny (~0.1% of table) and matches the query predicate, so the planner will use an index scan.\n\nOptional improvement (helps estimates but less decisive):\n\nsql\nCREATE STATISTICS orders_status_created_at_stats\nON status, created_at\nFROM orders;\nANALYZE orders;\n\nBut the partial index is the practical fix for this query.",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-postgres-partial-index",
+        "success": true,
+        "tokensUsed": 468,
+        "durationMs": 6058,
+        "agentOutput": "Problem:  \nThe composite B-tree index (status, created_at) indexes all 50M rows. Because most rows share similar created_at distributions and the planner estimates low overall selectivity for the combined predicate, it concludes an index scan would still touch many pages and chooses a sequential scan.\n\nFix:  \nCreate a partial index that only includes pending rows so the index is small and highly selective.\n\nSQL:\nCREATE INDEX idx_orders_pending_created_at\nON orders (created_at)\nWHERE status = 'pending';\n\nThen update statistics:\nANALYZE orders;\n\nResult:  \nThe planner will use this small partial index to quickly filter recent pending orders instead of scanning the full table.",
+        "recallHit": true,
+        "injectedScore": 0.8157789265994865
+      }
+    },
+    {
+      "taskId": "hard-docker-multistage-cache",
+      "baseline": {
+        "taskId": "hard-docker-multistage-cache",
+        "success": true,
+        "tokensUsed": 308,
+        "durationMs": 10370,
+        "agentOutput": "Problem:  \nThe Dockerfile copies the entire source tree before running `npm ci`. Any change to any file invalidates that layer, so Docker cache is busted and dependencies reinstall every build.\n\nFix:  \nCopy only dependency manifests first, install deps, then copy the rest of the source.\n\nExample:\n\n```\nFROM node:20 AS build\nWORKDIR /app\n\n# Copy only dependency files first\nCOPY package.json package-lock.json ./\n\n# Install dependencies (cached unless these files change)\nRUN npm ci\n\n# Copy the rest of the source\nCOPY . .\n\nRUN npm run build\n```\n\nOptional improvement: ensure `.dockerignore` excludes `node_modules`, `.git`, build output, etc., to prevent unnecessary cache invalidation and context size increases.",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-docker-multistage-cache",
+        "success": true,
+        "tokensUsed": 485,
+        "durationMs": 9764,
+        "agentOutput": "Problem:  \nThe Dockerfile copies the entire source (`COPY . .`) before running `npm ci`. Any change to any file invalidates that layer, so Docker reruns `npm ci` every build, bypassing cache.\n\nFix:  \nCopy dependency manifests first, run install, then copy the rest of the source.\n\nExample Dockerfile pattern:\n\n```\nFROM node:20 AS build\nWORKDIR /app\n\n# copy dependency manifests first\nCOPY package.json package-lock.json ./\n\n# install deps (cached unless manifests change)\nRUN npm ci\n\n# now copy source code\nCOPY . .\n\nRUN npm run build\n```\n\nOptional improvements:\n- Add `.dockerignore` with `node_modules`, `.git`, `dist` to avoid unnecessary cache invalidation.\n- In multi-stage builds, keep dependency install in its own cached layer before copying app code.\n\nResult: `npm ci` only reruns when `package.json` or `package-lock.json` changes, not on normal source edits.",
+        "recallHit": true,
+        "injectedScore": 0.7835752295990115
+      }
+    },
+    {
+      "taskId": "hard-celery-task-visibility",
+      "baseline": {
+        "taskId": "hard-celery-task-visibility",
+        "success": false,
+        "tokensUsed": 602,
+        "durationMs": 20734,
+        "agentOutput": "Root cause: Redis broker’s `visibility_timeout` is shorter than the task runtime.  \nCelery’s Redis transport implements a visibility timeout using `BRPOPLPUSH`. When a worker reserves a task, it is moved to an “unacked” list. If the worker does not ACK before `visibility_timeout`, Redis assumes the worker died and requeues the task. For tasks running longer than 3600s, the message becomes visible again and another worker starts it, creating duplicates. If `acks_late=False`, the task is ACKed immediately and a worker restart loses it.\n\nFix: keep `acks_late=True` and set the Redis visibility timeout higher than the maximum possible task runtime (or effectively infinite).\n\nExample:\n\n```python\napp = Celery(\n    \"proj\",\n    broker=\"redis://...\",\n    broker_transport_options={\n        \"visibility_timeout\": 6 * 3600  # > longest task runtime\n    },\n)\n\napp.conf.task_acks_late = True\napp.conf.worker_prefetch_multiplier = 1\n```\n\nAll workers must use the same `visibility_timeout`.  \nAlternatively",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-celery-task-visibility",
+        "success": true,
+        "tokensUsed": 602,
+        "durationMs": 13163,
+        "agentOutput": "Problem  \nRedis broker uses `visibility_timeout` as a lease on the message. With `acks_late=True`, Celery does not ack until the task finishes. If the task runs longer than `visibility_timeout` (3600s), Redis makes the message visible again. Another worker consumes it while the first worker is still running it, producing duplicate execution. If you switch to early ack, the task is lost on worker restart because it was already acknowledged.\n\nFix  \nSet the visibility timeout longer than the maximum task runtime and keep late acknowledgements.\n\nExample:\n\n```\n# celery config\ntask_acks_late = True\ntask_reject_on_worker_lost = True\n\nbroker_transport_options = {\n    \"visibility_timeout\": 86400  # > max task duration\n}\n```\n\nOptional stability improvements for long tasks:\n\n```\nworker_prefetch_multiplier = 1\ntask_acks_on_failure_or_timeout = True\n```\n\nIf tasks may exceed any fixed timeout, periodically extend the visibility timeout (heartbeat pattern) or split the task into smaller steps.",
+        "recallHit": true,
+        "injectedScore": 0.8282305682226547
+      }
+    },
+    {
+      "taskId": "hard-react-suspense-waterfall",
+      "baseline": {
+        "taskId": "hard-react-suspense-waterfall",
+        "success": false,
+        "tokensUsed": 521,
+        "durationMs": 14655,
+        "agentOutput": "Problem  \nWith Suspense, rendering stops at the first component that throws a promise. If Component A calls `useSuspenseQuery` and suspends, React never reaches Component B in that render pass. Since TanStack Query starts the fetch when the hook runs, B’s request doesn’t start until A resolves and React retries the render. This creates a sequential waterfall.\n\nFix  \nStart the queries in the same render pass so they initiate together.\n\nPreferred fix (TanStack Query): use `useSuspenseQueries`.\n\n```ts\nimport { useSuspenseQueries } from '@tanstack/react-query';\n\nfunction Parent() {\n  const results = useSuspenseQueries({\n    queries: [\n      { queryKey: ['a'], queryFn: fetchA },\n      { queryKey: ['b'], queryFn: fetchB },\n    ],\n  });\n\n  const [a, b] = results;\n\n  return (\n    <>\n      <ComponentA data={a.data} />\n      <ComponentB data={b.data} />\n    </>\n  );\n}\n```\n\nAlternative fixes\n- Prefetch both queries before render:\n\n```ts\nqueryClient.prefetchQuery({ queryKey: ['a'], queryFn: fetchA",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-react-suspense-waterfall",
+        "success": false,
+        "tokensUsed": 587,
+        "durationMs": 9596,
+        "agentOutput": "Problem:  \nEach component calls useSuspenseQuery during render. When Component A suspends, React stops rendering the rest of the subtree under that Suspense boundary. Component B never renders in that pass, so its query never starts. After A resolves, React retries the render and only then B starts fetching. This creates a waterfall.\n\nFix:  \nStart the queries before any component suspends so they run in parallel. Hoist the queries to a parent and trigger them together (or prefetch them), then let children read from the cache.\n\nExample with TanStack Query:\n\nParent:\n```ts\nconst Parent = () => {\n  useSuspenseQuery(queryAOptions());\n  useSuspenseQuery(queryBOptions());\n\n  return (\n    <>\n      <ComponentA />\n      <ComponentB />\n    </>\n  );\n};\n```\n\nChildren read the already-started queries:\n```ts\nfunction ComponentA() {\n  const { data } = useSuspenseQuery(queryAOptions());\n  return <div>{data}</div>;\n}\n\nfunction ComponentB() {\n  const { data } = useSuspenseQuery(queryBOptions());\n  return",
+        "recallHit": true,
+        "injectedScore": 0.7686002349969498
+      }
+    },
+    {
+      "taskId": "hard-python-metaclass-registry",
+      "baseline": {
+        "taskId": "hard-python-metaclass-registry",
+        "success": false,
+        "tokensUsed": 438,
+        "durationMs": 14151,
+        "agentOutput": "Problem:  \n`__init_subclass__` only runs when the module defining the subclass is imported. Python does not automatically import submodules inside a package, so plugin files like `app/plugins/auth/handler.py` are never imported. As a result, their classes never execute `__init_subclass__`, so they are not registered. `importlib.import_module(\"app.plugins.*\")` fails because wildcard imports are not supported by `import_module`.\n\nFix:  \nExplicitly import every module in the plugin package tree before using the registry. Use `pkgutil.walk_packages` to recursively discover and import all submodules.\n\nExample:\n\n```python\nimport pkgutil\nimport importlib\nimport app.plugins\n\ndef load_plugins():\n    for mod in pkgutil.walk_packages(app.plugins.__path__, app.plugins.__name__ + \".\"):\n        importlib.import_module(mod.name)\n```\n\nCall `load_plugins()` during startup before accessing the registry. This imports every module under `app.plugins` (including nested packages), triggering `__init_subclas",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-python-metaclass-registry",
+        "success": false,
+        "tokensUsed": 467,
+        "durationMs": 5204,
+        "agentOutput": "Problem: `__init_subclass__` only runs when the module defining the subclass is imported. Python does not automatically import submodules in a package, so plugin modules like `app.plugins.auth.handler` are never imported, and their classes never register.\n\nFix: Explicitly import every module in the plugin package tree at startup so the subclass hooks execute.\n\nExample:\n\n```python\nimport pkgutil\nimport importlib\nimport app.plugins\n\ndef load_plugins():\n    for _, modname, _ in pkgutil.walk_packages(\n        app.plugins.__path__, app.plugins.__name__ + \".\"\n    ):\n        importlib.import_module(modname)\n```\n\nCall `load_plugins()` during app initialization before accessing the registry. This recursively imports all submodules and triggers `__init_subclass__`, registering every plugin class.",
+        "recallHit": true,
+        "injectedScore": 0.7741162118205239
+      }
+    },
+    {
+      "taskId": "hard-go-goroutine-leak",
+      "baseline": {
+        "taskId": "hard-go-goroutine-leak",
+        "success": true,
+        "tokensUsed": 517,
+        "durationMs": 14752,
+        "agentOutput": "Problem:  \nThe request handler starts a goroutine that produces values into a channel, while another goroutine (the request-scoped consumer) reads from it. When the request context is cancelled (client disconnect), the consumer exits via `ctx.Done()`. The producer goroutine keeps running and eventually blocks on `ch <- v` because no one is reading anymore, causing a leaked goroutine.\n\nFix:  \nMake the producer context-aware and stop sending when the request context is cancelled. Guard every send with `select` on `ctx.Done()` or close the channel when the producer exits.\n\nExample fix:\n\n```\nfunc producer(ctx context.Context, ch chan<- Item) {\n    defer close(ch)\n    for {\n        item := produce()\n\n        select {\n        case ch <- item:\n        case <-ctx.Done():\n            return\n        }\n    }\n}\n\nfunc handler(w http.ResponseWriter, r *http.Request) {\n    ctx := r.Context()\n    ch := make(chan Item)\n\n    go producer(ctx, ch)\n\n    for {\n        select {\n        case v, ok := <-ch:\n  ",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-go-goroutine-leak",
+        "success": true,
+        "tokensUsed": 921,
+        "durationMs": 24997,
+        "agentOutput": "Root cause: the request handler spawns producer/consumer goroutines connected by a channel, but only the consumer checks `ctx.Done()`. When the client disconnects, the consumer exits, leaving the producer blocked on `ch <- v` (no receiver). That goroutine never returns, causing the leak. The channel is also never closed.\n\nFix: make the producer context‑aware and stop sending when the request context is canceled (or close the channel). Every send must select on `ctx.Done()`.\n\nExample fix:\n\n```go\nfunc handler(w http.ResponseWriter, r *http.Request) {\n    ctx := r.Context()\n    ch := make(chan Item)\n\n    go func() {\n        defer close(ch)\n        for {\n            v := produce()\n\n            select {\n            case ch <- v:\n            case <-ctx.Done():\n                return\n            }\n        }\n    }()\n\n    for {\n        select {\n        case v, ok := <-ch:\n            if !ok {\n                return\n            }\n            use(v)\n        case <-ctx.Done():\n            return\n ",
+        "recallHit": true,
+        "injectedScore": 0.6420375108031562
+      }
+    },
+    {
+      "taskId": "hard-css-grid-collapse",
+      "baseline": {
+        "taskId": "hard-css-grid-collapse",
+        "success": false,
+        "tokensUsed": 514,
+        "durationMs": 14548,
+        "agentOutput": "Root cause:  \nAbsolutely positioned elements are removed from normal flow, so the grid track sizing algorithm sees the middle row (`1fr`) as having no in‑flow content. If the grid container’s height is auto, the `1fr` track resolves to 0 because there is no intrinsic height contribution.\n\nFix:  \nKeep a grid item in normal flow to size the row, and position the overlay inside it.\n\nExample:\n\n```css\n.grid {\n  display: grid;\n  grid-template-rows: auto 1fr auto;\n}\n\n.main {\n  position: relative; /* grid item stays in flow */\n}\n\n.overlay {\n  position: absolute; /* overlayed content */\n  inset: 0;\n}\n```\n\n```html\n<div class=\"grid\">\n  <header>...</header>\n\n  <div class=\"main\">\n    <div class=\"overlay\">...</div>\n  </div>\n\n  <footer>...</footer>\n</div>\n```\n\nThe `.main` grid item provides the height for the `1fr` track, while `.overlay` can still be absolutely positioned for overlapping layout.",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-css-grid-collapse",
+        "success": false,
+        "tokensUsed": 491,
+        "durationMs": 7513,
+        "agentOutput": "Problem: Absolutely positioned children are removed from normal flow, so the grid track (`1fr`) has no in‑flow content to size against. The grid container therefore computes the row height as 0, collapsing the layout.\n\nFix: Do not use `position: absolute` for overlap inside a grid. Instead, place overlapping elements in the same grid cell and control stacking with `z-index`. This keeps them in flow so the grid track sizes correctly.\n\nExample:\n\n```\n.container {\n  display: grid;\n  grid-template-rows: auto 1fr auto;\n}\n\n.overlay-parent {\n  display: grid;\n}\n\n.item-base,\n.item-overlay {\n  grid-row: 1;\n  grid-column: 1;\n}\n\n.item-overlay {\n  z-index: 2;\n}\n```\n\nBoth elements occupy the same grid cell, overlap visually, and still contribute to grid sizing, preventing the `1fr` row from collapsing.",
+        "recallHit": true,
+        "injectedScore": 0.7889034215576719
+      }
+    },
+    {
+      "taskId": "hard-jwt-algorithm-confusion",
+      "baseline": {
+        "taskId": "hard-jwt-algorithm-confusion",
+        "success": false,
+        "tokensUsed": 522,
+        "durationMs": 11813,
+        "agentOutput": "Problem: Algorithm confusion. The verification code allows both HS256 (symmetric) and RS256 (asymmetric). The same key variable (an RSA public key) is passed to `jwt.verify`. If a token header sets `alg: HS256`, the library treats that public key string as an HMAC secret, allowing an attacker to forge a valid HS256 token using the publicly known RSA public key.\n\nRoot cause: Accepting multiple algorithm families (HS* and RS*) with the same key material and trusting the token’s `alg` header.\n\nFix: Enforce the expected algorithm and key type during verification. Do not allow HS256 when verifying with an RSA public key.\n\nExample (jsonwebtoken):\n\n```ts\nimport jwt from \"jsonwebtoken\";\n\nconst payload = jwt.verify(token, publicKey, {\n  algorithms: [\"RS256\"], // only allow the asymmetric algorithm you expect\n});\n```\n\nStronger pattern (explicit check):\n\n```ts\nimport jwt, { JwtHeader } from \"jsonwebtoken\";\n\nconst decoded = jwt.decode(token, { complete: true }) as { header: JwtHeader };\nif (!decod",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-jwt-algorithm-confusion",
+        "success": false,
+        "tokensUsed": 542,
+        "durationMs": 7237,
+        "agentOutput": "Problem: The verifier trusts the token’s `alg` header and allows both `HS256` and `RS256`. Because the same key parameter is used for verification, an attacker can take the public RSA key and use it as an HMAC secret to sign a forged token with `HS256`. The server then verifies it successfully.\n\nFix: Pin the expected algorithm and key type during verification so the header cannot change the verification method.\n\nTypescript example:\n\n```ts\nimport jwt from \"jsonwebtoken\";\n\nconst payload = jwt.verify(token, publicKey, {\n  algorithms: [\"RS256\"],   // only allow the intended algorithm\n  issuer: \"your-issuer\",\n  audience: \"your-audience\"\n});\n```\n\nIf both HS and RS tokens must exist, verify them with separate endpoints/keys and strict algorithm pinning:\n\n```ts\njwt.verify(token, rsaPublicKey, { algorithms: [\"RS256\"] });\n// or\njwt.verify(token, hmacSecret, { algorithms: [\"HS256\"] });\n```\n\nKey rule: never allow both symmetric (HS*) and asymmetric (RS*) algorithms with the same verification key a",
+        "recallHit": true,
+        "injectedScore": 0.7962879929101235
+      }
+    },
+    {
+      "taskId": "hard-redis-thundering-herd",
+      "baseline": {
+        "taskId": "hard-redis-thundering-herd",
+        "success": false,
+        "tokensUsed": 571,
+        "durationMs": 12224,
+        "agentOutput": "Problem:  \nTTL-based cache-aside with no coordination. When the key expires, all concurrent requests observe a cache miss simultaneously. Each request queries the DB and writes the same value back, causing a thundering herd and DB spike.\n\nFix:  \nIntroduce request coalescing with a Redis distributed lock (SET NX PX) and optionally serve stale data while one request refreshes. Only one worker rebuilds the cache; others wait or return stale.\n\nTypeScript example:\n\n```ts\nimport { createClient } from \"redis\";\n\nconst redis = createClient();\n\nasync function getOrSetCache<T>(\n  key: string,\n  ttlSec: number,\n  fetcher: () => Promise<T>\n): Promise<T> {\n  const cached = await redis.get(key);\n  if (cached) return JSON.parse(cached);\n\n  const lockKey = `lock:${key}`;\n  const lock = await redis.set(lockKey, \"1\", { NX: true, PX: 5000 });\n\n  if (lock) {\n    try {\n      const data = await fetcher();\n      await redis.set(key, JSON.stringify(data), { EX: ttlSec });\n      return data;\n    } finally {\n   ",
+        "recallHit": false
+      },
+      "augmented": {
+        "taskId": "hard-redis-thundering-herd",
+        "success": false,
+        "tokensUsed": 714,
+        "durationMs": 14393,
+        "agentOutput": "Problem:  \nSimple cache-aside + TTL means when the key expires, every concurrent request sees a miss and independently recomputes the value. With 500 requests, all hit the DB before the first write completes. There is no coordination between workers, so you get a cache stampede.\n\nFix:  \nIntroduce per-key request coalescing using a Redis lock (or single-flight). Only one request rebuilds the cache; others wait or retry.\n\nTypical pattern:\n\n1. Try cache.\n2. If miss, attempt to acquire a short-lived lock (SET NX).\n3. If lock acquired → fetch from DB, set cache, release lock.\n4. If lock not acquired → wait briefly and retry cache.\n\nTypeScript example:\n\n```ts\nasync function getCached(key: string): Promise<Data> {\n  const cached = await redis.get(key);\n  if (cached) return JSON.parse(cached);\n\n  const lockKey = `lock:${key}`;\n  const lock = await redis.set(lockKey, \"1\", { NX: true, PX: 5000 });\n\n  if (lock) {\n    try {\n      const data = await db.fetch();\n      await redis.set(key, JSON.strin",
+        "recallHit": true,
+        "injectedScore": 0.6265634088310787
+      }
+    }
+  ]
+}

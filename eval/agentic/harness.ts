@@ -4,8 +4,8 @@ import { ReasoningLayer } from "../../src/core/engine.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { Sandbox } from "./sandbox.js";
-import { runAgenticTrajectory, buildSystemPrompt } from "./agent.js";
-import { formatDistillate } from "./inject.js";
+import { runAgenticTrajectory } from "./agent.js";
+import { formatCompressedDirective } from "./inject.js";
 import { computeAggregate, computeDelta } from "./metrics.js";
 import type {
   Trajectory, FixtureResult, FixtureMeta, DistillateSeed,
@@ -62,11 +62,11 @@ export async function runAgenticBenchmark(
     // Baseline: no injection
     if (verbose) process.stdout.write("  Baseline: ");
     const baselineSandbox = new Sandbox(fixture.dir, `${fixture.meta.id}-bl`);
-    const baselineSystem = buildSystemPrompt();
     let baseline: Trajectory;
     try {
+      // Baseline: no injection, agent explores from scratch
       const result = await runAgenticTrajectory(
-        model, baselineSandbox, fixture.meta.language, baselineSystem, MAX_STEPS,
+        model, baselineSandbox, fixture.meta.language, "", MAX_STEPS, null,
       );
       baseline = toTrajectory(fixture.meta.id, result, false);
       if (verbose) console.log(`${result.success ? "PASS" : "FAIL"} (${result.steps.length} steps, ${baseline.totalTokens} tok) [${result.stopReason}]`);
@@ -108,19 +108,20 @@ export async function runAgenticBenchmark(
       context: { language: fixture.meta.language },
     });
 
-    let injection: string | undefined;
+    let injection: string | null = null;
     let injectionScore: number | undefined;
-    if (recallResults.length > 0 && recallResults[0]!.score >= 0.3) {
+    if (recallResults.length > 0) {
       injectionScore = recallResults[0]!.score;
-      injection = formatDistillate(fixture.seed, injectionScore);
+      // Tiered confidence gate (RAGBench, arxiv 2407.11005):
+      // >= 0.72: inject, < 0.72: skip (noise hurts more than helps)
+      injection = formatCompressedDirective(fixture.seed, injectionScore);
     }
     layer.close();
 
-    const augSystem = buildSystemPrompt(injection);
     let augmented: Trajectory;
     try {
       const result = await runAgenticTrajectory(
-        model, augSandbox, fixture.meta.language, augSystem, MAX_STEPS,
+        model, augSandbox, fixture.meta.language, "", MAX_STEPS, injection,
       );
       augmented = toTrajectory(fixture.meta.id, result, true, injectionScore);
       if (verbose) console.log(`${result.success ? "PASS" : "FAIL"} (${result.steps.length} steps, ${augmented.totalTokens} tok) [${result.stopReason}]`);

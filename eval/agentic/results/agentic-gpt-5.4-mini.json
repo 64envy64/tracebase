@@ -1,0 +1,1206 @@
+{
+  "timestamp": 1776178599471,
+  "model": "gpt-5.4-mini",
+  "fixtureCount": 10,
+  "maxSteps": 10,
+  "baseline": {
+    "fixtureCount": 10,
+    "accuracy": 1,
+    "avgSteps": 4.1,
+    "medianSteps": 4,
+    "avgTokens": 5649.6,
+    "medianTokens": 5670,
+    "totalTokens": 56496
+  },
+  "augmented": {
+    "fixtureCount": 10,
+    "accuracy": 1,
+    "avgSteps": 4,
+    "medianSteps": 4,
+    "avgTokens": 5402.2,
+    "medianTokens": 5530,
+    "totalTokens": 54022
+  },
+  "delta": {
+    "accuracyDeltaPP": 0,
+    "accuracyGainRelative": 0,
+    "avgStepSave": 2,
+    "avgTokenSave": 3.0362416981305977,
+    "peakTokenSave": 31.132075471698112,
+    "peakStepSave": 20,
+    "recallHitRate": 1
+  },
+  "perFixture": [
+    {
+      "fixtureId": "fix-async-race",
+      "baseline": {
+        "fixtureId": "fix-async-race",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-async-race-bl-hkf7LI\n\n ✓ source.test.ts > processItems > processes all items and returns results in order 1ms\n × source.test.ts > processItems > handles async handlers with varying delays 4ms\n   → expected [] to deeply equal [ 'A', 'B', 'C' ]\n ✓ source.test.ts > processItems > returns an empty array for empty input 0ms\n × source.test.ts > saveRecords > counts all successfully saved records 0ms\n   → expected +0 to be 3 // ",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 1659
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "/**\n * Processes a list of items by sending each to an async handler.\n * Returns an array of processed results in order.\n */\nexport async function processItems<T, R>(\n  items: T[],\n  handler: (item: T) => Promise<R>\n): Promise<R[]> {\n  const results: R[] = [];\n\n  items.forEach(async (item) => {\n    const result = await handler(item);\n    results.push(result);\n  });\n\n  return results;\n}\n\n/**\n * Simulates saving records to a database.\n * Returns the total number of records saved.\n */\nexport async ",
+            "inputTokens": 1209,
+            "outputTokens": 19,
+            "durationMs": 1152
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "/**\n * Processes a list of items by sending each to an async handler.\n * Returns an array of processed results in order.\n */\nexport async function processItems<T, R>(\n  items: T[],\n  handler: (item: T) => Promise<R>\n): Promise<R[]> {\n  const results = await Promise.all(items.map((item) => handler(item)));\n  return results;\n}\n\n/**\n * Simulates saving records to a database.\n * Returns the total number of records saved.\n */\nexport async function saveRecords(\n  records: string[],\n  saveFn: (record: string) => Promise<boolean>\n): Promise<number> {\n  const results = await Promise.all(records.map((record) => saveFn(record)));\n  return results.filter(Boolean).length;\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1425,
+            "outputTokens": 208,
+            "durationMs": 2209
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-async-race-bl-hkf7LI\n\n ✓ source.test.ts > processItems > processes all items and returns results in order 2ms\n ✓ source.test.ts > processItems > handles async handlers with varying delays 12ms\n ✓ source.test.ts > processItems > returns an empty array for empty input 0ms\n ✓ source.test.ts > saveRecords > counts all successfully saved records 0ms\n ✓ source.test.ts > saveRecords > counts only successful saves when some fail ",
+            "inputTokens": 1648,
+            "outputTokens": 14,
+            "durationMs": 2016
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 4600,
+        "totalOutputTokens": 255,
+        "totalTokens": 4855,
+        "totalDurationMs": 7036,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-async-race-bl-hkf7LI\n\n ✓ source.test.ts > processItems > processes all items and returns results in order 2ms\n ✓ source.test.ts > processItems > handles async handlers with varying delays 12ms\n ✓ source.test.ts > processItems > returns an empty array for empty input 0ms\n ✓ source.test.ts > saveRecords > counts all successfully saved records 0ms\n ✓ source.test.ts > saveRecords > counts only successful saves when some fail 6ms\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  16:53:44\n   Duration  418ms (transform 28ms, setup 0ms, collect 25ms, tests 20ms, environment 0ms, prepare 52ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": false
+      },
+      "augmented": {
+        "fixtureId": "fix-async-race",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-async-race-aug-8GqSwr\n\n ✓ source.test.ts > processItems > processes all items and returns results in order 1ms\n × source.test.ts > processItems > handles async handlers with varying delays 4ms\n   → expected [] to deeply equal [ 'A', 'B', 'C' ]\n ✓ source.test.ts > processItems > returns an empty array for empty input 0ms\n × source.test.ts > saveRecords > counts all successfully saved records 0ms\n   → expected +0 to be 3 //",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 2540
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "/**\n * Processes a list of items by sending each to an async handler.\n * Returns an array of processed results in order.\n */\nexport async function processItems<T, R>(\n  items: T[],\n  handler: (item: T) => Promise<R>\n): Promise<R[]> {\n  const results: R[] = [];\n\n  items.forEach(async (item) => {\n    const result = await handler(item);\n    results.push(result);\n  });\n\n  return results;\n}\n\n/**\n * Simulates saving records to a database.\n * Returns the total number of records saved.\n */\nexport async ",
+            "inputTokens": 1212,
+            "outputTokens": 19,
+            "durationMs": 1175
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "/**\n * Processes a list of items by sending each to an async handler.\n * Returns an array of processed results in order.\n */\nexport async function processItems<T, R>(\n  items: T[],\n  handler: (item: T) => Promise<R>\n): Promise<R[]> {\n  const results = await Promise.all(items.map((item) => handler(item)));\n  return results;\n}\n\n/**\n * Simulates saving records to a database.\n * Returns the total number of records saved.\n */\nexport async function saveRecords(\n  records: string[],\n  saveFn: (record: string) => Promise<boolean>\n): Promise<number> {\n  const results = await Promise.all(records.map((record) => saveFn(record)));\n  return results.filter(Boolean).length;\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1428,
+            "outputTokens": 208,
+            "durationMs": 1871
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-async-race-aug-8GqSwr\n\n ✓ source.test.ts > processItems > processes all items and returns results in order 2ms\n ✓ source.test.ts > processItems > handles async handlers with varying delays 12ms\n ✓ source.test.ts > processItems > returns an empty array for empty input 0ms\n ✓ source.test.ts > saveRecords > counts all successfully saved records 0ms\n ✓ source.test.ts > saveRecords > counts only successful saves when some fail",
+            "inputTokens": 1651,
+            "outputTokens": 14,
+            "durationMs": 2551
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 4609,
+        "totalOutputTokens": 255,
+        "totalTokens": 4864,
+        "totalDurationMs": 8137,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-async-race-aug-8GqSwr\n\n ✓ source.test.ts > processItems > processes all items and returns results in order 2ms\n ✓ source.test.ts > processItems > handles async handlers with varying delays 12ms\n ✓ source.test.ts > processItems > returns an empty array for empty input 0ms\n ✓ source.test.ts > saveRecords > counts all successfully saved records 0ms\n ✓ source.test.ts > saveRecords > counts only successful saves when some fail 6ms\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  16:53:53\n   Duration  823ms (transform 64ms, setup 0ms, collect 58ms, tests 21ms, environment 0ms, prepare 98ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": true,
+        "injectionScore": 0.661666666622097
+      },
+      "stepSave": 0,
+      "tokenSave": -0.0018537590113285273
+    },
+    {
+      "fixtureId": "fix-cache-invalidation",
+      "baseline": {
+        "fixtureId": "fix-cache-invalidation",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-cache-invalidation-bl-mUYwJc\n\n ✓ source.test.ts > LRUCache > stores and retrieves values 1ms\n ✓ source.test.ts > LRUCache > evicts the least recently used item when capacity is exceeded 0ms\n × source.test.ts > LRUCache > get() refreshes an item so it is NOT evicted next 4ms\n   → expected undefined to be 1 // Object.is equality\n ✓ source.test.ts > LRUCache > handles capacity of 1 0ms\n ✓ source.test.ts > LRUCache > updates ",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 2279
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "interface CacheNode<K, V> {\n  key: K;\n  value: V;\n  prev: CacheNode<K, V> | null;\n  next: CacheNode<K, V> | null;\n}\n\n/**\n * Least-Recently-Used cache with O(1) get and put.\n */\nexport class LRUCache<K, V> {\n  private capacity: number;\n  private map: Map<K, CacheNode<K, V>> = new Map();\n  private head: CacheNode<K, V> | null = null; // most recent\n  private tail: CacheNode<K, V> | null = null; // least recent\n\n  constructor(capacity: number) {\n    this.capacity = capacity;\n  }\n\n  get(key: K): V |",
+            "inputTokens": 787,
+            "outputTokens": 19,
+            "durationMs": 1156
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "interface CacheNode<K, V> {\n  key: K;\n  value: V;\n  prev: CacheNode<K, V> | null;\n  next: CacheNode<K, V> | null;\n}\n\n/**\n * Least-Recently-Used cache with O(1) get and put.\n */\nexport class LRUCache<K, V> {\n  private capacity: number;\n  private map: Map<K, CacheNode<K, V>> = new Map();\n  private head: CacheNode<K, V> | null = null; // most recent\n  private tail: CacheNode<K, V> | null = null; // least recent\n\n  constructor(capacity: number) {\n    this.capacity = capacity;\n  }\n\n  get(key: K): V | undefined {\n    const node = this.map.get(key);\n    if (!node) return undefined;\n    this.moveToFront(node);\n    return node.value;\n  }\n\n  put(key: K, value: V): void {\n    if (this.map.has(key)) {\n      const node = this.map.get(key)!;\n      node.value = value;\n      this.moveToFront(node);\n      return;\n    }\n\n    const newNode: CacheNode<K, V> = { key, value, prev: null, next: null };\n\n    if (this.map.size >= this.capacity) {\n      this.evictLRU();\n    }\n\n    this.addToFront(newNode);\n    this.map.set(key, newNode);\n  }\n\n  size(): number {\n    return this.map.size;\n  }\n\n  private addToFront(node: CacheNode<K, V>): void {\n    node.next = this.head;\n    node.prev = null;\n    if (this.head) this.head.prev = node;\n    this.head = node;\n    if (!this.tail) this.tail = node;\n  }\n\n  private removeNode(node: CacheNode<K, V>): void {\n    if (node.prev) node.prev.next = node.next;\n    else this.head = node.next;\n    if (node.next) node.next.prev = node.prev;\n    else this.tail = node.prev;\n    node.prev = null;\n    node.next = null;\n  }\n\n  private moveToFront(node: CacheNode<K, V>): void {\n    if (node === this.head) return;\n    this.removeNode(node);\n    this.addToFront(node);\n  }\n\n  private evictLRU(): void {\n    if (!this.tail) return;\n    this.map.delete(this.tail.key);\n    this.removeNode(this.tail);\n  }\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1306,
+            "outputTokens": 622,
+            "durationMs": 3796
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-cache-invalidation-bl-mUYwJc\n\n ✓ source.test.ts > LRUCache > stores and retrieves values 1ms\n ✓ source.test.ts > LRUCache > evicts the least recently used item when capacity is exceeded 0ms\n ✓ source.test.ts > LRUCache > get() refreshes an item so it is NOT evicted next 0ms\n ✓ source.test.ts > LRUCache > handles capacity of 1 0ms\n ✓ source.test.ts > LRUCache > updates value on duplicate put without changing size 0ms\n\n Tes",
+            "inputTokens": 1943,
+            "outputTokens": 14,
+            "durationMs": 2053
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 4354,
+        "totalOutputTokens": 669,
+        "totalTokens": 5023,
+        "totalDurationMs": 9284,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-cache-invalidation-bl-mUYwJc\n\n ✓ source.test.ts > LRUCache > stores and retrieves values 1ms\n ✓ source.test.ts > LRUCache > evicts the least recently used item when capacity is exceeded 0ms\n ✓ source.test.ts > LRUCache > get() refreshes an item so it is NOT evicted next 0ms\n ✓ source.test.ts > LRUCache > handles capacity of 1 0ms\n ✓ source.test.ts > LRUCache > updates value on duplicate put without changing size 0ms\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  16:54:04\n   Duration  415ms (transform 134ms, setup 0ms, collect 119ms, tests 2ms, environment 0ms, prepare 57ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": false
+      },
+      "augmented": {
+        "fixtureId": "fix-cache-invalidation",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-cache-invalidation-aug-M83UtJ\n\n ✓ source.test.ts > LRUCache > stores and retrieves values 1ms\n ✓ source.test.ts > LRUCache > evicts the least recently used item when capacity is exceeded 0ms\n × source.test.ts > LRUCache > get() refreshes an item so it is NOT evicted next 4ms\n   → expected undefined to be 1 // Object.is equality\n ✓ source.test.ts > LRUCache > handles capacity of 1 0ms\n ✓ source.test.ts > LRUCache > updates",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 2079
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "interface CacheNode<K, V> {\n  key: K;\n  value: V;\n  prev: CacheNode<K, V> | null;\n  next: CacheNode<K, V> | null;\n}\n\n/**\n * Least-Recently-Used cache with O(1) get and put.\n */\nexport class LRUCache<K, V> {\n  private capacity: number;\n  private map: Map<K, CacheNode<K, V>> = new Map();\n  private head: CacheNode<K, V> | null = null; // most recent\n  private tail: CacheNode<K, V> | null = null; // least recent\n\n  constructor(capacity: number) {\n    this.capacity = capacity;\n  }\n\n  get(key: K): V |",
+            "inputTokens": 787,
+            "outputTokens": 19,
+            "durationMs": 1156
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "interface CacheNode<K, V> {\n  key: K;\n  value: V;\n  prev: CacheNode<K, V> | null;\n  next: CacheNode<K, V> | null;\n}\n\n/**\n * Least-Recently-Used cache with O(1) get and put.\n */\nexport class LRUCache<K, V> {\n  private capacity: number;\n  private map: Map<K, CacheNode<K, V>> = new Map();\n  private head: CacheNode<K, V> | null = null; // most recent\n  private tail: CacheNode<K, V> | null = null; // least recent\n\n  constructor(capacity: number) {\n    this.capacity = capacity;\n  }\n\n  get(key: K): V | undefined {\n    const node = this.map.get(key);\n    if (!node) return undefined;\n    this.moveToFront(node);\n    return node.value;\n  }\n\n  put(key: K, value: V): void {\n    if (this.map.has(key)) {\n      const node = this.map.get(key)!;\n      node.value = value;\n      this.moveToFront(node);\n      return;\n    }\n\n    const newNode: CacheNode<K, V> = { key, value, prev: null, next: null };\n\n    if (this.map.size >= this.capacity) {\n      this.evictLRU();\n    }\n\n    this.addToFront(newNode);\n    this.map.set(key, newNode);\n  }\n\n  size(): number {\n    return this.map.size;\n  }\n\n  private addToFront(node: CacheNode<K, V>): void {\n    node.next = this.head;\n    node.prev = null;\n    if (this.head) this.head.prev = node;\n    this.head = node;\n    if (!this.tail) this.tail = node;\n  }\n\n  private removeNode(node: CacheNode<K, V>): void {\n    if (node.prev) node.prev.next = node.next;\n    else this.head = node.next;\n    if (node.next) node.next.prev = node.prev;\n    else this.tail = node.prev;\n    node.prev = null;\n    node.next = null;\n  }\n\n  private moveToFront(node: CacheNode<K, V>): void {\n    if (node === this.head) return;\n    this.removeNode(node);\n    this.addToFront(node);\n  }\n\n  private evictLRU(): void {\n    if (!this.tail) return;\n    this.map.delete(this.tail.key);\n    this.removeNode(this.tail);\n  }\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1306,
+            "outputTokens": 622,
+            "durationMs": 2769
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-cache-invalidation-aug-M83UtJ\n\n ✓ source.test.ts > LRUCache > stores and retrieves values 2ms\n ✓ source.test.ts > LRUCache > evicts the least recently used item when capacity is exceeded 0ms\n ✓ source.test.ts > LRUCache > get() refreshes an item so it is NOT evicted next 0ms\n ✓ source.test.ts > LRUCache > handles capacity of 1 0ms\n ✓ source.test.ts > LRUCache > updates value on duplicate put without changing size 0ms\n\n Te",
+            "inputTokens": 1943,
+            "outputTokens": 14,
+            "durationMs": 3440
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 4354,
+        "totalOutputTokens": 669,
+        "totalTokens": 5023,
+        "totalDurationMs": 9444,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-cache-invalidation-aug-M83UtJ\n\n ✓ source.test.ts > LRUCache > stores and retrieves values 2ms\n ✓ source.test.ts > LRUCache > evicts the least recently used item when capacity is exceeded 0ms\n ✓ source.test.ts > LRUCache > get() refreshes an item so it is NOT evicted next 0ms\n ✓ source.test.ts > LRUCache > handles capacity of 1 0ms\n ✓ source.test.ts > LRUCache > updates value on duplicate put without changing size 0ms\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  16:54:14\n   Duration  939ms (transform 191ms, setup 0ms, collect 195ms, tests 8ms, environment 1ms, prepare 327ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": true,
+        "injectionScore": 0.6499999999554305
+      },
+      "stepSave": 0,
+      "tokenSave": 0
+    },
+    {
+      "fixtureId": "fix-debounce",
+      "baseline": {
+        "fixtureId": "fix-debounce",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\"hello\",\u001b[90m\n\u001b[32m-   42,\u001b[90m\n\u001b[32m- ]\u001b[90m\n\u001b[31m+ []\u001b[90m\n\u001b[39m\u001b[90m\n\nNumber of calls: \u001b[1m1\u001b[22m\n\u001b[39m\n × source.test.ts > debounce > uses the arguments from the most recent call 1ms\n   → expected \"spy\" to be called with arguments: [ 'third' ]\u001b[90m\n\nReceived: \n\n\u001b[1m  1st spy call:\n\n\u001b[22m\u001b[32m- [\u001b[90m\n\u001b[32m-   \"third\",\u001b[90m\n\u001b[32m- ]\u001b[90m\n\u001b[31m+ []\u001b[90m\n\u001b[39m\u001b[90m\n\nNumber of calls: \u001b[1m1\u001b[22m\n\u001b[39m\n × source.test.ts > debounce > resets the timer on each call 0ms\n   → expected \"spy\" to be calle",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 1960
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "/**\n * Creates a debounced version of `fn` that delays invocation\n * until `delayMs` milliseconds have passed since the last call.\n */\nexport function debounce<T extends (...args: unknown[]) => void>(\n  fn: T,\n  delayMs: number\n): (...args: Parameters<T>) => void {\n  let timerId: ReturnType<typeof setTimeout> | null = null;\n\n  return (...args: Parameters<T>): void => {\n    if (timerId !== null) {\n      clearTimeout(timerId);\n    }\n    timerId = setTimeout(() => {\n      fn();\n      timerId = null",
+            "inputTokens": 1488,
+            "outputTokens": 19,
+            "durationMs": 1179
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "/**\n * Creates a debounced version of `fn` that delays invocation\n * until `delayMs` milliseconds have passed since the last call.\n */\nexport function debounce<T extends (...args: unknown[]) => void>(\n  fn: T,\n  delayMs: number\n): (...args: Parameters<T>) => void {\n  let timerId: ReturnType<typeof setTimeout> | null = null;\n  let lastArgs: Parameters<T> | null = null;\n\n  return (...args: Parameters<T>): void => {\n    lastArgs = args;\n    if (timerId !== null) {\n      clearTimeout(timerId);\n    }\n    timerId = setTimeout(() => {\n      if (lastArgs) {\n        fn(...lastArgs);\n      }\n      timerId = null;\n      lastArgs = null;\n    }, delayMs);\n  };\n}\n\n/**\n * Creates a throttled version of `fn` that invokes at most once\n * per `intervalMs` milliseconds.\n */\nexport function throttle<T extends (...args: unknown[]) => void>(\n  fn: T,\n  intervalMs: number\n): (...args: Parameters<T>) => void {\n  let lastCall = 0;\n\n  return (...args: Parameters<T>): void => {\n    const now = Date.now();\n    if (now - lastCall >= intervalMs) {\n      lastCall = now;\n      fn(...args);\n    }\n  };\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1765,
+            "outputTokens": 357,
+            "durationMs": 2110
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-debounce-bl-KATeLg\n\n ✓ source.test.ts > debounce > calls the function after the delay 2ms\n ✓ source.test.ts > debounce > passes arguments through to the original function 1ms\n ✓ source.test.ts > debounce > uses the arguments from the most recent call 0ms\n ✓ source.test.ts > debounce > resets the timer on each call 0ms\n\n Test Files  1 passed (1)\n      Tests  4 passed (4)\n   Start at  16:54:23\n   Duration  504ms (transform ",
+            "inputTokens": 2137,
+            "outputTokens": 14,
+            "durationMs": 2246
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 5708,
+        "totalOutputTokens": 404,
+        "totalTokens": 6112,
+        "totalDurationMs": 7495,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-debounce-bl-KATeLg\n\n ✓ source.test.ts > debounce > calls the function after the delay 2ms\n ✓ source.test.ts > debounce > passes arguments through to the original function 1ms\n ✓ source.test.ts > debounce > uses the arguments from the most recent call 0ms\n ✓ source.test.ts > debounce > resets the timer on each call 0ms\n\n Test Files  1 passed (1)\n      Tests  4 passed (4)\n   Start at  16:54:23\n   Duration  504ms (transform 119ms, setup 0ms, collect 115ms, tests 4ms, environment 0ms, prepare 67ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": false
+      },
+      "augmented": {
+        "fixtureId": "fix-debounce",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\"hello\",\u001b[90m\n\u001b[32m-   42,\u001b[90m\n\u001b[32m- ]\u001b[90m\n\u001b[31m+ []\u001b[90m\n\u001b[39m\u001b[90m\n\nNumber of calls: \u001b[1m1\u001b[22m\n\u001b[39m\n × source.test.ts > debounce > uses the arguments from the most recent call 1ms\n   → expected \"spy\" to be called with arguments: [ 'third' ]\u001b[90m\n\nReceived: \n\n\u001b[1m  1st spy call:\n\n\u001b[22m\u001b[32m- [\u001b[90m\n\u001b[32m-   \"third\",\u001b[90m\n\u001b[32m- ]\u001b[90m\n\u001b[31m+ []\u001b[90m\n\u001b[39m\u001b[90m\n\nNumber of calls: \u001b[1m1\u001b[22m\n\u001b[39m\n × source.test.ts > debounce > resets the timer on each call 0ms\n   → expected \"spy\" to be calle",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 1765
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "/**\n * Creates a debounced version of `fn` that delays invocation\n * until `delayMs` milliseconds have passed since the last call.\n */\nexport function debounce<T extends (...args: unknown[]) => void>(\n  fn: T,\n  delayMs: number\n): (...args: Parameters<T>) => void {\n  let timerId: ReturnType<typeof setTimeout> | null = null;\n\n  return (...args: Parameters<T>): void => {\n    if (timerId !== null) {\n      clearTimeout(timerId);\n    }\n    timerId = setTimeout(() => {\n      fn();\n      timerId = null",
+            "inputTokens": 1488,
+            "outputTokens": 19,
+            "durationMs": 1168
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "/**\n * Creates a debounced version of `fn` that delays invocation\n * until `delayMs` milliseconds have passed since the last call.\n */\nexport function debounce<T extends (...args: unknown[]) => void>(\n  fn: T,\n  delayMs: number\n): (...args: Parameters<T>) => void {\n  let timerId: ReturnType<typeof setTimeout> | null = null;\n  let lastArgs: Parameters<T>;\n\n  return (...args: Parameters<T>): void => {\n    lastArgs = args;\n    if (timerId !== null) {\n      clearTimeout(timerId);\n    }\n    timerId = setTimeout(() => {\n      fn(...lastArgs);\n      timerId = null;\n    }, delayMs);\n  };\n}\n\n/**\n * Creates a throttled version of `fn` that invokes at most once\n * per `intervalMs` milliseconds.\n */\nexport function throttle<T extends (...args: unknown[]) => void>(\n  fn: T,\n  intervalMs: number\n): (...args: Parameters<T>) => void {\n  let lastCall = 0;\n\n  return (...args: Parameters<T>): void => {\n    const now = Date.now();\n    if (now - lastCall >= intervalMs) {\n      lastCall = now;\n      fn(...args);\n    }\n  };\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1765,
+            "outputTokens": 335,
+            "durationMs": 2092
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-debounce-aug-rWPDla\n\n ✓ source.test.ts > debounce > calls the function after the delay 2ms\n ✓ source.test.ts > debounce > passes arguments through to the original function 1ms\n ✓ source.test.ts > debounce > uses the arguments from the most recent call 0ms\n ✓ source.test.ts > debounce > resets the timer on each call 0ms\n\n Test Files  1 passed (1)\n      Tests  4 passed (4)\n   Start at  16:54:31\n   Duration  461ms (transform",
+            "inputTokens": 2115,
+            "outputTokens": 14,
+            "durationMs": 2005
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 5686,
+        "totalOutputTokens": 382,
+        "totalTokens": 6068,
+        "totalDurationMs": 7030,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-debounce-aug-rWPDla\n\n ✓ source.test.ts > debounce > calls the function after the delay 2ms\n ✓ source.test.ts > debounce > passes arguments through to the original function 1ms\n ✓ source.test.ts > debounce > uses the arguments from the most recent call 0ms\n ✓ source.test.ts > debounce > resets the timer on each call 0ms\n\n Test Files  1 passed (1)\n      Tests  4 passed (4)\n   Start at  16:54:31\n   Duration  461ms (transform 50ms, setup 0ms, collect 41ms, tests 4ms, environment 0ms, prepare 91ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": true,
+        "injectionScore": 0.6499999999108608
+      },
+      "stepSave": 0,
+      "tokenSave": 0.007198952879581152
+    },
+    {
+      "fixtureId": "fix-deep-clone",
+      "baseline": {
+        "fixtureId": "fix-deep-clone",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "e.test.ts:23:28\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯\n\n FAIL  source.test.ts > deepClone > handles objects with circular references without infinite recursion\nRangeError: Maximum call stack size exceeded\n ❯ deepClone ../../../../../../private/var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-deep-clone-bl-8KhDmx/source.ts:5:17\n      3|  * and circular references.\n      4|  */\n      5| export function deepClone<T>(value: T): T {\n       |                 ^\n      6|   if (value === null || type",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 1758
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "/**\n * Deep clones a value, handling nested objects, arrays, Dates,\n * and circular references.\n */\nexport function deepClone<T>(value: T): T {\n  if (value === null || typeof value !== 'object') {\n    return value;\n  }\n\n  if (Array.isArray(value)) {\n    return value.map((item) => deepClone(item)) as unknown as T;\n  }\n\n  const result: Record<string, unknown> = {};\n  for (const key of Object.keys(value as Record<string, unknown>)) {\n    result[key] = deepClone((value as Record<string, unknown>)[ke",
+            "inputTokens": 1251,
+            "outputTokens": 19,
+            "durationMs": 1430
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "/**\n * Deep clones a value, handling nested objects, arrays, Dates,\n * and circular references.\n */\nexport function deepClone<T>(value: T): T {\n  return cloneInternal(value, new WeakMap()) as T;\n}\n\nfunction cloneInternal(value: unknown, seen: WeakMap<object, unknown>): unknown {\n  if (value === null || typeof value !== 'object') {\n    return value;\n  }\n\n  if (seen.has(value as object)) {\n    return seen.get(value as object);\n  }\n\n  if (value instanceof Date) {\n    const clonedDate = new Date(value.getTime());\n    seen.set(value, clonedDate);\n    return clonedDate;\n  }\n\n  if (Array.isArray(value)) {\n    const result: unknown[] = [];\n    seen.set(value, result);\n    for (const item of value) {\n      result.push(cloneInternal(item, seen));\n    }\n    return result;\n  }\n\n  const result: Record<string, unknown> = {};\n  seen.set(value, result);\n  for (const key of Object.keys(value as Record<string, unknown>)) {\n    result[key] = cloneInternal((value as Record<string, unknown>)[key], seen);\n  }\n\n  return result;\n}\n\n/**\n * Deep equality check for two values.\n */\nexport function deepEqual(a: unknown, b: unknown): boolean {\n  if (a === b) return true;\n  if (a === null || b === null) return false;\n  if (typeof a !== typeof b) return false;\n\n  if (a instanceof Date && b instanceof Date) {\n    return a.getTime() === b.getTime();\n  }\n\n  if (typeof a !== 'object' || typeof b !== 'object') return false;\n\n  const aObj = a as Record<string, unknown>;\n  const bObj = b as Record<string, unknown>;\n\n  const aKeys = Object.keys(aObj);\n  const bKeys = Object.keys(bObj);\n  if (aKeys.length !== bKeys.length) return false;\n\n  return aKeys.every((key) => deepEqual(aObj[key], bObj[key]));\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1598,
+            "outputTokens": 533,
+            "durationMs": 2403
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-deep-clone-bl-8KhDmx\n\n ✓ source.test.ts > deepClone > clones a simple nested object 1ms\n ✓ source.test.ts > deepClone > clones arrays and nested arrays 0ms\n ✓ source.test.ts > deepClone > clones Date objects preserving their time value 0ms\n ✓ source.test.ts > deepClone > handles objects with circular references without infinite recursion 0ms\n ✓ source.test.ts > deepClone > handles primitives and null 0ms\n\n Test Files  1 p",
+            "inputTokens": 2146,
+            "outputTokens": 14,
+            "durationMs": 2922
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 5313,
+        "totalOutputTokens": 580,
+        "totalTokens": 5893,
+        "totalDurationMs": 8513,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-deep-clone-bl-8KhDmx\n\n ✓ source.test.ts > deepClone > clones a simple nested object 1ms\n ✓ source.test.ts > deepClone > clones arrays and nested arrays 0ms\n ✓ source.test.ts > deepClone > clones Date objects preserving their time value 0ms\n ✓ source.test.ts > deepClone > handles objects with circular references without infinite recursion 0ms\n ✓ source.test.ts > deepClone > handles primitives and null 0ms\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  16:54:41\n   Duration  845ms (transform 233ms, setup 0ms, collect 224ms, tests 3ms, environment 0ms, prepare 63ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": false
+      },
+      "augmented": {
+        "fixtureId": "fix-deep-clone",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "23:28\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯\n\n FAIL  source.test.ts > deepClone > handles objects with circular references without infinite recursion\nRangeError: Maximum call stack size exceeded\n ❯ deepClone ../../../../../../private/var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-deep-clone-aug-LS4Amv/source.ts:5:17\n      3|  * and circular references.\n      4|  */\n      5| export function deepClone<T>(value: T): T {\n       |                 ^\n      6|   if (value === null || typeof value ",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 2379
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "/**\n * Deep clones a value, handling nested objects, arrays, Dates,\n * and circular references.\n */\nexport function deepClone<T>(value: T): T {\n  if (value === null || typeof value !== 'object') {\n    return value;\n  }\n\n  if (Array.isArray(value)) {\n    return value.map((item) => deepClone(item)) as unknown as T;\n  }\n\n  const result: Record<string, unknown> = {};\n  for (const key of Object.keys(value as Record<string, unknown>)) {\n    result[key] = deepClone((value as Record<string, unknown>)[ke",
+            "inputTokens": 1257,
+            "outputTokens": 19,
+            "durationMs": 1373
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "/**\n * Deep clones a value, handling nested objects, arrays, Dates,\n * and circular references.\n */\nexport function deepClone<T>(value: T): T {\n  return deepCloneInternal(value, new Map());\n}\n\nfunction deepCloneInternal<T>(value: T, seen: Map<object, unknown>): T {\n  if (value === null || typeof value !== 'object') {\n    return value;\n  }\n\n  if (value instanceof Date) {\n    return new Date(value.getTime()) as T;\n  }\n\n  if (seen.has(value as object)) {\n    return seen.get(value as object) as T;\n  }\n\n  if (Array.isArray(value)) {\n    const clone: unknown[] = [];\n    seen.set(value, clone);\n    for (const item of value) {\n      clone.push(deepCloneInternal(item, seen));\n    }\n    return clone as T;\n  }\n\n  const result: Record<string, unknown> = {};\n  seen.set(value as object, result);\n  for (const key of Object.keys(value as Record<string, unknown>)) {\n    result[key] = deepCloneInternal((value as Record<string, unknown>)[key], seen);\n  }\n\n  return result as T;\n}\n\n/**\n * Deep equality check for two values.\n */\nexport function deepEqual(a: unknown, b: unknown): boolean {\n  if (a === b) return true;\n  if (a === null || b === null) return false;\n  if (typeof a !== typeof b) return false;\n\n  if (a instanceof Date && b instanceof Date) {\n    return a.getTime() === b.getTime();\n  }\n\n  if (typeof a !== 'object' || typeof b !== 'object') return false;\n\n  const aObj = a as Record<string, unknown>;\n  const bObj = b as Record<string, unknown>;\n\n  const aKeys = Object.keys(aObj);\n  const bKeys = Object.keys(bObj);\n  if (aKeys.length !== bKeys.length) return false;\n\n  return aKeys.every((key) => deepEqual(aObj[key], bObj[key]));\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1604,
+            "outputTokens": 528,
+            "durationMs": 3788
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-deep-clone-aug-LS4Amv\n\n ✓ source.test.ts > deepClone > clones a simple nested object 1ms\n ✓ source.test.ts > deepClone > clones arrays and nested arrays 0ms\n ✓ source.test.ts > deepClone > clones Date objects preserving their time value 0ms\n ✓ source.test.ts > deepClone > handles objects with circular references without infinite recursion 0ms\n ✓ source.test.ts > deepClone > handles primitives and null 0ms\n\n Test Files  1 ",
+            "inputTokens": 2147,
+            "outputTokens": 14,
+            "durationMs": 2079
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 5326,
+        "totalOutputTokens": 575,
+        "totalTokens": 5901,
+        "totalDurationMs": 9619,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-deep-clone-aug-LS4Amv\n\n ✓ source.test.ts > deepClone > clones a simple nested object 1ms\n ✓ source.test.ts > deepClone > clones arrays and nested arrays 0ms\n ✓ source.test.ts > deepClone > clones Date objects preserving their time value 0ms\n ✓ source.test.ts > deepClone > handles objects with circular references without infinite recursion 0ms\n ✓ source.test.ts > deepClone > handles primitives and null 0ms\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  16:54:52\n   Duration  411ms (transform 133ms, setup 0ms, collect 119ms, tests 2ms, environment 0ms, prepare 78ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": true,
+        "injectionScore": 0.6499999999554305
+      },
+      "stepSave": 0,
+      "tokenSave": -0.0013575428474461226
+    },
+    {
+      "fixtureId": "fix-event-leak",
+      "baseline": {
+        "fixtureId": "fix-event-leak",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-event-leak-bl-35CChL\n\n ✓ source.test.ts > subscribe / unsubscribe > handler receives emitted events 1ms\n × source.test.ts > subscribe / unsubscribe > unsubscribe removes the listener so it stops firing 4ms\n   → expected [ 1, 2 ] to deeply equal [ 1 ]\n × source.test.ts > subscribe / unsubscribe > listener count drops to 0 after unsubscribe 1ms\n   → expected 1 to be +0 // Object.is equality\n × source.test.ts > subscribe / u",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 1789
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.test.ts"
+            },
+            "toolOutput": "import { describe, it, expect } from 'vitest';\nimport { EventEmitter, subscribe } from './source';\n\ndescribe('subscribe / unsubscribe', () => {\n  it('handler receives emitted events', () => {\n    const emitter = new EventEmitter();\n    const calls: unknown[] = [];\n    subscribe(emitter, 'data', (v) => calls.push(v));\n    emitter.emit('data', 42);\n    expect(calls).toEqual([42]);\n  });\n\n  it('unsubscribe removes the listener so it stops firing', () => {\n    const emitter = new EventEmitter();\n   ",
+            "inputTokens": 1264,
+            "outputTokens": 20,
+            "durationMs": 1158
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "type Listener = (...args: unknown[]) => void;\n\n/**\n * Simple event emitter.\n */\nexport class EventEmitter {\n  private listeners: Map<string, Listener[]> = new Map();\n\n  on(event: string, fn: Listener): void {\n    if (!this.listeners.has(event)) {\n      this.listeners.set(event, []);\n    }\n    this.listeners.get(event)!.push(fn);\n  }\n\n  off(event: string, fn: Listener): void {\n    const fns = this.listeners.get(event);\n    if (!fns) return;\n    this.listeners.set(\n      event,\n      fns.filter((f",
+            "inputTokens": 1674,
+            "outputTokens": 19,
+            "durationMs": 2730
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "type Listener = (...args: unknown[]) => void;\n\n/**\n * Simple event emitter.\n */\nexport class EventEmitter {\n  private listeners: Map<string, Listener[]> = new Map();\n\n  on(event: string, fn: Listener): void {\n    if (!this.listeners.has(event)) {\n      this.listeners.set(event, []);\n    }\n    this.listeners.get(event)!.push(fn);\n  }\n\n  off(event: string, fn: Listener): void {\n    const fns = this.listeners.get(event);\n    if (!fns) return;\n    const remaining = fns.filter((f) => f !== fn);\n    if (remaining.length === 0) {\n      this.listeners.delete(event);\n    } else {\n      this.listeners.set(event, remaining);\n    }\n  }\n\n  emit(event: string, ...args: unknown[]): void {\n    const fns = this.listeners.get(event);\n    if (!fns) return;\n    fns.forEach((fn) => fn(...args));\n  }\n\n  listenerCount(event: string): number {\n    return this.listeners.get(event)?.length ?? 0;\n  }\n}\n\n/**\n * Subscribes a handler to an event and returns an unsubscribe function.\n */\nexport function subscribe(\n  emitter: EventEmitter,\n  event: string,\n  handler: Listener\n): () => void {\n  const wrapped = (...args: unknown[]) => handler(...args);\n  emitter.on(event, wrapped);\n\n  return () => {\n    emitter.off(event, wrapped);\n  };\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1975,
+            "outputTokens": 384,
+            "durationMs": 2293
+          },
+          {
+            "stepNumber": 5,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-event-leak-bl-35CChL\n\n ✓ source.test.ts > subscribe / unsubscribe > handler receives emitted events 2ms\n ✓ source.test.ts > subscribe / unsubscribe > unsubscribe removes the listener so it stops firing 0ms\n ✓ source.test.ts > subscribe / unsubscribe > listener count drops to 0 after unsubscribe 0ms\n ✓ source.test.ts > subscribe / unsubscribe > multiple subscribes and unsubscribes work independently 0ms\n\n Test Files  1 pas",
+            "inputTokens": 2374,
+            "outputTokens": 14,
+            "durationMs": 2510
+          }
+        ],
+        "totalSteps": 5,
+        "totalInputTokens": 7605,
+        "totalOutputTokens": 451,
+        "totalTokens": 8056,
+        "totalDurationMs": 10480,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-event-leak-bl-35CChL\n\n ✓ source.test.ts > subscribe / unsubscribe > handler receives emitted events 2ms\n ✓ source.test.ts > subscribe / unsubscribe > unsubscribe removes the listener so it stops firing 0ms\n ✓ source.test.ts > subscribe / unsubscribe > listener count drops to 0 after unsubscribe 0ms\n ✓ source.test.ts > subscribe / unsubscribe > multiple subscribes and unsubscribes work independently 0ms\n\n Test Files  1 passed (1)\n      Tests  4 passed (4)\n   Start at  16:55:04\n   Duration  741ms (transform 252ms, setup 0ms, collect 228ms, tests 4ms, environment 0ms, prepare 161ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": false
+      },
+      "augmented": {
+        "fixtureId": "fix-event-leak",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-event-leak-aug-9qlc4B\n\n ✓ source.test.ts > subscribe / unsubscribe > handler receives emitted events 1ms\n × source.test.ts > subscribe / unsubscribe > unsubscribe removes the listener so it stops firing 5ms\n   → expected [ 1, 2 ] to deeply equal [ 1 ]\n × source.test.ts > subscribe / unsubscribe > listener count drops to 0 after unsubscribe 1ms\n   → expected 1 to be +0 // Object.is equality\n × source.test.ts > subscribe / ",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 2378
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "type Listener = (...args: unknown[]) => void;\n\n/**\n * Simple event emitter.\n */\nexport class EventEmitter {\n  private listeners: Map<string, Listener[]> = new Map();\n\n  on(event: string, fn: Listener): void {\n    if (!this.listeners.has(event)) {\n      this.listeners.set(event, []);\n    }\n    this.listeners.get(event)!.push(fn);\n  }\n\n  off(event: string, fn: Listener): void {\n    const fns = this.listeners.get(event);\n    if (!fns) return;\n    this.listeners.set(\n      event,\n      fns.filter((f",
+            "inputTokens": 1266,
+            "outputTokens": 19,
+            "durationMs": 1902
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "type Listener = (...args: unknown[]) => void;\n\n/**\n * Simple event emitter.\n */\nexport class EventEmitter {\n  private listeners: Map<string, Listener[]> = new Map();\n\n  on(event: string, fn: Listener): void {\n    if (!this.listeners.has(event)) {\n      this.listeners.set(event, []);\n    }\n    this.listeners.get(event)!.push(fn);\n  }\n\n  off(event: string, fn: Listener): void {\n    const fns = this.listeners.get(event);\n    if (!fns) return;\n    const next = fns.filter((f) => f !== fn);\n    if (next.length === 0) {\n      this.listeners.delete(event);\n    } else {\n      this.listeners.set(event, next);\n    }\n  }\n\n  emit(event: string, ...args: unknown[]): void {\n    const fns = this.listeners.get(event);\n    if (!fns) return;\n    fns.forEach((fn) => fn(...args));\n  }\n\n  listenerCount(event: string): number {\n    return this.listeners.get(event)?.length ?? 0;\n  }\n}\n\n/**\n * Subscribes a handler to an event and returns an unsubscribe function.\n */\nexport function subscribe(\n  emitter: EventEmitter,\n  event: string,\n  handler: Listener\n): () => void {\n  const wrapped: Listener = (...args) => handler(...args);\n  emitter.on(event, wrapped);\n\n  return () => {\n    emitter.off(event, wrapped);\n  };\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1567,
+            "outputTokens": 384,
+            "durationMs": 2033
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-event-leak-aug-9qlc4B\n\n ✓ source.test.ts > subscribe / unsubscribe > handler receives emitted events 2ms\n ✓ source.test.ts > subscribe / unsubscribe > unsubscribe removes the listener so it stops firing 0ms\n ✓ source.test.ts > subscribe / unsubscribe > listener count drops to 0 after unsubscribe 0ms\n ✓ source.test.ts > subscribe / unsubscribe > multiple subscribes and unsubscribes work independently 0ms\n\n Test Files  1 pa",
+            "inputTokens": 1966,
+            "outputTokens": 14,
+            "durationMs": 2147
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 5117,
+        "totalOutputTokens": 431,
+        "totalTokens": 5548,
+        "totalDurationMs": 8460,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-event-leak-aug-9qlc4B\n\n ✓ source.test.ts > subscribe / unsubscribe > handler receives emitted events 2ms\n ✓ source.test.ts > subscribe / unsubscribe > unsubscribe removes the listener so it stops firing 0ms\n ✓ source.test.ts > subscribe / unsubscribe > listener count drops to 0 after unsubscribe 0ms\n ✓ source.test.ts > subscribe / unsubscribe > multiple subscribes and unsubscribes work independently 0ms\n\n Test Files  1 passed (1)\n      Tests  4 passed (4)\n   Start at  16:55:13\n   Duration  490ms (transform 152ms, setup 0ms, collect 123ms, tests 3ms, environment 0ms, prepare 74ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": true,
+        "injectionScore": 0.630952380818672
+      },
+      "stepSave": 0.2,
+      "tokenSave": 0.3113207547169811
+    },
+    {
+      "fixtureId": "fix-merge-sort",
+      "baseline": {
+        "fixtureId": "fix-merge-sort",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-merge-sort-bl-i9kTeB\n\n ✓ source.test.ts > mergeSort > sorts a simple unsorted array 2ms\n ✓ source.test.ts > mergeSort > handles an already sorted array 0ms\n × source.test.ts > mergeSort > handles an array with all duplicate values 10ms\n   → expected [ 5 ] to deeply equal [ 5, 5, 5, 5 ]\n × source.test.ts > mergeSort > is stable: preserves count of duplicate elements 4ms\n   → expected [ 1, 2, 4 ] to deeply equal [ 1, 2, 2, 4, 4, 4 ]\n × source",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 3224
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "/**\n * Merge sort implementation.\n * Returns a new sorted array (ascending order).\n */\nexport function mergeSort(arr: number[]): number[] {\n  if (arr.length <= 1) return [...arr];\n\n  const mid = Math.floor(arr.length / 2);\n  const left = mergeSort(arr.slice(0, mid));\n  const right = mergeSort(arr.slice(mid));\n\n  return merge(left, right);\n}\n\n/**\n * Merges two sorted arrays into one sorted array.\n */\nfunction merge(left: number[], right: number[]): number[] {\n  const result: number[] = [];\n  let ",
+            "inputTokens": 1461,
+            "outputTokens": 19,
+            "durationMs": 878
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "/**\n * Merge sort implementation.\n * Returns a new sorted array (ascending order).\n */\nexport function mergeSort(arr: number[]): number[] {\n  if (arr.length <= 1) return [...arr];\n\n  const mid = Math.floor(arr.length / 2);\n  const left = mergeSort(arr.slice(0, mid));\n  const right = mergeSort(arr.slice(mid));\n\n  return merge(left, right);\n}\n\n/**\n * Merges two sorted arrays into one sorted array.\n */\nfunction merge(left: number[], right: number[]): number[] {\n  const result: number[] = [];\n  let i = 0;\n  let j = 0;\n\n  while (i < left.length && j < right.length) {\n    if (left[i] <= right[j]) {\n      result.push(left[i]);\n      i++;\n    } else {\n      result.push(right[j]);\n      j++;\n    }\n  }\n\n  while (i < left.length) {\n    result.push(left[i]);\n    i++;\n  }\n\n  while (j < right.length) {\n    result.push(right[j]);\n    j++;\n  }\n\n  return result;\n}\n\n/**\n * Checks whether an array is sorted in non-descending order.\n */\nexport function isSorted(arr: number[]): boolean {\n  for (let k = 1; k < arr.length; k++) {\n    if (arr[k] < arr[k - 1]) return false;\n  }\n  return true;\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1802,
+            "outputTokens": 388,
+            "durationMs": 1998
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-merge-sort-bl-i9kTeB\n\n ✓ source.test.ts > mergeSort > sorts a simple unsorted array 1ms\n ✓ source.test.ts > mergeSort > handles an already sorted array 0ms\n ✓ source.test.ts > mergeSort > handles an array with all duplicate values 0ms\n ✓ source.test.ts > mergeSort > is stable: preserves count of duplicate elements 0ms\n ✓ source.test.ts > mergeSort > preserves all elements when duplicates span the split boundary 0ms\n\n Test",
+            "inputTokens": 2205,
+            "outputTokens": 14,
+            "durationMs": 2083
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 5786,
+        "totalOutputTokens": 435,
+        "totalTokens": 6221,
+        "totalDurationMs": 8183,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-merge-sort-bl-i9kTeB\n\n ✓ source.test.ts > mergeSort > sorts a simple unsorted array 1ms\n ✓ source.test.ts > mergeSort > handles an already sorted array 0ms\n ✓ source.test.ts > mergeSort > handles an array with all duplicate values 0ms\n ✓ source.test.ts > mergeSort > is stable: preserves count of duplicate elements 0ms\n ✓ source.test.ts > mergeSort > preserves all elements when duplicates span the split boundary 0ms\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  16:55:23\n   Duration  466ms (transform 125ms, setup 0ms, collect 128ms, tests 6ms, environment 0ms, prepare 115ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": false
+      },
+      "augmented": {
+        "fixtureId": "fix-merge-sort",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "r/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-merge-sort-aug-YD0HL9\n\n ✓ source.test.ts > mergeSort > sorts a simple unsorted array 1ms\n ✓ source.test.ts > mergeSort > handles an already sorted array 0ms\n × source.test.ts > mergeSort > handles an array with all duplicate values 4ms\n   → expected [ 5 ] to deeply equal [ 5, 5, 5, 5 ]\n × source.test.ts > mergeSort > is stable: preserves count of duplicate elements 1ms\n   → expected [ 1, 2, 4 ] to deeply equal [ 1, 2, 2, 4, 4, 4 ]\n × sour",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 1966
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "/**\n * Merge sort implementation.\n * Returns a new sorted array (ascending order).\n */\nexport function mergeSort(arr: number[]): number[] {\n  if (arr.length <= 1) return [...arr];\n\n  const mid = Math.floor(arr.length / 2);\n  const left = mergeSort(arr.slice(0, mid));\n  const right = mergeSort(arr.slice(mid));\n\n  return merge(left, right);\n}\n\n/**\n * Merges two sorted arrays into one sorted array.\n */\nfunction merge(left: number[], right: number[]): number[] {\n  const result: number[] = [];\n  let ",
+            "inputTokens": 1462,
+            "outputTokens": 19,
+            "durationMs": 1307
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "/**\n * Merge sort implementation.\n * Returns a new sorted array (ascending order).\n */\nexport function mergeSort(arr: number[]): number[] {\n  if (arr.length <= 1) return [...arr];\n\n  const mid = Math.floor(arr.length / 2);\n  const left = mergeSort(arr.slice(0, mid));\n  const right = mergeSort(arr.slice(mid));\n\n  return merge(left, right);\n}\n\n/**\n * Merges two sorted arrays into one sorted array.\n */\nfunction merge(left: number[], right: number[]): number[] {\n  const result: number[] = [];\n  let i = 0;\n  let j = 0;\n\n  while (i < left.length && j < right.length) {\n    if (left[i] <= right[j]) {\n      result.push(left[i]);\n      i++;\n    } else {\n      result.push(right[j]);\n      j++;\n    }\n  }\n\n  while (i < left.length) {\n    result.push(left[i]);\n    i++;\n  }\n\n  while (j < right.length) {\n    result.push(right[j]);\n    j++;\n  }\n\n  return result;\n}\n\n/**\n * Checks whether an array is sorted in non-descending order.\n */\nexport function isSorted(arr: number[]): boolean {\n  for (let k = 1; k < arr.length; k++) {\n    if (arr[k] < arr[k - 1]) return false;\n  }\n  return true;\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1803,
+            "outputTokens": 388,
+            "durationMs": 1984
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-merge-sort-aug-YD0HL9\n\n ✓ source.test.ts > mergeSort > sorts a simple unsorted array 1ms\n ✓ source.test.ts > mergeSort > handles an already sorted array 0ms\n ✓ source.test.ts > mergeSort > handles an array with all duplicate values 0ms\n ✓ source.test.ts > mergeSort > is stable: preserves count of duplicate elements 0ms\n ✓ source.test.ts > mergeSort > preserves all elements when duplicates span the split boundary 0ms\n\n Tes",
+            "inputTokens": 2206,
+            "outputTokens": 14,
+            "durationMs": 2631
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 5789,
+        "totalOutputTokens": 435,
+        "totalTokens": 6224,
+        "totalDurationMs": 7888,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-merge-sort-aug-YD0HL9\n\n ✓ source.test.ts > mergeSort > sorts a simple unsorted array 1ms\n ✓ source.test.ts > mergeSort > handles an already sorted array 0ms\n ✓ source.test.ts > mergeSort > handles an array with all duplicate values 0ms\n ✓ source.test.ts > mergeSort > is stable: preserves count of duplicate elements 0ms\n ✓ source.test.ts > mergeSort > preserves all elements when duplicates span the split boundary 0ms\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  16:55:32\n   Duration  404ms (transform 49ms, setup 0ms, collect 39ms, tests 3ms, environment 0ms, prepare 84ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": true,
+        "injectionScore": 0.6794047618156226
+      },
+      "stepSave": 0,
+      "tokenSave": -0.00048223758238225364
+    },
+    {
+      "fixtureId": "fix-null-coalesce",
+      "baseline": {
+        "fixtureId": "fix-null-coalesce",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "lied truthy values 0ms\n × source.test.ts > mergeConfig > preserves 0 as a valid user value for retries 6ms\n   → expected 3 to be +0 // Object.is equality\n × source.test.ts > mergeConfig > preserves false as a valid user value for verbose 0ms\n   → expected true to be false // Object.is equality\n × source.test.ts > mergeConfig > preserves empty string as a valid user value for prefix 0ms\n   → expected 'app' to be '' // Object.is equality\n × source.test.ts > getConfigValue > returns user value of 0",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 1803
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "export interface AppConfig {\n  retries: number;\n  verbose: boolean;\n  prefix: string;\n  timeout: number;\n  baseUrl: string;\n}\n\nconst DEFAULTS: AppConfig = {\n  retries: 3,\n  verbose: true,\n  prefix: 'app',\n  timeout: 5000,\n  baseUrl: 'https://api.example.com',\n};\n\n/**\n * Merges user-supplied config with defaults.\n * User values should always win, even if they are falsy (0, '', false).\n */\nexport function mergeConfig(\n  userConfig: Partial<AppConfig>\n): AppConfig {\n  return {\n    retries: userConf",
+            "inputTokens": 1304,
+            "outputTokens": 19,
+            "durationMs": 1138
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "export interface AppConfig {\n  retries: number;\n  verbose: boolean;\n  prefix: string;\n  timeout: number;\n  baseUrl: string;\n}\n\nconst DEFAULTS: AppConfig = {\n  retries: 3,\n  verbose: true,\n  prefix: 'app',\n  timeout: 5000,\n  baseUrl: 'https://api.example.com',\n};\n\n/**\n * Merges user-supplied config with defaults.\n * User values should always win, even if they are falsy (0, '', false).\n */\nexport function mergeConfig(\n  userConfig: Partial<AppConfig>\n): AppConfig {\n  return {\n    retries: userConfig.retries ?? DEFAULTS.retries,\n    verbose: userConfig.verbose ?? DEFAULTS.verbose,\n    prefix: userConfig.prefix ?? DEFAULTS.prefix,\n    timeout: userConfig.timeout ?? DEFAULTS.timeout,\n    baseUrl: userConfig.baseUrl ?? DEFAULTS.baseUrl,\n  };\n}\n\n/**\n * Reads a single config key, falling back to the default.\n */\nexport function getConfigValue<K extends keyof AppConfig>(\n  userConfig: Partial<AppConfig>,\n  key: K\n): AppConfig[K] {\n  return (userConfig[key] ?? DEFAULTS[key]) as AppConfig[K];\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1587,
+            "outputTokens": 327,
+            "durationMs": 2064
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-null-coalesce-bl-ieHsMO\n\n ✓ source.test.ts > mergeConfig > uses defaults when no user config is provided 1ms\n ✓ source.test.ts > mergeConfig > preserves user-supplied truthy values 0ms\n ✓ source.test.ts > mergeConfig > preserves 0 as a valid user value for retries 0ms\n ✓ source.test.ts > mergeConfig > preserves false as a valid user value for verbose 0ms\n ✓ source.test.ts > mergeConfig > preserves empty string as a valid ",
+            "inputTokens": 1929,
+            "outputTokens": 14,
+            "durationMs": 1722
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 5138,
+        "totalOutputTokens": 374,
+        "totalTokens": 5512,
+        "totalDurationMs": 6727,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-null-coalesce-bl-ieHsMO\n\n ✓ source.test.ts > mergeConfig > uses defaults when no user config is provided 1ms\n ✓ source.test.ts > mergeConfig > preserves user-supplied truthy values 0ms\n ✓ source.test.ts > mergeConfig > preserves 0 as a valid user value for retries 0ms\n ✓ source.test.ts > mergeConfig > preserves false as a valid user value for verbose 0ms\n ✓ source.test.ts > mergeConfig > preserves empty string as a valid user value for prefix 0ms\n ✓ source.test.ts > getConfigValue > returns user value of 0 instead of the default 0ms\n ✓ source.test.ts > getConfigValue > falls back to default when key is absent 0ms\n\n Test Files  1 passed (1)\n      Tests  7 passed (7)\n   Start at  16:55:40\n   Duration  285ms (transform 25ms, setup 0ms, collect 22ms, tests 2ms, environment 0ms, prepare 36ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": false
+      },
+      "augmented": {
+        "fixtureId": "fix-null-coalesce",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "lied truthy values 0ms\n × source.test.ts > mergeConfig > preserves 0 as a valid user value for retries 5ms\n   → expected 3 to be +0 // Object.is equality\n × source.test.ts > mergeConfig > preserves false as a valid user value for verbose 0ms\n   → expected true to be false // Object.is equality\n × source.test.ts > mergeConfig > preserves empty string as a valid user value for prefix 0ms\n   → expected 'app' to be '' // Object.is equality\n × source.test.ts > getConfigValue > returns user value of 0",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 2223
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "export interface AppConfig {\n  retries: number;\n  verbose: boolean;\n  prefix: string;\n  timeout: number;\n  baseUrl: string;\n}\n\nconst DEFAULTS: AppConfig = {\n  retries: 3,\n  verbose: true,\n  prefix: 'app',\n  timeout: 5000,\n  baseUrl: 'https://api.example.com',\n};\n\n/**\n * Merges user-supplied config with defaults.\n * User values should always win, even if they are falsy (0, '', false).\n */\nexport function mergeConfig(\n  userConfig: Partial<AppConfig>\n): AppConfig {\n  return {\n    retries: userConf",
+            "inputTokens": 1304,
+            "outputTokens": 19,
+            "durationMs": 1169
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "export interface AppConfig {\n  retries: number;\n  verbose: boolean;\n  prefix: string;\n  timeout: number;\n  baseUrl: string;\n}\n\nconst DEFAULTS: AppConfig = {\n  retries: 3,\n  verbose: true,\n  prefix: 'app',\n  timeout: 5000,\n  baseUrl: 'https://api.example.com',\n};\n\n/**\n * Merges user-supplied config with defaults.\n * User values should always win, even if they are falsy (0, '', false).\n */\nexport function mergeConfig(\n  userConfig: Partial<AppConfig>\n): AppConfig {\n  return {\n    retries: userConfig.retries ?? DEFAULTS.retries,\n    verbose: userConfig.verbose ?? DEFAULTS.verbose,\n    prefix: userConfig.prefix ?? DEFAULTS.prefix,\n    timeout: userConfig.timeout ?? DEFAULTS.timeout,\n    baseUrl: userConfig.baseUrl ?? DEFAULTS.baseUrl,\n  };\n}\n\n/**\n * Reads a single config key, falling back to the default.\n */\nexport function getConfigValue<K extends keyof AppConfig>(\n  userConfig: Partial<AppConfig>,\n  key: K\n): AppConfig[K] {\n  return (userConfig[key] ?? DEFAULTS[key]) as AppConfig[K];\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1587,
+            "outputTokens": 327,
+            "durationMs": 1946
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-null-coalesce-aug-xyFVuF\n\n ✓ source.test.ts > mergeConfig > uses defaults when no user config is provided 1ms\n ✓ source.test.ts > mergeConfig > preserves user-supplied truthy values 0ms\n ✓ source.test.ts > mergeConfig > preserves 0 as a valid user value for retries 0ms\n ✓ source.test.ts > mergeConfig > preserves false as a valid user value for verbose 0ms\n ✓ source.test.ts > mergeConfig > preserves empty string as a valid",
+            "inputTokens": 1929,
+            "outputTokens": 14,
+            "durationMs": 1993
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 5138,
+        "totalOutputTokens": 374,
+        "totalTokens": 5512,
+        "totalDurationMs": 7331,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-null-coalesce-aug-xyFVuF\n\n ✓ source.test.ts > mergeConfig > uses defaults when no user config is provided 1ms\n ✓ source.test.ts > mergeConfig > preserves user-supplied truthy values 0ms\n ✓ source.test.ts > mergeConfig > preserves 0 as a valid user value for retries 0ms\n ✓ source.test.ts > mergeConfig > preserves false as a valid user value for verbose 0ms\n ✓ source.test.ts > mergeConfig > preserves empty string as a valid user value for prefix 0ms\n ✓ source.test.ts > getConfigValue > returns user value of 0 instead of the default 0ms\n ✓ source.test.ts > getConfigValue > falls back to default when key is absent 0ms\n\n Test Files  1 passed (1)\n      Tests  7 passed (7)\n   Start at  16:55:48\n   Duration  365ms (transform 137ms, setup 0ms, collect 112ms, tests 2ms, environment 0ms, prepare 63ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": true,
+        "injectionScore": 0.6808602150091938
+      },
+      "stepSave": 0,
+      "tokenSave": 0
+    },
+    {
+      "fixtureId": "fix-off-by-one",
+      "baseline": {
+        "fixtureId": "fix-off-by-one",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-off-by-one-bl-Qz0K2B\n\n ✓ source.test.ts > binarySearch > finds an element in the middle of the array 1ms\n ✓ source.test.ts > binarySearch > finds the first element 0ms\n × source.test.ts > binarySearch > finds the last element in the array 4ms\n   → expected -1 to be 4 // Object.is equality\n ✓ source.test.ts > binarySearch > returns -1 for a missing element 0ms\n × source.test.ts > binarySearch > finds the only element in a ",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 3428
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "/**\n * Binary search implementation.\n * Returns the index of `target` in a sorted array, or -1 if not found.\n */\nexport function binarySearch(arr: number[], target: number): number {\n  let lo = 0;\n  let hi = arr.length - 1;\n\n  while (lo < hi) {\n    const mid = Math.floor((lo + hi) / 2);\n\n    if (arr[mid] === target) {\n      return mid;\n    } else if (arr[mid] < target) {\n      lo = mid + 1;\n    } else {\n      hi = mid - 1;\n    }\n  }\n\n  return -1;\n}\n\n/**\n * Finds the insertion index for `target` ",
+            "inputTokens": 976,
+            "outputTokens": 19,
+            "durationMs": 1159
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "/**\n * Binary search implementation.\n * Returns the index of `target` in a sorted array, or -1 if not found.\n */\nexport function binarySearch(arr: number[], target: number): number {\n  let lo = 0;\n  let hi = arr.length - 1;\n\n  while (lo <= hi) {\n    const mid = Math.floor((lo + hi) / 2);\n\n    if (arr[mid] === target) {\n      return mid;\n    } else if (arr[mid] < target) {\n      lo = mid + 1;\n    } else {\n      hi = mid - 1;\n    }\n  }\n\n  return -1;\n}\n\n/**\n * Finds the insertion index for `target` in a sorted array\n * using binary search.\n */\nexport function findInsertionIndex(arr: number[], target: number): number {\n  let lo = 0;\n  let hi = arr.length;\n\n  while (lo < hi) {\n    const mid = Math.floor((lo + hi) / 2);\n    if (arr[mid] < target) {\n      lo = mid + 1;\n    } else {\n      hi = mid;\n    }\n  }\n\n  return lo;\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1251,
+            "outputTokens": 314,
+            "durationMs": 2004
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-off-by-one-bl-Qz0K2B\n\n ✓ source.test.ts > binarySearch > finds an element in the middle of the array 1ms\n ✓ source.test.ts > binarySearch > finds the first element 0ms\n ✓ source.test.ts > binarySearch > finds the last element in the array 0ms\n ✓ source.test.ts > binarySearch > returns -1 for a missing element 0ms\n ✓ source.test.ts > binarySearch > finds the only element in a single-element array 0ms\n\n Test Files  1 passed",
+            "inputTokens": 1580,
+            "outputTokens": 14,
+            "durationMs": 1870
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 4125,
+        "totalOutputTokens": 361,
+        "totalTokens": 4486,
+        "totalDurationMs": 8461,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-off-by-one-bl-Qz0K2B\n\n ✓ source.test.ts > binarySearch > finds an element in the middle of the array 1ms\n ✓ source.test.ts > binarySearch > finds the first element 0ms\n ✓ source.test.ts > binarySearch > finds the last element in the array 0ms\n ✓ source.test.ts > binarySearch > returns -1 for a missing element 0ms\n ✓ source.test.ts > binarySearch > finds the only element in a single-element array 0ms\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  16:55:58\n   Duration  336ms (transform 32ms, setup 0ms, collect 26ms, tests 1ms, environment 0ms, prepare 43ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": false
+      },
+      "augmented": {
+        "fixtureId": "fix-off-by-one",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-off-by-one-aug-oMGvEb\n\n ✓ source.test.ts > binarySearch > finds an element in the middle of the array 1ms\n ✓ source.test.ts > binarySearch > finds the first element 0ms\n × source.test.ts > binarySearch > finds the last element in the array 4ms\n   → expected -1 to be 4 // Object.is equality\n ✓ source.test.ts > binarySearch > returns -1 for a missing element 0ms\n × source.test.ts > binarySearch > finds the only element in a",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 1790
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "/**\n * Binary search implementation.\n * Returns the index of `target` in a sorted array, or -1 if not found.\n */\nexport function binarySearch(arr: number[], target: number): number {\n  let lo = 0;\n  let hi = arr.length - 1;\n\n  while (lo < hi) {\n    const mid = Math.floor((lo + hi) / 2);\n\n    if (arr[mid] === target) {\n      return mid;\n    } else if (arr[mid] < target) {\n      lo = mid + 1;\n    } else {\n      hi = mid - 1;\n    }\n  }\n\n  return -1;\n}\n\n/**\n * Finds the insertion index for `target` ",
+            "inputTokens": 975,
+            "outputTokens": 19,
+            "durationMs": 1220
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "/**\n * Binary search implementation.\n * Returns the index of `target` in a sorted array, or -1 if not found.\n */\nexport function binarySearch(arr: number[], target: number): number {\n  let lo = 0;\n  let hi = arr.length - 1;\n\n  while (lo <= hi) {\n    const mid = Math.floor((lo + hi) / 2);\n\n    if (arr[mid] === target) {\n      return mid;\n    } else if (arr[mid] < target) {\n      lo = mid + 1;\n    } else {\n      hi = mid - 1;\n    }\n  }\n\n  return -1;\n}\n\n/**\n * Finds the insertion index for `target` in a sorted array\n * using binary search.\n */\nexport function findInsertionIndex(arr: number[], target: number): number {\n  let lo = 0;\n  let hi = arr.length;\n\n  while (lo < hi) {\n    const mid = Math.floor((lo + hi) / 2);\n    if (arr[mid] < target) {\n      lo = mid + 1;\n    } else {\n      hi = mid;\n    }\n  }\n\n  return lo;\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1250,
+            "outputTokens": 314,
+            "durationMs": 1957
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-off-by-one-aug-oMGvEb\n\n ✓ source.test.ts > binarySearch > finds an element in the middle of the array 1ms\n ✓ source.test.ts > binarySearch > finds the first element 0ms\n ✓ source.test.ts > binarySearch > finds the last element in the array 0ms\n ✓ source.test.ts > binarySearch > returns -1 for a missing element 0ms\n ✓ source.test.ts > binarySearch > finds the only element in a single-element array 0ms\n\n Test Files  1 passe",
+            "inputTokens": 1579,
+            "outputTokens": 14,
+            "durationMs": 1518
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 4122,
+        "totalOutputTokens": 361,
+        "totalTokens": 4483,
+        "totalDurationMs": 6485,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-off-by-one-aug-oMGvEb\n\n ✓ source.test.ts > binarySearch > finds an element in the middle of the array 1ms\n ✓ source.test.ts > binarySearch > finds the first element 0ms\n ✓ source.test.ts > binarySearch > finds the last element in the array 0ms\n ✓ source.test.ts > binarySearch > returns -1 for a missing element 0ms\n ✓ source.test.ts > binarySearch > finds the only element in a single-element array 0ms\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  16:56:05\n   Duration  359ms (transform 110ms, setup 0ms, collect 108ms, tests 2ms, environment 0ms, prepare 52ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": true,
+        "injectionScore": 0.6821428570982876
+      },
+      "stepSave": 0,
+      "tokenSave": 0.0006687472135532769
+    },
+    {
+      "fixtureId": "fix-rate-limiter",
+      "baseline": {
+        "fixtureId": "fix-rate-limiter",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-rate-limiter-bl-347Vqo\n\n ✓ source.test.ts > RateLimiter > allows requests under the limit 1ms\n ✓ source.test.ts > RateLimiter > blocks requests over the limit within the window 0ms\n ✓ source.test.ts > RateLimiter > allows new requests after the window has fully elapsed 0ms\n × source.test.ts > RateLimiter > does not allow burst at exact window boundary 4ms\n   → expected true to be false // Object.is equality\n × source.test",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 1743
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "/**\n * Sliding-window rate limiter.\n * Allows up to `maxRequests` requests within a rolling `windowMs` window.\n */\nexport class RateLimiter {\n  private maxRequests: number;\n  private windowMs: number;\n  private timestamps: number[] = [];\n\n  constructor(maxRequests: number, windowMs: number) {\n    this.maxRequests = maxRequests;\n    this.windowMs = windowMs;\n  }\n\n  /**\n   * Attempts a request at the given timestamp.\n   * Returns true if allowed, false if rate-limited.\n   */\n  tryRequest(now: numb",
+            "inputTokens": 962,
+            "outputTokens": 19,
+            "durationMs": 799
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "/**\n * Sliding-window rate limiter.\n * Allows up to `maxRequests` requests within a rolling `windowMs` window.\n */\nexport class RateLimiter {\n  private maxRequests: number;\n  private windowMs: number;\n  private timestamps: number[] = [];\n\n  constructor(maxRequests: number, windowMs: number) {\n    this.maxRequests = maxRequests;\n    this.windowMs = windowMs;\n  }\n\n  /**\n   * Attempts a request at the given timestamp.\n   * Returns true if allowed, false if rate-limited.\n   */\n  tryRequest(now: number): boolean {\n    this.cleanup(now);\n\n    if (this.timestamps.length >= this.maxRequests) {\n      return false;\n    }\n\n    this.timestamps.push(now);\n    return true;\n  }\n\n  /**\n   * Removes timestamps that are outside the current window.\n   * Requests exactly on the window boundary should remain counted until\n   * strictly more than `windowMs` has elapsed.\n   */\n  private cleanup(now: number): void {\n    const cutoff = now - this.windowMs;\n    this.timestamps = this.timestamps.filter((t) => t >= cutoff);\n  }\n\n  /**\n   * Returns how many requests are currently in the window.\n   */\n  currentCount(now: number): number {\n    this.cleanup(now);\n    return this.timestamps.length;\n  }\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1236,
+            "outputTokens": 348,
+            "durationMs": 2521
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-rate-limiter-bl-347Vqo\n\n ✓ source.test.ts > RateLimiter > allows requests under the limit 1ms\n ✓ source.test.ts > RateLimiter > blocks requests over the limit within the window 0ms\n ✓ source.test.ts > RateLimiter > allows new requests after the window has fully elapsed 0ms\n ✓ source.test.ts > RateLimiter > does not allow burst at exact window boundary 0ms\n ✓ source.test.ts > RateLimiter > tracks current count correctly 0m",
+            "inputTokens": 1599,
+            "outputTokens": 14,
+            "durationMs": 2703
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 4115,
+        "totalOutputTokens": 395,
+        "totalTokens": 4510,
+        "totalDurationMs": 7766,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-rate-limiter-bl-347Vqo\n\n ✓ source.test.ts > RateLimiter > allows requests under the limit 1ms\n ✓ source.test.ts > RateLimiter > blocks requests over the limit within the window 0ms\n ✓ source.test.ts > RateLimiter > allows new requests after the window has fully elapsed 0ms\n ✓ source.test.ts > RateLimiter > does not allow burst at exact window boundary 0ms\n ✓ source.test.ts > RateLimiter > tracks current count correctly 0ms\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  16:56:14\n   Duration  598ms (transform 166ms, setup 0ms, collect 164ms, tests 2ms, environment 0ms, prepare 70ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": false
+      },
+      "augmented": {
+        "fixtureId": "fix-rate-limiter",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-rate-limiter-aug-8SccXD\n\n ✓ source.test.ts > RateLimiter > allows requests under the limit 1ms\n ✓ source.test.ts > RateLimiter > blocks requests over the limit within the window 0ms\n ✓ source.test.ts > RateLimiter > allows new requests after the window has fully elapsed 0ms\n × source.test.ts > RateLimiter > does not allow burst at exact window boundary 5ms\n   → expected true to be false // Object.is equality\n × source.tes",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 1727
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "/**\n * Sliding-window rate limiter.\n * Allows up to `maxRequests` requests within a rolling `windowMs` window.\n */\nexport class RateLimiter {\n  private maxRequests: number;\n  private windowMs: number;\n  private timestamps: number[] = [];\n\n  constructor(maxRequests: number, windowMs: number) {\n    this.maxRequests = maxRequests;\n    this.windowMs = windowMs;\n  }\n\n  /**\n   * Attempts a request at the given timestamp.\n   * Returns true if allowed, false if rate-limited.\n   */\n  tryRequest(now: numb",
+            "inputTokens": 964,
+            "outputTokens": 19,
+            "durationMs": 839
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "/**\n * Sliding-window rate limiter.\n * Allows up to `maxRequests` requests within a rolling `windowMs` window.\n */\nexport class RateLimiter {\n  private maxRequests: number;\n  private windowMs: number;\n  private timestamps: number[] = [];\n\n  constructor(maxRequests: number, windowMs: number) {\n    this.maxRequests = maxRequests;\n    this.windowMs = windowMs;\n  }\n\n  /**\n   * Attempts a request at the given timestamp.\n   * Returns true if allowed, false if rate-limited.\n   */\n  tryRequest(now: number): boolean {\n    this.cleanup(now);\n\n    if (this.timestamps.length >= this.maxRequests) {\n      return false;\n    }\n\n    this.timestamps.push(now);\n    return true;\n  }\n\n  /**\n   * Removes timestamps that are outside the current window.\n   *\n   * Requests at the exact boundary are still considered inside the window,\n   * so only timestamps strictly older than `now - windowMs` are removed.\n   */\n  private cleanup(now: number): void {\n    const cutoff = now - this.windowMs;\n    this.timestamps = this.timestamps.filter((t) => t >= cutoff);\n  }\n\n  /**\n   * Returns how many requests are currently in the window.\n   */\n  currentCount(now: number): number {\n    this.cleanup(now);\n    return this.timestamps.length;\n  }\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1238,
+            "outputTokens": 359,
+            "durationMs": 2110
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-rate-limiter-aug-8SccXD\n\n ✓ source.test.ts > RateLimiter > allows requests under the limit 1ms\n ✓ source.test.ts > RateLimiter > blocks requests over the limit within the window 0ms\n ✓ source.test.ts > RateLimiter > allows new requests after the window has fully elapsed 0ms\n ✓ source.test.ts > RateLimiter > does not allow burst at exact window boundary 0ms\n ✓ source.test.ts > RateLimiter > tracks current count correctly 0",
+            "inputTokens": 1612,
+            "outputTokens": 14,
+            "durationMs": 1514
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 4132,
+        "totalOutputTokens": 406,
+        "totalTokens": 4538,
+        "totalDurationMs": 6190,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-rate-limiter-aug-8SccXD\n\n ✓ source.test.ts > RateLimiter > allows requests under the limit 1ms\n ✓ source.test.ts > RateLimiter > blocks requests over the limit within the window 0ms\n ✓ source.test.ts > RateLimiter > allows new requests after the window has fully elapsed 0ms\n ✓ source.test.ts > RateLimiter > does not allow burst at exact window boundary 0ms\n ✓ source.test.ts > RateLimiter > tracks current count correctly 0ms\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  16:56:22\n   Duration  305ms (transform 57ms, setup 0ms, collect 24ms, tests 2ms, environment 0ms, prepare 75ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": true,
+        "injectionScore": 0.6659090908645213
+      },
+      "stepSave": 0,
+      "tokenSave": -0.006208425720620843
+    },
+    {
+      "fixtureId": "fix-tree-depth",
+      "baseline": {
+        "fixtureId": "fix-tree-depth",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-tree-depth-bl-UXqmI8\n\n ✓ source.test.ts > maxDepth > returns 0 for an empty tree (null) 1ms\n × source.test.ts > maxDepth > returns 1 for a tree with only the root node 4ms\n   → expected +0 to be 1 // Object.is equality\n × source.test.ts > maxDepth > returns 2 for a root with one child 0ms\n   → expected 1 to be 2 // Object.is equality\n × source.test.ts > maxDepth > returns 3 for a balanced tree of depth 3 0ms\n   → expected",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 1686
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "export interface TreeNode {\n  value: number;\n  left: TreeNode | null;\n  right: TreeNode | null;\n}\n\n/**\n * Creates a tree node.\n */\nexport function node(\n  value: number,\n  left: TreeNode | null = null,\n  right: TreeNode | null = null\n): TreeNode {\n  return { value, left, right };\n}\n\n/**\n * Returns the maximum depth (number of nodes on the longest root-to-leaf path)\n * of a binary tree.\n *\n * A single root node has depth 1. An empty tree (null) has depth 0.\n */\nexport function maxDepth(root: Tree",
+            "inputTokens": 1362,
+            "outputTokens": 19,
+            "durationMs": 1152
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "export interface TreeNode {\n  value: number;\n  left: TreeNode | null;\n  right: TreeNode | null;\n}\n\n/**\n * Creates a tree node.\n */\nexport function node(\n  value: number,\n  left: TreeNode | null = null,\n  right: TreeNode | null = null\n): TreeNode {\n  return { value, left, right };\n}\n\n/**\n * Returns the maximum depth (number of nodes on the longest root-to-leaf path)\n * of a binary tree.\n *\n * A single root node has depth 1. An empty tree (null) has depth 0.\n */\nexport function maxDepth(root: TreeNode | null): number {\n  if (!root) return 0;\n\n  const leftDepth = maxDepth(root.left);\n  const rightDepth = maxDepth(root.right);\n\n  return 1 + Math.max(leftDepth, rightDepth);\n}\n\n/**\n * Returns the minimum depth (shortest root-to-leaf path).\n */\nexport function minDepth(root: TreeNode | null): number {\n  if (!root) return 0;\n  if (!root.left && !root.right) return 1;\n\n  if (!root.left) return 1 + minDepth(root.right);\n  if (!root.right) return 1 + minDepth(root.left);\n\n  return 1 + Math.min(minDepth(root.left), minDepth(root.right));\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1687,
+            "outputTokens": 356,
+            "durationMs": 2151
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-tree-depth-bl-UXqmI8\n\n ✓ source.test.ts > maxDepth > returns 0 for an empty tree (null) 1ms\n ✓ source.test.ts > maxDepth > returns 1 for a tree with only the root node 0ms\n ✓ source.test.ts > maxDepth > returns 2 for a root with one child 0ms\n ✓ source.test.ts > maxDepth > returns 3 for a balanced tree of depth 3 0ms\n ✓ source.test.ts > maxDepth > returns correct depth for an unbalanced tree 0ms\n\n Test Files  1 passed (1)",
+            "inputTokens": 2058,
+            "outputTokens": 14,
+            "durationMs": 2128
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 5425,
+        "totalOutputTokens": 403,
+        "totalTokens": 5828,
+        "totalDurationMs": 7117,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-tree-depth-bl-UXqmI8\n\n ✓ source.test.ts > maxDepth > returns 0 for an empty tree (null) 1ms\n ✓ source.test.ts > maxDepth > returns 1 for a tree with only the root node 0ms\n ✓ source.test.ts > maxDepth > returns 2 for a root with one child 0ms\n ✓ source.test.ts > maxDepth > returns 3 for a balanced tree of depth 3 0ms\n ✓ source.test.ts > maxDepth > returns correct depth for an unbalanced tree 0ms\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  16:56:30\n   Duration  283ms (transform 41ms, setup 0ms, collect 32ms, tests 2ms, environment 0ms, prepare 71ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": false
+      },
+      "augmented": {
+        "fixtureId": "fix-tree-depth",
+        "steps": [
+          {
+            "stepNumber": 1,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-tree-depth-aug-9sfIoM\n\n ✓ source.test.ts > maxDepth > returns 0 for an empty tree (null) 1ms\n × source.test.ts > maxDepth > returns 1 for a tree with only the root node 4ms\n   → expected +0 to be 1 // Object.is equality\n × source.test.ts > maxDepth > returns 2 for a root with one child 0ms\n   → expected 1 to be 2 // Object.is equality\n × source.test.ts > maxDepth > returns 3 for a balanced tree of depth 3 0ms\n   → expecte",
+            "inputTokens": 318,
+            "outputTokens": 14,
+            "durationMs": 2079
+          },
+          {
+            "stepNumber": 2,
+            "toolName": "readFile",
+            "toolInput": {
+              "path": "source.ts"
+            },
+            "toolOutput": "export interface TreeNode {\n  value: number;\n  left: TreeNode | null;\n  right: TreeNode | null;\n}\n\n/**\n * Creates a tree node.\n */\nexport function node(\n  value: number,\n  left: TreeNode | null = null,\n  right: TreeNode | null = null\n): TreeNode {\n  return { value, left, right };\n}\n\n/**\n * Returns the maximum depth (number of nodes on the longest root-to-leaf path)\n * of a binary tree.\n *\n * A single root node has depth 1. An empty tree (null) has depth 0.\n */\nexport function maxDepth(root: Tree",
+            "inputTokens": 1363,
+            "outputTokens": 19,
+            "durationMs": 902
+          },
+          {
+            "stepNumber": 3,
+            "toolName": "editFile",
+            "toolInput": {
+              "path": "source.ts",
+              "content": "export interface TreeNode {\n  value: number;\n  left: TreeNode | null;\n  right: TreeNode | null;\n}\n\n/**\n * Creates a tree node.\n */\nexport function node(\n  value: number,\n  left: TreeNode | null = null,\n  right: TreeNode | null = null\n): TreeNode {\n  return { value, left, right };\n}\n\n/**\n * Returns the maximum depth (number of nodes on the longest root-to-leaf path)\n * of a binary tree.\n *\n * A single root node has depth 1. An empty tree (null) has depth 0.\n */\nexport function maxDepth(root: TreeNode | null): number {\n  if (!root) return 0;\n  if (!root.left && !root.right) return 1;\n\n  const leftDepth = maxDepth(root.left);\n  const rightDepth = maxDepth(root.right);\n\n  return 1 + Math.max(leftDepth, rightDepth);\n}\n\n/**\n * Returns the minimum depth (shortest root-to-leaf path).\n */\nexport function minDepth(root: TreeNode | null): number {\n  if (!root) return 0;\n  if (!root.left && !root.right) return 1;\n\n  if (!root.left) return 1 + minDepth(root.right);\n  if (!root.right) return 1 + minDepth(root.left);\n\n  return 1 + Math.min(minDepth(root.left), minDepth(root.right));\n}\n"
+            },
+            "toolOutput": "File written: source.ts",
+            "inputTokens": 1688,
+            "outputTokens": 371,
+            "durationMs": 1929
+          },
+          {
+            "stepNumber": 4,
+            "toolName": "runTests",
+            "toolInput": {},
+            "toolOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-tree-depth-aug-9sfIoM\n\n ✓ source.test.ts > maxDepth > returns 0 for an empty tree (null) 1ms\n ✓ source.test.ts > maxDepth > returns 1 for a tree with only the root node 0ms\n ✓ source.test.ts > maxDepth > returns 2 for a root with one child 0ms\n ✓ source.test.ts > maxDepth > returns 3 for a balanced tree of depth 3 0ms\n ✓ source.test.ts > maxDepth > returns correct depth for an unbalanced tree 0ms\n\n Test Files  1 passed (1",
+            "inputTokens": 2074,
+            "outputTokens": 14,
+            "durationMs": 1925
+          }
+        ],
+        "totalSteps": 4,
+        "totalInputTokens": 5443,
+        "totalOutputTokens": 418,
+        "totalTokens": 5861,
+        "totalDurationMs": 6835,
+        "success": true,
+        "testOutput": "\n RUN  v3.2.4 /var/folders/vv/2pk8_2_148jg65g7by1btznc0000gn/T/tb-eval-fix-tree-depth-aug-9sfIoM\n\n ✓ source.test.ts > maxDepth > returns 0 for an empty tree (null) 1ms\n ✓ source.test.ts > maxDepth > returns 1 for a tree with only the root node 0ms\n ✓ source.test.ts > maxDepth > returns 2 for a root with one child 0ms\n ✓ source.test.ts > maxDepth > returns 3 for a balanced tree of depth 3 0ms\n ✓ source.test.ts > maxDepth > returns correct depth for an unbalanced tree 0ms\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  16:56:38\n   Duration  282ms (transform 33ms, setup 0ms, collect 28ms, tests 1ms, environment 0ms, prepare 50ms)\n\n",
+        "stopReason": "tests_passed",
+        "injected": true,
+        "injectionScore": 0.705459770070373
+      },
+      "stepSave": 0,
+      "tokenSave": -0.005662319835277968
+    }
+  ]
+}
