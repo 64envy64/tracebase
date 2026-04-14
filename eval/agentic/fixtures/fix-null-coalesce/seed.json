@@ -1,0 +1,9 @@
+{
+  "situation": "A form validation library treats user input of '0' in a numeric field as 'no input provided' and shows a 'required field' error. The check uses `if (!value)` to detect missing input, which also catches the string '0' and the number 0.",
+  "deadEnds": [
+    "Converted the field to a string before the check, but '0' is still falsy after Boolean coercion",
+    "Added a special case for numeric fields to allow 0, but the same issue re-appeared for boolean checkboxes set to false",
+    "Tried trimming whitespace thinking the value was empty string, but the value was literally 0"
+  ],
+  "unlock": "The truthiness check conflated 'not provided' with 'provided but falsy'. Switching to an explicit check for null and undefined (value == null) distinguished between missing input and intentionally falsy values."
+}

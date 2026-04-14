@@ -1,0 +1,9 @@
+{
+  "situation": "A React component registers a resize observer in useEffect and returns a cleanup function that calls observer.disconnect(). But the component creates a new ResizeObserver inside the effect each render while the cleanup disconnects a stale reference captured in a previous closure.",
+  "deadEnds": [
+    "Added a dependency array to useEffect, but the observer was still recreated because the callback was an inline function",
+    "Tried using useRef for the observer, but forgot to update the ref before cleanup ran",
+    "Suspected the browser was ignoring disconnect(), added logging that showed disconnect was called — on the wrong instance"
+  ],
+  "unlock": "The cleanup function must reference the exact same object that was created during that effect invocation. Storing the observer in a local variable inside the effect (not a ref, not a state) and returning () => localObserver.disconnect() ensured the right instance was torn down."
+}

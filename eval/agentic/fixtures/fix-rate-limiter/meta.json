@@ -1,0 +1,11 @@
+{
+  "id": "fix-rate-limiter",
+  "language": "typescript",
+  "difficulty": "medium",
+  "bugType": "boundary-condition",
+  "description": "Rate limiter allows burst at window boundary because cleanup uses wrong comparison operator for timestamps",
+  "tags": [
+    "rate-limiting",
+    "timing"
+  ]
+}

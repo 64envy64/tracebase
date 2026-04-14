@@ -1,0 +1,9 @@
+{
+  "situation": "A file-upload endpoint streams chunks to object storage and returns a confirmation, but the response sometimes arrives before the last chunk is flushed. The upload uses .map() to create promises for each chunk but never aggregates them with Promise.all.",
+  "deadEnds": [
+    "Added a fixed delay before sending the response, which masked the bug in dev but failed under load",
+    "Suspected a network issue causing dropped chunks, but the chunks were all sent successfully",
+    "Tried buffering all chunks in memory first, which worked but defeated the purpose of streaming"
+  ],
+  "unlock": "The root cause was fire-and-forget promises. Collecting the per-chunk promises into an array and awaiting Promise.all() before responding ensured every chunk was flushed before the confirmation was sent."
+}

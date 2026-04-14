@@ -1,0 +1,9 @@
+{
+  "situation": "A session expiry module checks whether a session is still valid by comparing Date.now() against createdAt + maxAge. Sessions that are exactly maxAge old are treated as expired even though the policy intends the window to be inclusive. Users get logged out one millisecond too early at the exact boundary.",
+  "deadEnds": [
+    "Added 1ms to maxAge as a workaround, which shifted the boundary but did not fix the root cause",
+    "Suspected clock drift between the session store and the application server",
+    "Added rounding to the nearest second, which hid the bug but introduced a 1-second window of incorrectness"
+  ],
+  "unlock": "The comparison used strict less-than where it needed less-than-or-equal. At the exact boundary, the session should still be considered valid. Changing < to <= (or equivalently, >= to > on the expiry check) fixed the premature eviction at the boundary."
+}

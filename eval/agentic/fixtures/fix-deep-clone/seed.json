@@ -1,0 +1,9 @@
+{
+  "situation": "A JSON serializer for an API response traverses a graph of entities to build a payload. Some entities reference each other (e.g., author -> posts -> author). The serializer enters infinite recursion and the request times out.",
+  "deadEnds": [
+    "Set a maximum recursion depth, which prevented the crash but silently truncated valid deeply-nested data",
+    "Tried converting the graph to a tree by removing back-references before serialization, but this mutated the original data and broke downstream consumers",
+    "Used JSON.stringify, which also fails on circular references and throws a TypeError"
+  ],
+  "unlock": "Tracking already-visited objects in a Set (or WeakSet) allowed the serializer to detect cycles and replace back-references with a sentinel (like { $ref: '#/path' }) instead of recursing infinitely. The same pattern applies to any recursive traversal over potentially cyclic structures."
+}

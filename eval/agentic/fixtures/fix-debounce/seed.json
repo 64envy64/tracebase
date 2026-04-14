@@ -1,0 +1,9 @@
+{
+  "situation": "A middleware pipeline passes a request context object through a chain of handlers. The context object is created at the start but never threaded into the error handler. When an error occurs, the error handler logs 'context: undefined' and cannot report which request failed.",
+  "deadEnds": [
+    "Assumed the context was being garbage-collected and tried holding a global reference, which introduced cross-request contamination",
+    "Added the context to the error object itself, but the error was thrown by a third-party library that did not know about the context",
+    "Wrapped the error handler in a try/catch, but the issue was missing data, not a thrown exception"
+  ],
+  "unlock": "The error handler was registered as a bare function reference without binding the context. Wrapping it in a closure that captures the current context — or using .bind() — ensured the context was available when the handler fired."
+}

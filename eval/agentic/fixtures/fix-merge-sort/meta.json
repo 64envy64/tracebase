@@ -1,0 +1,11 @@
+{
+  "id": "fix-merge-sort",
+  "language": "typescript",
+  "difficulty": "medium",
+  "bugType": "comparison-error",
+  "description": "Merge sort produces incorrect results for arrays with duplicate values because merge step uses strict less-than",
+  "tags": [
+    "algorithm",
+    "sorting"
+  ]
+}

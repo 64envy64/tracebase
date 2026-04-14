@@ -1,0 +1,11 @@
+{
+  "id": "fix-off-by-one",
+  "language": "typescript",
+  "difficulty": "easy",
+  "bugType": "off-by-one",
+  "description": "Binary search returns -1 for last element and single-element arrays due to off-by-one in loop condition",
+  "tags": [
+    "algorithm",
+    "binary-search"
+  ]
+}

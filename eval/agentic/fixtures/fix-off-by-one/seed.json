@@ -1,0 +1,9 @@
+{
+  "situation": "A pagination component shows pages 1 through N but the last page is never reachable. The loop that generates page buttons iterates while pageIndex < totalPages, but since pages are 1-indexed the final page is skipped when pageIndex equals totalPages.",
+  "deadEnds": [
+    "Checked the data-fetching layer assuming the last page of results was empty",
+    "Tried adjusting totalPages calculation with Math.ceil, but the count was already correct",
+    "Added +1 to totalPages as a workaround, which created an empty extra page"
+  ],
+  "unlock": "The boundary condition in the loop was exclusive when it needed to be inclusive. Changing < to <= (or switching to 0-indexed iteration with < totalPages) fixed the off-by-one so every page is reachable."
+}

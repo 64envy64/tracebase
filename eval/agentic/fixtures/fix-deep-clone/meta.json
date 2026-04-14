@@ -1,0 +1,11 @@
+{
+  "id": "fix-deep-clone",
+  "language": "typescript",
+  "difficulty": "hard",
+  "bugType": "missing-edge-case",
+  "description": "Deep clone crashes on circular references and converts Date objects to plain objects",
+  "tags": [
+    "utility",
+    "serialization"
+  ]
+}

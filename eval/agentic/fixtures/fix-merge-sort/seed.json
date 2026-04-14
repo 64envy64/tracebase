@@ -1,0 +1,9 @@
+{
+  "situation": "A leaderboard ranking function uses a custom comparator to sort players by score descending, then by name ascending for ties. Players with the same score appear in random name order because the comparator returns 0 for equal scores instead of falling through to the secondary sort key.",
+  "deadEnds": [
+    "Tried running sort twice (once by name, once by score) hoping stability would preserve the name order, but the second sort undid the first for ties",
+    "Suspected the sort algorithm was not stable, switched to a different library — same result because the comparator was still wrong",
+    "Logged comparator calls and saw 0 being returned for same-score players, assumed that was correct"
+  ],
+  "unlock": "When the primary key is equal, the comparator must fall through to compare the secondary key instead of returning 0. Adding a tiebreaker comparison on the name field produced the correct compound ordering."
+}

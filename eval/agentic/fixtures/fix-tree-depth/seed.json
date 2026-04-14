@@ -1,0 +1,9 @@
+{
+  "situation": "A recursive directory-size function calculates total bytes by summing file sizes and recursing into subdirectories. For a directory containing only files (no subdirectories), it returns 0 because the base case for 'no subdirectories' returns 0 instead of summing the files at that level.",
+  "deadEnds": [
+    "Checked file permissions thinking some files were unreadable, but all were accessible",
+    "Added logging in the recursive call and saw it was never entered for leaf directories — assumed the function worked because it did not error",
+    "Tried a different filesystem traversal library, but the same logic error carried over"
+  ],
+  "unlock": "The base case conflated 'empty directory' with 'directory containing only files'. An empty directory should return 0, but a directory with files and no subdirectories still needs to sum those files. Splitting the base case into two branches fixed the undercount."
+}

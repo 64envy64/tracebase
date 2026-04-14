@@ -1,0 +1,11 @@
+{
+  "id": "fix-null-coalesce",
+  "language": "typescript",
+  "difficulty": "easy",
+  "bugType": "operator-misuse",
+  "description": "Config merge uses || instead of ?? causing falsy values (0, empty string, false) to be overridden by defaults",
+  "tags": [
+    "config",
+    "javascript"
+  ]
+}

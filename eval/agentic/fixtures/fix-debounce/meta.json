@@ -1,0 +1,11 @@
+{
+  "id": "fix-debounce",
+  "language": "typescript",
+  "difficulty": "easy",
+  "bugType": "missing-args",
+  "description": "Debounce function does not pass arguments to the debounced function callback",
+  "tags": [
+    "utility",
+    "function"
+  ]
+}

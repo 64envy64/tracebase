@@ -1,0 +1,9 @@
+{
+  "situation": "A job scheduler keeps a priority queue of tasks. When a task's priority is updated, it should bubble up or down in the heap, but the update operation only changes the stored priority without re-heapifying. Under load, high-priority tasks end up stuck behind low-priority ones.",
+  "deadEnds": [
+    "Tried sorting the entire queue on every update, which fixed correctness but tanked performance",
+    "Suspected the comparator was inverted (min-heap vs max-heap), but that was correct",
+    "Added logging and saw the priority field was updated — assumed the heap was fine"
+  ],
+  "unlock": "Mutating a node's priority without restoring the heap invariant leaves the structure inconsistent. After updating the value, calling siftUp or siftDown on the affected index restored correct ordering."
+}
