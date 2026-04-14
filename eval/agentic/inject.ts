@@ -64,11 +64,12 @@ export function formatCompressedDirective(
  * Compress dead ends into a single positive constraint.
  * "Tried X, tried Y, tried Z" → "Ensure [key constraint]"
  */
-function compressDeadEnds(deadEnds: string): string {
-  // Extract the key insight — usually after "Unlock:" or the last sentence
-  const sentences = deadEnds.split(/\.\s+/).filter(Boolean);
-  if (sentences.length === 0) return deadEnds;
-  // Take the last sentence (usually the most specific)
+function compressDeadEnds(deadEnds: string | string[]): string {
+  // Handle both string and array formats
+  const text = Array.isArray(deadEnds) ? deadEnds.join(". ") : deadEnds;
+  const sentences = text.split(/\.\s+/).filter(Boolean);
+  if (sentences.length === 0) return text;
+  // Take the last sentence (usually the most specific constraint)
   const last = sentences[sentences.length - 1]!.trim().replace(/\.$/, '');
   return last.length > 120 ? last.slice(0, 117) + '...' : last;
 }

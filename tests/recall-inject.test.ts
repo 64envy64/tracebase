@@ -67,7 +67,7 @@ describe("recall-inject module", () => {
 
       // Should find the match
       if (result) {
-        expect(result.text).toContain("prior_solution");
+        expect(result.text).toContain("prior_fix");
         expect(result.text).toContain("optional chaining");
         expect(result.sources.length).toBeGreaterThanOrEqual(1);
       }
@@ -262,7 +262,7 @@ describe("OpenAI middleware with recall-inject", () => {
     ) as { content: string } | undefined;
 
     if (systemMsg) {
-      expect(systemMsg.content).toContain("prior_solution");
+      expect(systemMsg.content).toContain("prior_fix");
       expect(systemMsg.content).toContain("cors()");
     }
   });
