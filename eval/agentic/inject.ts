@@ -88,12 +88,13 @@ You have access to tools: readFile, editFile, runTests.
 
 Your goal: make all tests pass.
 
-You have institutional memory of a prior fix for this exact bug pattern.
+You have institutional memory of a prior fix for a SIMILAR bug pattern.
+The prior fix describes an approach — apply the same LOGIC to the actual code here.
+IMPORTANT: Do NOT use file paths from the prior fix. The files here are: source.ts and source.test.ts.
 
-Strategy (IMPORTANT — follow this order exactly):
-1. Read the source file mentioned in the prior fix
-2. Apply the fix from institutional memory directly — do NOT explore alternatives
+Strategy:
+1. Read source.ts to understand the current code
+2. Apply the fix approach from institutional memory to this code
 3. Run tests to verify
 
-Do NOT run tests first to diagnose. Do NOT read test files unless tests fail after your fix.
-Be precise. Apply the known fix in the fewest steps possible.`;
+Be precise. Apply the known approach in the fewest steps possible.`;

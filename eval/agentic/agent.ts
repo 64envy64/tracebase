@@ -120,16 +120,16 @@ export async function runAgenticTrajectory(
         } else {
           response = await callAzureWithTools(model, actualSystem, messages);
         }
-      } catch {
+      } catch (retryErr) {
+        if (process.env.DEBUG) console.error(`  [agent error step ${step}]`, retryErr instanceof Error ? retryErr.message : retryErr);
         stopReason = "error";
         break;
       }
     }
 
-    // Extract tool call
-    const toolCall = response.toolCall;
-    if (!toolCall) {
-      // Model didn't call a tool — it's done or confused
+    // Extract ALL tool calls (model may return multiple in one response)
+    const toolCalls = response.toolCalls ?? (response.toolCall ? [response.toolCall] : []);
+    if (toolCalls.length === 0) {
       stopReason = response.text?.includes("DONE") || response.text?.includes("pass") ? "gave_up" : "error";
       steps.push({
         stepNumber: step, toolName: "think",
@@ -140,65 +140,72 @@ export async function runAgenticTrajectory(
       break;
     }
 
-    // Execute tool
-    let toolOutput_: string;
-    if (toolCall.name === "readFile") {
-      toolOutput_ = sandbox.readFile(String(toolCall.input.path ?? ""));
-    } else if (toolCall.name === "editFile") {
-      toolOutput_ = sandbox.editFile(String(toolCall.input.path ?? ""), String(toolCall.input.content ?? ""));
-    } else if (toolCall.name === "runTests") {
-      const result = sandbox.runTests(language);
-      toolOutput_ = result.output;
-      if (result.passed) {
-        success = true;
-        testOutput = result.output;
-        stopReason = "tests_passed";
+    // Execute each tool call and collect results
+    const toolResults: Array<{ id: string; output: string }> = [];
+    for (const tc of toolCalls) {
+      let output: string;
+      if (tc.name === "readFile") {
+        output = sandbox.readFile(String(tc.input.path ?? ""));
+      } else if (tc.name === "editFile") {
+        output = sandbox.editFile(String(tc.input.path ?? ""), String(tc.input.content ?? ""));
+      } else if (tc.name === "runTests") {
+        const result = sandbox.runTests(language);
+        output = result.output;
+        if (result.passed) {
+          success = true;
+          testOutput = result.output;
+          stopReason = "tests_passed";
+        }
+      } else {
+        output = `Unknown tool: ${tc.name}`;
       }
-    } else {
-      toolOutput_ = `Unknown tool: ${toolCall.name}`;
+      if (output.length > 3000) output = output.slice(0, 1500) + "\n...(truncated)...\n" + output.slice(-1500);
+      toolResults.push({ id: tc.id, output });
     }
 
-    // Truncate tool output to save context
-    if (toolOutput_.length > 3000) {
-      toolOutput_ = toolOutput_.slice(0, 1500) + "\n...(truncated)...\n" + toolOutput_.slice(-1500);
-    }
-
+    // Record first tool call as the step (for metrics)
+    const primaryTC = toolCalls[0]!;
     steps.push({
       stepNumber: step,
-      toolName: toolCall.name,
-      toolInput: toolCall.input,
-      toolOutput: toolOutput_.slice(0, 500),
+      toolName: primaryTC.name,
+      toolInput: primaryTC.input,
+      toolOutput: toolResults[0]?.output.slice(0, 500) ?? "",
       inputTokens: response.inputTokens,
       outputTokens: response.outputTokens,
       durationMs: Date.now() - startMs,
     });
 
-    // Append to conversation
+    // Append to conversation — handle multiple tool calls
     if (provider === "anthropic") {
       messages.push({
         role: "assistant",
         content: response.rawContent,
-        toolUseId: toolCall.id,
-        toolName: toolCall.name,
       });
+      // One user message with ALL tool results
       messages.push({
         role: "user",
-        toolResultId: toolCall.id,
-        content: toolOutput_,
+        content: toolResults.map((r) => ({
+          type: "tool_result",
+          tool_use_id: r.id,
+          content: r.output,
+        })),
       });
     } else {
+      // OpenAI: assistant with tool_calls, then one tool message per call
       messages.push({
         role: "assistant",
         content: response.text ?? "",
-        toolCallId: toolCall.id,
-        toolCallName: toolCall.name,
-        toolCallArgs: JSON.stringify(toolCall.input),
+        toolCalls: toolCalls.map((tc, i) => ({
+          id: tc.id, name: tc.name, args: JSON.stringify(tc.input),
+        })),
       });
-      messages.push({
-        role: "tool",
-        toolCallId: toolCall.id,
-        content: toolOutput_,
-      });
+      for (const r of toolResults) {
+        messages.push({
+          role: "tool",
+          toolCallId: r.id,
+          content: r.output,
+        });
+      }
     }
 
     if (success) break;
@@ -253,6 +260,7 @@ interface ConversationMessage {
 interface LLMResponse {
   text?: string;
   toolCall?: ToolCall;
+  toolCalls?: ToolCall[];
   inputTokens: number;
   outputTokens: number;
   rawContent?: unknown;
@@ -271,16 +279,55 @@ function callAnthropicWithTools(
   const fixedMessages: Array<Record<string, unknown>> = [];
   for (const m of messages) {
     if (m.role === "assistant" && m.content && typeof m.content !== "string") {
-      // This is a raw Anthropic content array (from previous response)
+      // Raw Anthropic content array (from previous response)
       fixedMessages.push({ role: "assistant", content: m.content });
+    } else if (m.role === "user" && Array.isArray(m.content)) {
+      // Multi-tool results (already formatted as content array)
+      fixedMessages.push({ role: "user", content: m.content });
     } else if (m.toolResultId) {
-      // Tool result — must be wrapped in content array
+      // Single tool result (legacy format)
       fixedMessages.push({
         role: "user",
         content: [{ type: "tool_result", tool_use_id: m.toolResultId, content: String(m.content) }],
       });
     } else {
       fixedMessages.push({ role: m.role, content: String(m.content) });
+    }
+  }
+
+  // Debug: log message sequence
+  if (process.env.DEBUG) {
+    console.error("  [messages]", fixedMessages.map((m, i) => {
+      const role = m.role as string;
+      const content = m.content;
+      const types = Array.isArray(content)
+        ? (content as Array<{type: string}>).map(c => c.type).join(",")
+        : typeof content === "string" ? `str(${(content as string).length})` : "?";
+      return `${i}:${role}(${types})`;
+    }).join(" → "));
+  }
+
+  // Validate message sequence: every tool_use must be followed by tool_result
+  for (let i = 0; i < fixedMessages.length - 1; i++) {
+    const msg = fixedMessages[i]!;
+    const content = msg.content;
+    if (msg.role === "assistant" && Array.isArray(content)) {
+      const hasToolUse = content.some((b: Record<string, unknown>) => b.type === "tool_use");
+      if (hasToolUse) {
+        const next = fixedMessages[i + 1];
+        const nextContent = next?.content;
+        const hasToolResult = Array.isArray(nextContent) && nextContent.some((b: Record<string, unknown>) => b.type === "tool_result");
+        if (!hasToolResult) {
+          // Insert a synthetic tool_result if missing
+          const toolUseBlock = content.find((b: Record<string, unknown>) => b.type === "tool_use") as Record<string, unknown>;
+          if (toolUseBlock) {
+            fixedMessages.splice(i + 1, 0, {
+              role: "user",
+              content: [{ type: "tool_result", tool_use_id: toolUseBlock.id, content: "(no output)" }],
+            });
+          }
+        }
+      }
     }
   }
 
@@ -307,15 +354,18 @@ function callAnthropicWithTools(
 
           const content = p.content as Array<{ type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }>;
           const textBlock = content?.find((b) => b.type === "text");
-          const toolBlock = content?.find((b) => b.type === "tool_use");
+          const toolBlocks = content?.filter((b) => b.type === "tool_use") ?? [];
+
+          const allToolCalls: ToolCall[] = toolBlocks.map((b) => ({
+            id: b.id!,
+            name: b.name as ToolCall["name"],
+            input: b.input ?? {},
+          }));
 
           resolve({
             text: textBlock?.text,
-            toolCall: toolBlock ? {
-              id: toolBlock.id!,
-              name: toolBlock.name as ToolCall["name"],
-              input: toolBlock.input ?? {},
-            } : undefined,
+            toolCall: allToolCalls[0],
+            toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
             inputTokens: p.usage?.input_tokens ?? 0,
             outputTokens: p.usage?.output_tokens ?? 0,
             rawContent: content,
@@ -344,9 +394,15 @@ function callAzureWithTools(
   for (const m of messages) {
     if (m.role === "tool") {
       apiMessages.push({ role: "tool", tool_call_id: m.toolCallId, content: String(m.content) });
+    } else if (m.role === "assistant" && (m as Record<string, unknown>).toolCalls) {
+      const tcs = (m as Record<string, unknown>).toolCalls as Array<{id: string; name: string; args: string}>;
+      apiMessages.push({
+        role: "assistant", content: (m.content as string) || null,
+        tool_calls: tcs.map((tc) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: tc.args } })),
+      });
     } else if (m.role === "assistant" && m.toolCallId) {
       apiMessages.push({
-        role: "assistant", content: m.content || null,
+        role: "assistant", content: (m.content as string) || null,
         tool_calls: [{ id: m.toolCallId, type: "function", function: { name: m.toolCallName, arguments: m.toolCallArgs } }],
       });
     } else {
