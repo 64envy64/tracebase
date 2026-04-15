@@ -52,6 +52,7 @@ export default function Home() {
           <div className="flex items-center gap-8">
             <a href="#how" className="text-xs font-light" style={{ color: "var(--text-secondary)" }}>How it works</a>
             <a href="#setup" className="text-xs font-light" style={{ color: "var(--text-secondary)" }}>Setup</a>
+            <a href="/whitepaper" className="text-xs font-light" style={{ color: "var(--text-secondary)" }}>Whitepaper</a>
             <a href="#pricing" className="text-xs font-light" style={{ color: "var(--text-secondary)" }}>Pricing</a>
             <a
               href="https://github.com/64envy64/tracebase"
