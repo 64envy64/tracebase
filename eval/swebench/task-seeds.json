@@ -1,0 +1,74 @@
+{
+  "django__django-10097": {
+    "situation": "A related bug in django/django: Make URLValidator reject invalid characters in the username and password\nDescription\n\t \n\t\t(last modified by Tim Bell)\n\t \nSince #20003, core.validators.URLValidator accepts URLs with usernames and pass",
+    "deadEnds": "Files to look at: django/core/validators.py. Wrong approaches: modifying test files or config files.",
+    "unlock": "The fix involved changes to django/core/validators.py. Key code additions: r'(?:[^\\s:@/]+(?::[^\\s:@/]*)?@)?'  # user:pass authentication",
+    "donor": "django__django-10097",
+    "files_hint": [
+      "django/core/validators.py"
+    ]
+  },
+  "django__django-10554": {
+    "situation": "A related bug in django/django: Make URLValidator reject invalid characters in the username and password\nDescription\n\t \n\t\t(last modified by Tim Bell)\n\t \nSince #20003, core.validators.URLValidator accepts URLs with usernames and pass",
+    "deadEnds": "Files to look at: django/core/validators.py. Wrong approaches: modifying test files or config files.",
+    "unlock": "The fix involved changes to django/core/validators.py. Key code additions: r'(?:[^\\s:@/]+(?::[^\\s:@/]*)?@)?'  # user:pass authentication",
+    "donor": "django__django-10097",
+    "files_hint": [
+      "django/core/validators.py"
+    ]
+  },
+  "django__django-10880": {
+    "situation": "A related bug in django/django: Make URLValidator reject invalid characters in the username and password\nDescription\n\t \n\t\t(last modified by Tim Bell)\n\t \nSince #20003, core.validators.URLValidator accepts URLs with usernames and pass",
+    "deadEnds": "Files to look at: django/core/validators.py. Wrong approaches: modifying test files or config files.",
+    "unlock": "The fix involved changes to django/core/validators.py. Key code additions: r'(?:[^\\s:@/]+(?::[^\\s:@/]*)?@)?'  # user:pass authentication",
+    "donor": "django__django-10097",
+    "files_hint": [
+      "django/core/validators.py"
+    ]
+  },
+  "astropy__astropy-12907": {
+    "situation": "A related bug in astropy/astropy: TimeSeries: misleading exception when required column check fails.\n<!-- This comments are hidden when you submit the issue,\r\nso you do not need to remove them! -->\r\n\r\n<!-- Please be sure to check out ",
+    "deadEnds": "Files to look at: astropy/timeseries/core.py. Wrong approaches: modifying test files or config files.",
+    "unlock": "The fix involved changes to astropy/timeseries/core.py. Key code additions: def as_scalar_or_list_str(obj):; if not hasattr(obj, \"__len__\"):; return f\"'{obj}'\"",
+    "donor": "astropy__astropy-13033",
+    "files_hint": [
+      "astropy/timeseries/core.py"
+    ]
+  },
+  "astropy__astropy-13033": {
+    "situation": "A related bug in astropy/astropy: Modeling's `separability_matrix` does not compute separability correctly for nested CompoundModels\nConsider the following model:\r\n\r\n```python\r\nfrom astropy.modeling import models as m\r\nfrom astropy.mo",
+    "deadEnds": "Files to look at: astropy/modeling/separable.py. Wrong approaches: modifying test files or config files.",
+    "unlock": "The fix involved changes to astropy/modeling/separable.py. Key code additions: cright[-right.shape[0]:, -right.shape[1]:] = right",
+    "donor": "astropy__astropy-12907",
+    "files_hint": [
+      "astropy/modeling/separable.py"
+    ]
+  },
+  "astropy__astropy-13236": {
+    "situation": "A related bug in astropy/astropy: Modeling's `separability_matrix` does not compute separability correctly for nested CompoundModels\nConsider the following model:\r\n\r\n```python\r\nfrom astropy.modeling import models as m\r\nfrom astropy.mo",
+    "deadEnds": "Files to look at: astropy/modeling/separable.py. Wrong approaches: modifying test files or config files.",
+    "unlock": "The fix involved changes to astropy/modeling/separable.py. Key code additions: cright[-right.shape[0]:, -right.shape[1]:] = right",
+    "donor": "astropy__astropy-12907",
+    "files_hint": [
+      "astropy/modeling/separable.py"
+    ]
+  },
+  "astropy__astropy-13453": {
+    "situation": "A related bug in astropy/astropy: Modeling's `separability_matrix` does not compute separability correctly for nested CompoundModels\nConsider the following model:\r\n\r\n```python\r\nfrom astropy.modeling import models as m\r\nfrom astropy.mo",
+    "deadEnds": "Files to look at: astropy/modeling/separable.py. Wrong approaches: modifying test files or config files.",
+    "unlock": "The fix involved changes to astropy/modeling/separable.py. Key code additions: cright[-right.shape[0]:, -right.shape[1]:] = right",
+    "donor": "astropy__astropy-12907",
+    "files_hint": [
+      "astropy/modeling/separable.py"
+    ]
+  },
+  "astropy__astropy-13579": {
+    "situation": "A related bug in astropy/astropy: Modeling's `separability_matrix` does not compute separability correctly for nested CompoundModels\nConsider the following model:\r\n\r\n```python\r\nfrom astropy.modeling import models as m\r\nfrom astropy.mo",
+    "deadEnds": "Files to look at: astropy/modeling/separable.py. Wrong approaches: modifying test files or config files.",
+    "unlock": "The fix involved changes to astropy/modeling/separable.py. Key code additions: cright[-right.shape[0]:, -right.shape[1]:] = right",
+    "donor": "astropy__astropy-12907",
+    "files_hint": [
+      "astropy/modeling/separable.py"
+    ]
+  }
+}

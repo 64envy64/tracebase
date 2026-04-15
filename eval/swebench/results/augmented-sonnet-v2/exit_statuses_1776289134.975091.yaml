@@ -1,0 +1,3 @@
+instances_by_exit_status:
+    TimeoutExpired:
+    - matplotlib__matplotlib-13989

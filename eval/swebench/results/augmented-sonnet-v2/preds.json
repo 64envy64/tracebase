@@ -1,0 +1,57 @@
+{
+  "django__django-10097": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "django__django-10097",
+    "model_patch": "diff --git a/django/core/validators.py b/django/core/validators.py\nindex 92394a7eae..c8c3cb075d 100644\n--- a/django/core/validators.py\n+++ b/django/core/validators.py\n@@ -94,7 +94,7 @@ class URLValidator(RegexValidator):\n \n     regex = _lazy_re_compile(\n         r'^(?:[a-z0-9\\.\\-\\+]*)://'  # scheme is validated separately\n-        r'(?:\\S+(?::\\S*)?@)?'  # user:pass authentication\n+        r'(?:[^\\s:@/]+(?::[^\\s@/]*)?@)?'  # user:pass authentication\n         r'(?:' + ipv4_re + '|' + ipv6_re + '|' + host_re + ')'\n         r'(?::\\d{2,5})?'  # port\n         r'(?:[/?#][^\\s]*)?'  # resource path\n"
+  },
+  "django__django-10554": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "django__django-10554",
+    "model_patch": ""
+  },
+  "django__django-10880": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "django__django-10880",
+    "model_patch": "diff --git a/django/db/models/aggregates.py b/django/db/models/aggregates.py\nindex ac0b62d0bf..ea88c54b0d 100644\n--- a/django/db/models/aggregates.py\n+++ b/django/db/models/aggregates.py\n@@ -68,7 +68,7 @@ class Aggregate(Func):\n         return []\n \n     def as_sql(self, compiler, connection, **extra_context):\n-        extra_context['distinct'] = 'DISTINCT' if self.distinct else ''\n+        extra_context['distinct'] = 'DISTINCT ' if self.distinct else ''\n         if self.filter:\n             if connection.features.supports_aggregate_filter_clause:\n                 filter_sql, filter_params = self.filter.as_sql(compiler, connection)\n"
+  },
+  "astropy__astropy-12907": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-12907",
+    "model_patch": "diff --git a/astropy/modeling/separable.py b/astropy/modeling/separable.py\nindex a308e2729..45bea3608 100644\n--- a/astropy/modeling/separable.py\n+++ b/astropy/modeling/separable.py\n@@ -242,7 +242,7 @@ def _cstack(left, right):\n         cright = _coord_matrix(right, 'right', noutp)\n     else:\n         cright = np.zeros((noutp, right.shape[1]))\n-        cright[-right.shape[0]:, -right.shape[1]:] = 1\n+        cright[-right.shape[0]:, -right.shape[1]:] = right\n \n     return np.hstack([cleft, cright])\n \n"
+  },
+  "astropy__astropy-13033": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13033",
+    "model_patch": ""
+  },
+  "astropy__astropy-13236": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13236",
+    "model_patch": ""
+  },
+  "astropy__astropy-13453": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13453",
+    "model_patch": "diff --git a/astropy/io/ascii/html.py b/astropy/io/ascii/html.py\nindex 266cf229c..3ec988aa7 100644\n--- a/astropy/io/ascii/html.py\n+++ b/astropy/io/ascii/html.py\n@@ -353,7 +353,9 @@ class HTML(core.BaseReader):\n         if isinstance(self.data.fill_values, tuple):\n             self.data.fill_values = [self.data.fill_values]\n \n+        self.data.cols = cols\n         self.data._set_fill_values(cols)\n+        self.data._set_col_formats()\n \n         lines = []\n \n"
+  },
+  "matplotlib__matplotlib-13989": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "matplotlib__matplotlib-13989",
+    "model_patch": ""
+  },
+  "pallets__flask-5014": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "pallets__flask-5014",
+    "model_patch": "diff --git a/src/flask/blueprints.py b/src/flask/blueprints.py\nindex eb50585d..1aa82562 100644\n--- a/src/flask/blueprints.py\n+++ b/src/flask/blueprints.py\n@@ -190,6 +190,9 @@ class Blueprint(Scaffold):\n             root_path=root_path,\n         )\n \n+        if not name:\n+            raise ValueError(\"'name' may not be empty.\")\n+\n         if \".\" in name:\n             raise ValueError(\"'name' may not contain a dot '.' character.\")\n \n"
+  },
+  "psf__requests-1142": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "psf__requests-1142",
+    "model_patch": ""
+  },
+  "astropy__astropy-13579": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13579",
+    "model_patch": ""
+  }
+}
