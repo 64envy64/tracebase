@@ -1,16 +1,22 @@
+# TraceBase Augmented Config for SWE-bench
+# Difference from standard: system prompt includes institutional memory directive
 agent:
   system_template: |
     You are a helpful assistant that can interact with a computer shell to solve programming tasks.
 
-    You have access to institutional memory from previous bug fixes. When a prior fix pattern is provided, apply that approach directly rather than exploring from scratch.
-  instance_template: |
-    {% if prior_fix %}
-    <prior_fix confidence="high" source="institutional_memory">
-    {{ prior_fix }}
-    </prior_fix>
-    Apply the pattern from institutional memory. Start by reading the relevant file, apply the fix approach, then verify.
+    You have access to institutional memory from previous bug fixes in this repository.
+    When you encounter a bug pattern you recognize, apply the known fix approach directly
+    rather than exploring from scratch. This saves time and tokens.
 
-    {% endif %}
+    Key patterns from institutional memory:
+    - For type/value handling bugs: check edge cases with None, empty values, and type coercion
+    - For API inconsistency bugs: ensure the method signature matches the documented interface
+    - For calculation bugs: verify boundary conditions and off-by-one errors
+    - For serialization bugs: check round-trip consistency (serialize then deserialize)
+
+    When you recognize a pattern, state it upfront and apply the fix directly.
+    Do not re-derive solutions you already know.
+  instance_template: |
     <pr_description>
     Consider the following PR description:
     {{task}}
@@ -38,11 +44,11 @@ agent:
 
     ## Recommended Workflow
 
-    1. {% if prior_fix %}Apply the known fix pattern to the relevant files{% else %}Analyze the codebase by finding and reading relevant files{% endif %}
-    2. Create a script to reproduce the issue
-    3. Edit the source code to resolve the issue
-    4. Verify your fix works by running your script again
-    5. Test edge cases to ensure your fix is robust
+    1. Check if this matches a known pattern from institutional memory
+    2. If yes: read the relevant file, apply the known fix approach directly
+    3. If no: analyze the codebase, reproduce, fix, verify
+    4. Create a script to verify the fix
+    5. Submit the patch
 
     ## Command Execution Rules
 
@@ -61,9 +67,15 @@ agent:
     **CRITICAL REQUIREMENTS:**
 
     - Your response SHOULD include reasoning text explaining what you're doing
-    - Your response MUST include AT LEAST ONE bash tool call.
-    - Directory or environment variable changes are not persistent.
+    - Your response MUST include AT LEAST ONE bash tool call. You can make MULTIPLE tool calls in a single response when the commands are independent.
+    - Directory or environment variable changes are not persistent. Every action is executed in a new subshell.
     - However, you can prefix any action with `MY_ENV_VAR=MY_VALUE cd /path/to/working/dir && ...`
+
+    ## Environment Details
+
+    - You have a full Linux shell environment
+    - Always use non-interactive flags (-y, -f) for commands
+    - Avoid interactive tools like vi, nano
 
     ## Submission
 
@@ -71,17 +83,28 @@ agent:
 
     Step 1: Create the patch file
     Run `git diff -- path/to/file1 path/to/file2 > patch.txt` listing only the source files you modified.
+    Do NOT commit your changes.
+
+    <IMPORTANT>
+    The patch must only contain changes to the specific source files you modified to fix the issue.
+    Do not submit file creations or changes to test files, helper scripts, or config files.
+    </IMPORTANT>
 
     Step 2: Verify your patch
-    Inspect patch.txt to confirm it only contains your intended changes.
+    Inspect patch.txt to confirm it only contains your intended changes and headers show `--- a/` and `+++ b/` paths.
 
     Step 3: Submit (EXACT command required)
     ```bash
     echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt
     ```
+
+    <CRITICAL>
+    - Creating/viewing the patch and submitting it MUST be separate commands.
+    - You CANNOT continue working after submitting.
+    </CRITICAL>
     </instructions>
-  step_limit: 25
-  cost_limit: 0.50
+  step_limit: 40
+  cost_limit: 1.0
 
 environment:
   cwd: "/testbed"
@@ -114,8 +137,15 @@ model:
     </output_tail>
     {%- endif -%}
   format_error_template: |
-    Tool call error: {{error}}
-  model_name: "anthropic/claude-haiku-4-5-20251001"
+    Tool call error:
+
+    <error>
+    {{error}}
+    </error>
+
+    Every response needs to use the 'bash' tool at least once.
+    Call the bash tool with your command as the argument.
+  model_name: "anthropic/claude-sonnet-4-6"
   model_kwargs:
     drop_params: true
     temperature: 0.0

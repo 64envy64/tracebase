@@ -2,7 +2,7 @@
   "astropy__astropy-12907": {
     "model_name_or_path": "anthropic/claude-sonnet-4-6",
     "instance_id": "astropy__astropy-12907",
-    "model_patch": ""
+    "model_patch": "diff --git a/astropy/modeling/separable.py b/astropy/modeling/separable.py\nindex a308e2729..45bea3608 100644\n--- a/astropy/modeling/separable.py\n+++ b/astropy/modeling/separable.py\n@@ -242,7 +242,7 @@ def _cstack(left, right):\n         cright = _coord_matrix(right, 'right', noutp)\n     else:\n         cright = np.zeros((noutp, right.shape[1]))\n-        cright[-right.shape[0]:, -right.shape[1]:] = 1\n+        cright[-right.shape[0]:, -right.shape[1]:] = right\n \n     return np.hstack([cleft, cright])\n \n"
   },
   "astropy__astropy-13033": {
     "model_name_or_path": "anthropic/claude-sonnet-4-6",
@@ -22,6 +22,81 @@
   "astropy__astropy-13453": {
     "model_name_or_path": "anthropic/claude-sonnet-4-6",
     "instance_id": "astropy__astropy-13453",
+    "model_patch": "diff --git a/astropy/io/ascii/html.py b/astropy/io/ascii/html.py\nindex 266cf229c..038932bce 100644\n--- a/astropy/io/ascii/html.py\n+++ b/astropy/io/ascii/html.py\n@@ -354,6 +354,8 @@ class HTML(core.BaseReader):\n             self.data.fill_values = [self.data.fill_values]\n \n         self.data._set_fill_values(cols)\n+        self.data.cols = cols\n+        self.data._set_col_formats()\n \n         lines = []\n \n"
+  },
+  "astropy__astropy-13579": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13579",
     "model_patch": ""
+  },
+  "astropy__astropy-13977": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13977",
+    "model_patch": ""
+  },
+  "astropy__astropy-14096": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14096",
+    "model_patch": "diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py\nindex ab475f7d0..65a1e9f23 100644\n--- a/astropy/coordinates/sky_coordinate.py\n+++ b/astropy/coordinates/sky_coordinate.py\n@@ -871,6 +871,17 @@ class SkyCoord(ShapedLikeNDArray):\n         Overrides getattr to return coordinates that this can be transformed\n         to, based on the alias attr in the primary transform graph.\n         \"\"\"\n+        # Bail out now if the attribute is defined in the class hierarchy.\n+        # This means __getattr__ was called because a descriptor (e.g., a\n+        # property) raised an AttributeError internally. In that case, we\n+        # should not mask the original error with a misleading \"has no\n+        # attribute\" message. See https://github.com/astropy/astropy/issues/8884\n+        if any(attr in cls.__dict__ for cls in type(self).__mro__):\n+            # Re-raise the original AttributeError from the descriptor\n+            # by calling object.__getattribute__ which will invoke the\n+            # descriptor and propagate its error.\n+            object.__getattribute__(self, attr)\n+\n         if \"_sky_coord_frame\" in self.__dict__:\n             if self._is_name(attr):\n                 return self  # Should this be a deepcopy of self?\n"
+  },
+  "astropy__astropy-14182": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14182",
+    "model_patch": "diff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py\nindex abdeba8ef..e5439c873 100644\n--- a/astropy/io/ascii/rst.py\n+++ b/astropy/io/ascii/rst.py\n@@ -57,10 +57,14 @@ class RST(FixedWidth):\n     data_class = SimpleRSTData\n     header_class = SimpleRSTHeader\n \n-    def __init__(self):\n-        super().__init__(delimiter_pad=None, bookend=False)\n+    def __init__(self, header_rows=None):\n+        if header_rows is None:\n+            header_rows = [\"name\"]\n+        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)\n+        self.data.start_line = len(header_rows) + 2\n \n     def write(self, lines):\n         lines = super().write(lines)\n-        lines = [lines[1]] + lines + [lines[1]]\n+        idx = len(self.header.header_rows)\n+        lines = [lines[idx]] + lines + [lines[idx]]\n         return lines\n"
+  },
+  "astropy__astropy-14309": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14309",
+    "model_patch": "diff --git a/astropy/io/fits/connect.py b/astropy/io/fits/connect.py\nindex 4b6150f4a..1f51fe483 100644\n--- a/astropy/io/fits/connect.py\n+++ b/astropy/io/fits/connect.py\n@@ -69,7 +69,7 @@ def is_fits(origin, filepath, fileobj, *args, **kwargs):\n             (\".fits\", \".fits.gz\", \".fit\", \".fit.gz\", \".fts\", \".fts.gz\")\n         ):\n             return True\n-    return isinstance(args[0], (HDUList, TableHDU, BinTableHDU, GroupsHDU))\n+    return len(args) > 0 and isinstance(args[0], (HDUList, TableHDU, BinTableHDU, GroupsHDU))\n \n \n def _decode_mixins(tbl):\n"
+  },
+  "astropy__astropy-14365": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14365",
+    "model_patch": "diff --git a/astropy/io/ascii/qdp.py b/astropy/io/ascii/qdp.py\nindex 83a4f004a..5324dc81c 100644\n--- a/astropy/io/ascii/qdp.py\n+++ b/astropy/io/ascii/qdp.py\n@@ -68,7 +68,7 @@ def _line_type(line, delimiter=None):\n     _new_re = rf\"NO({sep}NO)+\"\n     _data_re = rf\"({_decimal_re}|NO|[-+]?nan)({sep}({_decimal_re}|NO|[-+]?nan))*)\"\n     _type_re = rf\"^\\s*((?P<command>{_command_re})|(?P<new>{_new_re})|(?P<data>{_data_re})?\\s*(\\!(?P<comment>.*))?\\s*$\"\n-    _line_type_re = re.compile(_type_re)\n+    _line_type_re = re.compile(_type_re, re.IGNORECASE)\n     line = line.strip()\n     if not line:\n         return \"comment\"\n@@ -306,7 +306,7 @@ def _get_tables_from_qdp_file(qdp_file, input_colnames=None, delimiter=None):\n \n             values = []\n             for v in line.split(delimiter):\n-                if v == \"NO\":\n+                if v.upper() == \"NO\":\n                     values.append(np.ma.masked)\n                 else:\n                     # Understand if number is int or float\n"
+  },
+  "astropy__astropy-14369": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14369",
+    "model_patch": ""
+  },
+  "astropy__astropy-14508": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14508",
+    "model_patch": "diff --git a/astropy/io/fits/card.py b/astropy/io/fits/card.py\nindex 118bfced8..ca68b89ec 100644\n--- a/astropy/io/fits/card.py\n+++ b/astropy/io/fits/card.py\n@@ -1299,6 +1299,31 @@ def _format_value(value):\n \n def _format_float(value):\n     \"\"\"Format a floating number to make sure it gets the decimal point.\"\"\"\n+    # Use the shortest representation that round-trips correctly.\n+    # Python's repr() gives the shortest round-trip string for floats.\n+    value_str = str(value).upper()\n+    if \".\" not in value_str and \"E\" not in value_str:\n+        value_str += \".0\"\n+\n+    # If the string representation is within 20 characters, use it directly\n+    # after normalizing the exponent format.\n+    if len(value_str) <= 20:\n+        if \"E\" in value_str:\n+            # On some Windows builds of Python (and possibly other platforms?)\n+            # the exponent is zero-padded out to, it seems, three digits.\n+            # Normalize the format to pad only to two digits.\n+            significand, exponent = value_str.split(\"E\")\n+            if exponent[0] in (\"+\", \"-\"):\n+                sign = exponent[0]\n+                exponent = exponent[1:]\n+            else:\n+                sign = \"\"\n+            value_str = f\"{significand}E{sign}{int(exponent):02d}\"\n+        if len(value_str) <= 20:\n+            return value_str\n+\n+    # Fall back to the 16-digit representation if the short form is too long\n+    # (which shouldn't normally happen, but just in case).\n     value_str = f\"{value:.16G}\"\n     if \".\" not in value_str and \"E\" not in value_str:\n         value_str += \".0\"\n"
+  },
+  "astropy__astropy-14539": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14539",
+    "model_patch": ""
+  },
+  "astropy__astropy-14598": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14598",
+    "model_patch": ""
+  },
+  "astropy__astropy-14995": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14995",
+    "model_patch": "diff --git a/astropy/nddata/mixins/ndarithmetic.py b/astropy/nddata/mixins/ndarithmetic.py\nindex 4153dfccb..28c34ca32 100644\n--- a/astropy/nddata/mixins/ndarithmetic.py\n+++ b/astropy/nddata/mixins/ndarithmetic.py\n@@ -522,6 +522,9 @@ class NDArithmeticMixin:\n             return deepcopy(operand.mask)\n         elif operand is None:\n             return deepcopy(self.mask)\n+        elif operand.mask is None:\n+            # Make a copy so there is no reference in the result.\n+            return deepcopy(self.mask)\n         else:\n             # Now lets calculate the resulting mask (operation enforces copy)\n             return handle_mask(self.mask, operand.mask, **kwds)\n"
+  },
+  "astropy__astropy-7166": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-7166",
+    "model_patch": "diff --git a/astropy/utils/misc.py b/astropy/utils/misc.py\nindex de3fb01d1..816660df2 100644\n--- a/astropy/utils/misc.py\n+++ b/astropy/utils/misc.py\n@@ -536,6 +536,14 @@ class InheritDocstrings(type):\n                     if super_method is not None:\n                         val.__doc__ = super_method.__doc__\n                         break\n+            elif (isinstance(val, property) and\n+                  is_public_member(key) and\n+                  val.__doc__ is None):\n+                for base in cls.__mro__[1:]:\n+                    super_method = getattr(base, key, None)\n+                    if super_method is not None:\n+                        val.__doc__ = super_method.__doc__\n+                        break\n \n         super().__init__(name, bases, dct)\n \n"
+  },
+  "astropy__astropy-7336": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-7336",
+    "model_patch": "diff --git a/astropy/units/decorators.py b/astropy/units/decorators.py\nindex 8bece5a85..502c20662 100644\n--- a/astropy/units/decorators.py\n+++ b/astropy/units/decorators.py\n@@ -220,7 +220,7 @@ class QuantityInput:\n             # Call the original function with any equivalencies in force.\n             with add_enabled_equivalencies(self.equivalencies):\n                 return_ = wrapped_function(*func_args, **func_kwargs)\n-            if wrapped_signature.return_annotation is not inspect.Signature.empty:\n+            if wrapped_signature.return_annotation is not inspect.Signature.empty and wrapped_signature.return_annotation is not None:\n                 return return_.to(wrapped_signature.return_annotation)\n             else:\n                 return return_\n"
+  },
+  "astropy__astropy-7606": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-7606",
+    "model_patch": "diff --git a/astropy/units/core.py b/astropy/units/core.py\nindex e9bd986d3..0ee8cf869 100644\n--- a/astropy/units/core.py\n+++ b/astropy/units/core.py\n@@ -1710,7 +1710,10 @@ class UnrecognizedUnit(IrreducibleUnit):\n         _unrecognized_operator\n \n     def __eq__(self, other):\n-        other = Unit(other, parse_strict='silent')\n+        try:\n+            other = Unit(other, parse_strict='silent')\n+        except (ValueError, UnitsError, TypeError):\n+            return False\n         return isinstance(other, UnrecognizedUnit) and self.name == other.name\n \n     def __ne__(self, other):\n"
+  },
+  "astropy__astropy-7671": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-7671",
+    "model_patch": "diff --git a/astropy/utils/introspection.py b/astropy/utils/introspection.py\nindex 3e784f9fc..eb95a086a 100644\n--- a/astropy/utils/introspection.py\n+++ b/astropy/utils/introspection.py\n@@ -6,7 +6,7 @@\n import inspect\n import types\n import importlib\n-from distutils.version import LooseVersion\n+from pkg_resources import parse_version\n \n \n __all__ = ['resolve_name', 'minversion', 'find_current_module',\n@@ -140,9 +140,9 @@ def minversion(module, version, inclusive=True, version_path='__version__'):\n         have_version = resolve_name(module.__name__, version_path)\n \n     if inclusive:\n-        return LooseVersion(have_version) >= LooseVersion(version)\n+        return parse_version(have_version) >= parse_version(version)\n     else:\n-        return LooseVersion(have_version) > LooseVersion(version)\n+        return parse_version(have_version) > parse_version(version)\n \n \n def find_current_module(depth=1, finddiff=False):\n"
   }
 }
