@@ -1,0 +1,60 @@
+[
+  {
+    "instance_id": "django__django-10097",
+    "repo": "django/django",
+    "difficulty": "<15 min fix",
+    "baseline": {
+      "success": false,
+      "patchGenerated": false,
+      "patchApplied": false,
+      "testsRun": false,
+      "testsPassed": false,
+      "totalSteps": 15,
+      "totalTokens": 62062,
+      "durationMs": 38071,
+      "generatedPatch": "",
+      "stopReason": "no_patch"
+    },
+    "augmented": {
+      "success": false,
+      "patchGenerated": false,
+      "patchApplied": false,
+      "testsRun": false,
+      "testsPassed": false,
+      "totalSteps": 15,
+      "totalTokens": 69507,
+      "durationMs": 31323,
+      "generatedPatch": "",
+      "stopReason": "no_patch"
+    }
+  },
+  {
+    "instance_id": "django__django-10554",
+    "repo": "django/django",
+    "difficulty": "1-4 hours",
+    "baseline": {
+      "success": false,
+      "patchGenerated": false,
+      "patchApplied": false,
+      "testsRun": false,
+      "testsPassed": false,
+      "totalSteps": 15,
+      "totalTokens": 54759,
+      "durationMs": 35899,
+      "generatedPatch": "",
+      "stopReason": "no_patch"
+    },
+    "augmented": {
+      "success": false,
+      "patchGenerated": false,
+      "patchApplied": false,
+      "testsRun": false,
+      "testsPassed": false,
+      "totalSteps": 0,
+      "totalTokens": 0,
+      "durationMs": 75159,
+      "generatedPatch": "",
+      "stopReason": "clone_failed"
+    }
+  }
+]
