@@ -1,0 +1,82 @@
+{
+  "astropy__astropy-12907": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-12907",
+    "model_patch": "diff --git a/astropy/modeling/separable.py b/astropy/modeling/separable.py\nindex a308e2729..45bea3608 100644\n--- a/astropy/modeling/separable.py\n+++ b/astropy/modeling/separable.py\n@@ -242,7 +242,7 @@ def _cstack(left, right):\n         cright = _coord_matrix(right, 'right', noutp)\n     else:\n         cright = np.zeros((noutp, right.shape[1]))\n-        cright[-right.shape[0]:, -right.shape[1]:] = 1\n+        cright[-right.shape[0]:, -right.shape[1]:] = right\n \n     return np.hstack([cleft, cright])\n \n"
+  },
+  "astropy__astropy-13033": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13033",
+    "model_patch": "diff --git a/astropy/timeseries/core.py b/astropy/timeseries/core.py\nindex c279f35f8..7e7919a3e 100644\n--- a/astropy/timeseries/core.py\n+++ b/astropy/timeseries/core.py\n@@ -76,9 +76,17 @@ class BaseTimeSeries(QTable):\n \n             elif self.colnames[:len(required_columns)] != required_columns:\n \n-                raise ValueError(\"{} object is invalid - expected '{}' \"\n-                                 \"as the first column{} but found '{}'\"\n-                                 .format(self.__class__.__name__, required_columns[0], plural, self.colnames[0]))\n+                if self.colnames[0] == required_columns[0]:\n+                    # The first column is correct but other required columns are missing\n+                    missing = [col for col in required_columns if col not in self.colnames]\n+                    raise ValueError(\"{} object is invalid - missing required column{} '{}'\"\n+                                     .format(self.__class__.__name__,\n+                                             's' if len(missing) > 1 else '',\n+                                             \"', '\".join(missing)))\n+                else:\n+                    raise ValueError(\"{} object is invalid - expected '{}' \"\n+                                     \"as the first column{} but found '{}'\"\n+                                     .format(self.__class__.__name__, required_columns[0], plural, self.colnames[0]))\n \n             if (self._required_columns_relax\n                     and self._required_columns == self.colnames[:len(self._required_columns)]):\n"
+  },
+  "astropy__astropy-13236": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13236",
+    "model_patch": ""
+  },
+  "astropy__astropy-13398": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13398",
+    "model_patch": ""
+  },
+  "astropy__astropy-13453": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13453",
+    "model_patch": "diff --git a/astropy/io/ascii/html.py b/astropy/io/ascii/html.py\nindex 266cf229c..038932bce 100644\n--- a/astropy/io/ascii/html.py\n+++ b/astropy/io/ascii/html.py\n@@ -354,6 +354,8 @@ class HTML(core.BaseReader):\n             self.data.fill_values = [self.data.fill_values]\n \n         self.data._set_fill_values(cols)\n+        self.data.cols = cols\n+        self.data._set_col_formats()\n \n         lines = []\n \n"
+  },
+  "astropy__astropy-13579": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13579",
+    "model_patch": "diff --git a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py\nindex d7605b078..6d5f7084d 100644\n--- a/astropy/wcs/wcsapi/wrappers/sliced_wcs.py\n+++ b/astropy/wcs/wcsapi/wrappers/sliced_wcs.py\n@@ -253,6 +253,18 @@ class SlicedLowLevelWCS(BaseWCSWrapper):\n             else:\n                 world_arrays_new.append(1.)\n \n+        # Compute the world coordinate values for the dropped dimensions at\n+        # the sliced pixel positions. This is necessary when there is a\n+        # non-trivial coupling between pixel and world dimensions (e.g. a\n+        # non-diagonal PC matrix) so that the dropped world values are\n+        # correctly set to the values at the sliced pixel positions rather\n+        # than an arbitrary placeholder value of 1.\n+        world_arrays_new_dropped = self._pixel_to_world_values_all(\n+            *[0]*len(self._pixel_keep))\n+        for iworld in range(self._wcs.world_n_dim):\n+            if iworld not in self._world_keep:\n+                world_arrays_new[iworld] = world_arrays_new_dropped[iworld]\n+\n         world_arrays_new = np.broadcast_arrays(*world_arrays_new)\n         pixel_arrays = list(self._wcs.world_to_pixel_values(*world_arrays_new))\n \n"
+  },
+  "astropy__astropy-13977": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13977",
+    "model_patch": "diff --git a/astropy/units/quantity.py b/astropy/units/quantity.py\nindex b98abfafb..08b70ec78 100644\n--- a/astropy/units/quantity.py\n+++ b/astropy/units/quantity.py\n@@ -667,7 +667,10 @@ class Quantity(np.ndarray):\n         arrays = []\n         for input_, converter in zip(inputs, converters):\n             input_ = getattr(input_, \"value\", input_)\n-            arrays.append(converter(input_) if converter else input_)\n+            try:\n+                arrays.append(converter(input_) if converter else input_)\n+            except (TypeError, ValueError):\n+                return NotImplemented\n \n         # Call our superclass's __array_ufunc__\n         result = super().__array_ufunc__(function, method, *arrays, **kwargs)\n"
+  },
+  "astropy__astropy-14096": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14096",
+    "model_patch": "diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py\nindex ab475f7d0..2905a2970 100644\n--- a/astropy/coordinates/sky_coordinate.py\n+++ b/astropy/coordinates/sky_coordinate.py\n@@ -871,6 +871,21 @@ class SkyCoord(ShapedLikeNDArray):\n         Overrides getattr to return coordinates that this can be transformed\n         to, based on the alias attr in the primary transform graph.\n         \"\"\"\n+        # Prevent a confusing AttributeError when a subclass property raises\n+        # an AttributeError internally. In that case, Python calls __getattr__\n+        # with the property name, which would otherwise produce a misleading\n+        # error message saying the property doesn't exist.\n+        if attr in [name for cls in type(self).__mro__ for name in cls.__dict__]:\n+            # The attribute is defined in the class hierarchy, so the\n+            # AttributeError must have come from within the descriptor itself.\n+            # Re-invoke the descriptor to propagate the original error.\n+            for cls in type(self).__mro__:\n+                if attr in cls.__dict__:\n+                    descriptor = cls.__dict__[attr]\n+                    if hasattr(descriptor, '__get__'):\n+                        descriptor.__get__(self, type(self))\n+                    break\n+\n         if \"_sky_coord_frame\" in self.__dict__:\n             if self._is_name(attr):\n                 return self  # Should this be a deepcopy of self?\n"
+  },
+  "astropy__astropy-14182": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14182",
+    "model_patch": "diff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py\nindex abdeba8ef..0720660a0 100644\n--- a/astropy/io/ascii/rst.py\n+++ b/astropy/io/ascii/rst.py\n@@ -57,10 +57,11 @@ class RST(FixedWidth):\n     data_class = SimpleRSTData\n     header_class = SimpleRSTHeader\n \n-    def __init__(self):\n-        super().__init__(delimiter_pad=None, bookend=False)\n+    def __init__(self, header_rows=None):\n+        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)\n \n     def write(self, lines):\n         lines = super().write(lines)\n-        lines = [lines[1]] + lines + [lines[1]]\n+        idx = len(self.header.header_rows)\n+        lines = [lines[idx]] + lines + [lines[idx]]\n         return lines\n"
+  },
+  "astropy__astropy-14309": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14309",
+    "model_patch": "diff --git a/astropy/io/fits/connect.py b/astropy/io/fits/connect.py\nindex 4b6150f4a..1f51fe483 100644\n--- a/astropy/io/fits/connect.py\n+++ b/astropy/io/fits/connect.py\n@@ -69,7 +69,7 @@ def is_fits(origin, filepath, fileobj, *args, **kwargs):\n             (\".fits\", \".fits.gz\", \".fit\", \".fit.gz\", \".fts\", \".fts.gz\")\n         ):\n             return True\n-    return isinstance(args[0], (HDUList, TableHDU, BinTableHDU, GroupsHDU))\n+    return len(args) > 0 and isinstance(args[0], (HDUList, TableHDU, BinTableHDU, GroupsHDU))\n \n \n def _decode_mixins(tbl):\n"
+  },
+  "astropy__astropy-14365": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14365",
+    "model_patch": "diff --git a/astropy/io/ascii/qdp.py b/astropy/io/ascii/qdp.py\nindex 83a4f004a..768beb0de 100644\n--- a/astropy/io/ascii/qdp.py\n+++ b/astropy/io/ascii/qdp.py\n@@ -68,7 +68,7 @@ def _line_type(line, delimiter=None):\n     _new_re = rf\"NO({sep}NO)+\"\n     _data_re = rf\"({_decimal_re}|NO|[-+]?nan)({sep}({_decimal_re}|NO|[-+]?nan))*)\"\n     _type_re = rf\"^\\s*((?P<command>{_command_re})|(?P<new>{_new_re})|(?P<data>{_data_re})?\\s*(\\!(?P<comment>.*))?\\s*$\"\n-    _line_type_re = re.compile(_type_re)\n+    _line_type_re = re.compile(_type_re, re.IGNORECASE)\n     line = line.strip()\n     if not line:\n         return \"comment\"\n"
+  },
+  "astropy__astropy-14369": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14369",
+    "model_patch": ""
+  },
+  "astropy__astropy-14508": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14508",
+    "model_patch": "diff --git a/astropy/io/fits/card.py b/astropy/io/fits/card.py\nindex 118bfced8..72975bdd1 100644\n--- a/astropy/io/fits/card.py\n+++ b/astropy/io/fits/card.py\n@@ -1299,31 +1299,55 @@ def _format_value(value):\n \n def _format_float(value):\n     \"\"\"Format a floating number to make sure it gets the decimal point.\"\"\"\n-    value_str = f\"{value:.16G}\"\n-    if \".\" not in value_str and \"E\" not in value_str:\n-        value_str += \".0\"\n-    elif \"E\" in value_str:\n-        # On some Windows builds of Python (and possibly other platforms?) the\n-        # exponent is zero-padded out to, it seems, three digits.  Normalize\n-        # the format to pad only to two digits.\n-        significand, exponent = value_str.split(\"E\")\n+    # Use Python's default string representation first, as it is the shortest\n+    # representation that round-trips correctly.  This avoids unnecessary\n+    # precision that can cause comments to be truncated (e.g. 0.009125 would\n+    # otherwise be formatted as 0.009124999999999999).\n+    value_str = str(value)\n+\n+    # Python uses lowercase 'e' for scientific notation; FITS requires uppercase.\n+    # Also normalize the exponent to at least 2 digits.\n+    if \"e\" in value_str:\n+        significand, exponent = value_str.split(\"e\")\n         if exponent[0] in (\"+\", \"-\"):\n             sign = exponent[0]\n             exponent = exponent[1:]\n         else:\n-            sign = \"\"\n+            sign = \"+\"\n         value_str = f\"{significand}E{sign}{int(exponent):02d}\"\n \n-    # Limit the value string to at most 20 characters.\n-    str_len = len(value_str)\n+    # If the string is longer than 20 characters, fall back to the 16-digit\n+    # representation and apply the same normalization.\n+    if len(value_str) > 20:\n+        value_str = f\"{value:.16G}\"\n+        if \".\" not in value_str and \"E\" not in value_str:\n+            value_str += \".0\"\n+        elif \"E\" in value_str:\n+            # On some Windows builds of Python (and possibly other platforms?) the\n+            # exponent is zero-padded out to, it seems, three digits.  Normalize\n+            # the format to pad only to two digits.\n+            significand, exponent = value_str.split(\"E\")\n+            if exponent[0] in (\"+\", \"-\"):\n+                sign = exponent[0]\n+                exponent = exponent[1:]\n+            else:\n+                sign = \"\"\n+            value_str = f\"{significand}E{sign}{int(exponent):02d}\"\n \n-    if str_len > 20:\n-        idx = value_str.find(\"E\")\n+        # Limit the value string to at most 20 characters.\n+        str_len = len(value_str)\n \n-        if idx < 0:\n-            value_str = value_str[:20]\n-        else:\n-            value_str = value_str[: 20 - (str_len - idx)] + value_str[idx:]\n+        if str_len > 20:\n+            idx = value_str.find(\"E\")\n+\n+            if idx < 0:\n+                value_str = value_str[:20]\n+            else:\n+                value_str = value_str[: 20 - (str_len - idx)] + value_str[idx:]\n+\n+    # Ensure there is a decimal point for non-scientific notation numbers.\n+    if \".\" not in value_str and \"E\" not in value_str:\n+        value_str += \".0\"\n \n     return value_str\n \n"
+  },
+  "astropy__astropy-14539": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14539",
+    "model_patch": "diff --git a/astropy/io/fits/diff.py b/astropy/io/fits/diff.py\nindex 100cdf1b8..d3608ef01 100644\n--- a/astropy/io/fits/diff.py\n+++ b/astropy/io/fits/diff.py\n@@ -1449,7 +1449,7 @@ class TableDataDiff(_BaseDiff):\n                 arrb.dtype, np.floating\n             ):\n                 diffs = where_not_allclose(arra, arrb, rtol=self.rtol, atol=self.atol)\n-            elif \"P\" in col.format:\n+            elif \"P\" in col.format or \"Q\" in col.format:\n                 diffs = (\n                     [\n                         idx\n"
+  },
+  "astropy__astropy-14598": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14598",
+    "model_patch": ""
+  },
+  "astropy__astropy-14995": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14995",
+    "model_patch": "diff --git a/astropy/nddata/mixins/ndarithmetic.py b/astropy/nddata/mixins/ndarithmetic.py\nindex 4153dfccb..28c34ca32 100644\n--- a/astropy/nddata/mixins/ndarithmetic.py\n+++ b/astropy/nddata/mixins/ndarithmetic.py\n@@ -522,6 +522,9 @@ class NDArithmeticMixin:\n             return deepcopy(operand.mask)\n         elif operand is None:\n             return deepcopy(self.mask)\n+        elif operand.mask is None:\n+            # Make a copy so there is no reference in the result.\n+            return deepcopy(self.mask)\n         else:\n             # Now lets calculate the resulting mask (operation enforces copy)\n             return handle_mask(self.mask, operand.mask, **kwds)\n"
+  }
+}

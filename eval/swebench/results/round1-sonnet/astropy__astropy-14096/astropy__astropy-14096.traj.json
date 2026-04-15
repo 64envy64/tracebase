@@ -1,0 +1,2801 @@
+{
+  "info": {
+    "model_stats": {
+      "instance_cost": 0.1700061,
+      "api_calls": 26
+    },
+    "config": {
+      "agent": {
+        "system_template": "You are a helpful assistant that can interact with a computer shell to solve programming tasks.\n\nYou have institutional memory from 14 previously resolved bugs in this codebase.\nIn astropy/astropy: bugs were fixed in astropy/coordinates/sky_coordinate.py, astropy/io/ascii/html.py, astropy/io/ascii/qdp.py, astropy/io/ascii/rst.py, astropy/io/fits/connect.py, astropy/io/fits/diff.py, astropy/modeling/separable.py, astropy/nddata/mixins/ndarithmetic.py.\n  Patterns: cright[-right.shape[0]:, -right.shape[1]:] = right; def as_scalar_or_list_str(obj):; if not hasattr(obj, '__len__'):; return f\"'{obj}'\"; elif len(obj) == 1:; return f\"'{obj; self.data.cols = cols; self.data._set_col_formats()\n\nWhen fixing a bug, check these files FIRST. Apply patterns from institutional memory when you recognize the bug type. This saves steps and prevents dead-end exploration.",
+        "instance_template": "<pr_description>\nConsider the following PR description:\n{{task}}\n</pr_description>\n\n<instructions>\nYou're a software engineer fixing a bug. Make changes to source files in /testbed.\nDO NOT MODIFY tests or config files.\n\nWorkflow:\n1. Check files from institutional memory first\n2. Reproduce the issue\n3. Fix with minimal changes\n4. Verify and submit\n\nEach response: reasoning + at least one bash tool call.\nDirectory changes are not persistent.\n\nSubmit:\nStep 1: git diff -- file1 file2 > patch.txt\nStep 2: Verify patch.txt\nStep 3: echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt\n</instructions>",
+        "step_limit": 40,
+        "cost_limit": 1.0,
+        "output_path": null
+      },
+      "agent_type": "__main__.ProgressTrackingAgent",
+      "model": {
+        "model_name": "anthropic/claude-sonnet-4-6",
+        "model_kwargs": {
+          "drop_params": true,
+          "parallel_tool_calls": true,
+          "temperature": 0.0
+        },
+        "litellm_model_registry": null,
+        "set_cache_control": "default_end",
+        "cost_tracking": "default",
+        "format_error_template": "Tool call error: {{error}}\nUse the 'bash' tool.",
+        "observation_template": "{% if output.exception_info %}<exception>{{output.exception_info}}</exception>\n{% endif %}<returncode>{{output.returncode}}</returncode>\n{% if output.output | length < 10000 %}<output>\n{{ output.output }}</output>{% else %}<output_head>\n{{ output.output[:5000] }}</output_head>\n<output_tail>\n{{ output.output[-5000:] }}</output_tail>{% endif %}",
+        "multimodal_regex": ""
+      },
+      "model_type": "minisweagent.models.litellm_model.LitellmModel",
+      "environment": {
+        "image": "docker.io/swebench/sweb.eval.x86_64.astropy_1776_astropy-14096:latest",
+        "cwd": "/testbed",
+        "env": {
+          "LESS": "-R",
+          "MANPAGER": "cat",
+          "PAGER": "cat",
+          "PIP_PROGRESS_BAR": "off",
+          "TQDM_DISABLE": "1"
+        },
+        "forward_env": [],
+        "timeout": 60,
+        "executable": "docker",
+        "run_args": [
+          "--rm"
+        ],
+        "container_timeout": "2h",
+        "pull_timeout": 120,
+        "interpreter": [
+          "bash",
+          "-c"
+        ]
+      },
+      "environment_type": "minisweagent.environments.docker.DockerEnvironment"
+    },
+    "mini_version": "2.2.8",
+    "exit_status": "Submitted",
+    "submission": "diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py\nindex ab475f7d0..2905a2970 100644\n--- a/astropy/coordinates/sky_coordinate.py\n+++ b/astropy/coordinates/sky_coordinate.py\n@@ -871,6 +871,21 @@ class SkyCoord(ShapedLikeNDArray):\n         Overrides getattr to return coordinates that this can be transformed\n         to, based on the alias attr in the primary transform graph.\n         \"\"\"\n+        # Prevent a confusing AttributeError when a subclass property raises\n+        # an AttributeError internally. In that case, Python calls __getattr__\n+        # with the property name, which would otherwise produce a misleading\n+        # error message saying the property doesn't exist.\n+        if attr in [name for cls in type(self).__mro__ for name in cls.__dict__]:\n+            # The attribute is defined in the class hierarchy, so the\n+            # AttributeError must have come from within the descriptor itself.\n+            # Re-invoke the descriptor to propagate the original error.\n+            for cls in type(self).__mro__:\n+                if attr in cls.__dict__:\n+                    descriptor = cls.__dict__[attr]\n+                    if hasattr(descriptor, '__get__'):\n+                        descriptor.__get__(self, type(self))\n+                    break\n+\n         if \"_sky_coord_frame\" in self.__dict__:\n             if self._is_name(attr):\n                 return self  # Should this be a deepcopy of self?\n"
+  },
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant that can interact with a computer shell to solve programming tasks.\n\nYou have institutional memory from 14 previously resolved bugs in this codebase.\nIn astropy/astropy: bugs were fixed in astropy/coordinates/sky_coordinate.py, astropy/io/ascii/html.py, astropy/io/ascii/qdp.py, astropy/io/ascii/rst.py, astropy/io/fits/connect.py, astropy/io/fits/diff.py, astropy/modeling/separable.py, astropy/nddata/mixins/ndarithmetic.py.\n  Patterns: cright[-right.shape[0]:, -right.shape[1]:] = right; def as_scalar_or_list_str(obj):; if not hasattr(obj, '__len__'):; return f\"'{obj}'\"; elif len(obj) == 1:; return f\"'{obj; self.data.cols = cols; self.data._set_col_formats()\n\nWhen fixing a bug, check these files FIRST. Apply patterns from institutional memory when you recognize the bug type. This saves steps and prevents dead-end exploration."
+    },
+    {
+      "role": "user",
+      "content": "<pr_description>\nConsider the following PR description:\nSubclassed SkyCoord gives misleading attribute access message\nI'm trying to subclass `SkyCoord`, and add some custom properties. This all seems to be working fine, but when I have a custom property (`prop` below) that tries to access a non-existent attribute (`random_attr`) below, the error message is misleading because it says `prop` doesn't exist, where it should say `random_attr` doesn't exist.\r\n\r\n```python\r\nimport astropy.coordinates as coord\r\n\r\n\r\nclass custom_coord(coord.SkyCoord):\r\n    @property\r\n    def prop(self):\r\n        return self.random_attr\r\n\r\n\r\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\r\nc.prop\r\n```\r\n\r\nraises\r\n```\r\nTraceback (most recent call last):\r\n  File \"test.py\", line 11, in <module>\r\n    c.prop\r\n  File \"/Users/dstansby/miniconda3/lib/python3.7/site-packages/astropy/coordinates/sky_coordinate.py\", line 600, in __getattr__\r\n    .format(self.__class__.__name__, attr))\r\nAttributeError: 'custom_coord' object has no attribute 'prop'\r\n```\n\n</pr_description>\n\n<instructions>\nYou're a software engineer fixing a bug. Make changes to source files in /testbed.\nDO NOT MODIFY tests or config files.\n\nWorkflow:\n1. Check files from institutional memory first\n2. Reproduce the issue\n3. Fix with minimal changes\n4. Verify and submit\n\nEach response: reasoning + at least one bash tool call.\nDirectory changes are not persistent.\n\nSubmit:\nStep 1: git diff -- file1 file2 > patch.txt\nStep 2: Verify patch.txt\nStep 3: echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt\n</instructions>"
+    },
+    {
+      "content": "I'll start by checking the relevant file from institutional memory and reproducing the issue.",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && grep -n \\\"__getattr__\\\" astropy/coordinates/sky_coordinate.py | head -20\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01TpvFCoGaKKHHqLRzQ5NmDr",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && grep -n \"__getattr__\" astropy/coordinates/sky_coordinate.py | head -20",
+            "tool_call_id": "toolu_01TpvFCoGaKKHHqLRzQ5NmDr"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-a22c1fa6-307b-4c6f-8652-d1ab17a5b568",
+          "created": 1776292408,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "I'll start by checking the relevant file from institutional memory and reproducing the issue.",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && grep -n \\\"__getattr__\\\" astropy/coordinates/sky_coordinate.py | head -20\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01TpvFCoGaKKHHqLRzQ5NmDr",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 95,
+            "prompt_tokens": 1293,
+            "total_tokens": 1388,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 95
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 0,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 0,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.005304,
+        "timestamp": 1776292408.389796
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n869:    def __getattr__(self, attr):\n903:        # This is to make anything available through __getattr__ immutable\n918:            # variable.  See __getattr__ above.\n945:            # the corresponding private variable.  See __getattr__ above.\n</output>",
+      "extra": {
+        "raw_output": "869:    def __getattr__(self, attr):\n903:        # This is to make anything available through __getattr__ immutable\n918:            # variable.  See __getattr__ above.\n945:            # the corresponding private variable.  See __getattr__ above.\n",
+        "returncode": 0,
+        "timestamp": 1776292408.5810502,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01TpvFCoGaKKHHqLRzQ5NmDr",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && sed -n '869,920p' astropy/coordinates/sky_coordinate.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_011JuALdZQt94pu4cRFVxt88",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && sed -n '869,920p' astropy/coordinates/sky_coordinate.py",
+            "tool_call_id": "toolu_011JuALdZQt94pu4cRFVxt88"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-59d61a80-69d2-434c-bf5a-76fa4b07e81c",
+          "created": 1776292410,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && sed -n '869,920p' astropy/coordinates/sky_coordinate.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_011JuALdZQt94pu4cRFVxt88",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 74,
+            "prompt_tokens": 1479,
+            "total_tokens": 1553,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 74
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 0,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 0,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.005547,
+        "timestamp": 1776292410.032501
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n    def __getattr__(self, attr):\n        \"\"\"\n        Overrides getattr to return coordinates that this can be transformed\n        to, based on the alias attr in the primary transform graph.\n        \"\"\"\n        if \"_sky_coord_frame\" in self.__dict__:\n            if self._is_name(attr):\n                return self  # Should this be a deepcopy of self?\n\n            # Anything in the set of all possible frame_attr_names is handled\n            # here. If the attr is relevant for the current frame then delegate\n            # to self.frame otherwise get it from self._<attr>.\n            if attr in frame_transform_graph.frame_attributes:\n                if attr in self.frame.frame_attributes:\n                    return getattr(self.frame, attr)\n                else:\n                    return getattr(self, \"_\" + attr, None)\n\n            # Some attributes might not fall in the above category but still\n            # are available through self._sky_coord_frame.\n            if not attr.startswith(\"_\") and hasattr(self._sky_coord_frame, attr):\n                return getattr(self._sky_coord_frame, attr)\n\n            # Try to interpret as a new frame for transforming.\n            frame_cls = frame_transform_graph.lookup_name(attr)\n            if frame_cls is not None and self.frame.is_transformable_to(frame_cls):\n                return self.transform_to(attr)\n\n        # Fail\n        raise AttributeError(\n            f\"'{self.__class__.__name__}' object has no attribute '{attr}'\"\n        )\n\n    def __setattr__(self, attr, val):\n        # This is to make anything available through __getattr__ immutable\n        if \"_sky_coord_frame\" in self.__dict__:\n            if self._is_name(attr):\n                raise AttributeError(f\"'{attr}' is immutable\")\n\n            if not attr.startswith(\"_\") and hasattr(self._sky_coord_frame, attr):\n                setattr(self._sky_coord_frame, attr, val)\n                return\n\n            frame_cls = frame_transform_graph.lookup_name(attr)\n            if frame_cls is not None and self.frame.is_transformable_to(frame_cls):\n                raise AttributeError(f\"'{attr}' is immutable\")\n\n        if attr in frame_transform_graph.frame_attributes:\n            # All possible frame attributes can be set, but only via a private\n            # variable.  See __getattr__ above.\n            super().__setattr__(\"_\" + attr, val)\n            # Validate it\n</output>",
+      "extra": {
+        "raw_output": "    def __getattr__(self, attr):\n        \"\"\"\n        Overrides getattr to return coordinates that this can be transformed\n        to, based on the alias attr in the primary transform graph.\n        \"\"\"\n        if \"_sky_coord_frame\" in self.__dict__:\n            if self._is_name(attr):\n                return self  # Should this be a deepcopy of self?\n\n            # Anything in the set of all possible frame_attr_names is handled\n            # here. If the attr is relevant for the current frame then delegate\n            # to self.frame otherwise get it from self._<attr>.\n            if attr in frame_transform_graph.frame_attributes:\n                if attr in self.frame.frame_attributes:\n                    return getattr(self.frame, attr)\n                else:\n                    return getattr(self, \"_\" + attr, None)\n\n            # Some attributes might not fall in the above category but still\n            # are available through self._sky_coord_frame.\n            if not attr.startswith(\"_\") and hasattr(self._sky_coord_frame, attr):\n                return getattr(self._sky_coord_frame, attr)\n\n            # Try to interpret as a new frame for transforming.\n            frame_cls = frame_transform_graph.lookup_name(attr)\n            if frame_cls is not None and self.frame.is_transformable_to(frame_cls):\n                return self.transform_to(attr)\n\n        # Fail\n        raise AttributeError(\n            f\"'{self.__class__.__name__}' object has no attribute '{attr}'\"\n        )\n\n    def __setattr__(self, attr, val):\n        # This is to make anything available through __getattr__ immutable\n        if \"_sky_coord_frame\" in self.__dict__:\n            if self._is_name(attr):\n                raise AttributeError(f\"'{attr}' is immutable\")\n\n            if not attr.startswith(\"_\") and hasattr(self._sky_coord_frame, attr):\n                setattr(self._sky_coord_frame, attr, val)\n                return\n\n            frame_cls = frame_transform_graph.lookup_name(attr)\n            if frame_cls is not None and self.frame.is_transformable_to(frame_cls):\n                raise AttributeError(f\"'{attr}' is immutable\")\n\n        if attr in frame_transform_graph.frame_attributes:\n            # All possible frame attributes can be set, but only via a private\n            # variable.  See __getattr__ above.\n            super().__setattr__(\"_\" + attr, val)\n            # Validate it\n",
+        "returncode": 0,
+        "timestamp": 1776292410.191796,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_011JuALdZQt94pu4cRFVxt88",
+      "role": "tool"
+    },
+    {
+      "content": "Now I understand the issue. When a subclass property raises an `AttributeError` internally (e.g., accessing `self.random_attr`), Python's attribute lookup mechanism catches it and calls `__getattr__` with the property name (`prop`), which then raises a misleading error.\n\nLet me reproduce the issue first:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && python -c \\\"\\nimport astropy.coordinates as coord\\n\\nclass custom_coord(coord.SkyCoord):\\n    @property\\n    def prop(self):\\n        return self.random_attr\\n\\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\\nc.prop\\n\\\"\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01FcsTYuhtdVWtSQ8ud7E6i3",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && python -c \"\nimport astropy.coordinates as coord\n\nclass custom_coord(coord.SkyCoord):\n    @property\n    def prop(self):\n        return self.random_attr\n\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\nc.prop\n\"",
+            "tool_call_id": "toolu_01FcsTYuhtdVWtSQ8ud7E6i3"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-a1b33ec6-b96e-4d79-909e-29d175ba78ea",
+          "created": 1776292413,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "Now I understand the issue. When a subclass property raises an `AttributeError` internally (e.g., accessing `self.random_attr`), Python's attribute lookup mechanism catches it and calls `__getattr__` with the property name (`prop`), which then raises a misleading error.\n\nLet me reproduce the issue first:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && python -c \\\"\\nimport astropy.coordinates as coord\\n\\nclass custom_coord(coord.SkyCoord):\\n    @property\\n    def prop(self):\\n        return self.random_attr\\n\\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\\nc.prop\\n\\\"\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01FcsTYuhtdVWtSQ8ud7E6i3",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 205,
+            "prompt_tokens": 2199,
+            "total_tokens": 2404,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 205
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 0,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 2198,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 2198,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 2198,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.011320499999999999,
+        "timestamp": 1776292413.339446
+      }
+    },
+    {
+      "content": "<returncode>1</returncode>\n<output>\nTraceback (most recent call last):\n  File \"<string>\", line 2, in <module>\n  File \"/testbed/astropy/__init__.py\", line 41, in <module>\n    from . import config as _config\n  File \"/testbed/astropy/config/__init__.py\", line 8, in <module>\n    from .configuration import *\n  File \"/testbed/astropy/config/configuration.py\", line 24, in <module>\n    from astropy.utils import find_current_module, silence\n  File \"/testbed/astropy/utils/__init__.py\", line 17, in <module>\n    from .codegen import *\n  File \"/testbed/astropy/utils/codegen.py\", line 12, in <module>\n    from .introspection import find_current_module\n  File \"/testbed/astropy/utils/introspection.py\", line 14, in <module>\n    from astropy.utils.decorators import deprecated_renamed_argument\n  File \"/testbed/astropy/utils/decorators.py\", line 13, in <module>\n    from .exceptions import (\n  File \"/testbed/astropy/utils/exceptions.py\", line 11, in <module>\n    from erfa import ErfaError, ErfaWarning  # noqa: F401\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'erfa'\n</output>",
+      "extra": {
+        "raw_output": "Traceback (most recent call last):\n  File \"<string>\", line 2, in <module>\n  File \"/testbed/astropy/__init__.py\", line 41, in <module>\n    from . import config as _config\n  File \"/testbed/astropy/config/__init__.py\", line 8, in <module>\n    from .configuration import *\n  File \"/testbed/astropy/config/configuration.py\", line 24, in <module>\n    from astropy.utils import find_current_module, silence\n  File \"/testbed/astropy/utils/__init__.py\", line 17, in <module>\n    from .codegen import *\n  File \"/testbed/astropy/utils/codegen.py\", line 12, in <module>\n    from .introspection import find_current_module\n  File \"/testbed/astropy/utils/introspection.py\", line 14, in <module>\n    from astropy.utils.decorators import deprecated_renamed_argument\n  File \"/testbed/astropy/utils/decorators.py\", line 13, in <module>\n    from .exceptions import (\n  File \"/testbed/astropy/utils/exceptions.py\", line 11, in <module>\n    from erfa import ErfaError, ErfaWarning  # noqa: F401\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'erfa'\n",
+        "returncode": 1,
+        "timestamp": 1776292413.785711,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01FcsTYuhtdVWtSQ8ud7E6i3",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && pip install -e . -q 2>&1 | tail -5\"}",
+            "name": "bash"
+          },
+          "id": "toolu_012rKUqWUrZygoBdmtn94KdU",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && pip install -e . -q 2>&1 | tail -5",
+            "tool_call_id": "toolu_012rKUqWUrZygoBdmtn94KdU"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-4ba274f0-d99e-4d8b-b110-04e7e53f4e58",
+          "created": 1776292415,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && pip install -e . -q 2>&1 | tail -5\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_012rKUqWUrZygoBdmtn94KdU",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 71,
+            "prompt_tokens": 2771,
+            "total_tokens": 2842,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 71
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 2198,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 572,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 572,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 572,
+            "cache_read_input_tokens": 2198,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0038724000000000002,
+        "timestamp": 1776292415.698501
+      }
+    },
+    {
+      "content": "<exception>An error occurred while executing the command: Command '['docker', 'exec', '-w', '/testbed', '-e', 'LESS=-R', '-e', 'MANPAGER=cat', '-e', 'PAGER=cat', '-e', 'PIP_PROGRESS_BAR=off', '-e', 'TQDM_DISABLE=1', '4f380b1770f99b12411d8d047e5d6f15b55d1762043786c1fba0068af93c4d00', 'bash', '-c', 'cd /testbed && pip install -e . -q 2>&1 | tail -5']' timed out after 60 seconds</exception>\n<returncode>-1</returncode>\n<output>\n</output>",
+      "extra": {
+        "raw_output": "",
+        "returncode": -1,
+        "timestamp": 1776292475.71194,
+        "exception_info": "An error occurred while executing the command: Command '['docker', 'exec', '-w', '/testbed', '-e', 'LESS=-R', '-e', 'MANPAGER=cat', '-e', 'PAGER=cat', '-e', 'PIP_PROGRESS_BAR=off', '-e', 'TQDM_DISABLE=1', '4f380b1770f99b12411d8d047e5d6f15b55d1762043786c1fba0068af93c4d00', 'bash', '-c', 'cd /testbed && pip install -e . -q 2>&1 | tail -5']' timed out after 60 seconds",
+        "exception_type": "TimeoutExpired",
+        "exception": "Command '['docker', 'exec', '-w', '/testbed', '-e', 'LESS=-R', '-e', 'MANPAGER=cat', '-e', 'PAGER=cat', '-e', 'PIP_PROGRESS_BAR=off', '-e', 'TQDM_DISABLE=1', '4f380b1770f99b12411d8d047e5d6f15b55d1762043786c1fba0068af93c4d00', 'bash', '-c', 'cd /testbed && pip install -e . -q 2>&1 | tail -5']' timed out after 60 seconds"
+      },
+      "tool_call_id": "toolu_012rKUqWUrZygoBdmtn94KdU",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && pip install erfa -q 2>&1 | tail -3\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01VZY1vUZz4jVA1ZyUebfh9P",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && pip install erfa -q 2>&1 | tail -3",
+            "tool_call_id": "toolu_01VZY1vUZz4jVA1ZyUebfh9P"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-8dfba047-24dd-4df9-a17e-fe70749ca5e2",
+          "created": 1776292477,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && pip install erfa -q 2>&1 | tail -3\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01VZY1vUZz4jVA1ZyUebfh9P",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 70,
+            "prompt_tokens": 3046,
+            "total_tokens": 3116,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 70
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 2770,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 275,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 275,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 275,
+            "cache_read_input_tokens": 2770,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00291525,
+        "timestamp": 1776292477.321366
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nERROR: Could not find a version that satisfies the requirement erfa (from versions: none)\nERROR: No matching distribution found for erfa\n</output>",
+      "extra": {
+        "raw_output": "ERROR: Could not find a version that satisfies the requirement erfa (from versions: none)\nERROR: No matching distribution found for erfa\n",
+        "returncode": 0,
+        "timestamp": 1776292478.4191208,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01VZY1vUZz4jVA1ZyUebfh9P",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && python -c \\\"import sys; print(sys.path)\\\" && ls /testbed\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01J3dQKbFskNbpCaTEuTMWsx",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && python -c \"import sys; print(sys.path)\" && ls /testbed",
+            "tool_call_id": "toolu_01J3dQKbFskNbpCaTEuTMWsx"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-02734b5e-1d0b-4c61-ada4-459b0b53879d",
+          "created": 1776292480,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && python -c \\\"import sys; print(sys.path)\\\" && ls /testbed\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01J3dQKbFskNbpCaTEuTMWsx",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 73,
+            "prompt_tokens": 3174,
+            "total_tokens": 3247,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 73
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 3045,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 128,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 128,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 128,
+            "cache_read_input_tokens": 3045,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0024915,
+        "timestamp": 1776292480.489574
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n['', '/opt/miniconda3/lib/python311.zip', '/opt/miniconda3/lib/python3.11', '/opt/miniconda3/lib/python3.11/lib-dynload', '/opt/miniconda3/lib/python3.11/site-packages']\nCHANGES.rst\nCITATION\nCODE_OF_CONDUCT.md\nCONTRIBUTING.md\nGOVERNANCE.md\nLICENSE.rst\nMANIFEST.in\nREADME.rst\nastropy\nastropy.egg-info\ncextern\ncodecov.yml\nconftest.py\ndocs\nexamples\nlicenses\npip-requirements\npyproject.toml\nsetup.cfg\nsetup.py\ntox.ini\n</output>",
+      "extra": {
+        "raw_output": "['', '/opt/miniconda3/lib/python311.zip', '/opt/miniconda3/lib/python3.11', '/opt/miniconda3/lib/python3.11/lib-dynload', '/opt/miniconda3/lib/python3.11/site-packages']\nCHANGES.rst\nCITATION\nCODE_OF_CONDUCT.md\nCONTRIBUTING.md\nGOVERNANCE.md\nLICENSE.rst\nMANIFEST.in\nREADME.rst\nastropy\nastropy.egg-info\ncextern\ncodecov.yml\nconftest.py\ndocs\nexamples\nlicenses\npip-requirements\npyproject.toml\nsetup.cfg\nsetup.py\ntox.ini\n",
+        "returncode": 0,
+        "timestamp": 1776292480.752964,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01J3dQKbFskNbpCaTEuTMWsx",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && PYTHONPATH=/testbed python -c \\\"import astropy\\\" 2>&1 | head -5\"}",
+            "name": "bash"
+          },
+          "id": "toolu_0157JousPNh6H8YqiabBvgxM",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && PYTHONPATH=/testbed python -c \"import astropy\" 2>&1 | head -5",
+            "tool_call_id": "toolu_0157JousPNh6H8YqiabBvgxM"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-23e21e7b-dc90-4d1b-8adc-f66a9d802198",
+          "created": 1776292482,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && PYTHONPATH=/testbed python -c \\\"import astropy\\\" 2>&1 | head -5\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_0157JousPNh6H8YqiabBvgxM",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 79,
+            "prompt_tokens": 3439,
+            "total_tokens": 3518,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 79
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 3173,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 265,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 265,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 265,
+            "cache_read_input_tokens": 3173,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00313365,
+        "timestamp": 1776292482.4341362
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/testbed/astropy/__init__.py\", line 41, in <module>\n    from . import config as _config\n  File \"/testbed/astropy/config/__init__.py\", line 8, in <module>\n</output>",
+      "extra": {
+        "raw_output": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/testbed/astropy/__init__.py\", line 41, in <module>\n    from . import config as _config\n  File \"/testbed/astropy/config/__init__.py\", line 8, in <module>\n",
+        "returncode": 0,
+        "timestamp": 1776292482.6997492,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_0157JousPNh6H8YqiabBvgxM",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"python -c \\\"import astropy\\\" 2>&1 | head -3\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01JEwzYEonTDAwwdPdmyVDDb",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "python -c \"import astropy\" 2>&1 | head -3",
+            "tool_call_id": "toolu_01JEwzYEonTDAwwdPdmyVDDb"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-08760006-d9ff-4963-9fce-285066498d87",
+          "created": 1776292484,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"python -c \\\"import astropy\\\" 2>&1 | head -3\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01JEwzYEonTDAwwdPdmyVDDb",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 67,
+            "prompt_tokens": 3625,
+            "total_tokens": 3692,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 67
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 3173,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 451,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 451,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 451,
+            "cache_read_input_tokens": 3173,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0036511499999999997,
+        "timestamp": 1776292484.117244
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/testbed/astropy/__init__.py\", line 41, in <module>\n</output>",
+      "extra": {
+        "raw_output": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/testbed/astropy/__init__.py\", line 41, in <module>\n",
+        "returncode": 0,
+        "timestamp": 1776292484.444108,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01JEwzYEonTDAwwdPdmyVDDb",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"find / -name \\\"erfa\\\" -type d 2>/dev/null | head -5; find / -name \\\"*.egg-link\\\" 2>/dev/null | head -5\"}",
+            "name": "bash"
+          },
+          "id": "toolu_015s9Wn63hufu3JvFJUJDo4u",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "find / -name \"erfa\" -type d 2>/dev/null | head -5; find / -name \"*.egg-link\" 2>/dev/null | head -5",
+            "tool_call_id": "toolu_015s9Wn63hufu3JvFJUJDo4u"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-15c5122c-b095-4e54-995c-61a421ce4b39",
+          "created": 1776292486,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"find / -name \\\"erfa\\\" -type d 2>/dev/null | head -5; find / -name \\\"*.egg-link\\\" 2>/dev/null | head -5\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_015s9Wn63hufu3JvFJUJDo4u",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 92,
+            "prompt_tokens": 3766,
+            "total_tokens": 3858,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 92
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 3624,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 141,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 141,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 141,
+            "cache_read_input_tokens": 3624,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0029989500000000002,
+        "timestamp": 1776292486.5333261
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n/opt/miniconda3/envs/testbed/lib/python3.9/site-packages/erfa\n</output>",
+      "extra": {
+        "raw_output": "/opt/miniconda3/envs/testbed/lib/python3.9/site-packages/erfa\n",
+        "returncode": 0,
+        "timestamp": 1776292487.087894,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_015s9Wn63hufu3JvFJUJDo4u",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"conda run -n testbed python -c \\\"\\nimport astropy.coordinates as coord\\n\\nclass custom_coord(coord.SkyCoord):\\n    @property\\n    def prop(self):\\n        return self.random_attr\\n\\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\\nc.prop\\n\\\" 2>&1\"}",
+            "name": "bash"
+          },
+          "id": "toolu_017vfersEzYak4fHnPpNfFJi",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "conda run -n testbed python -c \"\nimport astropy.coordinates as coord\n\nclass custom_coord(coord.SkyCoord):\n    @property\n    def prop(self):\n        return self.random_attr\n\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\nc.prop\n\" 2>&1",
+            "tool_call_id": "toolu_017vfersEzYak4fHnPpNfFJi"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-e1256ce7-a66e-48a2-9a2b-fdc49a0418fb",
+          "created": 1776292488,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"conda run -n testbed python -c \\\"\\nimport astropy.coordinates as coord\\n\\nclass custom_coord(coord.SkyCoord):\\n    @property\\n    def prop(self):\\n        return self.random_attr\\n\\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\\nc.prop\\n\\\" 2>&1\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_017vfersEzYak4fHnPpNfFJi",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 137,
+            "prompt_tokens": 3913,
+            "total_tokens": 4050,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 137
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 3624,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 288,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 288,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 288,
+            "cache_read_input_tokens": 3624,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0042252,
+        "timestamp": 1776292488.961112
+      }
+    },
+    {
+      "content": "<returncode>1</returncode>\n<output>\nTraceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n  File \"/testbed/astropy/coordinates/sky_coordinate.py\", line 898, in __getattr__\n    raise AttributeError(\nAttributeError: 'custom_coord' object has no attribute 'prop'\n\nERROR conda.cli.main_run:execute(124): `conda run python -c \nimport astropy.coordinates as coord\n\nclass custom_coord(coord.SkyCoord):\n    @property\n    def prop(self):\n        return self.random_attr\n\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\nc.prop\n` failed. (See above for error)\n</output>",
+      "extra": {
+        "raw_output": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n  File \"/testbed/astropy/coordinates/sky_coordinate.py\", line 898, in __getattr__\n    raise AttributeError(\nAttributeError: 'custom_coord' object has no attribute 'prop'\n\nERROR conda.cli.main_run:execute(124): `conda run python -c \nimport astropy.coordinates as coord\n\nclass custom_coord(coord.SkyCoord):\n    @property\n    def prop(self):\n        return self.random_attr\n\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\nc.prop\n` failed. (See above for error)\n",
+        "returncode": 1,
+        "timestamp": 1776292491.633023,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_017vfersEzYak4fHnPpNfFJi",
+      "role": "tool"
+    },
+    {
+      "content": "I've reproduced the issue. Now let me fix it. The problem is in `__getattr__`: when Python tries to access `c.prop`, it first finds the property descriptor and calls it. Inside the property, `self.random_attr` raises `AttributeError`. Python then calls `__getattr__('prop')` because the property raised `AttributeError`. The fix is to check if `attr` is actually a descriptor/property on the class before raising the misleading error.",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && sed -n '895,902p' astropy/coordinates/sky_coordinate.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_012vdUQXpM4QHfLiQSwkXPPx",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && sed -n '895,902p' astropy/coordinates/sky_coordinate.py",
+            "tool_call_id": "toolu_012vdUQXpM4QHfLiQSwkXPPx"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-1ce64f48-724c-4e60-bfef-ba9731ad0beb",
+          "created": 1776292495,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "I've reproduced the issue. Now let me fix it. The problem is in `__getattr__`: when Python tries to access `c.prop`, it first finds the property descriptor and calls it. Inside the property, `self.random_attr` raises `AttributeError`. Python then calls `__getattr__('prop')` because the property raised `AttributeError`. The fix is to check if `attr` is actually a descriptor/property on the class before raising the misleading error.",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && sed -n '895,902p' astropy/coordinates/sky_coordinate.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_012vdUQXpM4QHfLiQSwkXPPx",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 181,
+            "prompt_tokens": 4257,
+            "total_tokens": 4438,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 181
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 3912,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 344,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 344,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 344,
+            "cache_read_input_tokens": 3912,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0051816,
+        "timestamp": 1776292495.7428212
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n                return self.transform_to(attr)\n\n        # Fail\n        raise AttributeError(\n            f\"'{self.__class__.__name__}' object has no attribute '{attr}'\"\n        )\n\n    def __setattr__(self, attr, val):\n</output>",
+      "extra": {
+        "raw_output": "                return self.transform_to(attr)\n\n        # Fail\n        raise AttributeError(\n            f\"'{self.__class__.__name__}' object has no attribute '{attr}'\"\n        )\n\n    def __setattr__(self, attr, val):\n",
+        "returncode": 0,
+        "timestamp": 1776292495.892721,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_012vdUQXpM4QHfLiQSwkXPPx",
+      "role": "tool"
+    },
+    {
+      "content": "The fix should check if `attr` exists as a descriptor in the class hierarchy (which would mean the `AttributeError` came from within the descriptor, not from the attribute being absent). If it does exist as a descriptor, we should re-raise with the original error or a more informative message.",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && cat > /tmp/fix.py << 'EOF'\\nimport re\\n\\nwith open('astropy/coordinates/sky_coordinate.py', 'r') as f:\\n    content = f.read()\\n\\nold = '''    def __getattr__(self, attr):\\n        \\\"\\\"\\\"\\n        Overrides getattr to return coordinates that this can be transformed\\n        to, based on the alias attr in the primary transform graph.\\n        \\\"\\\"\\\"\\n        if \\\"_sky_coord_frame\\\" in self.__dict__:'''\\n\\nnew = '''    def __getattr__(self, attr):\\n        \\\"\\\"\\\"\\n        Overrides getattr to return coordinates that this can be transformed\\n        to, based on the alias attr in the primary transform graph.\\n        \\\"\\\"\\\"\\n        # Bail out early if the attribute is defined in the class hierarchy;\\n        # this avoids misleading AttributeError messages when a property or\\n        # method raises an AttributeError internally.\\n        if attr in [name for cls in type(self).__mro__ for name in cls.__dict__]:\\n            raise AttributeError(\\n                f\\\"'{self.__class__.__name__}' object has no attribute '{attr}'\\\"\\n            )\\n\\n        if \\\"_sky_coord_frame\\\" in self.__dict__:'''\\n\\ncontent = content.replace(old, new)\\n\\nwith open('astropy/coordinates/sky_coordinate.py', 'w') as f:\\n    f.write(content)\\n\\nprint(\\\"Done\\\")\\nEOF\\npython /tmp/fix.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01Nrz1kd3U5KFztYNniaPj7Q",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && cat > /tmp/fix.py << 'EOF'\nimport re\n\nwith open('astropy/coordinates/sky_coordinate.py', 'r') as f:\n    content = f.read()\n\nold = '''    def __getattr__(self, attr):\n        \"\"\"\n        Overrides getattr to return coordinates that this can be transformed\n        to, based on the alias attr in the primary transform graph.\n        \"\"\"\n        if \"_sky_coord_frame\" in self.__dict__:'''\n\nnew = '''    def __getattr__(self, attr):\n        \"\"\"\n        Overrides getattr to return coordinates that this can be transformed\n        to, based on the alias attr in the primary transform graph.\n        \"\"\"\n        # Bail out early if the attribute is defined in the class hierarchy;\n        # this avoids misleading AttributeError messages when a property or\n        # method raises an AttributeError internally.\n        if attr in [name for cls in type(self).__mro__ for name in cls.__dict__]:\n            raise AttributeError(\n                f\"'{self.__class__.__name__}' object has no attribute '{attr}'\"\n            )\n\n        if \"_sky_coord_frame\" in self.__dict__:'''\n\ncontent = content.replace(old, new)\n\nwith open('astropy/coordinates/sky_coordinate.py', 'w') as f:\n    f.write(content)\n\nprint(\"Done\")\nEOF\npython /tmp/fix.py",
+            "tool_call_id": "toolu_01Nrz1kd3U5KFztYNniaPj7Q"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-704701ab-2c3d-46f3-be2a-122e4da767f6",
+          "created": 1776292503,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "The fix should check if `attr` exists as a descriptor in the class hierarchy (which would mean the `AttributeError` came from within the descriptor, not from the attribute being absent). If it does exist as a descriptor, we should re-raise with the original error or a more informative message.",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && cat > /tmp/fix.py << 'EOF'\\nimport re\\n\\nwith open('astropy/coordinates/sky_coordinate.py', 'r') as f:\\n    content = f.read()\\n\\nold = '''    def __getattr__(self, attr):\\n        \\\"\\\"\\\"\\n        Overrides getattr to return coordinates that this can be transformed\\n        to, based on the alias attr in the primary transform graph.\\n        \\\"\\\"\\\"\\n        if \\\"_sky_coord_frame\\\" in self.__dict__:'''\\n\\nnew = '''    def __getattr__(self, attr):\\n        \\\"\\\"\\\"\\n        Overrides getattr to return coordinates that this can be transformed\\n        to, based on the alias attr in the primary transform graph.\\n        \\\"\\\"\\\"\\n        # Bail out early if the attribute is defined in the class hierarchy;\\n        # this avoids misleading AttributeError messages when a property or\\n        # method raises an AttributeError internally.\\n        if attr in [name for cls in type(self).__mro__ for name in cls.__dict__]:\\n            raise AttributeError(\\n                f\\\"'{self.__class__.__name__}' object has no attribute '{attr}'\\\"\\n            )\\n\\n        if \\\"_sky_coord_frame\\\" in self.__dict__:'''\\n\\ncontent = content.replace(old, new)\\n\\nwith open('astropy/coordinates/sky_coordinate.py', 'w') as f:\\n    f.write(content)\\n\\nprint(\\\"Done\\\")\\nEOF\\npython /tmp/fix.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01Nrz1kd3U5KFztYNniaPj7Q",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 456,
+            "prompt_tokens": 4526,
+            "total_tokens": 4982,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 456
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 4256,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 269,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 269,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 269,
+            "cache_read_input_tokens": 4256,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.009128550000000001,
+        "timestamp": 1776292503.502628
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nDone\n</output>",
+      "extra": {
+        "raw_output": "Done\n",
+        "returncode": 0,
+        "timestamp": 1776292503.762166,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01Nrz1kd3U5KFztYNniaPj7Q",
+      "role": "tool"
+    },
+    {
+      "content": "Wait, that approach is wrong. If `attr` is in the class hierarchy, we'd raise the wrong error. The real issue is: when a property raises `AttributeError`, Python calls `__getattr__` with the property name. We need to detect this case and re-raise properly.\n\nLet me think about this more carefully. The correct fix is: if `attr` is defined as a descriptor (like a property) in the class, then `__getattr__` should not swallow the original error - it should raise an `AttributeError` that indicates the attribute exists but the access failed.\n\nActually, the simplest fix is: check if `attr` is defined in the class's MRO as a data descriptor. If so, the `AttributeError` came from within the descriptor, not from the attribute being absent.",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && git diff astropy/coordinates/sky_coordinate.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01BB9tcKJrNcJuZmD3sPkKbu",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && git diff astropy/coordinates/sky_coordinate.py",
+            "tool_call_id": "toolu_01BB9tcKJrNcJuZmD3sPkKbu"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-53a2adf2-2944-428f-8003-0ed2196060e4",
+          "created": 1776292508,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "Wait, that approach is wrong. If `attr` is in the class hierarchy, we'd raise the wrong error. The real issue is: when a property raises `AttributeError`, Python calls `__getattr__` with the property name. We need to detect this case and re-raise properly.\n\nLet me think about this more carefully. The correct fix is: if `attr` is defined as a descriptor (like a property) in the class, then `__getattr__` should not swallow the original error - it should raise an `AttributeError` that indicates the attribute exists but the access failed.\n\nActually, the simplest fix is: check if `attr` is defined in the class's MRO as a data descriptor. If so, the `AttributeError` came from within the descriptor, not from the attribute being absent.",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && git diff astropy/coordinates/sky_coordinate.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01BB9tcKJrNcJuZmD3sPkKbu",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 247,
+            "prompt_tokens": 5011,
+            "total_tokens": 5258,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 247
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 4525,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 485,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 485,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 485,
+            "cache_read_input_tokens": 4525,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00688425,
+        "timestamp": 1776292508.206313
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\ndiff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py\nindex ab475f7d0..c73729bef 100644\n--- a/astropy/coordinates/sky_coordinate.py\n+++ b/astropy/coordinates/sky_coordinate.py\n@@ -871,6 +871,14 @@ class SkyCoord(ShapedLikeNDArray):\n         Overrides getattr to return coordinates that this can be transformed\n         to, based on the alias attr in the primary transform graph.\n         \"\"\"\n+        # Bail out early if the attribute is defined in the class hierarchy;\n+        # this avoids misleading AttributeError messages when a property or\n+        # method raises an AttributeError internally.\n+        if attr in [name for cls in type(self).__mro__ for name in cls.__dict__]:\n+            raise AttributeError(\n+                f\"'{self.__class__.__name__}' object has no attribute '{attr}'\"\n+            )\n+\n         if \"_sky_coord_frame\" in self.__dict__:\n             if self._is_name(attr):\n                 return self  # Should this be a deepcopy of self?\n</output>",
+      "extra": {
+        "raw_output": "diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py\nindex ab475f7d0..c73729bef 100644\n--- a/astropy/coordinates/sky_coordinate.py\n+++ b/astropy/coordinates/sky_coordinate.py\n@@ -871,6 +871,14 @@ class SkyCoord(ShapedLikeNDArray):\n         Overrides getattr to return coordinates that this can be transformed\n         to, based on the alias attr in the primary transform graph.\n         \"\"\"\n+        # Bail out early if the attribute is defined in the class hierarchy;\n+        # this avoids misleading AttributeError messages when a property or\n+        # method raises an AttributeError internally.\n+        if attr in [name for cls in type(self).__mro__ for name in cls.__dict__]:\n+            raise AttributeError(\n+                f\"'{self.__class__.__name__}' object has no attribute '{attr}'\"\n+            )\n+\n         if \"_sky_coord_frame\" in self.__dict__:\n             if self._is_name(attr):\n                 return self  # Should this be a deepcopy of self?\n",
+        "returncode": 0,
+        "timestamp": 1776292508.4007978,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01BB9tcKJrNcJuZmD3sPkKbu",
+      "role": "tool"
+    },
+    {
+      "content": "Wait, this approach still raises the wrong error message. The issue is that when `prop` raises `AttributeError` internally (because `random_attr` doesn't exist), Python calls `__getattr__('prop')`. We need to detect that `prop` IS defined in the class (as a property) and re-raise the original error.\n\nBut we don't have access to the original error in `__getattr__`. The best approach is: if `attr` is defined in the class hierarchy as a descriptor, we should raise an `AttributeError` that says the attribute exists but failed - or better yet, we should just not catch it and let the original error propagate.\n\nActually, the cleanest fix is: if `attr` is found as a descriptor in the class MRO, we should raise an `AttributeError` that doesn't say \"object has no attribute 'prop'\" but rather something that indicates the property itself raised an error. But we can't know what the original error was.\n\nLooking at how Python handles this: when `__getattr__` is called because a descriptor raised `AttributeError`, the best we can do is re-raise with a message that doesn't mislead. The standard Python behavior would be to just let the original `AttributeError` propagate, but since `__getattr__` is called after the fact, we can't do that directly.\n\nThe fix should be: if `attr` is defined in the class hierarchy (as a property/descriptor), raise an `AttributeError` that says the attribute exists but the access failed, or better - just don't override the error message in that case.\n\nLet me look at what the actual fix should be - checking if `attr` is a descriptor in the class:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && git checkout astropy/coordinates/sky_coordinate.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_012MRGtonXGVNzLH2seCXMWy",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && git checkout astropy/coordinates/sky_coordinate.py",
+            "tool_call_id": "toolu_012MRGtonXGVNzLH2seCXMWy"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-fd335bf4-575a-41c2-925a-e5c4994157aa",
+          "created": 1776292516,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "Wait, this approach still raises the wrong error message. The issue is that when `prop` raises `AttributeError` internally (because `random_attr` doesn't exist), Python calls `__getattr__('prop')`. We need to detect that `prop` IS defined in the class (as a property) and re-raise the original error.\n\nBut we don't have access to the original error in `__getattr__`. The best approach is: if `attr` is defined in the class hierarchy as a descriptor, we should raise an `AttributeError` that says the attribute exists but failed - or better yet, we should just not catch it and let the original error propagate.\n\nActually, the cleanest fix is: if `attr` is found as a descriptor in the class MRO, we should raise an `AttributeError` that doesn't say \"object has no attribute 'prop'\" but rather something that indicates the property itself raised an error. But we can't know what the original error was.\n\nLooking at how Python handles this: when `__getattr__` is called because a descriptor raised `AttributeError`, the best we can do is re-raise with a message that doesn't mislead. The standard Python behavior would be to just let the original `AttributeError` propagate, but since `__getattr__` is called after the fact, we can't do that directly.\n\nThe fix should be: if `attr` is defined in the class hierarchy (as a property/descriptor), raise an `AttributeError` that says the attribute exists but the access failed, or better - just don't override the error message in that case.\n\nLet me look at what the actual fix should be - checking if `attr` is a descriptor in the class:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && git checkout astropy/coordinates/sky_coordinate.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_012MRGtonXGVNzLH2seCXMWy",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 446,
+            "prompt_tokens": 5577,
+            "total_tokens": 6023,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 446
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 5010,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 566,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 566,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 566,
+            "cache_read_input_tokens": 5010,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0103185,
+        "timestamp": 1776292516.125192
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nUpdated 1 path from the index\n</output>",
+      "extra": {
+        "raw_output": "Updated 1 path from the index\n",
+        "returncode": 0,
+        "timestamp": 1776292516.330302,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_012MRGtonXGVNzLH2seCXMWy",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && sed -n '869,902p' astropy/coordinates/sky_coordinate.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01EvbYNghpxf6UfJsUk68NME",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && sed -n '869,902p' astropy/coordinates/sky_coordinate.py",
+            "tool_call_id": "toolu_01EvbYNghpxf6UfJsUk68NME"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-9a30bd0d-c15f-49c0-9a9f-efba809a28ff",
+          "created": 1776292518,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && sed -n '869,902p' astropy/coordinates/sky_coordinate.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01EvbYNghpxf6UfJsUk68NME",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 74,
+            "prompt_tokens": 6059,
+            "total_tokens": 6133,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 74
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 5576,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 482,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 482,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 482,
+            "cache_read_input_tokens": 5576,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0045933,
+        "timestamp": 1776292518.2462862
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n    def __getattr__(self, attr):\n        \"\"\"\n        Overrides getattr to return coordinates that this can be transformed\n        to, based on the alias attr in the primary transform graph.\n        \"\"\"\n        if \"_sky_coord_frame\" in self.__dict__:\n            if self._is_name(attr):\n                return self  # Should this be a deepcopy of self?\n\n            # Anything in the set of all possible frame_attr_names is handled\n            # here. If the attr is relevant for the current frame then delegate\n            # to self.frame otherwise get it from self._<attr>.\n            if attr in frame_transform_graph.frame_attributes:\n                if attr in self.frame.frame_attributes:\n                    return getattr(self.frame, attr)\n                else:\n                    return getattr(self, \"_\" + attr, None)\n\n            # Some attributes might not fall in the above category but still\n            # are available through self._sky_coord_frame.\n            if not attr.startswith(\"_\") and hasattr(self._sky_coord_frame, attr):\n                return getattr(self._sky_coord_frame, attr)\n\n            # Try to interpret as a new frame for transforming.\n            frame_cls = frame_transform_graph.lookup_name(attr)\n            if frame_cls is not None and self.frame.is_transformable_to(frame_cls):\n                return self.transform_to(attr)\n\n        # Fail\n        raise AttributeError(\n            f\"'{self.__class__.__name__}' object has no attribute '{attr}'\"\n        )\n\n    def __setattr__(self, attr, val):\n</output>",
+      "extra": {
+        "raw_output": "    def __getattr__(self, attr):\n        \"\"\"\n        Overrides getattr to return coordinates that this can be transformed\n        to, based on the alias attr in the primary transform graph.\n        \"\"\"\n        if \"_sky_coord_frame\" in self.__dict__:\n            if self._is_name(attr):\n                return self  # Should this be a deepcopy of self?\n\n            # Anything in the set of all possible frame_attr_names is handled\n            # here. If the attr is relevant for the current frame then delegate\n            # to self.frame otherwise get it from self._<attr>.\n            if attr in frame_transform_graph.frame_attributes:\n                if attr in self.frame.frame_attributes:\n                    return getattr(self.frame, attr)\n                else:\n                    return getattr(self, \"_\" + attr, None)\n\n            # Some attributes might not fall in the above category but still\n            # are available through self._sky_coord_frame.\n            if not attr.startswith(\"_\") and hasattr(self._sky_coord_frame, attr):\n                return getattr(self._sky_coord_frame, attr)\n\n            # Try to interpret as a new frame for transforming.\n            frame_cls = frame_transform_graph.lookup_name(attr)\n            if frame_cls is not None and self.frame.is_transformable_to(frame_cls):\n                return self.transform_to(attr)\n\n        # Fail\n        raise AttributeError(\n            f\"'{self.__class__.__name__}' object has no attribute '{attr}'\"\n        )\n\n    def __setattr__(self, attr, val):\n",
+        "returncode": 0,
+        "timestamp": 1776292518.4197419,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01EvbYNghpxf6UfJsUk68NME",
+      "role": "tool"
+    },
+    {
+      "content": "The fix is to check if `attr` is defined in the class hierarchy before raising the misleading error. If it is, we should raise an `AttributeError` that indicates the attribute exists but the access failed (or just re-raise with the original message). \n\nThe key insight: `__getattr__` is only called when normal attribute lookup fails. If `attr` is a property defined in the class, `__getattr__` is called because the property raised `AttributeError`. In that case, we should NOT say \"object has no attribute 'prop'\" - we should let the original error propagate.\n\nThe cleanest fix: check if `attr` is defined in the class hierarchy. If it is, raise an `AttributeError` that doesn't mislead (or better, try to call the descriptor directly to get the real error).\n\nActually, the simplest and most correct fix is:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && python3 -c \\\"\\n# Test the approach\\nclass Foo:\\n    @property\\n    def prop(self):\\n        return self.random_attr\\n\\n# Check if 'prop' is in the class hierarchy\\nprint('prop' in [name for cls in Foo.__mro__ for name in cls.__dict__])\\nprint('random_attr' in [name for cls in Foo.__mro__ for name in cls.__dict__])\\n\\\"\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01NkTfUewc31mE1DoiTdzD2P",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && python3 -c \"\n# Test the approach\nclass Foo:\n    @property\n    def prop(self):\n        return self.random_attr\n\n# Check if 'prop' is in the class hierarchy\nprint('prop' in [name for cls in Foo.__mro__ for name in cls.__dict__])\nprint('random_attr' in [name for cls in Foo.__mro__ for name in cls.__dict__])\n\"",
+            "tool_call_id": "toolu_01NkTfUewc31mE1DoiTdzD2P"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-3a88b6f0-c46d-4026-86df-56b4c6f440a5",
+          "created": 1776292523,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "The fix is to check if `attr` is defined in the class hierarchy before raising the misleading error. If it is, we should raise an `AttributeError` that indicates the attribute exists but the access failed (or just re-raise with the original message). \n\nThe key insight: `__getattr__` is only called when normal attribute lookup fails. If `attr` is a property defined in the class, `__getattr__` is called because the property raised `AttributeError`. In that case, we should NOT say \"object has no attribute 'prop'\" - we should let the original error propagate.\n\nThe cleanest fix: check if `attr` is defined in the class hierarchy. If it is, raise an `AttributeError` that doesn't mislead (or better, try to call the descriptor directly to get the real error).\n\nActually, the simplest and most correct fix is:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && python3 -c \\\"\\n# Test the approach\\nclass Foo:\\n    @property\\n    def prop(self):\\n        return self.random_attr\\n\\n# Check if 'prop' is in the class hierarchy\\nprint('prop' in [name for cls in Foo.__mro__ for name in cls.__dict__])\\nprint('random_attr' in [name for cls in Foo.__mro__ for name in cls.__dict__])\\n\\\"\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01NkTfUewc31mE1DoiTdzD2P",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 352,
+            "prompt_tokens": 6548,
+            "total_tokens": 6900,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 352
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 6058,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 489,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 489,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 489,
+            "cache_read_input_tokens": 6058,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00893415,
+        "timestamp": 1776292523.8017468
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nTrue\nFalse\n</output>",
+      "extra": {
+        "raw_output": "True\nFalse\n",
+        "returncode": 0,
+        "timestamp": 1776292524.042816,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01NkTfUewc31mE1DoiTdzD2P",
+      "role": "tool"
+    },
+    {
+      "content": "Now let me apply the fix. The approach is: if `attr` is defined in the class hierarchy (meaning it's a property/method that raised `AttributeError` internally), we should raise an `AttributeError` that doesn't say \"object has no attribute 'prop'\" - instead we should re-raise with a message that indicates the property itself failed. But since we don't have the original exception, the best we can do is check if it's a descriptor and raise accordingly.\n\nLooking at the PR description more carefully - the fix should make the error say `random_attr` doesn't exist, not `prop`. The way to do this is to check if `attr` is defined in the class (as a property), and if so, try to call the descriptor to get the real error, or just raise with a different message.\n\nThe simplest correct fix: if `attr` is defined in the class hierarchy as a descriptor, raise `AttributeError` without the misleading message (let Python's default behavior handle it), or better - try to invoke the descriptor to get the real error:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && cat > /tmp/test_approach.py << 'EOF'\\n# Test approach: check if attr is in class hierarchy\\nclass Base:\\n    def __getattr__(self, attr):\\n        # Check if attr is defined in the class hierarchy\\n        for cls in type(self).__mro__:\\n            if attr in cls.__dict__:\\n                # It's defined but raised AttributeError internally\\n                # Try to get the real error by calling the descriptor\\n                descriptor = cls.__dict__[attr]\\n                if hasattr(descriptor, '__get__'):\\n                    # This will raise the original AttributeError\\n                    descriptor.__get__(self, type(self))\\n                break\\n        raise AttributeError(f\\\"'{type(self).__name__}' object has no attribute '{attr}'\\\")\\n\\nclass Foo(Base):\\n    @property\\n    def prop(self):\\n        return self.random_attr\\n\\nf = Foo()\\ntry:\\n    f.prop\\nexcept AttributeError as e:\\n    print(f\\\"Error: {e}\\\")\\nEOF\\npython3 /tmp/test_approach.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01SrnRypFkefkPE7jD5sm6Gx",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && cat > /tmp/test_approach.py << 'EOF'\n# Test approach: check if attr is in class hierarchy\nclass Base:\n    def __getattr__(self, attr):\n        # Check if attr is defined in the class hierarchy\n        for cls in type(self).__mro__:\n            if attr in cls.__dict__:\n                # It's defined but raised AttributeError internally\n                # Try to get the real error by calling the descriptor\n                descriptor = cls.__dict__[attr]\n                if hasattr(descriptor, '__get__'):\n                    # This will raise the original AttributeError\n                    descriptor.__get__(self, type(self))\n                break\n        raise AttributeError(f\"'{type(self).__name__}' object has no attribute '{attr}'\")\n\nclass Foo(Base):\n    @property\n    def prop(self):\n        return self.random_attr\n\nf = Foo()\ntry:\n    f.prop\nexcept AttributeError as e:\n    print(f\"Error: {e}\")\nEOF\npython3 /tmp/test_approach.py",
+            "tool_call_id": "toolu_01SrnRypFkefkPE7jD5sm6Gx"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-4de7509c-f3a3-491b-b111-8abe171d0344",
+          "created": 1776292532,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "Now let me apply the fix. The approach is: if `attr` is defined in the class hierarchy (meaning it's a property/method that raised `AttributeError` internally), we should raise an `AttributeError` that doesn't say \"object has no attribute 'prop'\" - instead we should re-raise with a message that indicates the property itself failed. But since we don't have the original exception, the best we can do is check if it's a descriptor and raise accordingly.\n\nLooking at the PR description more carefully - the fix should make the error say `random_attr` doesn't exist, not `prop`. The way to do this is to check if `attr` is defined in the class (as a property), and if so, try to call the descriptor to get the real error, or just raise with a different message.\n\nThe simplest correct fix: if `attr` is defined in the class hierarchy as a descriptor, raise `AttributeError` without the misleading message (let Python's default behavior handle it), or better - try to invoke the descriptor to get the real error:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && cat > /tmp/test_approach.py << 'EOF'\\n# Test approach: check if attr is in class hierarchy\\nclass Base:\\n    def __getattr__(self, attr):\\n        # Check if attr is defined in the class hierarchy\\n        for cls in type(self).__mro__:\\n            if attr in cls.__dict__:\\n                # It's defined but raised AttributeError internally\\n                # Try to get the real error by calling the descriptor\\n                descriptor = cls.__dict__[attr]\\n                if hasattr(descriptor, '__get__'):\\n                    # This will raise the original AttributeError\\n                    descriptor.__get__(self, type(self))\\n                break\\n        raise AttributeError(f\\\"'{type(self).__name__}' object has no attribute '{attr}'\\\")\\n\\nclass Foo(Base):\\n    @property\\n    def prop(self):\\n        return self.random_attr\\n\\nf = Foo()\\ntry:\\n    f.prop\\nexcept AttributeError as e:\\n    print(f\\\"Error: {e}\\\")\\nEOF\\npython3 /tmp/test_approach.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01SrnRypFkefkPE7jD5sm6Gx",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 540,
+            "prompt_tokens": 6931,
+            "total_tokens": 7471,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 540
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 6547,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 383,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 383,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 383,
+            "cache_read_input_tokens": 6547,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.011503349999999999,
+        "timestamp": 1776292532.77559
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nError: 'Foo' object has no attribute 'random_attr'\n</output>",
+      "extra": {
+        "raw_output": "Error: 'Foo' object has no attribute 'random_attr'\n",
+        "returncode": 0,
+        "timestamp": 1776292533.03195,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01SrnRypFkefkPE7jD5sm6Gx",
+      "role": "tool"
+    },
+    {
+      "content": "This approach works. By calling `descriptor.__get__(self, type(self))`, we re-invoke the property which raises the original `AttributeError` with the correct message. Let me now apply this fix to the actual code:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && cat > /tmp/apply_fix.py << 'EOF'\\nwith open('astropy/coordinates/sky_coordinate.py', 'r') as f:\\n    content = f.read()\\n\\nold = '''    def __getattr__(self, attr):\\n        \\\"\\\"\\\"\\n        Overrides getattr to return coordinates that this can be transformed\\n        to, based on the alias attr in the primary transform graph.\\n        \\\"\\\"\\\"\\n        if \\\"_sky_coord_frame\\\" in self.__dict__:'''\\n\\nnew = '''    def __getattr__(self, attr):\\n        \\\"\\\"\\\"\\n        Overrides getattr to return coordinates that this can be transformed\\n        to, based on the alias attr in the primary transform graph.\\n        \\\"\\\"\\\"\\n        # Prevent a confusing AttributeError when a subclass property raises\\n        # an AttributeError internally. In that case, Python calls __getattr__\\n        # with the property name, which would otherwise produce a misleading\\n        # error message saying the property doesn't exist.\\n        if attr in [name for cls in type(self).__mro__ for name in cls.__dict__]:\\n            # The attribute is defined in the class hierarchy, so the\\n            # AttributeError must have come from within the descriptor itself.\\n            # Re-invoke the descriptor to propagate the original error.\\n            for cls in type(self).__mro__:\\n                if attr in cls.__dict__:\\n                    descriptor = cls.__dict__[attr]\\n                    if hasattr(descriptor, '__get__'):\\n                        descriptor.__get__(self, type(self))\\n                    break\\n\\n        if \\\"_sky_coord_frame\\\" in self.__dict__:'''\\n\\ncontent = content.replace(old, new)\\n\\nwith open('astropy/coordinates/sky_coordinate.py', 'w') as f:\\n    f.write(content)\\n\\nprint(\\\"Done\\\")\\nEOF\\npython3 /tmp/apply_fix.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01DkMsPfjc1r6EeP6ePuFJGY",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && cat > /tmp/apply_fix.py << 'EOF'\nwith open('astropy/coordinates/sky_coordinate.py', 'r') as f:\n    content = f.read()\n\nold = '''    def __getattr__(self, attr):\n        \"\"\"\n        Overrides getattr to return coordinates that this can be transformed\n        to, based on the alias attr in the primary transform graph.\n        \"\"\"\n        if \"_sky_coord_frame\" in self.__dict__:'''\n\nnew = '''    def __getattr__(self, attr):\n        \"\"\"\n        Overrides getattr to return coordinates that this can be transformed\n        to, based on the alias attr in the primary transform graph.\n        \"\"\"\n        # Prevent a confusing AttributeError when a subclass property raises\n        # an AttributeError internally. In that case, Python calls __getattr__\n        # with the property name, which would otherwise produce a misleading\n        # error message saying the property doesn't exist.\n        if attr in [name for cls in type(self).__mro__ for name in cls.__dict__]:\n            # The attribute is defined in the class hierarchy, so the\n            # AttributeError must have come from within the descriptor itself.\n            # Re-invoke the descriptor to propagate the original error.\n            for cls in type(self).__mro__:\n                if attr in cls.__dict__:\n                    descriptor = cls.__dict__[attr]\n                    if hasattr(descriptor, '__get__'):\n                        descriptor.__get__(self, type(self))\n                    break\n\n        if \"_sky_coord_frame\" in self.__dict__:'''\n\ncontent = content.replace(old, new)\n\nwith open('astropy/coordinates/sky_coordinate.py', 'w') as f:\n    f.write(content)\n\nprint(\"Done\")\nEOF\npython3 /tmp/apply_fix.py",
+            "tool_call_id": "toolu_01DkMsPfjc1r6EeP6ePuFJGY"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-2a30a86f-2d31-43cf-acdc-b3d528650ccc",
+          "created": 1776292539,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "This approach works. By calling `descriptor.__get__(self, type(self))`, we re-invoke the property which raises the original `AttributeError` with the correct message. Let me now apply this fix to the actual code:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && cat > /tmp/apply_fix.py << 'EOF'\\nwith open('astropy/coordinates/sky_coordinate.py', 'r') as f:\\n    content = f.read()\\n\\nold = '''    def __getattr__(self, attr):\\n        \\\"\\\"\\\"\\n        Overrides getattr to return coordinates that this can be transformed\\n        to, based on the alias attr in the primary transform graph.\\n        \\\"\\\"\\\"\\n        if \\\"_sky_coord_frame\\\" in self.__dict__:'''\\n\\nnew = '''    def __getattr__(self, attr):\\n        \\\"\\\"\\\"\\n        Overrides getattr to return coordinates that this can be transformed\\n        to, based on the alias attr in the primary transform graph.\\n        \\\"\\\"\\\"\\n        # Prevent a confusing AttributeError when a subclass property raises\\n        # an AttributeError internally. In that case, Python calls __getattr__\\n        # with the property name, which would otherwise produce a misleading\\n        # error message saying the property doesn't exist.\\n        if attr in [name for cls in type(self).__mro__ for name in cls.__dict__]:\\n            # The attribute is defined in the class hierarchy, so the\\n            # AttributeError must have come from within the descriptor itself.\\n            # Re-invoke the descriptor to propagate the original error.\\n            for cls in type(self).__mro__:\\n                if attr in cls.__dict__:\\n                    descriptor = cls.__dict__[attr]\\n                    if hasattr(descriptor, '__get__'):\\n                        descriptor.__get__(self, type(self))\\n                    break\\n\\n        if \\\"_sky_coord_frame\\\" in self.__dict__:'''\\n\\ncontent = content.replace(old, new)\\n\\nwith open('astropy/coordinates/sky_coordinate.py', 'w') as f:\\n    f.write(content)\\n\\nprint(\\\"Done\\\")\\nEOF\\npython3 /tmp/apply_fix.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01DkMsPfjc1r6EeP6ePuFJGY",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 541,
+            "prompt_tokens": 7516,
+            "total_tokens": 8057,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 541
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 6930,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 585,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 585,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 585,
+            "cache_read_input_tokens": 6930,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.01239075,
+        "timestamp": 1776292539.340884
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nDone\n</output>",
+      "extra": {
+        "raw_output": "Done\n",
+        "returncode": 0,
+        "timestamp": 1776292539.710733,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01DkMsPfjc1r6EeP6ePuFJGY",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && conda run -n testbed python -c \\\"\\nimport astropy.coordinates as coord\\n\\nclass custom_coord(coord.SkyCoord):\\n    @property\\n    def prop(self):\\n        return self.random_attr\\n\\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\\nc.prop\\n\\\" 2>&1\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01J9Jrq8Gp6fdQ7hdPUKRbmU",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && conda run -n testbed python -c \"\nimport astropy.coordinates as coord\n\nclass custom_coord(coord.SkyCoord):\n    @property\n    def prop(self):\n        return self.random_attr\n\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\nc.prop\n\" 2>&1",
+            "tool_call_id": "toolu_01J9Jrq8Gp6fdQ7hdPUKRbmU"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-84d8f365-2727-45c0-b015-2bb03e60b277",
+          "created": 1776292542,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && conda run -n testbed python -c \\\"\\nimport astropy.coordinates as coord\\n\\nclass custom_coord(coord.SkyCoord):\\n    @property\\n    def prop(self):\\n        return self.random_attr\\n\\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\\nc.prop\\n\\\" 2>&1\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01J9Jrq8Gp6fdQ7hdPUKRbmU",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 142,
+            "prompt_tokens": 8086,
+            "total_tokens": 8228,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 142
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 7515,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 570,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 570,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 570,
+            "cache_read_input_tokens": 7515,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0065249999999999996,
+        "timestamp": 1776292542.747183
+      }
+    },
+    {
+      "content": "<returncode>1</returncode>\n<output>\nTraceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n  File \"/testbed/astropy/coordinates/sky_coordinate.py\", line 886, in __getattr__\n    descriptor.__get__(self, type(self))\n  File \"<string>\", line 7, in prop\n  File \"/testbed/astropy/coordinates/sky_coordinate.py\", line 913, in __getattr__\n    raise AttributeError(\nAttributeError: 'custom_coord' object has no attribute 'random_attr'\n\nERROR conda.cli.main_run:execute(124): `conda run python -c \nimport astropy.coordinates as coord\n\nclass custom_coord(coord.SkyCoord):\n    @property\n    def prop(self):\n        return self.random_attr\n\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\nc.prop\n` failed. (See above for error)\n</output>",
+      "extra": {
+        "raw_output": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n  File \"/testbed/astropy/coordinates/sky_coordinate.py\", line 886, in __getattr__\n    descriptor.__get__(self, type(self))\n  File \"<string>\", line 7, in prop\n  File \"/testbed/astropy/coordinates/sky_coordinate.py\", line 913, in __getattr__\n    raise AttributeError(\nAttributeError: 'custom_coord' object has no attribute 'random_attr'\n\nERROR conda.cli.main_run:execute(124): `conda run python -c \nimport astropy.coordinates as coord\n\nclass custom_coord(coord.SkyCoord):\n    @property\n    def prop(self):\n        return self.random_attr\n\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\nc.prop\n` failed. (See above for error)\n",
+        "returncode": 1,
+        "timestamp": 1776292544.8360178,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01J9Jrq8Gp6fdQ7hdPUKRbmU",
+      "role": "tool"
+    },
+    {
+      "content": "The error message now correctly says `'custom_coord' object has no attribute 'random_attr'` instead of `'custom_coord' object has no attribute 'prop'`. \n\nLet me also verify that normal SkyCoord functionality still works:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && conda run -n testbed python -c \\\"\\nimport astropy.coordinates as coord\\n\\n# Test normal SkyCoord functionality\\nc = coord.SkyCoord('00h42m30s', '+41d12m00s', frame='icrs')\\nprint('ra:', c.ra)\\nprint('dec:', c.dec)\\nprint('galactic:', c.galactic)\\n\\n# Test that accessing a non-existent attribute still gives the right error\\ntry:\\n    c.nonexistent\\nexcept AttributeError as e:\\n    print('Expected error:', e)\\n\\n# Test subclass with working property\\nclass custom_coord(coord.SkyCoord):\\n    @property\\n    def prop(self):\\n        return self.ra * 2\\n\\nc2 = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\\nprint('prop:', c2.prop)\\n\\\" 2>&1\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01LqhZHd93mb1SMFr6cBgc4x",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && conda run -n testbed python -c \"\nimport astropy.coordinates as coord\n\n# Test normal SkyCoord functionality\nc = coord.SkyCoord('00h42m30s', '+41d12m00s', frame='icrs')\nprint('ra:', c.ra)\nprint('dec:', c.dec)\nprint('galactic:', c.galactic)\n\n# Test that accessing a non-existent attribute still gives the right error\ntry:\n    c.nonexistent\nexcept AttributeError as e:\n    print('Expected error:', e)\n\n# Test subclass with working property\nclass custom_coord(coord.SkyCoord):\n    @property\n    def prop(self):\n        return self.ra * 2\n\nc2 = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\nprint('prop:', c2.prop)\n\" 2>&1",
+            "tool_call_id": "toolu_01LqhZHd93mb1SMFr6cBgc4x"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-a2aebc8c-4738-45de-a616-00ccad403a47",
+          "created": 1776292549,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "The error message now correctly says `'custom_coord' object has no attribute 'random_attr'` instead of `'custom_coord' object has no attribute 'prop'`. \n\nLet me also verify that normal SkyCoord functionality still works:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && conda run -n testbed python -c \\\"\\nimport astropy.coordinates as coord\\n\\n# Test normal SkyCoord functionality\\nc = coord.SkyCoord('00h42m30s', '+41d12m00s', frame='icrs')\\nprint('ra:', c.ra)\\nprint('dec:', c.dec)\\nprint('galactic:', c.galactic)\\n\\n# Test that accessing a non-existent attribute still gives the right error\\ntry:\\n    c.nonexistent\\nexcept AttributeError as e:\\n    print('Expected error:', e)\\n\\n# Test subclass with working property\\nclass custom_coord(coord.SkyCoord):\\n    @property\\n    def prop(self):\\n        return self.ra * 2\\n\\nc2 = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\\nprint('prop:', c2.prop)\\n\\\" 2>&1\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01LqhZHd93mb1SMFr6cBgc4x",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 327,
+            "prompt_tokens": 8489,
+            "total_tokens": 8816,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 327
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 8085,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 403,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 403,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 403,
+            "cache_read_input_tokens": 8085,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00884475,
+        "timestamp": 1776292549.044566
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nra: 10d37m30s\ndec: 41d12m00s\ngalactic: <SkyCoord (Galactic): (l, b) in deg\n    (121.12334339, -21.6403587)>\nExpected error: 'SkyCoord' object has no attribute 'nonexistent'\nprop: 21d15m00s\n\n</output>",
+      "extra": {
+        "raw_output": "ra: 10d37m30s\ndec: 41d12m00s\ngalactic: <SkyCoord (Galactic): (l, b) in deg\n    (121.12334339, -21.6403587)>\nExpected error: 'SkyCoord' object has no attribute 'nonexistent'\nprop: 21d15m00s\n\n",
+        "returncode": 0,
+        "timestamp": 1776292551.044468,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01LqhZHd93mb1SMFr6cBgc4x",
+      "role": "tool"
+    },
+    {
+      "content": "All normal functionality works. Let me also run the existing tests for sky_coordinate:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && conda run -n testbed python -m pytest astropy/coordinates/tests/test_sky_coord.py -x -q 2>&1 | tail -20\"}",
+            "name": "bash"
+          },
+          "id": "toolu_017s3a4ywm59KRwabxKG1mg3",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && conda run -n testbed python -m pytest astropy/coordinates/tests/test_sky_coord.py -x -q 2>&1 | tail -20",
+            "tool_call_id": "toolu_017s3a4ywm59KRwabxKG1mg3"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-85b3c6c2-e231-4c29-845b-9497fa48e910",
+          "created": 1776292553,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "All normal functionality works. Let me also run the existing tests for sky_coordinate:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && conda run -n testbed python -m pytest astropy/coordinates/tests/test_sky_coord.py -x -q 2>&1 | tail -20\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_017s3a4ywm59KRwabxKG1mg3",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 110,
+            "prompt_tokens": 8932,
+            "total_tokens": 9042,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 110
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 8488,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 443,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 443,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 443,
+            "cache_read_input_tokens": 8488,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00586065,
+        "timestamp": 1776292553.1089332
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n    \n            table = iers.LeapSeconds.auto_open(files)\n            return erfa.leap_seconds.update(table)\n    \n        except Exception as exc:\n>           warn(\n                f\"leap-second auto-update failed due to the following exception: {exc!r}\",\n                AstropyWarning,\n            )\n\u001b[1m\u001b[31mE           astropy.utils.exceptions.AstropyWarning: leap-second auto-update failed due to the following exception: IERSStaleWarning('leap-second file is expired.')\u001b[0m\n\n\u001b[1m\u001b[31mastropy/time/core.py\u001b[0m:3315: AstropyWarning\n\u001b[36m\u001b[1m=========================== short test summary info ============================\u001b[0m\n\u001b[31mFAILED\u001b[0m astropy/coordinates/tests/test_sky_coord.py::\u001b[1mtest_repr_altaz\u001b[0m - astropy.utils.exceptions.AstropyWarning: leap-second auto-update failed due...\n\u001b[31m!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\u001b[0m\n\u001b[31m\u001b[31m\u001b[1m1 failed\u001b[0m, \u001b[32m282 passed\u001b[0m\u001b[31m in 2.48s\u001b[0m\u001b[0m\n<frozen importlib._bootstrap>:228: RuntimeWarning: numpy.ndarray size changed, may indicate binary incompatibility. Expected 80 from C header, got 96 from PyObject\n\nERROR conda.cli.main_run:execute(124): `conda run python -m pytest astropy/coordinates/tests/test_sky_coord.py -x -q` failed. (See above for error)\n\n</output>",
+      "extra": {
+        "raw_output": "    \n            table = iers.LeapSeconds.auto_open(files)\n            return erfa.leap_seconds.update(table)\n    \n        except Exception as exc:\n>           warn(\n                f\"leap-second auto-update failed due to the following exception: {exc!r}\",\n                AstropyWarning,\n            )\n\u001b[1m\u001b[31mE           astropy.utils.exceptions.AstropyWarning: leap-second auto-update failed due to the following exception: IERSStaleWarning('leap-second file is expired.')\u001b[0m\n\n\u001b[1m\u001b[31mastropy/time/core.py\u001b[0m:3315: AstropyWarning\n\u001b[36m\u001b[1m=========================== short test summary info ============================\u001b[0m\n\u001b[31mFAILED\u001b[0m astropy/coordinates/tests/test_sky_coord.py::\u001b[1mtest_repr_altaz\u001b[0m - astropy.utils.exceptions.AstropyWarning: leap-second auto-update failed due...\n\u001b[31m!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\u001b[0m\n\u001b[31m\u001b[31m\u001b[1m1 failed\u001b[0m, \u001b[32m282 passed\u001b[0m\u001b[31m in 2.48s\u001b[0m\u001b[0m\n<frozen importlib._bootstrap>:228: RuntimeWarning: numpy.ndarray size changed, may indicate binary incompatibility. Expected 80 from C header, got 96 from PyObject\n\nERROR conda.cli.main_run:execute(124): `conda run python -m pytest astropy/coordinates/tests/test_sky_coord.py -x -q` failed. (See above for error)\n\n",
+        "returncode": 0,
+        "timestamp": 1776292558.5526028,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_017s3a4ywm59KRwabxKG1mg3",
+      "role": "tool"
+    },
+    {
+      "content": "The only failure is an unrelated leap-second auto-update issue (a pre-existing issue with the test environment). All 282 other tests pass.\n\nLet me also check the diff to make sure it looks clean:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && git diff astropy/coordinates/sky_coordinate.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01C2mZspoQ5e3a3cd59R1vf9",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && git diff astropy/coordinates/sky_coordinate.py",
+            "tool_call_id": "toolu_01C2mZspoQ5e3a3cd59R1vf9"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-b3ce6100-5dd4-45e4-9420-cccbe3ee0e86",
+          "created": 1776292561,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "The only failure is an unrelated leap-second auto-update issue (a pre-existing issue with the test environment). All 282 other tests pass.\n\nLet me also check the diff to make sure it looks clean:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && git diff astropy/coordinates/sky_coordinate.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01C2mZspoQ5e3a3cd59R1vf9",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 115,
+            "prompt_tokens": 9476,
+            "total_tokens": 9591,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 115
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 8931,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 544,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 544,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 544,
+            "cache_read_input_tokens": 8931,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0064473,
+        "timestamp": 1776292561.28451
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\ndiff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py\nindex ab475f7d0..2905a2970 100644\n--- a/astropy/coordinates/sky_coordinate.py\n+++ b/astropy/coordinates/sky_coordinate.py\n@@ -871,6 +871,21 @@ class SkyCoord(ShapedLikeNDArray):\n         Overrides getattr to return coordinates that this can be transformed\n         to, based on the alias attr in the primary transform graph.\n         \"\"\"\n+        # Prevent a confusing AttributeError when a subclass property raises\n+        # an AttributeError internally. In that case, Python calls __getattr__\n+        # with the property name, which would otherwise produce a misleading\n+        # error message saying the property doesn't exist.\n+        if attr in [name for cls in type(self).__mro__ for name in cls.__dict__]:\n+            # The attribute is defined in the class hierarchy, so the\n+            # AttributeError must have come from within the descriptor itself.\n+            # Re-invoke the descriptor to propagate the original error.\n+            for cls in type(self).__mro__:\n+                if attr in cls.__dict__:\n+                    descriptor = cls.__dict__[attr]\n+                    if hasattr(descriptor, '__get__'):\n+                        descriptor.__get__(self, type(self))\n+                    break\n+\n         if \"_sky_coord_frame\" in self.__dict__:\n             if self._is_name(attr):\n                 return self  # Should this be a deepcopy of self?\n</output>",
+      "extra": {
+        "raw_output": "diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py\nindex ab475f7d0..2905a2970 100644\n--- a/astropy/coordinates/sky_coordinate.py\n+++ b/astropy/coordinates/sky_coordinate.py\n@@ -871,6 +871,21 @@ class SkyCoord(ShapedLikeNDArray):\n         Overrides getattr to return coordinates that this can be transformed\n         to, based on the alias attr in the primary transform graph.\n         \"\"\"\n+        # Prevent a confusing AttributeError when a subclass property raises\n+        # an AttributeError internally. In that case, Python calls __getattr__\n+        # with the property name, which would otherwise produce a misleading\n+        # error message saying the property doesn't exist.\n+        if attr in [name for cls in type(self).__mro__ for name in cls.__dict__]:\n+            # The attribute is defined in the class hierarchy, so the\n+            # AttributeError must have come from within the descriptor itself.\n+            # Re-invoke the descriptor to propagate the original error.\n+            for cls in type(self).__mro__:\n+                if attr in cls.__dict__:\n+                    descriptor = cls.__dict__[attr]\n+                    if hasattr(descriptor, '__get__'):\n+                        descriptor.__get__(self, type(self))\n+                    break\n+\n         if \"_sky_coord_frame\" in self.__dict__:\n             if self._is_name(attr):\n                 return self  # Should this be a deepcopy of self?\n",
+        "returncode": 0,
+        "timestamp": 1776292561.5065541,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01C2mZspoQ5e3a3cd59R1vf9",
+      "role": "tool"
+    },
+    {
+      "content": "Now let me create the patch file and submit:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && git diff -- astropy/coordinates/sky_coordinate.py > patch.txt\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01MVQtdszXdxNqzdkSmA7GGV",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && git diff -- astropy/coordinates/sky_coordinate.py > patch.txt",
+            "tool_call_id": "toolu_01MVQtdszXdxNqzdkSmA7GGV"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-35c1bdf9-26d7-439d-badc-c8712e3181fe",
+          "created": 1776292563,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "Now let me create the patch file and submit:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && git diff -- astropy/coordinates/sky_coordinate.py > patch.txt\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01MVQtdszXdxNqzdkSmA7GGV",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 83,
+            "prompt_tokens": 10013,
+            "total_tokens": 10096,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 83
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 9475,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 537,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 537,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 537,
+            "cache_read_input_tokens": 9475,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00610425,
+        "timestamp": 1776292563.288973
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n</output>",
+      "extra": {
+        "raw_output": "",
+        "returncode": 0,
+        "timestamp": 1776292563.493663,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01MVQtdszXdxNqzdkSmA7GGV",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && cat patch.txt\"}",
+            "name": "bash"
+          },
+          "id": "toolu_015pD1d5bZEHzZvb5eo8yERP",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && cat patch.txt",
+            "tool_call_id": "toolu_015pD1d5bZEHzZvb5eo8yERP"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-519df689-bc3e-47e2-a209-b85eeeca5170",
+          "created": 1776292565,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && cat patch.txt\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_015pD1d5bZEHzZvb5eo8yERP",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 59,
+            "prompt_tokens": 10123,
+            "total_tokens": 10182,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 59
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 10012,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 110,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 110,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 110,
+            "cache_read_input_tokens": 10012,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0043041,
+        "timestamp": 1776292565.218955
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\ndiff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py\nindex ab475f7d0..2905a2970 100644\n--- a/astropy/coordinates/sky_coordinate.py\n+++ b/astropy/coordinates/sky_coordinate.py\n@@ -871,6 +871,21 @@ class SkyCoord(ShapedLikeNDArray):\n         Overrides getattr to return coordinates that this can be transformed\n         to, based on the alias attr in the primary transform graph.\n         \"\"\"\n+        # Prevent a confusing AttributeError when a subclass property raises\n+        # an AttributeError internally. In that case, Python calls __getattr__\n+        # with the property name, which would otherwise produce a misleading\n+        # error message saying the property doesn't exist.\n+        if attr in [name for cls in type(self).__mro__ for name in cls.__dict__]:\n+            # The attribute is defined in the class hierarchy, so the\n+            # AttributeError must have come from within the descriptor itself.\n+            # Re-invoke the descriptor to propagate the original error.\n+            for cls in type(self).__mro__:\n+                if attr in cls.__dict__:\n+                    descriptor = cls.__dict__[attr]\n+                    if hasattr(descriptor, '__get__'):\n+                        descriptor.__get__(self, type(self))\n+                    break\n+\n         if \"_sky_coord_frame\" in self.__dict__:\n             if self._is_name(attr):\n                 return self  # Should this be a deepcopy of self?\n</output>",
+      "extra": {
+        "raw_output": "diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py\nindex ab475f7d0..2905a2970 100644\n--- a/astropy/coordinates/sky_coordinate.py\n+++ b/astropy/coordinates/sky_coordinate.py\n@@ -871,6 +871,21 @@ class SkyCoord(ShapedLikeNDArray):\n         Overrides getattr to return coordinates that this can be transformed\n         to, based on the alias attr in the primary transform graph.\n         \"\"\"\n+        # Prevent a confusing AttributeError when a subclass property raises\n+        # an AttributeError internally. In that case, Python calls __getattr__\n+        # with the property name, which would otherwise produce a misleading\n+        # error message saying the property doesn't exist.\n+        if attr in [name for cls in type(self).__mro__ for name in cls.__dict__]:\n+            # The attribute is defined in the class hierarchy, so the\n+            # AttributeError must have come from within the descriptor itself.\n+            # Re-invoke the descriptor to propagate the original error.\n+            for cls in type(self).__mro__:\n+                if attr in cls.__dict__:\n+                    descriptor = cls.__dict__[attr]\n+                    if hasattr(descriptor, '__get__'):\n+                        descriptor.__get__(self, type(self))\n+                    break\n+\n         if \"_sky_coord_frame\" in self.__dict__:\n             if self._is_name(attr):\n                 return self  # Should this be a deepcopy of self?\n",
+        "returncode": 0,
+        "timestamp": 1776292565.391113,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_015pD1d5bZEHzZvb5eo8yERP",
+      "role": "tool"
+    },
+    {
+      "content": "The patch looks correct. Let me do a final verification:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && conda run -n testbed python -c \\\"\\nimport astropy.coordinates as coord\\n\\n# Test the exact scenario from the PR description\\nclass custom_coord(coord.SkyCoord):\\n    @property\\n    def prop(self):\\n        return self.random_attr\\n\\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\\ntry:\\n    c.prop\\nexcept AttributeError as e:\\n    print('Error message:', e)\\n    assert 'random_attr' in str(e), 'Should mention random_attr'\\n    assert 'prop' not in str(e), 'Should NOT mention prop'\\n    print('PASS: Error correctly mentions random_attr, not prop')\\n\\\" 2>&1\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01F5nPys881z4Gc4jqGAvdg1",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && conda run -n testbed python -c \"\nimport astropy.coordinates as coord\n\n# Test the exact scenario from the PR description\nclass custom_coord(coord.SkyCoord):\n    @property\n    def prop(self):\n        return self.random_attr\n\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\ntry:\n    c.prop\nexcept AttributeError as e:\n    print('Error message:', e)\n    assert 'random_attr' in str(e), 'Should mention random_attr'\n    assert 'prop' not in str(e), 'Should NOT mention prop'\n    print('PASS: Error correctly mentions random_attr, not prop')\n\" 2>&1",
+            "tool_call_id": "toolu_01F5nPys881z4Gc4jqGAvdg1"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-2c600a2e-b1aa-4df5-941e-58e5194d3cbc",
+          "created": 1776292568,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "The patch looks correct. Let me do a final verification:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && conda run -n testbed python -c \\\"\\nimport astropy.coordinates as coord\\n\\n# Test the exact scenario from the PR description\\nclass custom_coord(coord.SkyCoord):\\n    @property\\n    def prop(self):\\n        return self.random_attr\\n\\nc = custom_coord('00h42m30s', '+41d12m00s', frame='icrs')\\ntry:\\n    c.prop\\nexcept AttributeError as e:\\n    print('Error message:', e)\\n    assert 'random_attr' in str(e), 'Should mention random_attr'\\n    assert 'prop' not in str(e), 'Should NOT mention prop'\\n    print('PASS: Error correctly mentions random_attr, not prop')\\n\\\" 2>&1\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01F5nPys881z4Gc4jqGAvdg1",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 245,
+            "prompt_tokens": 10604,
+            "total_tokens": 10849,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 245
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 10122,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 481,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 481,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 481,
+            "cache_read_input_tokens": 10122,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00851835,
+        "timestamp": 1776292568.9840372
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nError message: 'custom_coord' object has no attribute 'random_attr'\nPASS: Error correctly mentions random_attr, not prop\n\n</output>",
+      "extra": {
+        "raw_output": "Error message: 'custom_coord' object has no attribute 'random_attr'\nPASS: Error correctly mentions random_attr, not prop\n\n",
+        "returncode": 0,
+        "timestamp": 1776292570.95566,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01F5nPys881z4Gc4jqGAvdg1",
+      "role": "tool"
+    },
+    {
+      "content": "The fix works correctly.\n\n## Summary\n\n**Problem**: When a subclass of `SkyCoord` has a property that raises `AttributeError` internally (e.g., accessing a non-existent attribute), Python's attribute lookup mechanism calls `__getattr__` with the property name. The `__getattr__` implementation then raises a misleading error saying the property itself doesn't exist, rather than the actual missing attribute.\n\n**Fix**: At the beginning of `__getattr__`, check if `attr` is defined in the class hierarchy (MRO). If it is, the `AttributeError` must have come from within the descriptor (property/method) itself. In that case, re-invoke the descriptor to propagate the original, correct error message.\n\n**Key change** in `astropy/coordinates/sky_coordinate.py`:\n- Added a check at the start of `__getattr__` that detects when `attr` is a descriptor defined in the class hierarchy\n- Re-invokes the descriptor to propagate the original `AttributeError` with the correct message",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /testbed/patch.txt\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01Yaq73pYrFQi3gf6R3c9hHE",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /testbed/patch.txt",
+            "tool_call_id": "toolu_01Yaq73pYrFQi3gf6R3c9hHE"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-0da6b2e7-1c0f-44bf-8eba-bb87cea94e12",
+          "created": 1776292577,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "The fix works correctly.\n\n## Summary\n\n**Problem**: When a subclass of `SkyCoord` has a property that raises `AttributeError` internally (e.g., accessing a non-existent attribute), Python's attribute lookup mechanism calls `__getattr__` with the property name. The `__getattr__` implementation then raises a misleading error saying the property itself doesn't exist, rather than the actual missing attribute.\n\n**Fix**: At the beginning of `__getattr__`, check if `attr` is defined in the class hierarchy (MRO). If it is, the `AttributeError` must have come from within the descriptor (property/method) itself. In that case, re-invoke the descriptor to propagate the original, correct error message.\n\n**Key change** in `astropy/coordinates/sky_coordinate.py`:\n- Added a check at the start of `__getattr__` that detects when `attr` is a descriptor defined in the class hierarchy\n- Re-invokes the descriptor to propagate the original `AttributeError` with the correct message",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /testbed/patch.txt\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01Yaq73pYrFQi3gf6R3c9hHE",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 312,
+            "prompt_tokens": 10909,
+            "total_tokens": 11221,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 312
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 10603,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 305,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 305,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 305,
+            "cache_read_input_tokens": 10603,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.009007649999999999,
+        "timestamp": 1776292577.050565
+      }
+    },
+    {
+      "role": "exit",
+      "content": "diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py\nindex ab475f7d0..2905a2970 100644\n--- a/astropy/coordinates/sky_coordinate.py\n+++ b/astropy/coordinates/sky_coordinate.py\n@@ -871,6 +871,21 @@ class SkyCoord(ShapedLikeNDArray):\n         Overrides getattr to return coordinates that this can be transformed\n         to, based on the alias attr in the primary transform graph.\n         \"\"\"\n+        # Prevent a confusing AttributeError when a subclass property raises\n+        # an AttributeError internally. In that case, Python calls __getattr__\n+        # with the property name, which would otherwise produce a misleading\n+        # error message saying the property doesn't exist.\n+        if attr in [name for cls in type(self).__mro__ for name in cls.__dict__]:\n+            # The attribute is defined in the class hierarchy, so the\n+            # AttributeError must have come from within the descriptor itself.\n+            # Re-invoke the descriptor to propagate the original error.\n+            for cls in type(self).__mro__:\n+                if attr in cls.__dict__:\n+                    descriptor = cls.__dict__[attr]\n+                    if hasattr(descriptor, '__get__'):\n+                        descriptor.__get__(self, type(self))\n+                    break\n+\n         if \"_sky_coord_frame\" in self.__dict__:\n             if self._is_name(attr):\n                 return self  # Should this be a deepcopy of self?\n",
+      "extra": {
+        "exit_status": "Submitted",
+        "submission": "diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py\nindex ab475f7d0..2905a2970 100644\n--- a/astropy/coordinates/sky_coordinate.py\n+++ b/astropy/coordinates/sky_coordinate.py\n@@ -871,6 +871,21 @@ class SkyCoord(ShapedLikeNDArray):\n         Overrides getattr to return coordinates that this can be transformed\n         to, based on the alias attr in the primary transform graph.\n         \"\"\"\n+        # Prevent a confusing AttributeError when a subclass property raises\n+        # an AttributeError internally. In that case, Python calls __getattr__\n+        # with the property name, which would otherwise produce a misleading\n+        # error message saying the property doesn't exist.\n+        if attr in [name for cls in type(self).__mro__ for name in cls.__dict__]:\n+            # The attribute is defined in the class hierarchy, so the\n+            # AttributeError must have come from within the descriptor itself.\n+            # Re-invoke the descriptor to propagate the original error.\n+            for cls in type(self).__mro__:\n+                if attr in cls.__dict__:\n+                    descriptor = cls.__dict__[attr]\n+                    if hasattr(descriptor, '__get__'):\n+                        descriptor.__get__(self, type(self))\n+                    break\n+\n         if \"_sky_coord_frame\" in self.__dict__:\n             if self._is_name(attr):\n                 return self  # Should this be a deepcopy of self?\n"
+      }
+    }
+  ],
+  "trajectory_format": "mini-swe-agent-1.1",
+  "instance_id": "astropy__astropy-14096"
+}
