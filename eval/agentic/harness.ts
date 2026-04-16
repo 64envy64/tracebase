@@ -85,28 +85,31 @@ export async function runAgenticBenchmark(
     const tmpDb = mkdtempSync(join(tmpdir(), "tb-eval-kb-"));
     const layer = new ReasoningLayer({ storagePath: join(tmpDb, "kb.db") });
 
-    // Store the seed as a trace.
-    // Key: store with the FIXTURE description as problem (not just seed.situation)
-    // so that recall matching works well. This simulates a real scenario where
-    // a team solved a similar problem before — the stored trace describes
-    // the same class of bug from a different angle.
-    layer.storeTrace({
-      problem: {
-        description: `${fixture.seed.situation} ${fixture.seed.unlock}`,
-        language: fixture.meta.language,
-        errorType: fixture.meta.bugType,
-        tags: fixture.meta.tags ?? [],
-      },
-      solution: {
-        summary: fixture.seed.unlock,
-        explanation: Array.isArray(fixture.seed.deadEnds) ? fixture.seed.deadEnds.join(". ") : fixture.seed.deadEnds,
-        steps: [],
-        outcome: "success",
-      },
-      metadata: { agent: "seed", source: "eval:seed" },
-    });
+    // Store ALL seeds (not just this fixture's seed) — simulates a real KB
+    // with traces from many previously solved problems.
+    // This is how it works in production: the KB contains traces from
+    // various solved bugs, and recall finds the most relevant one.
+    for (const other of fixtures) {
+      if (other.meta.id === fixture.meta.id) continue; // exclude current fixture
+      layer.storeTrace({
+        problem: {
+          description: other.seed.situation,
+          language: other.meta.language,
+          errorType: other.meta.bugType,
+          tags: other.meta.tags ?? [],
+        },
+        solution: {
+          summary: other.seed.unlock,
+          explanation: Array.isArray(other.seed.deadEnds) ? other.seed.deadEnds.join(". ") : other.seed.deadEnds,
+          steps: [],
+          outcome: "success",
+        },
+        metadata: { agent: "seed", source: "eval:seed" },
+      });
+    }
 
-    // Recall against the fixture description
+    // Recall using the SAME production recall engine — no bypass, no cheating.
+    // The confidence gate applies exactly as it would for a real user.
     const recallResults = layer.recall({
       problem: fixture.meta.description,
       limit: 1,
@@ -117,16 +120,22 @@ export async function runAgenticBenchmark(
       },
     });
 
-    // Direct injection — bypass confidence gate for eval.
-    // In production, the gate protects against noise. In eval,
-    // we know the seed IS relevant (we created it for this fixture).
-    // The score still affects the injection format (high vs hint).
+    // Use the real confidence gate — same as production SDK.
+    // Injection is built from the RECALLED trace, not the fixture's own seed.
     let injection: string | null = null;
     let injectionScore: number | undefined;
     if (recallResults.length > 0) {
       injectionScore = recallResults[0]!.score;
-      // Format the injection — always inject in eval (seed is guaranteed relevant)
-      injection = formatCompressedDirective(fixture.seed, Math.max(injectionScore, 0.85));
+      // Build seed from recalled trace (not fixture-specific)
+      const recalledTrace = recallResults[0]!.trace;
+      const recalledSeed: DistillateSeed = {
+        situation: recalledTrace.problem.description,
+        deadEnds: recalledTrace.solution.explanation ?? "",
+        unlock: recalledTrace.solution.summary,
+      };
+      // formatCompressedDirective enforces the confidence gate:
+      // >= 0.85: full directive, >= 0.72: hint only, < 0.72: null (no injection)
+      injection = formatCompressedDirective(recalledSeed, injectionScore);
     }
     layer.close();
 

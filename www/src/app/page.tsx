@@ -46,9 +46,12 @@ export default function Home() {
         style={{ borderColor: "var(--border)", background: "var(--bg)" }}
       >
         <div className="max-w-[1080px] mx-auto px-6 h-12 flex items-center justify-between">
-          <span className="text-sm font-light tracking-wide" style={{ color: "var(--text)" }}>
-            tracebase
-          </span>
+          <a href="/" className="flex items-center gap-2">
+            <img src="/logo.svg" alt="TraceBase" className="h-5 w-5" />
+            <span className="text-sm font-light tracking-wide" style={{ color: "var(--text)" }}>
+              tracebase
+            </span>
+          </a>
           <div className="flex items-center gap-8">
             <a href="#how" className="text-xs font-light" style={{ color: "var(--text-secondary)" }}>How it works</a>
             <a href="#setup" className="text-xs font-light" style={{ color: "var(--text-secondary)" }}>Setup</a>
