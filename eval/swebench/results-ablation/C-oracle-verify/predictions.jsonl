@@ -1,0 +1,5 @@
+{"instance_id": "astropy__astropy-13398", "model_patch": "", "model_name_or_path": "tracebase"}
+{"instance_id": "astropy__astropy-14182", "model_patch": "", "model_name_or_path": "tracebase"}
+{"instance_id": "astropy__astropy-14369", "model_patch": "", "model_name_or_path": "tracebase"}
+{"instance_id": "astropy__astropy-13977", "model_patch": "", "model_name_or_path": "tracebase"}
+{"instance_id": "astropy__astropy-7166", "model_patch": "diff --git a/astropy/utils/misc.py b/astropy/utils/misc.py\nindex de3fb01d1..477f5e0a1 100644\n--- a/astropy/utils/misc.py\n+++ b/astropy/utils/misc.py\n@@ -528,7 +528,7 @@ class InheritDocstrings(type):\n                 not key.startswith('_'))\n \n         for key, val in dct.items():\n-            if (inspect.isfunction(val) and\n+            if ((inspect.isfunction(val) or inspect.isdatadescriptor(val)) and\n                 is_public_member(key) and\n                 val.__doc__ is None):\n                 for base in cls.__mro__[1:]:\n", "model_name_or_path": "tracebase"}

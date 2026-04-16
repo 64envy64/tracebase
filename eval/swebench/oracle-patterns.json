@@ -1,0 +1,43 @@
+{
+  "_note": "Oracle patterns for internal diagnostic only. Crafted to be hypothesis-form (not prescriptive), no gold file names, no exact fix lines. Goal: simulate 'good retrieval' to isolate downstream (injection+verify) from retrieval quality.",
+
+  "astropy__astropy-7166": {
+    "situation": "A metaclass or class-decorator discovers members using inspect.isfunction() to decide which ones need docstring inheritance or similar processing.",
+    "bug_mechanism": "inspect.isfunction(obj) returns False for property objects, classmethod/staticmethod wrappers, and other descriptors. As a result these members are silently skipped by the metaclass logic.",
+    "fix_approach": "Broaden the member discovery check to include data descriptors (properties, etc.). Python's inspect module provides isdatadescriptor() which covers the relevant descriptor protocol cases without requiring type-by-type branches.",
+    "avoid": "Writing a long property-specific branch that duplicates logic. Also avoid recursively iterating into descriptor internals; the handling should be uniform with existing function handling.",
+    "verify": "Define a class with both a regular method and a property on a parent class (both missing docstrings). Subclass it. Confirm BOTH method and property pick up the parent docstring."
+  },
+
+  "astropy__astropy-13398": {
+    "situation": "Feature request to add a new direct coordinate-frame transformation between two frames that currently goes through one or more intermediate frames.",
+    "bug_mechanism": "No direct transform is registered in the frame graph, so each call traverses multiple intermediate transforms. This is both slow and accumulates floating-point error.",
+    "fix_approach": "Register one or more direct transformation functions between the two target frames using the library's frame_transform_graph registration mechanism. The direct transform should compute the mathematical composition that the intermediate route was doing, without the intermediate objects.",
+    "avoid": "Modifying existing intermediate transforms (they are still needed for other routes). Do not invalidate or replace the intermediate path; coexistence with the new direct path is required.",
+    "verify": "Construct a coordinate in the source frame, transform to the target frame using the new direct route, and also via the pre-existing intermediate route. Confirm numerical equivalence within tolerance. Confirm that the graph now chooses the direct route when available."
+  },
+
+  "astropy__astropy-13977": {
+    "situation": "A subclass of numpy.ndarray implements __array_ufunc__ and raises an exception (e.g. ValueError or TypeError) when it receives an operand type it does not know how to combine with.",
+    "bug_mechanism": "The NumPy __array_ufunc__ protocol specifies that, when an operand cannot be handled, the method should return the sentinel NotImplemented so that NumPy can fall back and try the other operand's __array_ufunc__. Raising prevents this fallback and crashes user code that would otherwise work via the reflected operand.",
+    "fix_approach": "Detect the incompatibility conditions where the exception is currently raised, and return NotImplemented from __array_ufunc__ instead of raising. Preserve actual hard errors (e.g. truly invalid inputs) as exceptions.",
+    "avoid": "Swallowing all exceptions as NotImplemented — only the cases that correspond to 'another type might handle this' should return NotImplemented. Programmer errors and invalid internal state should still raise.",
+    "verify": "Create a mock class whose __array_ufunc__ handles the operation that the main class rejects. Perform the operation with operands of both types in both orders. Confirm the mock's __array_ufunc__ is invoked and the result is correct."
+  },
+
+  "astropy__astropy-14182": {
+    "situation": "Feature request to add a new optional parameter (e.g. header_rows) to an I/O format's write() path so users can customize serialization.",
+    "bug_mechanism": "When a feature parameter is added only to the write path, the read path still assumes the old, fixed-layout input. Round-trip (write then read) produces a different table than the original because read cannot interpret the new layout.",
+    "fix_approach": "Propagate the new parameter through the class's __init__ into both write and read. Either parametrize the read-side layout assumptions by the parameter, or infer the parameter from the written output structure.",
+    "avoid": "Fixing only the path mentioned in the bug report. If the report shows write failing, check whether read on the same format also needs to know about the new parameter to stay consistent.",
+    "verify": "Round-trip test: write a table with the new parameter value, read the result back with the same parameter, and assert the recovered table equals the original (values, units, dtypes). Also re-run the existing tests for the default case."
+  },
+
+  "astropy__astropy-14369": {
+    "situation": "A parser for a domain-specific text format (e.g. unit strings from an astronomical catalogue) is producing incorrect parses for composite values that contain whitespace-separated sub-tokens.",
+    "bug_mechanism": "The parser grammar treats adjacent tokens as implicit composition (multiplication) rather than recognizing whitespace (or another delimiter) as a boundary. This silently changes meaning: for instance, two independent units become one compound unit.",
+    "fix_approach": "Update the parser's tokenization or grammar rule so that the correct delimiter explicitly separates top-level tokens, while implicit composition is preserved only where the format actually requires it.",
+    "avoid": "Applying a narrow string-substitution workaround before parsing; this hides the bug and breaks on nearby cases. Prefer a grammar-level fix.",
+    "verify": "Parse several representative inputs: a simple single token, a correctly whitespace-separated pair, an intentionally composite expression. Assert parsed structures match expectations. Re-run the format's existing test suite to catch regressions."
+  }
+}

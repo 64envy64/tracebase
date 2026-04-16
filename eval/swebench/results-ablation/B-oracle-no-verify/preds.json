@@ -1,0 +1,27 @@
+{
+  "astropy__astropy-7166": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-7166",
+    "model_patch": "diff --git a/astropy/utils/misc.py b/astropy/utils/misc.py\nindex de3fb01d1..816660df2 100644\n--- a/astropy/utils/misc.py\n+++ b/astropy/utils/misc.py\n@@ -536,6 +536,14 @@ class InheritDocstrings(type):\n                     if super_method is not None:\n                         val.__doc__ = super_method.__doc__\n                         break\n+            elif (isinstance(val, property) and\n+                  is_public_member(key) and\n+                  val.__doc__ is None):\n+                for base in cls.__mro__[1:]:\n+                    super_method = getattr(base, key, None)\n+                    if super_method is not None:\n+                        val.__doc__ = super_method.__doc__\n+                        break\n \n         super().__init__(name, bases, dct)\n \n"
+  },
+  "astropy__astropy-13398": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13398",
+    "model_patch": ""
+  },
+  "astropy__astropy-13977": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13977",
+    "model_patch": ""
+  },
+  "astropy__astropy-14182": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14182",
+    "model_patch": ""
+  },
+  "astropy__astropy-14369": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14369",
+    "model_patch": ""
+  }
+}
