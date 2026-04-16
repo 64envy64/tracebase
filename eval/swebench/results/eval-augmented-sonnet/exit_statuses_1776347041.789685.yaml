@@ -1,0 +1,8 @@
+instances_by_exit_status:
+    LimitsExceeded:
+    - astropy__astropy-13398
+    Submitted:
+    - astropy__astropy-13977
+    - astropy__astropy-14182
+    - astropy__astropy-14369
+    - astropy__astropy-7166

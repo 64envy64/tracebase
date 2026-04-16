@@ -1,0 +1,62 @@
+{
+  "astropy__astropy-12907": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-12907",
+    "model_patch": ""
+  },
+  "astropy__astropy-13033": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13033",
+    "model_patch": ""
+  },
+  "astropy__astropy-13236": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13236",
+    "model_patch": ""
+  },
+  "astropy__astropy-13453": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13453",
+    "model_patch": "diff --git a/astropy/io/ascii/html.py b/astropy/io/ascii/html.py\nindex 266cf229c..038932bce 100644\n--- a/astropy/io/ascii/html.py\n+++ b/astropy/io/ascii/html.py\n@@ -354,6 +354,8 @@ class HTML(core.BaseReader):\n             self.data.fill_values = [self.data.fill_values]\n \n         self.data._set_fill_values(cols)\n+        self.data.cols = cols\n+        self.data._set_col_formats()\n \n         lines = []\n \n"
+  },
+  "astropy__astropy-13579": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13579",
+    "model_patch": ""
+  },
+  "astropy__astropy-14096": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14096",
+    "model_patch": "diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py\nindex ab475f7d0..1982e1f04 100644\n--- a/astropy/coordinates/sky_coordinate.py\n+++ b/astropy/coordinates/sky_coordinate.py\n@@ -895,6 +895,15 @@ class SkyCoord(ShapedLikeNDArray):\n                 return self.transform_to(attr)\n \n         # Fail\n+        # If the attribute exists as a descriptor (e.g., a property) in the\n+        # class hierarchy, it means the descriptor itself raised an\n+        # AttributeError. Re-raise that error to avoid a misleading message\n+        # that says the attribute doesn't exist on the object.\n+        for cls in type(self).__mro__:\n+            if attr in cls.__dict__:\n+                # Re-invoke the descriptor to get the original AttributeError\n+                # so the user sees the real cause of the failure.\n+                getattr(type(self), attr).__get__(self, type(self))\n         raise AttributeError(\n             f\"'{self.__class__.__name__}' object has no attribute '{attr}'\"\n         )\n"
+  },
+  "astropy__astropy-14309": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14309",
+    "model_patch": "diff --git a/astropy/io/fits/connect.py b/astropy/io/fits/connect.py\nindex 4b6150f4a..24da41449 100644\n--- a/astropy/io/fits/connect.py\n+++ b/astropy/io/fits/connect.py\n@@ -69,6 +69,7 @@ def is_fits(origin, filepath, fileobj, *args, **kwargs):\n             (\".fits\", \".fits.gz\", \".fit\", \".fit.gz\", \".fts\", \".fts.gz\")\n         ):\n             return True\n+        return False\n     return isinstance(args[0], (HDUList, TableHDU, BinTableHDU, GroupsHDU))\n \n \n"
+  },
+  "astropy__astropy-14365": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14365",
+    "model_patch": "diff --git a/astropy/io/ascii/qdp.py b/astropy/io/ascii/qdp.py\nindex 83a4f004a..768beb0de 100644\n--- a/astropy/io/ascii/qdp.py\n+++ b/astropy/io/ascii/qdp.py\n@@ -68,7 +68,7 @@ def _line_type(line, delimiter=None):\n     _new_re = rf\"NO({sep}NO)+\"\n     _data_re = rf\"({_decimal_re}|NO|[-+]?nan)({sep}({_decimal_re}|NO|[-+]?nan))*)\"\n     _type_re = rf\"^\\s*((?P<command>{_command_re})|(?P<new>{_new_re})|(?P<data>{_data_re})?\\s*(\\!(?P<comment>.*))?\\s*$\"\n-    _line_type_re = re.compile(_type_re)\n+    _line_type_re = re.compile(_type_re, re.IGNORECASE)\n     line = line.strip()\n     if not line:\n         return \"comment\"\n"
+  },
+  "astropy__astropy-14508": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14508",
+    "model_patch": ""
+  },
+  "astropy__astropy-14539": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14539",
+    "model_patch": ""
+  },
+  "astropy__astropy-14598": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14598",
+    "model_patch": ""
+  },
+  "astropy__astropy-14995": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14995",
+    "model_patch": "diff --git a/astropy/nddata/mixins/ndarithmetic.py b/astropy/nddata/mixins/ndarithmetic.py\nindex 4153dfccb..28c34ca32 100644\n--- a/astropy/nddata/mixins/ndarithmetic.py\n+++ b/astropy/nddata/mixins/ndarithmetic.py\n@@ -522,6 +522,9 @@ class NDArithmeticMixin:\n             return deepcopy(operand.mask)\n         elif operand is None:\n             return deepcopy(self.mask)\n+        elif operand.mask is None:\n+            # Make a copy so there is no reference in the result.\n+            return deepcopy(self.mask)\n         else:\n             # Now lets calculate the resulting mask (operation enforces copy)\n             return handle_mask(self.mask, operand.mask, **kwds)\n"
+  }
+}

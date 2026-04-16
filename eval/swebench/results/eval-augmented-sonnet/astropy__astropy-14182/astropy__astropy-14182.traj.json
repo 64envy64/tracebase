@@ -1,0 +1,2315 @@
+{
+  "info": {
+    "model_stats": {
+      "instance_cost": 0.18844049999999998,
+      "api_calls": 21
+    },
+    "config": {
+      "agent": {
+        "system_template": "You are a helpful assistant that can interact with a computer shell to solve programming tasks.\n\nYou have access to institutional memory from 5 previously resolved bugs:\n- astropy/astropy: bugs previously fixed in astropy/coordinates/sky_coordinate.py, astropy/io/ascii/html.py, astropy/io/ascii/qdp.py, astropy/io/fits/connect.py, astropy/nddata/mixins/ndarithmetic.py\n\nWhen fixing a bug, check files from institutional memory FIRST. If you recognize the bug pattern from prior fixes, apply that approach directly instead of exploring from scratch.",
+        "instance_template": "<pr_description>\nConsider the following PR description:\n{{task}}\n</pr_description>\n\n<instructions>\nYou're a software engineer fixing a bug. Make changes to non-test source files in /testbed.\nDO NOT MODIFY: tests, configuration files (pyproject.toml, setup.cfg, etc.).\n\nFor each response: include reasoning text + at least one bash tool call.\nDirectory changes are not persistent. Use cd && in each command.\n\nWhen done, submit as git patch:\nStep 1: git diff -- file1.py file2.py > patch.txt (only source files you changed)\nStep 2: Verify patch.txt\nStep 3: echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt\nCreating/viewing the patch and submitting MUST be separate commands.\n</instructions>",
+        "step_limit": 40,
+        "cost_limit": 1.0,
+        "output_path": null
+      },
+      "agent_type": "__main__.ProgressTrackingAgent",
+      "model": {
+        "model_name": "anthropic/claude-sonnet-4-6",
+        "model_kwargs": {
+          "drop_params": true,
+          "parallel_tool_calls": true,
+          "temperature": 0.0
+        },
+        "litellm_model_registry": null,
+        "set_cache_control": "default_end",
+        "cost_tracking": "default",
+        "format_error_template": "Tool call error:\n\n<error>\n{{error}}\n</error>\n\nEvery response needs to use the 'bash' tool at least once.",
+        "observation_template": "{% if output.exception_info %}<exception>{{output.exception_info}}</exception>\n{% endif %}<returncode>{{output.returncode}}</returncode>\n{% if output.output | length < 10000 %}<output>\n{{ output.output }}</output>{% else %}<output_head>\n{{ output.output[:5000] }}</output_head>\n<output_tail>\n{{ output.output[-5000:] }}</output_tail>{% endif %}",
+        "multimodal_regex": ""
+      },
+      "model_type": "minisweagent.models.litellm_model.LitellmModel",
+      "environment": {
+        "image": "docker.io/swebench/sweb.eval.x86_64.astropy_1776_astropy-14182:latest",
+        "cwd": "/testbed",
+        "env": {
+          "LESS": "-R",
+          "MANPAGER": "cat",
+          "PAGER": "cat",
+          "PIP_PROGRESS_BAR": "off",
+          "TQDM_DISABLE": "1"
+        },
+        "forward_env": [],
+        "timeout": 60,
+        "executable": "docker",
+        "run_args": [
+          "--rm"
+        ],
+        "container_timeout": "2h",
+        "pull_timeout": 120,
+        "interpreter": [
+          "bash",
+          "-c"
+        ]
+      },
+      "environment_type": "minisweagent.environments.docker.DockerEnvironment"
+    },
+    "mini_version": "2.2.8",
+    "exit_status": "Submitted",
+    "submission": "diff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py\nindex abdeba8ef..41f822ef2 100644\n--- a/astropy/io/ascii/rst.py\n+++ b/astropy/io/ascii/rst.py\n@@ -57,10 +57,14 @@ class RST(FixedWidth):\n     data_class = SimpleRSTData\n     header_class = SimpleRSTHeader\n \n-    def __init__(self):\n-        super().__init__(delimiter_pad=None, bookend=False)\n+    def __init__(self, header_rows=None):\n+        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)\n \n     def write(self, lines):\n         lines = super().write(lines)\n-        lines = [lines[1]] + lines + [lines[1]]\n+        # The separator line is at index len(header_rows) in the output from\n+        # super().write(). For the default case (header_rows=[\"name\"]), this is\n+        # lines[1]. With multiple header rows (e.g. [\"name\", \"unit\"]), it shifts.\n+        idx = len(self.header.header_rows)\n+        lines = [lines[idx]] + lines + [lines[idx]]\n         return lines\n"
+  },
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant that can interact with a computer shell to solve programming tasks.\n\nYou have access to institutional memory from 5 previously resolved bugs:\n- astropy/astropy: bugs previously fixed in astropy/coordinates/sky_coordinate.py, astropy/io/ascii/html.py, astropy/io/ascii/qdp.py, astropy/io/fits/connect.py, astropy/nddata/mixins/ndarithmetic.py\n\nWhen fixing a bug, check files from institutional memory FIRST. If you recognize the bug pattern from prior fixes, apply that approach directly instead of exploring from scratch."
+    },
+    {
+      "role": "user",
+      "content": "<pr_description>\nConsider the following PR description:\nPlease support header rows in RestructuredText output\n### Description\r\n\r\nIt would be great if the following would work:\r\n\r\n```Python\r\n>>> from astropy.table import QTable\r\n>>> import astropy.units as u\r\n>>> import sys\r\n>>> tbl = QTable({'wave': [350,950]*u.nm, 'response': [0.7, 1.2]*u.count})\r\n>>> tbl.write(sys.stdout,  format=\"ascii.rst\")\r\n===== ========\r\n wave response\r\n===== ========\r\n350.0      0.7\r\n950.0      1.2\r\n===== ========\r\n>>> tbl.write(sys.stdout,  format=\"ascii.fixed_width\", header_rows=[\"name\", \"unit\"])\r\n|  wave | response |\r\n|    nm |       ct |\r\n| 350.0 |      0.7 |\r\n| 950.0 |      1.2 |\r\n>>> tbl.write(sys.stdout,  format=\"ascii.rst\", header_rows=[\"name\", \"unit\"])\r\nTraceback (most recent call last):\r\n  File \"<stdin>\", line 1, in <module>\r\n  File \"/usr/lib/python3/dist-packages/astropy/table/connect.py\", line 129, in __call__\r\n    self.registry.write(instance, *args, **kwargs)\r\n  File \"/usr/lib/python3/dist-packages/astropy/io/registry/core.py\", line 369, in write\r\n    return writer(data, *args, **kwargs)\r\n  File \"/usr/lib/python3/dist-packages/astropy/io/ascii/connect.py\", line 26, in io_write\r\n    return write(table, filename, **kwargs)\r\n  File \"/usr/lib/python3/dist-packages/astropy/io/ascii/ui.py\", line 856, in write\r\n    writer = get_writer(Writer=Writer, fast_writer=fast_writer, **kwargs)\r\n  File \"/usr/lib/python3/dist-packages/astropy/io/ascii/ui.py\", line 800, in get_writer\r\n    writer = core._get_writer(Writer, fast_writer, **kwargs)\r\n  File \"/usr/lib/python3/dist-packages/astropy/io/ascii/core.py\", line 1719, in _get_writer\r\n    writer = Writer(**writer_kwargs)\r\nTypeError: RST.__init__() got an unexpected keyword argument 'header_rows'\r\n```\r\n\r\n\r\n### Additional context\r\n\r\nRestructuredText output is a great way to fill autogenerated documentation with content, so having this flexible makes the life easier `:-)`\r\n\r\n\n\n</pr_description>\n\n<instructions>\nYou're a software engineer fixing a bug. Make changes to non-test source files in /testbed.\nDO NOT MODIFY: tests, configuration files (pyproject.toml, setup.cfg, etc.).\n\nFor each response: include reasoning text + at least one bash tool call.\nDirectory changes are not persistent. Use cd && in each command.\n\nWhen done, submit as git patch:\nStep 1: git diff -- file1.py file2.py > patch.txt (only source files you changed)\nStep 2: Verify patch.txt\nStep 3: echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt\nCreating/viewing the patch and submitting MUST be separate commands.\n</instructions>"
+    },
+    {
+      "content": "Looking at this bug, the issue is that the `RST` (RestructuredText) writer doesn't support the `header_rows` parameter that `FixedWidth` does. Let me check the relevant files.",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"find /testbed -name \\\"*.py\\\" | xargs grep -l \\\"class RST\\\" 2>/dev/null\"}",
+            "name": "bash"
+          },
+          "id": "toolu_014FtU3D2crxt19kkJoGFtHT",
+          "type": "function"
+        },
+        {
+          "index": 2,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cat /testbed/astropy/io/ascii/rst.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_0134MJ3FNEXv5QceV5735CqU",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "find /testbed -name \"*.py\" | xargs grep -l \"class RST\" 2>/dev/null",
+            "tool_call_id": "toolu_014FtU3D2crxt19kkJoGFtHT"
+          },
+          {
+            "command": "cat /testbed/astropy/io/ascii/rst.py",
+            "tool_call_id": "toolu_0134MJ3FNEXv5QceV5735CqU"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-c0afda00-e0f8-4b3f-9219-5147d6e378c6",
+          "created": 1776347505,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "Looking at this bug, the issue is that the `RST` (RestructuredText) writer doesn't support the `header_rows` parameter that `FixedWidth` does. Let me check the relevant files.",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"find /testbed -name \\\"*.py\\\" | xargs grep -l \\\"class RST\\\" 2>/dev/null\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_014FtU3D2crxt19kkJoGFtHT",
+                    "type": "function"
+                  },
+                  {
+                    "index": 2,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cat /testbed/astropy/io/ascii/rst.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_0134MJ3FNEXv5QceV5735CqU",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 173,
+            "prompt_tokens": 1509,
+            "total_tokens": 1682,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 173
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 0,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 0,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.007122,
+        "timestamp": 1776347505.508993
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n/testbed/astropy/io/ascii/rst.py\n</output>",
+      "extra": {
+        "raw_output": "/testbed/astropy/io/ascii/rst.py\n",
+        "returncode": 0,
+        "timestamp": 1776347506.440379,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_014FtU3D2crxt19kkJoGFtHT",
+      "role": "tool"
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n# Licensed under a 3-clause BSD style license\n\"\"\"\n:Author: Simon Gibbons (simongibbons@gmail.com)\n\"\"\"\n\n\nfrom .core import DefaultSplitter\nfrom .fixedwidth import (\n    FixedWidth,\n    FixedWidthData,\n    FixedWidthHeader,\n    FixedWidthTwoLineDataSplitter,\n)\n\n\nclass SimpleRSTHeader(FixedWidthHeader):\n    position_line = 0\n    start_line = 1\n    splitter_class = DefaultSplitter\n    position_char = \"=\"\n\n    def get_fixedwidth_params(self, line):\n        vals, starts, ends = super().get_fixedwidth_params(line)\n        # The right hand column can be unbounded\n        ends[-1] = None\n        return vals, starts, ends\n\n\nclass SimpleRSTData(FixedWidthData):\n    start_line = 3\n    end_line = -1\n    splitter_class = FixedWidthTwoLineDataSplitter\n\n\nclass RST(FixedWidth):\n    \"\"\"reStructuredText simple format table.\n\n    See: https://docutils.sourceforge.io/docs/ref/rst/restructuredtext.html#simple-tables\n\n    Example::\n\n        ==== ===== ======\n        Col1  Col2  Col3\n        ==== ===== ======\n          1    2.3  Hello\n          2    4.5  Worlds\n        ==== ===== ======\n\n    Currently there is no support for reading tables which utilize continuation lines,\n    or for ones which define column spans through the use of an additional\n    line of dashes in the header.\n\n    \"\"\"\n\n    _format_name = \"rst\"\n    _description = \"reStructuredText simple table\"\n    data_class = SimpleRSTData\n    header_class = SimpleRSTHeader\n\n    def __init__(self):\n        super().__init__(delimiter_pad=None, bookend=False)\n\n    def write(self, lines):\n        lines = super().write(lines)\n        lines = [lines[1]] + lines + [lines[1]]\n        return lines\n</output>",
+      "extra": {
+        "raw_output": "# Licensed under a 3-clause BSD style license\n\"\"\"\n:Author: Simon Gibbons (simongibbons@gmail.com)\n\"\"\"\n\n\nfrom .core import DefaultSplitter\nfrom .fixedwidth import (\n    FixedWidth,\n    FixedWidthData,\n    FixedWidthHeader,\n    FixedWidthTwoLineDataSplitter,\n)\n\n\nclass SimpleRSTHeader(FixedWidthHeader):\n    position_line = 0\n    start_line = 1\n    splitter_class = DefaultSplitter\n    position_char = \"=\"\n\n    def get_fixedwidth_params(self, line):\n        vals, starts, ends = super().get_fixedwidth_params(line)\n        # The right hand column can be unbounded\n        ends[-1] = None\n        return vals, starts, ends\n\n\nclass SimpleRSTData(FixedWidthData):\n    start_line = 3\n    end_line = -1\n    splitter_class = FixedWidthTwoLineDataSplitter\n\n\nclass RST(FixedWidth):\n    \"\"\"reStructuredText simple format table.\n\n    See: https://docutils.sourceforge.io/docs/ref/rst/restructuredtext.html#simple-tables\n\n    Example::\n\n        ==== ===== ======\n        Col1  Col2  Col3\n        ==== ===== ======\n          1    2.3  Hello\n          2    4.5  Worlds\n        ==== ===== ======\n\n    Currently there is no support for reading tables which utilize continuation lines,\n    or for ones which define column spans through the use of an additional\n    line of dashes in the header.\n\n    \"\"\"\n\n    _format_name = \"rst\"\n    _description = \"reStructuredText simple table\"\n    data_class = SimpleRSTData\n    header_class = SimpleRSTHeader\n\n    def __init__(self):\n        super().__init__(delimiter_pad=None, bookend=False)\n\n    def write(self, lines):\n        lines = super().write(lines)\n        lines = [lines[1]] + lines + [lines[1]]\n        return lines\n",
+        "returncode": 0,
+        "timestamp": 1776347506.441683,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_0134MJ3FNEXv5QceV5735CqU",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cat /testbed/astropy/io/ascii/fixedwidth.py | grep -n \\\"header_rows\\\\|class FixedWidth\\\\b\\\\|def __init__\\\" | head -50\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01FYnUW1ZZCAj7TWWsHZGwQp",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cat /testbed/astropy/io/ascii/fixedwidth.py | grep -n \"header_rows\\|class FixedWidth\\b\\|def __init__\" | head -50",
+            "tool_call_id": "toolu_01FYnUW1ZZCAj7TWWsHZGwQp"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-268e3f71-38ae-4ada-8cc7-9f95f724dbd4",
+          "created": 1776347508,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cat /testbed/astropy/io/ascii/fixedwidth.py | grep -n \\\"header_rows\\\\|class FixedWidth\\\\b\\\\|def __init__\\\" | head -50\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01FYnUW1ZZCAj7TWWsHZGwQp",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 95,
+            "prompt_tokens": 2303,
+            "total_tokens": 2398,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 95
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 0,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 2302,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 2302,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 2302,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0100605,
+        "timestamp": 1776347508.6199539
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n97:        header_rows = getattr(self, \"header_rows\", [\"name\"])\n163:            line = self.get_line(lines, start_line + header_rows.index(\"name\"))\n168:        for ii, attr in enumerate(header_rows):\n262:        default_header_rows = [] if self.header.start_line is None else [\"name\"]\n263:        header_rows = getattr(self, \"header_rows\", default_header_rows)\n273:        for col_attr in header_rows:\n306:class FixedWidth(basic.Basic):\n339:    def __init__(\n345:        header_rows=None,\n347:        if header_rows is None:\n348:            header_rows = [\"name\"]\n354:        self.header.header_rows = header_rows\n355:        self.data.header_rows = header_rows\n357:            self.data.start_line = len(header_rows)\n405:    def __init__(self, col_starts=None, col_ends=None, delimiter_pad=\" \", bookend=True):\n411:            header_rows=[],\n471:    def __init__(\n477:        header_rows=None,\n484:            delimiter_pad=delimiter_pad, bookend=bookend, header_rows=header_rows\n487:            position_line = len(self.header.header_rows)\n</output>",
+      "extra": {
+        "raw_output": "97:        header_rows = getattr(self, \"header_rows\", [\"name\"])\n163:            line = self.get_line(lines, start_line + header_rows.index(\"name\"))\n168:        for ii, attr in enumerate(header_rows):\n262:        default_header_rows = [] if self.header.start_line is None else [\"name\"]\n263:        header_rows = getattr(self, \"header_rows\", default_header_rows)\n273:        for col_attr in header_rows:\n306:class FixedWidth(basic.Basic):\n339:    def __init__(\n345:        header_rows=None,\n347:        if header_rows is None:\n348:            header_rows = [\"name\"]\n354:        self.header.header_rows = header_rows\n355:        self.data.header_rows = header_rows\n357:            self.data.start_line = len(header_rows)\n405:    def __init__(self, col_starts=None, col_ends=None, delimiter_pad=\" \", bookend=True):\n411:            header_rows=[],\n471:    def __init__(\n477:        header_rows=None,\n484:            delimiter_pad=delimiter_pad, bookend=bookend, header_rows=header_rows\n487:            position_line = len(self.header.header_rows)\n",
+        "returncode": 0,
+        "timestamp": 1776347508.989768,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01FYnUW1ZZCAj7TWWsHZGwQp",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"grep -n \\\"class FixedWidth\\\\b\\\\|def __init__\\\\|def write\\\" /testbed/astropy/io/ascii/fixedwidth.py | head -40\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01XBmkuMiFW26Wikq36D17Vn",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "grep -n \"class FixedWidth\\b\\|def __init__\\|def write\" /testbed/astropy/io/ascii/fixedwidth.py | head -40",
+            "tool_call_id": "toolu_01XBmkuMiFW26Wikq36D17Vn"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-43b4fa55-f8e5-41bc-abf9-80c54e47a841",
+          "created": 1776347511,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"grep -n \\\"class FixedWidth\\\\b\\\\|def __init__\\\\|def write\\\" /testbed/astropy/io/ascii/fixedwidth.py | head -40\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01XBmkuMiFW26Wikq36D17Vn",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 92,
+            "prompt_tokens": 2752,
+            "total_tokens": 2844,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 92
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 0,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 2751,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 2751,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 2751,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.01169925,
+        "timestamp": 1776347511.183341
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n246:    def write(self, lines):\n261:    def write(self, lines):\n306:class FixedWidth(basic.Basic):\n339:    def __init__(\n405:    def __init__(self, col_starts=None, col_ends=None, delimiter_pad=\" \", bookend=True):\n471:    def __init__(\n</output>",
+      "extra": {
+        "raw_output": "246:    def write(self, lines):\n261:    def write(self, lines):\n306:class FixedWidth(basic.Basic):\n339:    def __init__(\n405:    def __init__(self, col_starts=None, col_ends=None, delimiter_pad=\" \", bookend=True):\n471:    def __init__(\n",
+        "returncode": 0,
+        "timestamp": 1776347511.5136268,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01XBmkuMiFW26Wikq36D17Vn",
+      "role": "tool"
+    },
+    {
+      "content": "Now I understand the issue. The `RST.__init__` method doesn't accept `header_rows` parameter. Let me look at how `FixedWidth.__init__` handles it and how `RST.write` works to understand what changes are needed:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"sed -n '306,400p' /testbed/astropy/io/ascii/fixedwidth.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01Guhd373h8orBdGoZW2MuGv",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "sed -n '306,400p' /testbed/astropy/io/ascii/fixedwidth.py",
+            "tool_call_id": "toolu_01Guhd373h8orBdGoZW2MuGv"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-24d58b5e-937e-458b-abf8-a36e948dab29",
+          "created": 1776347514,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "Now I understand the issue. The `RST.__init__` method doesn't accept `header_rows` parameter. Let me look at how `FixedWidth.__init__` handles it and how `RST.write` works to understand what changes are needed:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"sed -n '306,400p' /testbed/astropy/io/ascii/fixedwidth.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01Guhd373h8orBdGoZW2MuGv",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 133,
+            "prompt_tokens": 2954,
+            "total_tokens": 3087,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 133
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 2302,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 651,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 651,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 651,
+            "cache_read_input_tokens": 2302,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00512985,
+        "timestamp": 1776347514.7387788
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nclass FixedWidth(basic.Basic):\n    \"\"\"Fixed width table with single header line defining column names and positions.\n\n    Examples::\n\n      # Bar delimiter in header and data\n\n      |  Col1 |   Col2      |  Col3 |\n      |  1.2  | hello there |     3 |\n      |  2.4  | many words  |     7 |\n\n      # Bar delimiter in header only\n\n      Col1 |   Col2      | Col3\n      1.2    hello there    3\n      2.4    many words     7\n\n      # No delimiter with column positions specified as input\n\n      Col1       Col2Col3\n       1.2hello there   3\n       2.4many words    7\n\n    See the :ref:`astropy:fixed_width_gallery` for specific usage examples.\n\n    \"\"\"\n\n    _format_name = \"fixed_width\"\n    _description = \"Fixed width\"\n\n    header_class = FixedWidthHeader\n    data_class = FixedWidthData\n\n    def __init__(\n        self,\n        col_starts=None,\n        col_ends=None,\n        delimiter_pad=\" \",\n        bookend=True,\n        header_rows=None,\n    ):\n        if header_rows is None:\n            header_rows = [\"name\"]\n        super().__init__()\n        self.data.splitter.delimiter_pad = delimiter_pad\n        self.data.splitter.bookend = bookend\n        self.header.col_starts = col_starts\n        self.header.col_ends = col_ends\n        self.header.header_rows = header_rows\n        self.data.header_rows = header_rows\n        if self.data.start_line is None:\n            self.data.start_line = len(header_rows)\n\n\nclass FixedWidthNoHeaderHeader(FixedWidthHeader):\n    \"\"\"Header reader for fixed with tables with no header line\"\"\"\n\n    start_line = None\n\n\nclass FixedWidthNoHeaderData(FixedWidthData):\n    \"\"\"Data reader for fixed width tables with no header line\"\"\"\n\n    start_line = 0\n\n\nclass FixedWidthNoHeader(FixedWidth):\n    \"\"\"Fixed width table which has no header line.\n\n    When reading, column names are either input (``names`` keyword) or\n    auto-generated.  Column positions are determined either by input\n    (``col_starts`` and ``col_stops`` keywords) or by splitting the first data\n    line.  In the latter case a ``delimiter`` is required to split the data\n    line.\n\n    Examples::\n\n      # Bar delimiter in header and data\n\n      |  1.2  | hello there |     3 |\n      |  2.4  | many words  |     7 |\n\n      # Compact table having no delimiter and column positions specified as input\n\n      1.2hello there3\n      2.4many words 7\n\n    This class is just a convenience wrapper around the ``FixedWidth`` reader\n    but with ``header_start=None`` and ``data_start=0``.\n\n    See the :ref:`astropy:fixed_width_gallery` for specific usage examples.\n\n    \"\"\"\n\n    _format_name = \"fixed_width_no_header\"\n</output>",
+      "extra": {
+        "raw_output": "class FixedWidth(basic.Basic):\n    \"\"\"Fixed width table with single header line defining column names and positions.\n\n    Examples::\n\n      # Bar delimiter in header and data\n\n      |  Col1 |   Col2      |  Col3 |\n      |  1.2  | hello there |     3 |\n      |  2.4  | many words  |     7 |\n\n      # Bar delimiter in header only\n\n      Col1 |   Col2      | Col3\n      1.2    hello there    3\n      2.4    many words     7\n\n      # No delimiter with column positions specified as input\n\n      Col1       Col2Col3\n       1.2hello there   3\n       2.4many words    7\n\n    See the :ref:`astropy:fixed_width_gallery` for specific usage examples.\n\n    \"\"\"\n\n    _format_name = \"fixed_width\"\n    _description = \"Fixed width\"\n\n    header_class = FixedWidthHeader\n    data_class = FixedWidthData\n\n    def __init__(\n        self,\n        col_starts=None,\n        col_ends=None,\n        delimiter_pad=\" \",\n        bookend=True,\n        header_rows=None,\n    ):\n        if header_rows is None:\n            header_rows = [\"name\"]\n        super().__init__()\n        self.data.splitter.delimiter_pad = delimiter_pad\n        self.data.splitter.bookend = bookend\n        self.header.col_starts = col_starts\n        self.header.col_ends = col_ends\n        self.header.header_rows = header_rows\n        self.data.header_rows = header_rows\n        if self.data.start_line is None:\n            self.data.start_line = len(header_rows)\n\n\nclass FixedWidthNoHeaderHeader(FixedWidthHeader):\n    \"\"\"Header reader for fixed with tables with no header line\"\"\"\n\n    start_line = None\n\n\nclass FixedWidthNoHeaderData(FixedWidthData):\n    \"\"\"Data reader for fixed width tables with no header line\"\"\"\n\n    start_line = 0\n\n\nclass FixedWidthNoHeader(FixedWidth):\n    \"\"\"Fixed width table which has no header line.\n\n    When reading, column names are either input (``names`` keyword) or\n    auto-generated.  Column positions are determined either by input\n    (``col_starts`` and ``col_stops`` keywords) or by splitting the first data\n    line.  In the latter case a ``delimiter`` is required to split the data\n    line.\n\n    Examples::\n\n      # Bar delimiter in header and data\n\n      |  1.2  | hello there |     3 |\n      |  2.4  | many words  |     7 |\n\n      # Compact table having no delimiter and column positions specified as input\n\n      1.2hello there3\n      2.4many words 7\n\n    This class is just a convenience wrapper around the ``FixedWidth`` reader\n    but with ``header_start=None`` and ``data_start=0``.\n\n    See the :ref:`astropy:fixed_width_gallery` for specific usage examples.\n\n    \"\"\"\n\n    _format_name = \"fixed_width_no_header\"\n",
+        "returncode": 0,
+        "timestamp": 1776347515.189186,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01Guhd373h8orBdGoZW2MuGv",
+      "role": "tool"
+    },
+    {
+      "content": "Now let me look at the `RST.write` method more carefully and understand how `header_rows` affects the output:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"sed -n '246,305p' /testbed/astropy/io/ascii/fixedwidth.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01GSy2XmErUox4umVneNgZ4a",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "sed -n '246,305p' /testbed/astropy/io/ascii/fixedwidth.py",
+            "tool_call_id": "toolu_01GSy2XmErUox4umVneNgZ4a"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-e1202805-34e8-4f3d-a778-309098f81e40",
+          "created": 1776347517,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "Now let me look at the `RST.write` method more carefully and understand how `header_rows` affects the output:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"sed -n '246,305p' /testbed/astropy/io/ascii/fixedwidth.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01GSy2XmErUox4umVneNgZ4a",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 103,
+            "prompt_tokens": 3879,
+            "total_tokens": 3982,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 103
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 2953,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 925,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 925,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 925,
+            "cache_read_input_tokens": 2953,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.005902650000000001,
+        "timestamp": 1776347517.292991
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n    def write(self, lines):\n        # Header line not written until data are formatted.  Until then it is\n        # not known how wide each column will be for fixed width.\n        pass\n\n\nclass FixedWidthData(basic.BasicData):\n    \"\"\"\n    Base table data reader.\n    \"\"\"\n\n    splitter_class = FixedWidthSplitter\n    \"\"\" Splitter class for splitting data lines into columns \"\"\"\n    start_line = None\n\n    def write(self, lines):\n        default_header_rows = [] if self.header.start_line is None else [\"name\"]\n        header_rows = getattr(self, \"header_rows\", default_header_rows)\n        # First part is getting the widths of each column.\n        # List (rows) of list (column values) for data lines\n        vals_list = []\n        col_str_iters = self.str_vals()\n        for vals in zip(*col_str_iters):\n            vals_list.append(vals)\n\n        # List (rows) of list (columns values) for header lines.\n        hdrs_list = []\n        for col_attr in header_rows:\n            vals = [\n                \"\" if (val := getattr(col.info, col_attr)) is None else str(val)\n                for col in self.cols\n            ]\n            hdrs_list.append(vals)\n\n        # Widths for data columns\n        widths = [\n            max(len(vals[i_col]) for vals in vals_list)\n            for i_col in range(len(self.cols))\n        ]\n        # Incorporate widths for header columns (if there are any)\n        if hdrs_list:\n            for i_col in range(len(self.cols)):\n                widths[i_col] = max(\n                    widths[i_col], max(len(vals[i_col]) for vals in hdrs_list)\n                )\n\n        # Now collect formatted header and data lines into the output lines\n        for vals in hdrs_list:\n            lines.append(self.splitter.join(vals, widths))\n\n        if self.header.position_line is not None:\n            vals = [self.header.position_char * width for width in widths]\n            lines.append(self.splitter.join(vals, widths))\n\n        for vals in vals_list:\n            lines.append(self.splitter.join(vals, widths))\n\n        return lines\n\n\n</output>",
+      "extra": {
+        "raw_output": "    def write(self, lines):\n        # Header line not written until data are formatted.  Until then it is\n        # not known how wide each column will be for fixed width.\n        pass\n\n\nclass FixedWidthData(basic.BasicData):\n    \"\"\"\n    Base table data reader.\n    \"\"\"\n\n    splitter_class = FixedWidthSplitter\n    \"\"\" Splitter class for splitting data lines into columns \"\"\"\n    start_line = None\n\n    def write(self, lines):\n        default_header_rows = [] if self.header.start_line is None else [\"name\"]\n        header_rows = getattr(self, \"header_rows\", default_header_rows)\n        # First part is getting the widths of each column.\n        # List (rows) of list (column values) for data lines\n        vals_list = []\n        col_str_iters = self.str_vals()\n        for vals in zip(*col_str_iters):\n            vals_list.append(vals)\n\n        # List (rows) of list (columns values) for header lines.\n        hdrs_list = []\n        for col_attr in header_rows:\n            vals = [\n                \"\" if (val := getattr(col.info, col_attr)) is None else str(val)\n                for col in self.cols\n            ]\n            hdrs_list.append(vals)\n\n        # Widths for data columns\n        widths = [\n            max(len(vals[i_col]) for vals in vals_list)\n            for i_col in range(len(self.cols))\n        ]\n        # Incorporate widths for header columns (if there are any)\n        if hdrs_list:\n            for i_col in range(len(self.cols)):\n                widths[i_col] = max(\n                    widths[i_col], max(len(vals[i_col]) for vals in hdrs_list)\n                )\n\n        # Now collect formatted header and data lines into the output lines\n        for vals in hdrs_list:\n            lines.append(self.splitter.join(vals, widths))\n\n        if self.header.position_line is not None:\n            vals = [self.header.position_char * width for width in widths]\n            lines.append(self.splitter.join(vals, widths))\n\n        for vals in vals_list:\n            lines.append(self.splitter.join(vals, widths))\n\n        return lines\n\n\n",
+        "returncode": 0,
+        "timestamp": 1776347517.5205388,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01GSy2XmErUox4umVneNgZ4a",
+      "role": "tool"
+    },
+    {
+      "content": "Now I understand the full picture. The `RST.write` method currently does:\n```python\nlines = super().write(lines)\nlines = [lines[1]] + lines + [lines[1]]\n```\n\nThis assumes `lines[1]` is the separator line (the `===` line). But when `header_rows` has multiple entries (e.g., `[\"name\", \"unit\"]`), the separator line position changes.\n\nLet me look at what `super().write(lines)` produces for the default case:\n- `lines[0]` = header name row\n- `lines[1]` = position line (the `===` separator)\n- `lines[2:]` = data rows\n\nWith `header_rows=[\"name\", \"unit\"]`:\n- `lines[0]` = header name row\n- `lines[1]` = header unit row\n- `lines[2]` = position line (the `===` separator)\n- `lines[3:]` = data rows\n\nThe fix needs to:\n1. Accept `header_rows` in `RST.__init__`\n2. Fix `RST.write` to correctly place the separator lines\n\nLet me also check how `SimpleRSTHeader` and `SimpleRSTData` interact with `header_rows`:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"sed -n '80,200p' /testbed/astropy/io/ascii/fixedwidth.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01964jbsoSHzfAgqFgaAECng",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "sed -n '80,200p' /testbed/astropy/io/ascii/fixedwidth.py",
+            "tool_call_id": "toolu_01964jbsoSHzfAgqFgaAECng"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-5c50c910-6178-4892-a451-6752fa4edee1",
+          "created": 1776347523,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "Now I understand the full picture. The `RST.write` method currently does:\n```python\nlines = super().write(lines)\nlines = [lines[1]] + lines + [lines[1]]\n```\n\nThis assumes `lines[1]` is the separator line (the `===` line). But when `header_rows` has multiple entries (e.g., `[\"name\", \"unit\"]`), the separator line position changes.\n\nLet me look at what `super().write(lines)` produces for the default case:\n- `lines[0]` = header name row\n- `lines[1]` = position line (the `===` separator)\n- `lines[2:]` = data rows\n\nWith `header_rows=[\"name\", \"unit\"]`:\n- `lines[0]` = header name row\n- `lines[1]` = header unit row\n- `lines[2]` = position line (the `===` separator)\n- `lines[3:]` = data rows\n\nThe fix needs to:\n1. Accept `header_rows` in `RST.__init__`\n2. Fix `RST.write` to correctly place the separator lines\n\nLet me also check how `SimpleRSTHeader` and `SimpleRSTData` interact with `header_rows`:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"sed -n '80,200p' /testbed/astropy/io/ascii/fixedwidth.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01964jbsoSHzfAgqFgaAECng",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 367,
+            "prompt_tokens": 4593,
+            "total_tokens": 4960,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 367
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 3878,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 714,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 714,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 714,
+            "cache_read_input_tokens": 3878,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0093489,
+        "timestamp": 1776347523.548349
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n        else:  # No header line matching\n            raise InconsistentTableError(\"No header line found in table\")\n        return line\n\n    def get_cols(self, lines):\n        \"\"\"\n        Initialize the header Column objects from the table ``lines``.\n\n        Based on the previously set Header attributes find or create the column names.\n        Sets ``self.cols`` with the list of Columns.\n\n        Parameters\n        ----------\n        lines : list\n            List of table lines\n\n        \"\"\"\n        header_rows = getattr(self, \"header_rows\", [\"name\"])\n\n        # See \"else\" clause below for explanation of start_line and position_line\n        start_line = core._get_line_index(self.start_line, self.process_lines(lines))\n        position_line = core._get_line_index(\n            self.position_line, self.process_lines(lines)\n        )\n\n        # If start_line is none then there is no header line.  Column positions are\n        # determined from first data line and column names are either supplied by user\n        # or auto-generated.\n        if start_line is None:\n            if position_line is not None:\n                raise ValueError(\n                    \"Cannot set position_line without also setting header_start\"\n                )\n\n            # data.data_lines attribute already set via self.data.get_data_lines(lines)\n            # in BaseReader.read().  This includes slicing for data_start / data_end.\n            data_lines = self.data.data_lines\n\n            if not data_lines:\n                raise InconsistentTableError(\n                    \"No data lines found so cannot autogenerate column names\"\n                )\n            vals, starts, ends = self.get_fixedwidth_params(data_lines[0])\n\n            self.names = [self.auto_format.format(i) for i in range(1, len(vals) + 1)]\n\n        else:\n            # This bit of code handles two cases:\n            # start_line = <index> and position_line = None\n            #    Single header line where that line is used to determine both the\n            #    column positions and names.\n            # start_line = <index> and position_line = <index2>\n            #    Two header lines where the first line defines the column names and\n            #    the second line defines the column positions\n\n            if position_line is not None:\n                # Define self.col_starts and self.col_ends so that the call to\n                # get_fixedwidth_params below will use those to find the header\n                # column names.  Note that get_fixedwidth_params returns Python\n                # slice col_ends but expects inclusive col_ends on input (for\n                # more intuitive user interface).\n                line = self.get_line(lines, position_line)\n                if len(set(line) - {self.splitter.delimiter, \" \"}) != 1:\n                    raise InconsistentTableError(\n                        \"Position line should only contain delimiters and \"\n                        'one other character, e.g. \"--- ------- ---\".'\n                    )\n                    # The line above lies. It accepts white space as well.\n                    # We don't want to encourage using three different\n                    # characters, because that can cause ambiguities, but white\n                    # spaces are so common everywhere that practicality beats\n                    # purity here.\n                charset = self.set_of_position_line_characters.union(\n                    {self.splitter.delimiter, \" \"}\n                )\n                if not set(line).issubset(charset):\n                    raise InconsistentTableError(\n                        f\"Characters in position line must be part of {charset}\"\n                    )\n                vals, self.col_starts, col_ends = self.get_fixedwidth_params(line)\n                self.col_ends = [x - 1 if x is not None else None for x in col_ends]\n\n            # Get the column names from the header line\n            line = self.get_line(lines, start_line + header_rows.index(\"name\"))\n            self.names, starts, ends = self.get_fixedwidth_params(line)\n\n        self._set_cols_from_names()\n\n        for ii, attr in enumerate(header_rows):\n            if attr != \"name\":\n                line = self.get_line(lines, start_line + ii)\n                vals = self.get_fixedwidth_params(line)[0]\n                for col, val in zip(self.cols, vals):\n                    if val:\n                        setattr(col, attr, val)\n\n        # Set column start and end positions.\n        for i, col in enumerate(self.cols):\n            col.start = starts[i]\n            col.end = ends[i]\n\n    def get_fixedwidth_params(self, line):\n        \"\"\"\n        Split ``line`` on the delimiter and determine column values and\n        column start and end positions.  This might include null columns with\n        zero length (e.g. for ``header row = \"| col1 || col2 | col3 |\"`` or\n        ``header2_row = \"----- ------- -----\"``).  The null columns are\n        stripped out.  Returns the values between delimiters and the\n        corresponding start and end positions.\n\n        Parameters\n        ----------\n        line : str\n            Input line\n\n        Returns\n        -------\n        vals : list\n            List of values.\n        starts : list\n            List of starting indices.\n</output>",
+      "extra": {
+        "raw_output": "        else:  # No header line matching\n            raise InconsistentTableError(\"No header line found in table\")\n        return line\n\n    def get_cols(self, lines):\n        \"\"\"\n        Initialize the header Column objects from the table ``lines``.\n\n        Based on the previously set Header attributes find or create the column names.\n        Sets ``self.cols`` with the list of Columns.\n\n        Parameters\n        ----------\n        lines : list\n            List of table lines\n\n        \"\"\"\n        header_rows = getattr(self, \"header_rows\", [\"name\"])\n\n        # See \"else\" clause below for explanation of start_line and position_line\n        start_line = core._get_line_index(self.start_line, self.process_lines(lines))\n        position_line = core._get_line_index(\n            self.position_line, self.process_lines(lines)\n        )\n\n        # If start_line is none then there is no header line.  Column positions are\n        # determined from first data line and column names are either supplied by user\n        # or auto-generated.\n        if start_line is None:\n            if position_line is not None:\n                raise ValueError(\n                    \"Cannot set position_line without also setting header_start\"\n                )\n\n            # data.data_lines attribute already set via self.data.get_data_lines(lines)\n            # in BaseReader.read().  This includes slicing for data_start / data_end.\n            data_lines = self.data.data_lines\n\n            if not data_lines:\n                raise InconsistentTableError(\n                    \"No data lines found so cannot autogenerate column names\"\n                )\n            vals, starts, ends = self.get_fixedwidth_params(data_lines[0])\n\n            self.names = [self.auto_format.format(i) for i in range(1, len(vals) + 1)]\n\n        else:\n            # This bit of code handles two cases:\n            # start_line = <index> and position_line = None\n            #    Single header line where that line is used to determine both the\n            #    column positions and names.\n            # start_line = <index> and position_line = <index2>\n            #    Two header lines where the first line defines the column names and\n            #    the second line defines the column positions\n\n            if position_line is not None:\n                # Define self.col_starts and self.col_ends so that the call to\n                # get_fixedwidth_params below will use those to find the header\n                # column names.  Note that get_fixedwidth_params returns Python\n                # slice col_ends but expects inclusive col_ends on input (for\n                # more intuitive user interface).\n                line = self.get_line(lines, position_line)\n                if len(set(line) - {self.splitter.delimiter, \" \"}) != 1:\n                    raise InconsistentTableError(\n                        \"Position line should only contain delimiters and \"\n                        'one other character, e.g. \"--- ------- ---\".'\n                    )\n                    # The line above lies. It accepts white space as well.\n                    # We don't want to encourage using three different\n                    # characters, because that can cause ambiguities, but white\n                    # spaces are so common everywhere that practicality beats\n                    # purity here.\n                charset = self.set_of_position_line_characters.union(\n                    {self.splitter.delimiter, \" \"}\n                )\n                if not set(line).issubset(charset):\n                    raise InconsistentTableError(\n                        f\"Characters in position line must be part of {charset}\"\n                    )\n                vals, self.col_starts, col_ends = self.get_fixedwidth_params(line)\n                self.col_ends = [x - 1 if x is not None else None for x in col_ends]\n\n            # Get the column names from the header line\n            line = self.get_line(lines, start_line + header_rows.index(\"name\"))\n            self.names, starts, ends = self.get_fixedwidth_params(line)\n\n        self._set_cols_from_names()\n\n        for ii, attr in enumerate(header_rows):\n            if attr != \"name\":\n                line = self.get_line(lines, start_line + ii)\n                vals = self.get_fixedwidth_params(line)[0]\n                for col, val in zip(self.cols, vals):\n                    if val:\n                        setattr(col, attr, val)\n\n        # Set column start and end positions.\n        for i, col in enumerate(self.cols):\n            col.start = starts[i]\n            col.end = ends[i]\n\n    def get_fixedwidth_params(self, line):\n        \"\"\"\n        Split ``line`` on the delimiter and determine column values and\n        column start and end positions.  This might include null columns with\n        zero length (e.g. for ``header row = \"| col1 || col2 | col3 |\"`` or\n        ``header2_row = \"----- ------- -----\"``).  The null columns are\n        stripped out.  Returns the values between delimiters and the\n        corresponding start and end positions.\n\n        Parameters\n        ----------\n        line : str\n            Input line\n\n        Returns\n        -------\n        vals : list\n            List of values.\n        starts : list\n            List of starting indices.\n",
+        "returncode": 0,
+        "timestamp": 1776347523.997168,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01964jbsoSHzfAgqFgaAECng",
+      "role": "tool"
+    },
+    {
+      "content": "Now let me look at the `FixedWidthTwoLine` class to understand how it handles `header_rows` and position lines:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"sed -n '460,500p' /testbed/astropy/io/ascii/fixedwidth.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01UrumHJHREpJU12FtfHTqjk",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "sed -n '460,500p' /testbed/astropy/io/ascii/fixedwidth.py",
+            "tool_call_id": "toolu_01UrumHJHREpJU12FtfHTqjk"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-5528bed2-0ccf-4053-b03b-5ee0a0823501",
+          "created": 1776347526,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "Now let me look at the `FixedWidthTwoLine` class to understand how it handles `header_rows` and position lines:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"sed -n '460,500p' /testbed/astropy/io/ascii/fixedwidth.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01UrumHJHREpJU12FtfHTqjk",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 107,
+            "prompt_tokens": 6294,
+            "total_tokens": 6401,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 107
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 4592,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 1701,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 1701,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 1701,
+            "cache_read_input_tokens": 4592,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00936435,
+        "timestamp": 1776347526.018882
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n      +------+------------+\n\n    See the :ref:`astropy:fixed_width_gallery` for specific usage examples.\n\n    \"\"\"\n\n    _format_name = \"fixed_width_two_line\"\n    _description = \"Fixed width with second header line\"\n    data_class = FixedWidthTwoLineData\n    header_class = FixedWidthTwoLineHeader\n\n    def __init__(\n        self,\n        position_line=None,\n        position_char=\"-\",\n        delimiter_pad=None,\n        bookend=False,\n        header_rows=None,\n    ):\n        if len(position_char) != 1:\n            raise ValueError(\n                f'Position_char=\"{position_char}\" must be a single character'\n            )\n        super().__init__(\n            delimiter_pad=delimiter_pad, bookend=bookend, header_rows=header_rows\n        )\n        if position_line is None:\n            position_line = len(self.header.header_rows)\n        self.header.position_line = position_line\n        self.header.position_char = position_char\n        self.data.start_line = position_line + 1\n</output>",
+      "extra": {
+        "raw_output": "      +------+------------+\n\n    See the :ref:`astropy:fixed_width_gallery` for specific usage examples.\n\n    \"\"\"\n\n    _format_name = \"fixed_width_two_line\"\n    _description = \"Fixed width with second header line\"\n    data_class = FixedWidthTwoLineData\n    header_class = FixedWidthTwoLineHeader\n\n    def __init__(\n        self,\n        position_line=None,\n        position_char=\"-\",\n        delimiter_pad=None,\n        bookend=False,\n        header_rows=None,\n    ):\n        if len(position_char) != 1:\n            raise ValueError(\n                f'Position_char=\"{position_char}\" must be a single character'\n            )\n        super().__init__(\n            delimiter_pad=delimiter_pad, bookend=bookend, header_rows=header_rows\n        )\n        if position_line is None:\n            position_line = len(self.header.header_rows)\n        self.header.position_line = position_line\n        self.header.position_char = position_char\n        self.data.start_line = position_line + 1\n",
+        "returncode": 0,
+        "timestamp": 1776347526.19512,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01UrumHJHREpJU12FtfHTqjk",
+      "role": "tool"
+    },
+    {
+      "content": "Now I have a clear picture. The fix for `RST` is:\n\n1. Accept `header_rows` in `__init__`\n2. Fix `write` to correctly identify the separator line (which is the position line, not always `lines[1]`)\n\nThe position line in the output from `super().write()` will be at index `len(header_rows)` (after all header rows). Let me verify this by tracing through the `FixedWidthData.write` method:\n\n- It writes `hdrs_list` rows first (one per `header_rows` entry)\n- Then writes the position line (if `position_line is not None`)\n- Then writes data rows\n\nSo for `header_rows=[\"name\"]`: position line is at index 1 (after 1 header row)\nFor `header_rows=[\"name\", \"unit\"]`: position line is at index 2 (after 2 header rows)\n\nThe `RST.write` currently does `lines[1]` which only works for the default case. We need to use `lines[len(header_rows)]` instead.\n\nAlso, `SimpleRSTData.start_line = 3` is hardcoded for reading, which assumes 1 header row + 1 position line + 1 separator = start at line 3. But for writing, this doesn't matter.\n\nLet me now make the fix:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cat /testbed/astropy/io/ascii/rst.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01XdUp6iFkuaVo4nCY1mik9E",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cat /testbed/astropy/io/ascii/rst.py",
+            "tool_call_id": "toolu_01XdUp6iFkuaVo4nCY1mik9E"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-8355a535-a9de-4ce4-9fb1-0a190ceb0987",
+          "created": 1776347534,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "Now I have a clear picture. The fix for `RST` is:\n\n1. Accept `header_rows` in `__init__`\n2. Fix `write` to correctly identify the separator line (which is the position line, not always `lines[1]`)\n\nThe position line in the output from `super().write()` will be at index `len(header_rows)` (after all header rows). Let me verify this by tracing through the `FixedWidthData.write` method:\n\n- It writes `hdrs_list` rows first (one per `header_rows` entry)\n- Then writes the position line (if `position_line is not None`)\n- Then writes data rows\n\nSo for `header_rows=[\"name\"]`: position line is at index 1 (after 1 header row)\nFor `header_rows=[\"name\", \"unit\"]`: position line is at index 2 (after 2 header rows)\n\nThe `RST.write` currently does `lines[1]` which only works for the default case. We need to use `lines[len(header_rows)]` instead.\n\nAlso, `SimpleRSTData.start_line = 3` is hardcoded for reading, which assumes 1 header row + 1 position line + 1 separator = start at line 3. But for writing, this doesn't matter.\n\nLet me now make the fix:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cat /testbed/astropy/io/ascii/rst.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01XdUp6iFkuaVo4nCY1mik9E",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 386,
+            "prompt_tokens": 6710,
+            "total_tokens": 7096,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 386
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 6293,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 416,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 416,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 416,
+            "cache_read_input_tokens": 6293,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0092409,
+        "timestamp": 1776347534.01648
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n# Licensed under a 3-clause BSD style license\n\"\"\"\n:Author: Simon Gibbons (simongibbons@gmail.com)\n\"\"\"\n\n\nfrom .core import DefaultSplitter\nfrom .fixedwidth import (\n    FixedWidth,\n    FixedWidthData,\n    FixedWidthHeader,\n    FixedWidthTwoLineDataSplitter,\n)\n\n\nclass SimpleRSTHeader(FixedWidthHeader):\n    position_line = 0\n    start_line = 1\n    splitter_class = DefaultSplitter\n    position_char = \"=\"\n\n    def get_fixedwidth_params(self, line):\n        vals, starts, ends = super().get_fixedwidth_params(line)\n        # The right hand column can be unbounded\n        ends[-1] = None\n        return vals, starts, ends\n\n\nclass SimpleRSTData(FixedWidthData):\n    start_line = 3\n    end_line = -1\n    splitter_class = FixedWidthTwoLineDataSplitter\n\n\nclass RST(FixedWidth):\n    \"\"\"reStructuredText simple format table.\n\n    See: https://docutils.sourceforge.io/docs/ref/rst/restructuredtext.html#simple-tables\n\n    Example::\n\n        ==== ===== ======\n        Col1  Col2  Col3\n        ==== ===== ======\n          1    2.3  Hello\n          2    4.5  Worlds\n        ==== ===== ======\n\n    Currently there is no support for reading tables which utilize continuation lines,\n    or for ones which define column spans through the use of an additional\n    line of dashes in the header.\n\n    \"\"\"\n\n    _format_name = \"rst\"\n    _description = \"reStructuredText simple table\"\n    data_class = SimpleRSTData\n    header_class = SimpleRSTHeader\n\n    def __init__(self):\n        super().__init__(delimiter_pad=None, bookend=False)\n\n    def write(self, lines):\n        lines = super().write(lines)\n        lines = [lines[1]] + lines + [lines[1]]\n        return lines\n</output>",
+      "extra": {
+        "raw_output": "# Licensed under a 3-clause BSD style license\n\"\"\"\n:Author: Simon Gibbons (simongibbons@gmail.com)\n\"\"\"\n\n\nfrom .core import DefaultSplitter\nfrom .fixedwidth import (\n    FixedWidth,\n    FixedWidthData,\n    FixedWidthHeader,\n    FixedWidthTwoLineDataSplitter,\n)\n\n\nclass SimpleRSTHeader(FixedWidthHeader):\n    position_line = 0\n    start_line = 1\n    splitter_class = DefaultSplitter\n    position_char = \"=\"\n\n    def get_fixedwidth_params(self, line):\n        vals, starts, ends = super().get_fixedwidth_params(line)\n        # The right hand column can be unbounded\n        ends[-1] = None\n        return vals, starts, ends\n\n\nclass SimpleRSTData(FixedWidthData):\n    start_line = 3\n    end_line = -1\n    splitter_class = FixedWidthTwoLineDataSplitter\n\n\nclass RST(FixedWidth):\n    \"\"\"reStructuredText simple format table.\n\n    See: https://docutils.sourceforge.io/docs/ref/rst/restructuredtext.html#simple-tables\n\n    Example::\n\n        ==== ===== ======\n        Col1  Col2  Col3\n        ==== ===== ======\n          1    2.3  Hello\n          2    4.5  Worlds\n        ==== ===== ======\n\n    Currently there is no support for reading tables which utilize continuation lines,\n    or for ones which define column spans through the use of an additional\n    line of dashes in the header.\n\n    \"\"\"\n\n    _format_name = \"rst\"\n    _description = \"reStructuredText simple table\"\n    data_class = SimpleRSTData\n    header_class = SimpleRSTHeader\n\n    def __init__(self):\n        super().__init__(delimiter_pad=None, bookend=False)\n\n    def write(self, lines):\n        lines = super().write(lines)\n        lines = [lines[1]] + lines + [lines[1]]\n        return lines\n",
+        "returncode": 0,
+        "timestamp": 1776347534.158337,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01XdUp6iFkuaVo4nCY1mik9E",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cat > /testbed/astropy/io/ascii/rst.py << 'EOF'\\n# Licensed under a 3-clause BSD style license\\n\\\"\\\"\\\"\\n:Author: Simon Gibbons (simongibbons@gmail.com)\\n\\\"\\\"\\\"\\n\\n\\nfrom .core import DefaultSplitter\\nfrom .fixedwidth import (\\n    FixedWidth,\\n    FixedWidthData,\\n    FixedWidthHeader,\\n    FixedWidthTwoLineDataSplitter,\\n)\\n\\n\\nclass SimpleRSTHeader(FixedWidthHeader):\\n    position_line = 0\\n    start_line = 1\\n    splitter_class = DefaultSplitter\\n    position_char = \\\"=\\\"\\n\\n    def get_fixedwidth_params(self, line):\\n        vals, starts, ends = super().get_fixedwidth_params(line)\\n        # The right hand column can be unbounded\\n        ends[-1] = None\\n        return vals, starts, ends\\n\\n\\nclass SimpleRSTData(FixedWidthData):\\n    start_line = 3\\n    end_line = -1\\n    splitter_class = FixedWidthTwoLineDataSplitter\\n\\n\\nclass RST(FixedWidth):\\n    \\\"\\\"\\\"reStructuredText simple format table.\\n\\n    See: https://docutils.sourceforge.io/docs/ref/rst/restructuredtext.html#simple-tables\\n\\n    Example::\\n\\n        ==== ===== ======\\n        Col1  Col2  Col3\\n        ==== ===== ======\\n          1    2.3  Hello\\n          2    4.5  Worlds\\n        ==== ===== ======\\n\\n    Currently there is no support for reading tables which utilize continuation lines,\\n    or for ones which define column spans through the use of an additional\\n    line of dashes in the header.\\n\\n    \\\"\\\"\\\"\\n\\n    _format_name = \\\"rst\\\"\\n    _description = \\\"reStructuredText simple table\\\"\\n    data_class = SimpleRSTData\\n    header_class = SimpleRSTHeader\\n\\n    def __init__(self, header_rows=None):\\n        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)\\n\\n    def write(self, lines):\\n        lines = super().write(lines)\\n        # The separator line is at index len(header_rows) in the output from\\n        # super().write(). For the default case (header_rows=[\\\"name\\\"]), this is\\n        # lines[1]. With multiple header rows (e.g. [\\\"name\\\", \\\"unit\\\"]), it shifts.\\n        idx = len(self.header.header_rows)\\n        lines = [lines[idx]] + lines + [lines[idx]]\\n        return lines\\nEOF\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01T1kG84Nz5NMt8UiUXre7wv",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cat > /testbed/astropy/io/ascii/rst.py << 'EOF'\n# Licensed under a 3-clause BSD style license\n\"\"\"\n:Author: Simon Gibbons (simongibbons@gmail.com)\n\"\"\"\n\n\nfrom .core import DefaultSplitter\nfrom .fixedwidth import (\n    FixedWidth,\n    FixedWidthData,\n    FixedWidthHeader,\n    FixedWidthTwoLineDataSplitter,\n)\n\n\nclass SimpleRSTHeader(FixedWidthHeader):\n    position_line = 0\n    start_line = 1\n    splitter_class = DefaultSplitter\n    position_char = \"=\"\n\n    def get_fixedwidth_params(self, line):\n        vals, starts, ends = super().get_fixedwidth_params(line)\n        # The right hand column can be unbounded\n        ends[-1] = None\n        return vals, starts, ends\n\n\nclass SimpleRSTData(FixedWidthData):\n    start_line = 3\n    end_line = -1\n    splitter_class = FixedWidthTwoLineDataSplitter\n\n\nclass RST(FixedWidth):\n    \"\"\"reStructuredText simple format table.\n\n    See: https://docutils.sourceforge.io/docs/ref/rst/restructuredtext.html#simple-tables\n\n    Example::\n\n        ==== ===== ======\n        Col1  Col2  Col3\n        ==== ===== ======\n          1    2.3  Hello\n          2    4.5  Worlds\n        ==== ===== ======\n\n    Currently there is no support for reading tables which utilize continuation lines,\n    or for ones which define column spans through the use of an additional\n    line of dashes in the header.\n\n    \"\"\"\n\n    _format_name = \"rst\"\n    _description = \"reStructuredText simple table\"\n    data_class = SimpleRSTData\n    header_class = SimpleRSTHeader\n\n    def __init__(self, header_rows=None):\n        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)\n\n    def write(self, lines):\n        lines = super().write(lines)\n        # The separator line is at index len(header_rows) in the output from\n        # super().write(). For the default case (header_rows=[\"name\"]), this is\n        # lines[1]. With multiple header rows (e.g. [\"name\", \"unit\"]), it shifts.\n        idx = len(self.header.header_rows)\n        lines = [lines[idx]] + lines + [lines[idx]]\n        return lines\nEOF",
+            "tool_call_id": "toolu_01T1kG84Nz5NMt8UiUXre7wv"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-b3b09d6e-67ed-492d-8f1b-16b155b9f1c8",
+          "created": 1776347540,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cat > /testbed/astropy/io/ascii/rst.py << 'EOF'\\n# Licensed under a 3-clause BSD style license\\n\\\"\\\"\\\"\\n:Author: Simon Gibbons (simongibbons@gmail.com)\\n\\\"\\\"\\\"\\n\\n\\nfrom .core import DefaultSplitter\\nfrom .fixedwidth import (\\n    FixedWidth,\\n    FixedWidthData,\\n    FixedWidthHeader,\\n    FixedWidthTwoLineDataSplitter,\\n)\\n\\n\\nclass SimpleRSTHeader(FixedWidthHeader):\\n    position_line = 0\\n    start_line = 1\\n    splitter_class = DefaultSplitter\\n    position_char = \\\"=\\\"\\n\\n    def get_fixedwidth_params(self, line):\\n        vals, starts, ends = super().get_fixedwidth_params(line)\\n        # The right hand column can be unbounded\\n        ends[-1] = None\\n        return vals, starts, ends\\n\\n\\nclass SimpleRSTData(FixedWidthData):\\n    start_line = 3\\n    end_line = -1\\n    splitter_class = FixedWidthTwoLineDataSplitter\\n\\n\\nclass RST(FixedWidth):\\n    \\\"\\\"\\\"reStructuredText simple format table.\\n\\n    See: https://docutils.sourceforge.io/docs/ref/rst/restructuredtext.html#simple-tables\\n\\n    Example::\\n\\n        ==== ===== ======\\n        Col1  Col2  Col3\\n        ==== ===== ======\\n          1    2.3  Hello\\n          2    4.5  Worlds\\n        ==== ===== ======\\n\\n    Currently there is no support for reading tables which utilize continuation lines,\\n    or for ones which define column spans through the use of an additional\\n    line of dashes in the header.\\n\\n    \\\"\\\"\\\"\\n\\n    _format_name = \\\"rst\\\"\\n    _description = \\\"reStructuredText simple table\\\"\\n    data_class = SimpleRSTData\\n    header_class = SimpleRSTHeader\\n\\n    def __init__(self, header_rows=None):\\n        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)\\n\\n    def write(self, lines):\\n        lines = super().write(lines)\\n        # The separator line is at index len(header_rows) in the output from\\n        # super().write(). For the default case (header_rows=[\\\"name\\\"]), this is\\n        # lines[1]. With multiple header rows (e.g. [\\\"name\\\", \\\"unit\\\"]), it shifts.\\n        idx = len(self.header.header_rows)\\n        lines = [lines[idx]] + lines + [lines[idx]]\\n        return lines\\nEOF\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01T1kG84Nz5NMt8UiUXre7wv",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 686,
+            "prompt_tokens": 7640,
+            "total_tokens": 8326,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 686
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 6709,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 930,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 930,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 930,
+            "cache_read_input_tokens": 6709,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0157932,
+        "timestamp": 1776347540.868057
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n</output>",
+      "extra": {
+        "raw_output": "",
+        "returncode": 0,
+        "timestamp": 1776347541.06256,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01T1kG84Nz5NMt8UiUXre7wv",
+      "role": "tool"
+    },
+    {
+      "content": "Now let me test the fix:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && python -c \\\"\\nfrom astropy.table import QTable\\nimport astropy.units as u\\nimport sys\\n\\ntbl = QTable({'wave': [350,950]*u.nm, 'response': [0.7, 1.2]*u.count})\\n\\nprint('=== Default RST output ===')\\ntbl.write(sys.stdout, format='ascii.rst')\\n\\nprint()\\nprint('=== RST with header_rows=[\\\\\\\"name\\\\\\\", \\\\\\\"unit\\\\\\\"] ===')\\ntbl.write(sys.stdout, format='ascii.rst', header_rows=['name', 'unit'])\\n\\nprint()\\nprint('=== fixed_width with header_rows=[\\\\\\\"name\\\\\\\", \\\\\\\"unit\\\\\\\"] ===')\\ntbl.write(sys.stdout, format='ascii.fixed_width', header_rows=['name', 'unit'])\\n\\\"\\n\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01AoeTTGpiExkmRxtwPgS2E7",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && python -c \"\nfrom astropy.table import QTable\nimport astropy.units as u\nimport sys\n\ntbl = QTable({'wave': [350,950]*u.nm, 'response': [0.7, 1.2]*u.count})\n\nprint('=== Default RST output ===')\ntbl.write(sys.stdout, format='ascii.rst')\n\nprint()\nprint('=== RST with header_rows=[\\\"name\\\", \\\"unit\\\"] ===')\ntbl.write(sys.stdout, format='ascii.rst', header_rows=['name', 'unit'])\n\nprint()\nprint('=== fixed_width with header_rows=[\\\"name\\\", \\\"unit\\\"] ===')\ntbl.write(sys.stdout, format='ascii.fixed_width', header_rows=['name', 'unit'])\n\"\n",
+            "tool_call_id": "toolu_01AoeTTGpiExkmRxtwPgS2E7"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-5b6c9eb7-090e-4f43-974f-5c8ec8d25362",
+          "created": 1776347545,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "Now let me test the fix:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && python -c \\\"\\nfrom astropy.table import QTable\\nimport astropy.units as u\\nimport sys\\n\\ntbl = QTable({'wave': [350,950]*u.nm, 'response': [0.7, 1.2]*u.count})\\n\\nprint('=== Default RST output ===')\\ntbl.write(sys.stdout, format='ascii.rst')\\n\\nprint()\\nprint('=== RST with header_rows=[\\\\\\\"name\\\\\\\", \\\\\\\"unit\\\\\\\"] ===')\\ntbl.write(sys.stdout, format='ascii.rst', header_rows=['name', 'unit'])\\n\\nprint()\\nprint('=== fixed_width with header_rows=[\\\\\\\"name\\\\\\\", \\\\\\\"unit\\\\\\\"] ===')\\ntbl.write(sys.stdout, format='ascii.fixed_width', header_rows=['name', 'unit'])\\n\\\"\\n\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01AoeTTGpiExkmRxtwPgS2E7",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 261,
+            "prompt_tokens": 8353,
+            "total_tokens": 8614,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 261
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 7639,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 713,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 713,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 713,
+            "cache_read_input_tokens": 7639,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00888345,
+        "timestamp": 1776347545.443205
+      }
+    },
+    {
+      "content": "<returncode>1</returncode>\n<output>\nTraceback (most recent call last):\n  File \"<string>\", line 2, in <module>\n  File \"/testbed/astropy/__init__.py\", line 41, in <module>\n    from . import config as _config\n  File \"/testbed/astropy/config/__init__.py\", line 8, in <module>\n    from .configuration import *\n  File \"/testbed/astropy/config/configuration.py\", line 24, in <module>\n    from astropy.utils import find_current_module, silence\n  File \"/testbed/astropy/utils/__init__.py\", line 17, in <module>\n    from .codegen import *\n  File \"/testbed/astropy/utils/codegen.py\", line 12, in <module>\n    from .introspection import find_current_module\n  File \"/testbed/astropy/utils/introspection.py\", line 14, in <module>\n    from astropy.utils.decorators import deprecated_renamed_argument\n  File \"/testbed/astropy/utils/decorators.py\", line 13, in <module>\n    from .exceptions import (\n  File \"/testbed/astropy/utils/exceptions.py\", line 11, in <module>\n    from erfa import ErfaError, ErfaWarning  # noqa: F401\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'erfa'\n</output>",
+      "extra": {
+        "raw_output": "Traceback (most recent call last):\n  File \"<string>\", line 2, in <module>\n  File \"/testbed/astropy/__init__.py\", line 41, in <module>\n    from . import config as _config\n  File \"/testbed/astropy/config/__init__.py\", line 8, in <module>\n    from .configuration import *\n  File \"/testbed/astropy/config/configuration.py\", line 24, in <module>\n    from astropy.utils import find_current_module, silence\n  File \"/testbed/astropy/utils/__init__.py\", line 17, in <module>\n    from .codegen import *\n  File \"/testbed/astropy/utils/codegen.py\", line 12, in <module>\n    from .introspection import find_current_module\n  File \"/testbed/astropy/utils/introspection.py\", line 14, in <module>\n    from astropy.utils.decorators import deprecated_renamed_argument\n  File \"/testbed/astropy/utils/decorators.py\", line 13, in <module>\n    from .exceptions import (\n  File \"/testbed/astropy/utils/exceptions.py\", line 11, in <module>\n    from erfa import ErfaError, ErfaWarning  # noqa: F401\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'erfa'\n",
+        "returncode": 1,
+        "timestamp": 1776347545.8983731,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01AoeTTGpiExkmRxtwPgS2E7",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && pip install -e . -q 2>&1 | tail -5\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01DKQ5ie6Q77N1F35SBiJSek",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && pip install -e . -q 2>&1 | tail -5",
+            "tool_call_id": "toolu_01DKQ5ie6Q77N1F35SBiJSek"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-e1ab0689-c98b-4ead-96c1-51ea7ccdf7a1",
+          "created": 1776347548,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && pip install -e . -q 2>&1 | tail -5\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01DKQ5ie6Q77N1F35SBiJSek",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 71,
+            "prompt_tokens": 8981,
+            "total_tokens": 9052,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 71
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 8352,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 628,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 628,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 628,
+            "cache_read_input_tokens": 8352,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.005928599999999999,
+        "timestamp": 1776347548.0667279
+      }
+    },
+    {
+      "content": "<exception>An error occurred while executing the command: Command '['docker', 'exec', '-w', '/testbed', '-e', 'LESS=-R', '-e', 'MANPAGER=cat', '-e', 'PAGER=cat', '-e', 'PIP_PROGRESS_BAR=off', '-e', 'TQDM_DISABLE=1', '5b615a2f56ef4aff2c61fb4695cc49f8f292d70f599f86283291b0db92487fef', 'bash', '-c', 'cd /testbed && pip install -e . -q 2>&1 | tail -5']' timed out after 60 seconds</exception>\n<returncode>-1</returncode>\n<output>\n</output>",
+      "extra": {
+        "raw_output": "",
+        "returncode": -1,
+        "timestamp": 1776347608.096406,
+        "exception_info": "An error occurred while executing the command: Command '['docker', 'exec', '-w', '/testbed', '-e', 'LESS=-R', '-e', 'MANPAGER=cat', '-e', 'PAGER=cat', '-e', 'PIP_PROGRESS_BAR=off', '-e', 'TQDM_DISABLE=1', '5b615a2f56ef4aff2c61fb4695cc49f8f292d70f599f86283291b0db92487fef', 'bash', '-c', 'cd /testbed && pip install -e . -q 2>&1 | tail -5']' timed out after 60 seconds",
+        "exception_type": "TimeoutExpired",
+        "exception": "Command '['docker', 'exec', '-w', '/testbed', '-e', 'LESS=-R', '-e', 'MANPAGER=cat', '-e', 'PAGER=cat', '-e', 'PIP_PROGRESS_BAR=off', '-e', 'TQDM_DISABLE=1', '5b615a2f56ef4aff2c61fb4695cc49f8f292d70f599f86283291b0db92487fef', 'bash', '-c', 'cd /testbed && pip install -e . -q 2>&1 | tail -5']' timed out after 60 seconds"
+      },
+      "tool_call_id": "toolu_01DKQ5ie6Q77N1F35SBiJSek",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && python -c \\\"import sys; sys.path.insert(0, '.'); from astropy.io.ascii import rst\\\" 2>&1 | head -20\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01E1pFk68358KAKeGck22jGb",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && python -c \"import sys; sys.path.insert(0, '.'); from astropy.io.ascii import rst\" 2>&1 | head -20",
+            "tool_call_id": "toolu_01E1pFk68358KAKeGck22jGb"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-204a247c-4fca-48d1-8d01-38d205f05d23",
+          "created": 1776347610,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && python -c \\\"import sys; sys.path.insert(0, '.'); from astropy.io.ascii import rst\\\" 2>&1 | head -20\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01E1pFk68358KAKeGck22jGb",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 91,
+            "prompt_tokens": 9254,
+            "total_tokens": 9345,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 91
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 8980,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 273,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 273,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 273,
+            "cache_read_input_tokens": 8980,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00508575,
+        "timestamp": 1776347610.974454
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/testbed/astropy/__init__.py\", line 41, in <module>\n    from . import config as _config\n  File \"/testbed/astropy/config/__init__.py\", line 8, in <module>\n    from .configuration import *\n  File \"/testbed/astropy/config/configuration.py\", line 24, in <module>\n    from astropy.utils import find_current_module, silence\n  File \"/testbed/astropy/utils/__init__.py\", line 17, in <module>\n    from .codegen import *\n  File \"/testbed/astropy/utils/codegen.py\", line 12, in <module>\n    from .introspection import find_current_module\n  File \"/testbed/astropy/utils/introspection.py\", line 14, in <module>\n    from astropy.utils.decorators import deprecated_renamed_argument\n  File \"/testbed/astropy/utils/decorators.py\", line 13, in <module>\n    from .exceptions import (\n  File \"/testbed/astropy/utils/exceptions.py\", line 11, in <module>\n    from erfa import ErfaError, ErfaWarning  # noqa: F401\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'erfa'\n</output>",
+      "extra": {
+        "raw_output": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/testbed/astropy/__init__.py\", line 41, in <module>\n    from . import config as _config\n  File \"/testbed/astropy/config/__init__.py\", line 8, in <module>\n    from .configuration import *\n  File \"/testbed/astropy/config/configuration.py\", line 24, in <module>\n    from astropy.utils import find_current_module, silence\n  File \"/testbed/astropy/utils/__init__.py\", line 17, in <module>\n    from .codegen import *\n  File \"/testbed/astropy/utils/codegen.py\", line 12, in <module>\n    from .introspection import find_current_module\n  File \"/testbed/astropy/utils/introspection.py\", line 14, in <module>\n    from astropy.utils.decorators import deprecated_renamed_argument\n  File \"/testbed/astropy/utils/decorators.py\", line 13, in <module>\n    from .exceptions import (\n  File \"/testbed/astropy/utils/exceptions.py\", line 11, in <module>\n    from erfa import ErfaError, ErfaWarning  # noqa: F401\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'erfa'\n",
+        "returncode": 0,
+        "timestamp": 1776347611.3310668,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01E1pFk68358KAKeGck22jGb",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"which python3 && python3 --version && pip3 show erfa 2>/dev/null | head -3\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01H1sm7A4LAx4GhWFto95ADv",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "which python3 && python3 --version && pip3 show erfa 2>/dev/null | head -3",
+            "tool_call_id": "toolu_01H1sm7A4LAx4GhWFto95ADv"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-42a19995-4f60-40e9-a1ec-c805b184d886",
+          "created": 1776347614,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"which python3 && python3 --version && pip3 show erfa 2>/dev/null | head -3\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01H1sm7A4LAx4GhWFto95ADv",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 77,
+            "prompt_tokens": 9712,
+            "total_tokens": 9789,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 77
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 9253,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 458,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 458,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 458,
+            "cache_read_input_tokens": 9253,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0056514,
+        "timestamp": 1776347614.116705
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n/opt/miniconda3/bin/python3\nPython 3.11.5\n</output>",
+      "extra": {
+        "raw_output": "/opt/miniconda3/bin/python3\nPython 3.11.5\n",
+        "returncode": 0,
+        "timestamp": 1776347614.680949,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01H1sm7A4LAx4GhWFto95ADv",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"find /opt /usr -name \\\"erfa*\\\" 2>/dev/null | head -10\"}",
+            "name": "bash"
+          },
+          "id": "toolu_015DXztJHbkALty3SZmAJwhU",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "find /opt /usr -name \"erfa*\" 2>/dev/null | head -10",
+            "tool_call_id": "toolu_015DXztJHbkALty3SZmAJwhU"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-920839af-a73a-4cbb-a661-55c440dde131",
+          "created": 1776347616,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"find /opt /usr -name \\\"erfa*\\\" 2>/dev/null | head -10\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_015DXztJHbkALty3SZmAJwhU",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 72,
+            "prompt_tokens": 9837,
+            "total_tokens": 9909,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 72
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 9253,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 583,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 583,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 583,
+            "cache_read_input_tokens": 9253,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00604515,
+        "timestamp": 1776347616.738065
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n/opt/miniconda3/envs/testbed/lib/python3.9/site-packages/erfa\n</output>",
+      "extra": {
+        "raw_output": "/opt/miniconda3/envs/testbed/lib/python3.9/site-packages/erfa\n",
+        "returncode": 0,
+        "timestamp": 1776347617.3031628,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_015DXztJHbkALty3SZmAJwhU",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"/opt/miniconda3/envs/testbed/bin/python -c \\\"\\nfrom astropy.table import QTable\\nimport astropy.units as u\\nimport sys\\n\\ntbl = QTable({'wave': [350,950]*u.nm, 'response': [0.7, 1.2]*u.count})\\n\\nprint('=== Default RST output ===')\\ntbl.write(sys.stdout, format='ascii.rst')\\n\\nprint()\\nprint('=== RST with header_rows=[\\\\\\\"name\\\\\\\", \\\\\\\"unit\\\\\\\"] ===')\\ntbl.write(sys.stdout, format='ascii.rst', header_rows=['name', 'unit'])\\n\\nprint()\\nprint('=== fixed_width with header_rows=[\\\\\\\"name\\\\\\\", \\\\\\\"unit\\\\\\\"] ===')\\ntbl.write(sys.stdout, format='ascii.fixed_width', header_rows=['name', 'unit'])\\n\\\"\\n\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01KVsaQ82oan5PPYFfc3mpXM",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "/opt/miniconda3/envs/testbed/bin/python -c \"\nfrom astropy.table import QTable\nimport astropy.units as u\nimport sys\n\ntbl = QTable({'wave': [350,950]*u.nm, 'response': [0.7, 1.2]*u.count})\n\nprint('=== Default RST output ===')\ntbl.write(sys.stdout, format='ascii.rst')\n\nprint()\nprint('=== RST with header_rows=[\\\"name\\\", \\\"unit\\\"] ===')\ntbl.write(sys.stdout, format='ascii.rst', header_rows=['name', 'unit'])\n\nprint()\nprint('=== fixed_width with header_rows=[\\\"name\\\", \\\"unit\\\"] ===')\ntbl.write(sys.stdout, format='ascii.fixed_width', header_rows=['name', 'unit'])\n\"\n",
+            "tool_call_id": "toolu_01KVsaQ82oan5PPYFfc3mpXM"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-0fc8ebd0-25ca-4762-a8e0-8c1232ccf3d0",
+          "created": 1776347620,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"/opt/miniconda3/envs/testbed/bin/python -c \\\"\\nfrom astropy.table import QTable\\nimport astropy.units as u\\nimport sys\\n\\ntbl = QTable({'wave': [350,950]*u.nm, 'response': [0.7, 1.2]*u.count})\\n\\nprint('=== Default RST output ===')\\ntbl.write(sys.stdout, format='ascii.rst')\\n\\nprint()\\nprint('=== RST with header_rows=[\\\\\\\"name\\\\\\\", \\\\\\\"unit\\\\\\\"] ===')\\ntbl.write(sys.stdout, format='ascii.rst', header_rows=['name', 'unit'])\\n\\nprint()\\nprint('=== fixed_width with header_rows=[\\\\\\\"name\\\\\\\", \\\\\\\"unit\\\\\\\"] ===')\\ntbl.write(sys.stdout, format='ascii.fixed_width', header_rows=['name', 'unit'])\\n\\\"\\n\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01KVsaQ82oan5PPYFfc3mpXM",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 264,
+            "prompt_tokens": 9964,
+            "total_tokens": 10228,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 264
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 9711,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 252,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 252,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 252,
+            "cache_read_input_tokens": 9711,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0078213,
+        "timestamp": 1776347620.239858
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n=== Default RST output ===\n===== ========\n wave response\n===== ========\n350.0      0.7\n950.0      1.2\n===== ========\n\n=== RST with header_rows=[\"name\", \"unit\"] ===\n===== ========\n wave response\n   nm       ct\n===== ========\n350.0      0.7\n950.0      1.2\n===== ========\n\n=== fixed_width with header_rows=[\"name\", \"unit\"] ===\n|  wave | response |\n|    nm |       ct |\n| 350.0 |      0.7 |\n| 950.0 |      1.2 |\n</output>",
+      "extra": {
+        "raw_output": "=== Default RST output ===\n===== ========\n wave response\n===== ========\n350.0      0.7\n950.0      1.2\n===== ========\n\n=== RST with header_rows=[\"name\", \"unit\"] ===\n===== ========\n wave response\n   nm       ct\n===== ========\n350.0      0.7\n950.0      1.2\n===== ========\n\n=== fixed_width with header_rows=[\"name\", \"unit\"] ===\n|  wave | response |\n|    nm |       ct |\n| 350.0 |      0.7 |\n| 950.0 |      1.2 |\n",
+        "returncode": 0,
+        "timestamp": 1776347621.549619,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01KVsaQ82oan5PPYFfc3mpXM",
+      "role": "tool"
+    },
+    {
+      "content": "The fix works correctly. Let me also run the existing RST tests to make sure nothing is broken:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"/opt/miniconda3/envs/testbed/bin/python -m pytest /testbed/astropy/io/ascii/tests/test_rst.py -v 2>&1 | tail -40\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01LWo4M6XgAJ4zySmEaduAFu",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "/opt/miniconda3/envs/testbed/bin/python -m pytest /testbed/astropy/io/ascii/tests/test_rst.py -v 2>&1 | tail -40",
+            "tool_call_id": "toolu_01LWo4M6XgAJ4zySmEaduAFu"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-29f407b3-9b57-4cc0-a3a7-5f3ba46db13f",
+          "created": 1776347625,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "The fix works correctly. Let me also run the existing RST tests to make sure nothing is broken:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"/opt/miniconda3/envs/testbed/bin/python -m pytest /testbed/astropy/io/ascii/tests/test_rst.py -v 2>&1 | tail -40\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01LWo4M6XgAJ4zySmEaduAFu",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 121,
+            "prompt_tokens": 10419,
+            "total_tokens": 10540,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 121
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 9963,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 455,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 455,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 455,
+            "cache_read_input_tokens": 9963,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00651315,
+        "timestamp": 1776347625.866278
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n[GCC 11.2.0]\n\nencodings: sys: utf-8, locale: UTF-8, filesystem: utf-8\nbyteorder: little\nfloat info: dig: 15, mant_dig: 15\n\nPackage versions: \nNumpy: 1.25.2\nScipy: not available\nMatplotlib: not available\nh5py: not available\nPandas: not available\nPyERFA: 2.0.0.3\nCython: not available\nScikit-image: not available\nasdf: not available\npyarrow: not available\n\nUsing Astropy options: remote_data: none.\n\nCI: undefined\nARCH_ON_CI: undefined\nIS_CRON: undefined\n\nrootdir: /testbed\nconfigfile: setup.cfg\nplugins: mock-3.11.1, hypothesis-6.82.6, xdist-3.3.1, astropy-header-0.2.2, openfiles-0.5.0, doctestplus-1.0.0, remotedata-0.4.0, astropy-0.10.0, filter-subpackage-0.1.2, cov-4.1.0, arraydiff-0.5.0\n\u001b[1mcollecting ... \u001b[0mcollected 9 items\n\nastropy/io/ascii/tests/test_rst.py::test_read_normal \u001b[32mPASSED\u001b[0m\u001b[32m              [ 11%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py::test_read_normal_names \u001b[32mPASSED\u001b[0m\u001b[32m        [ 22%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py::test_read_normal_names_include \u001b[32mPASSED\u001b[0m\u001b[32m [ 33%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py::test_read_normal_exclude \u001b[32mPASSED\u001b[0m\u001b[32m      [ 44%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py::test_read_unbounded_right_column \u001b[32mPASSED\u001b[0m\u001b[32m [ 55%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py::test_read_unbounded_right_column_header \u001b[32mPASSED\u001b[0m\u001b[32m [ 66%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py::test_read_right_indented_table \u001b[32mPASSED\u001b[0m\u001b[32m [ 77%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py::test_trailing_spaces_in_row_definition \u001b[32mPASSED\u001b[0m\u001b[32m [ 88%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py::test_write_normal \u001b[32mPASSED\u001b[0m\u001b[32m             [100%]\u001b[0m\n\n\u001b[32m============================== \u001b[32m\u001b[1m9 passed\u001b[0m\u001b[32m in 0.06s\u001b[0m\u001b[32m ===============================\u001b[0m\n</output>",
+      "extra": {
+        "raw_output": "[GCC 11.2.0]\n\nencodings: sys: utf-8, locale: UTF-8, filesystem: utf-8\nbyteorder: little\nfloat info: dig: 15, mant_dig: 15\n\nPackage versions: \nNumpy: 1.25.2\nScipy: not available\nMatplotlib: not available\nh5py: not available\nPandas: not available\nPyERFA: 2.0.0.3\nCython: not available\nScikit-image: not available\nasdf: not available\npyarrow: not available\n\nUsing Astropy options: remote_data: none.\n\nCI: undefined\nARCH_ON_CI: undefined\nIS_CRON: undefined\n\nrootdir: /testbed\nconfigfile: setup.cfg\nplugins: mock-3.11.1, hypothesis-6.82.6, xdist-3.3.1, astropy-header-0.2.2, openfiles-0.5.0, doctestplus-1.0.0, remotedata-0.4.0, astropy-0.10.0, filter-subpackage-0.1.2, cov-4.1.0, arraydiff-0.5.0\n\u001b[1mcollecting ... \u001b[0mcollected 9 items\n\nastropy/io/ascii/tests/test_rst.py::test_read_normal \u001b[32mPASSED\u001b[0m\u001b[32m              [ 11%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py::test_read_normal_names \u001b[32mPASSED\u001b[0m\u001b[32m        [ 22%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py::test_read_normal_names_include \u001b[32mPASSED\u001b[0m\u001b[32m [ 33%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py::test_read_normal_exclude \u001b[32mPASSED\u001b[0m\u001b[32m      [ 44%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py::test_read_unbounded_right_column \u001b[32mPASSED\u001b[0m\u001b[32m [ 55%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py::test_read_unbounded_right_column_header \u001b[32mPASSED\u001b[0m\u001b[32m [ 66%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py::test_read_right_indented_table \u001b[32mPASSED\u001b[0m\u001b[32m [ 77%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py::test_trailing_spaces_in_row_definition \u001b[32mPASSED\u001b[0m\u001b[32m [ 88%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py::test_write_normal \u001b[32mPASSED\u001b[0m\u001b[32m             [100%]\u001b[0m\n\n\u001b[32m============================== \u001b[32m\u001b[1m9 passed\u001b[0m\u001b[32m in 0.06s\u001b[0m\u001b[32m ===============================\u001b[0m\n",
+        "returncode": 0,
+        "timestamp": 1776347627.5880032,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01LWo4M6XgAJ4zySmEaduAFu",
+      "role": "tool"
+    },
+    {
+      "content": "All 9 existing tests pass. Let me also run a broader test to make sure nothing else is broken:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"/opt/miniconda3/envs/testbed/bin/python -m pytest /testbed/astropy/io/ascii/tests/ -v -q 2>&1 | tail -20\"}",
+            "name": "bash"
+          },
+          "id": "toolu_015mEB6LJS47HDAYRPexXaLb",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "/opt/miniconda3/envs/testbed/bin/python -m pytest /testbed/astropy/io/ascii/tests/ -v -q 2>&1 | tail -20",
+            "tool_call_id": "toolu_015mEB6LJS47HDAYRPexXaLb"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-19aca510-6bf7-48de-ab14-b2717ce32b3f",
+          "created": 1776347634,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "All 9 existing tests pass. Let me also run a broader test to make sure nothing else is broken:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"/opt/miniconda3/envs/testbed/bin/python -m pytest /testbed/astropy/io/ascii/tests/ -v -q 2>&1 | tail -20\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_015mEB6LJS47HDAYRPexXaLb",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 120,
+            "prompt_tokens": 11318,
+            "total_tokens": 11438,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 120
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 10418,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 899,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 899,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 899,
+            "cache_read_input_tokens": 10418,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00829965,
+        "timestamp": 1776347634.10596
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nastropy/io/ascii/tests/test_connect.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m          [ 26%]\u001b[0m\nastropy/io/ascii/tests/test_ecsv.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 30%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 38%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 47%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m                                   [ 51%]\u001b[0m\nastropy/io/ascii/tests/test_fixedwidth.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 55%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m                                                                    [ 55%]\u001b[0m\nastropy/io/ascii/tests/test_html.py \u001b[33ms\u001b[0m\u001b[32m.\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[32m.\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[32m.\u001b[0m\u001b[33ms\u001b[0m\u001b[32m.\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[33ms\u001b[0m\u001b[32m           [ 58%]\u001b[0m\nastropy/io/ascii/tests/test_ipac_definitions.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m    [ 61%]\u001b[0m\nastropy/io/ascii/tests/test_qdp.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m                              [ 62%]\u001b[0m\nastropy/io/ascii/tests/test_read.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 66%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 74%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m                       [ 80%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m                             [ 81%]\u001b[0m\nastropy/io/ascii/tests/test_types.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m                                [ 81%]\u001b[0m\nastropy/io/ascii/tests/test_write.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 85%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 94%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m                      [100%]\u001b[0m\n\n\u001b[32m================= \u001b[32m\u001b[1m824 passed\u001b[0m, \u001b[33m36 skipped\u001b[0m, \u001b[33m6 xfailed\u001b[0m\u001b[32m in 14.21s\u001b[0m\u001b[32m ==================\u001b[0m\n</output>",
+      "extra": {
+        "raw_output": "astropy/io/ascii/tests/test_connect.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m          [ 26%]\u001b[0m\nastropy/io/ascii/tests/test_ecsv.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 30%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 38%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 47%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m                                   [ 51%]\u001b[0m\nastropy/io/ascii/tests/test_fixedwidth.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 55%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m                                                                    [ 55%]\u001b[0m\nastropy/io/ascii/tests/test_html.py \u001b[33ms\u001b[0m\u001b[32m.\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[32m.\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[32m.\u001b[0m\u001b[33ms\u001b[0m\u001b[32m.\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[33ms\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[33ms\u001b[0m\u001b[32m           [ 58%]\u001b[0m\nastropy/io/ascii/tests/test_ipac_definitions.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m    [ 61%]\u001b[0m\nastropy/io/ascii/tests/test_qdp.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m                              [ 62%]\u001b[0m\nastropy/io/ascii/tests/test_read.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 66%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 74%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m                       [ 80%]\u001b[0m\nastropy/io/ascii/tests/test_rst.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m                             [ 81%]\u001b[0m\nastropy/io/ascii/tests/test_types.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m                                [ 81%]\u001b[0m\nastropy/io/ascii/tests/test_write.py \u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 85%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 94%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m                      [100%]\u001b[0m\n\n\u001b[32m================= \u001b[32m\u001b[1m824 passed\u001b[0m, \u001b[33m36 skipped\u001b[0m, \u001b[33m6 xfailed\u001b[0m\u001b[32m in 14.21s\u001b[0m\u001b[32m ==================\u001b[0m\n",
+        "returncode": 0,
+        "timestamp": 1776347649.7412071,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_015mEB6LJS47HDAYRPexXaLb",
+      "role": "tool"
+    },
+    {
+      "content": "All 824 tests pass. Now let me create the patch:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && git diff -- astropy/io/ascii/rst.py > patch.txt\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01R2nYdS8EmDCuUXDUJowGt5",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && git diff -- astropy/io/ascii/rst.py > patch.txt",
+            "tool_call_id": "toolu_01R2nYdS8EmDCuUXDUJowGt5"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-0768103c-2db6-4eff-b325-bb120cf11646",
+          "created": 1776347653,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "All 824 tests pass. Now let me create the patch:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && git diff -- astropy/io/ascii/rst.py > patch.txt\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01R2nYdS8EmDCuUXDUJowGt5",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 87,
+            "prompt_tokens": 15867,
+            "total_tokens": 15954,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 87
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 11317,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 4549,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 4549,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 4549,
+            "cache_read_input_tokens": 11317,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.021761850000000003,
+        "timestamp": 1776347653.735276
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n</output>",
+      "extra": {
+        "raw_output": "",
+        "returncode": 0,
+        "timestamp": 1776347653.966424,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01R2nYdS8EmDCuUXDUJowGt5",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cat /testbed/patch.txt\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01WT6Xi8wJhNvSWYcLmJqZS7",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cat /testbed/patch.txt",
+            "tool_call_id": "toolu_01WT6Xi8wJhNvSWYcLmJqZS7"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-648a45dc-bcb0-4a91-b9b0-ff362940f79c",
+          "created": 1776347656,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cat /testbed/patch.txt\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01WT6Xi8wJhNvSWYcLmJqZS7",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 58,
+            "prompt_tokens": 15981,
+            "total_tokens": 16039,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 58
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 15866,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 114,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 114,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 114,
+            "cache_read_input_tokens": 15866,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0060603,
+        "timestamp": 1776347656.944051
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\ndiff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py\nindex abdeba8ef..41f822ef2 100644\n--- a/astropy/io/ascii/rst.py\n+++ b/astropy/io/ascii/rst.py\n@@ -57,10 +57,14 @@ class RST(FixedWidth):\n     data_class = SimpleRSTData\n     header_class = SimpleRSTHeader\n \n-    def __init__(self):\n-        super().__init__(delimiter_pad=None, bookend=False)\n+    def __init__(self, header_rows=None):\n+        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)\n \n     def write(self, lines):\n         lines = super().write(lines)\n-        lines = [lines[1]] + lines + [lines[1]]\n+        # The separator line is at index len(header_rows) in the output from\n+        # super().write(). For the default case (header_rows=[\"name\"]), this is\n+        # lines[1]. With multiple header rows (e.g. [\"name\", \"unit\"]), it shifts.\n+        idx = len(self.header.header_rows)\n+        lines = [lines[idx]] + lines + [lines[idx]]\n         return lines\n</output>",
+      "extra": {
+        "raw_output": "diff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py\nindex abdeba8ef..41f822ef2 100644\n--- a/astropy/io/ascii/rst.py\n+++ b/astropy/io/ascii/rst.py\n@@ -57,10 +57,14 @@ class RST(FixedWidth):\n     data_class = SimpleRSTData\n     header_class = SimpleRSTHeader\n \n-    def __init__(self):\n-        super().__init__(delimiter_pad=None, bookend=False)\n+    def __init__(self, header_rows=None):\n+        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)\n \n     def write(self, lines):\n         lines = super().write(lines)\n-        lines = [lines[1]] + lines + [lines[1]]\n+        # The separator line is at index len(header_rows) in the output from\n+        # super().write(). For the default case (header_rows=[\"name\"]), this is\n+        # lines[1]. With multiple header rows (e.g. [\"name\", \"unit\"]), it shifts.\n+        idx = len(self.header.header_rows)\n+        lines = [lines[idx]] + lines + [lines[idx]]\n         return lines\n",
+        "returncode": 0,
+        "timestamp": 1776347657.074281,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01WT6Xi8wJhNvSWYcLmJqZS7",
+      "role": "tool"
+    },
+    {
+      "content": "The patch looks correct. Let me verify the fix once more with the exact example from the PR description:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"/opt/miniconda3/envs/testbed/bin/python -c \\\"\\nfrom astropy.table import QTable\\nimport astropy.units as u\\nimport sys\\n\\ntbl = QTable({'wave': [350,950]*u.nm, 'response': [0.7, 1.2]*u.count})\\n\\nprint('Test 1: Default RST output')\\ntbl.write(sys.stdout, format='ascii.rst')\\n\\nprint()\\nprint('Test 2: fixed_width with header_rows=[\\\\\\\"name\\\\\\\", \\\\\\\"unit\\\\\\\"]')\\ntbl.write(sys.stdout, format='ascii.fixed_width', header_rows=['name', 'unit'])\\n\\nprint()\\nprint('Test 3: RST with header_rows=[\\\\\\\"name\\\\\\\", \\\\\\\"unit\\\\\\\"] (was failing before fix)')\\ntbl.write(sys.stdout, format='ascii.rst', header_rows=['name', 'unit'])\\n\\\"\\n\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01AavWqfJ66L693Ef7MPUA9M",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "/opt/miniconda3/envs/testbed/bin/python -c \"\nfrom astropy.table import QTable\nimport astropy.units as u\nimport sys\n\ntbl = QTable({'wave': [350,950]*u.nm, 'response': [0.7, 1.2]*u.count})\n\nprint('Test 1: Default RST output')\ntbl.write(sys.stdout, format='ascii.rst')\n\nprint()\nprint('Test 2: fixed_width with header_rows=[\\\"name\\\", \\\"unit\\\"]')\ntbl.write(sys.stdout, format='ascii.fixed_width', header_rows=['name', 'unit'])\n\nprint()\nprint('Test 3: RST with header_rows=[\\\"name\\\", \\\"unit\\\"] (was failing before fix)')\ntbl.write(sys.stdout, format='ascii.rst', header_rows=['name', 'unit'])\n\"\n",
+            "tool_call_id": "toolu_01AavWqfJ66L693Ef7MPUA9M"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-46f111b5-7908-46f0-a467-2aa82745edfd",
+          "created": 1776347663,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "The patch looks correct. Let me verify the fix once more with the exact example from the PR description:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"/opt/miniconda3/envs/testbed/bin/python -c \\\"\\nfrom astropy.table import QTable\\nimport astropy.units as u\\nimport sys\\n\\ntbl = QTable({'wave': [350,950]*u.nm, 'response': [0.7, 1.2]*u.count})\\n\\nprint('Test 1: Default RST output')\\ntbl.write(sys.stdout, format='ascii.rst')\\n\\nprint()\\nprint('Test 2: fixed_width with header_rows=[\\\\\\\"name\\\\\\\", \\\\\\\"unit\\\\\\\"]')\\ntbl.write(sys.stdout, format='ascii.fixed_width', header_rows=['name', 'unit'])\\n\\nprint()\\nprint('Test 3: RST with header_rows=[\\\\\\\"name\\\\\\\", \\\\\\\"unit\\\\\\\"] (was failing before fix)')\\ntbl.write(sys.stdout, format='ascii.rst', header_rows=['name', 'unit'])\\n\\\"\\n\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01AavWqfJ66L693Ef7MPUA9M",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 291,
+            "prompt_tokens": 16401,
+            "total_tokens": 16692,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 291
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 15866,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 534,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 534,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 534,
+            "cache_read_input_tokens": 15866,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0111303,
+        "timestamp": 1776347663.0293062
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nTest 1: Default RST output\n===== ========\n wave response\n===== ========\n350.0      0.7\n950.0      1.2\n===== ========\n\nTest 2: fixed_width with header_rows=[\"name\", \"unit\"]\n|  wave | response |\n|    nm |       ct |\n| 350.0 |      0.7 |\n| 950.0 |      1.2 |\n\nTest 3: RST with header_rows=[\"name\", \"unit\"] (was failing before fix)\n===== ========\n wave response\n   nm       ct\n===== ========\n350.0      0.7\n950.0      1.2\n===== ========\n</output>",
+      "extra": {
+        "raw_output": "Test 1: Default RST output\n===== ========\n wave response\n===== ========\n350.0      0.7\n950.0      1.2\n===== ========\n\nTest 2: fixed_width with header_rows=[\"name\", \"unit\"]\n|  wave | response |\n|    nm |       ct |\n| 350.0 |      0.7 |\n| 950.0 |      1.2 |\n\nTest 3: RST with header_rows=[\"name\", \"unit\"] (was failing before fix)\n===== ========\n wave response\n   nm       ct\n===== ========\n350.0      0.7\n950.0      1.2\n===== ========\n",
+        "returncode": 0,
+        "timestamp": 1776347664.275934,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01AavWqfJ66L693Ef7MPUA9M",
+      "role": "tool"
+    },
+    {
+      "content": "The fix works perfectly. Here's a summary of the changes made:\n\n## Summary\n\n**Problem:** The `RST` writer class didn't accept the `header_rows` parameter, causing a `TypeError` when users tried to use `tbl.write(sys.stdout, format=\"ascii.rst\", header_rows=[\"name\", \"unit\"])`.\n\n**Fix in `/testbed/astropy/io/ascii/rst.py`:**\n\n1. **`RST.__init__`**: Added `header_rows=None` parameter and passed it to `super().__init__()`.\n\n2. **`RST.write`**: Fixed the separator line index calculation. Previously it hardcoded `lines[1]` as the separator line, which only worked for the default single-header-row case. Now it uses `lines[len(self.header.header_rows)]` to correctly find the separator line regardless of how many header rows are present.\n\nThe separator line (the `===` line) in the output from `super().write()` is always positioned after all header rows, so its index equals the number of header rows.",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /testbed/patch.txt\"}",
+            "name": "bash"
+          },
+          "id": "toolu_019hAsURwDjy2dcMC71hBNYB",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /testbed/patch.txt",
+            "tool_call_id": "toolu_019hAsURwDjy2dcMC71hBNYB"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-9b6e6973-40b1-49aa-a4d2-21ee57f077e6",
+          "created": 1776347672,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "The fix works perfectly. Here's a summary of the changes made:\n\n## Summary\n\n**Problem:** The `RST` writer class didn't accept the `header_rows` parameter, causing a `TypeError` when users tried to use `tbl.write(sys.stdout, format=\"ascii.rst\", header_rows=[\"name\", \"unit\"])`.\n\n**Fix in `/testbed/astropy/io/ascii/rst.py`:**\n\n1. **`RST.__init__`**: Added `header_rows=None` parameter and passed it to `super().__init__()`.\n\n2. **`RST.write`**: Fixed the separator line index calculation. Previously it hardcoded `lines[1]` as the separator line, which only worked for the default single-header-row case. Now it uses `lines[len(self.header.header_rows)]` to correctly find the separator line regardless of how many header rows are present.\n\nThe separator line (the `===` line) in the output from `super().write()` is always positioned after all header rows, so its index equals the number of header rows.",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /testbed/patch.txt\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_019hAsURwDjy2dcMC71hBNYB",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 323,
+            "prompt_tokens": 16889,
+            "total_tokens": 17212,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 323
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 16400,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 488,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 488,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 488,
+            "cache_read_input_tokens": 16400,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.011598,
+        "timestamp": 1776347672.0391612
+      }
+    },
+    {
+      "role": "exit",
+      "content": "diff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py\nindex abdeba8ef..41f822ef2 100644\n--- a/astropy/io/ascii/rst.py\n+++ b/astropy/io/ascii/rst.py\n@@ -57,10 +57,14 @@ class RST(FixedWidth):\n     data_class = SimpleRSTData\n     header_class = SimpleRSTHeader\n \n-    def __init__(self):\n-        super().__init__(delimiter_pad=None, bookend=False)\n+    def __init__(self, header_rows=None):\n+        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)\n \n     def write(self, lines):\n         lines = super().write(lines)\n-        lines = [lines[1]] + lines + [lines[1]]\n+        # The separator line is at index len(header_rows) in the output from\n+        # super().write(). For the default case (header_rows=[\"name\"]), this is\n+        # lines[1]. With multiple header rows (e.g. [\"name\", \"unit\"]), it shifts.\n+        idx = len(self.header.header_rows)\n+        lines = [lines[idx]] + lines + [lines[idx]]\n         return lines\n",
+      "extra": {
+        "exit_status": "Submitted",
+        "submission": "diff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py\nindex abdeba8ef..41f822ef2 100644\n--- a/astropy/io/ascii/rst.py\n+++ b/astropy/io/ascii/rst.py\n@@ -57,10 +57,14 @@ class RST(FixedWidth):\n     data_class = SimpleRSTData\n     header_class = SimpleRSTHeader\n \n-    def __init__(self):\n-        super().__init__(delimiter_pad=None, bookend=False)\n+    def __init__(self, header_rows=None):\n+        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)\n \n     def write(self, lines):\n         lines = super().write(lines)\n-        lines = [lines[1]] + lines + [lines[1]]\n+        # The separator line is at index len(header_rows) in the output from\n+        # super().write(). For the default case (header_rows=[\"name\"]), this is\n+        # lines[1]. With multiple header rows (e.g. [\"name\", \"unit\"]), it shifts.\n+        idx = len(self.header.header_rows)\n+        lines = [lines[idx]] + lines + [lines[idx]]\n         return lines\n"
+      }
+    }
+  ],
+  "trajectory_format": "mini-swe-agent-1.1",
+  "instance_id": "astropy__astropy-14182"
+}

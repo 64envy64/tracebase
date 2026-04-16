@@ -1,0 +1,14 @@
+{
+  "model": "sonnet",
+  "holdout_tasks": 5,
+  "baseline_resolved": 1,
+  "augmented_resolved": 4,
+  "accuracy_gain_relative": 300.0,
+  "new_fixes": 3,
+  "regressions": 0,
+  "avg_step_save": 11.11111111111111,
+  "avg_cost_save": 24.179322043413904,
+  "peak_cost_save": 24.179322043413904,
+  "match_rate": 0.8,
+  "total_cost": 3.3294776999999995
+}
