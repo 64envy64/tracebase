@@ -1,0 +1,110 @@
+# TraceBase v2 Augmented — Reasoning-pattern injection
+#
+# Difference from config-v2.yaml (baseline):
+# - System prompt includes reasoning patterns from institutional KB
+# - Patterns describe bug MECHANISMS (not just file locations)
+# - Agent still must verify before submit — injection is a hypothesis, not a command
+agent:
+  system_template: |
+    You are a helpful assistant that can interact with a computer shell to solve programming tasks.
+
+    You have access to institutional memory from previously resolved bugs in this codebase.
+    These are REASONING PATTERNS — they describe bug mechanisms and fix approaches.
+    Use them as hypotheses to investigate, NOT as blind fixes to apply.
+
+    Always verify any hypothesis from institutional memory against the actual code before fixing.
+  instance_template: |
+    <pr_description>
+    Consider the following PR description:
+    {{task}}
+    </pr_description>
+
+    <instructions>
+    # Task Instructions
+
+    You're a software engineer fixing a bug in /testbed.
+    Make changes ONLY to non-test source files.
+
+    ## MANDATORY Workflow (follow this EXACTLY):
+
+    1. **Reproduce**: Write and run a minimal script that triggers the bug
+    2. **Locate**: Find the source code responsible
+    3. **Check institutional memory**: Does this match a known bug pattern?
+       If yes, use it as a starting hypothesis — but VERIFY against the actual code
+    4. **Fix**: Make the minimal code change to fix the root cause
+    5. **Verify**: Run your reproduction script again — confirm it passes
+    6. **Test**: Run the relevant test module to check for regressions
+    7. **Submit**: Only after verification passes
+
+    ## CRITICAL: Pre-submit Verification
+
+    You MUST verify your fix BEFORE submitting:
+    ```
+    cd /testbed && python -c "... your reproduction script ..."
+    ```
+    If the reproduction still fails, DO NOT submit. Go back to step 4.
+
+    You can also run relevant tests:
+    ```
+    cd /testbed && python -m pytest <relevant_test_file> -x --tb=short -q 2>&1 | head -50
+    ```
+
+    ## Command Rules
+
+    - Each response: reasoning text + at least one bash tool call
+    - Directory changes are NOT persistent. Use `cd /testbed && ...` every time
+    - Use non-interactive flags (-y, -f)
+    - No vi, nano, or interactive tools
+
+    ## Submission (ONLY after verification passes)
+
+    Step 1: `cd /testbed && git diff -- file1.py file2.py > /tmp/patch.txt`
+    Step 2: `cat /tmp/patch.txt` (verify it looks correct)
+    Step 3: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/patch.txt`
+
+    Creating the patch and submitting MUST be separate commands.
+    Do NOT submit if your verification failed.
+    </instructions>
+  step_limit: 40
+  cost_limit: 1.0
+
+environment:
+  cwd: "/testbed"
+  timeout: 60
+  interpreter: ["bash", "-c"]
+  env:
+    PAGER: cat
+    MANPAGER: cat
+    LESS: -R
+    PIP_PROGRESS_BAR: "off"
+    TQDM_DISABLE: "1"
+  environment_class: docker
+
+model:
+  observation_template: |
+    {% if output.exception_info -%}
+    <exception>{{output.exception_info}}</exception>
+    {% endif -%}
+    <returncode>{{output.returncode}}</returncode>
+    {% if output.output | length < 10000 -%}
+    <output>
+    {{ output.output -}}
+    </output>
+    {%- else -%}
+    <warning>Output too long. Use head/tail/grep to view selectively.</warning>
+    <output_head>
+    {{ output.output[:5000] }}
+    </output_head>
+    <output_tail>
+    {{ output.output[-5000:] }}
+    </output_tail>
+    {%- endif -%}
+  format_error_template: |
+    Tool call error:
+    <error>{{error}}</error>
+    Every response needs the 'bash' tool.
+  model_name: "anthropic/claude-sonnet-4-6"
+  model_kwargs:
+    drop_params: true
+    temperature: 0.0
+    parallel_tool_calls: true

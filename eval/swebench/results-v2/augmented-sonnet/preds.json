@@ -1,0 +1,27 @@
+{
+  "astropy__astropy-13398": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13398",
+    "model_patch": ""
+  },
+  "astropy__astropy-13977": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-13977",
+    "model_patch": ""
+  },
+  "astropy__astropy-14182": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14182",
+    "model_patch": "diff --git a/astropy/io/ascii/rst.py b/astropy/io/ascii/rst.py\nindex abdeba8ef..80c8e29e4 100644\n--- a/astropy/io/ascii/rst.py\n+++ b/astropy/io/ascii/rst.py\n@@ -57,10 +57,14 @@ class RST(FixedWidth):\n     data_class = SimpleRSTData\n     header_class = SimpleRSTHeader\n \n-    def __init__(self):\n-        super().__init__(delimiter_pad=None, bookend=False)\n+    def __init__(self, header_rows=None):\n+        super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)\n \n     def write(self, lines):\n         lines = super().write(lines)\n-        lines = [lines[1]] + lines + [lines[1]]\n+        # The separator line is at index len(header_rows) in the output from\n+        # super().write(). We prepend and append it to create the RST format.\n+        header_rows = self.header.header_rows\n+        separator = lines[len(header_rows)]\n+        lines = [separator] + lines + [separator]\n         return lines\n"
+  },
+  "astropy__astropy-14369": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-14369",
+    "model_patch": ""
+  },
+  "astropy__astropy-7166": {
+    "model_name_or_path": "anthropic/claude-sonnet-4-6",
+    "instance_id": "astropy__astropy-7166",
+    "model_patch": "diff --git a/astropy/utils/misc.py b/astropy/utils/misc.py\nindex de3fb01d1..6d90c4a6b 100644\n--- a/astropy/utils/misc.py\n+++ b/astropy/utils/misc.py\n@@ -536,6 +536,17 @@ class InheritDocstrings(type):\n                     if super_method is not None:\n                         val.__doc__ = super_method.__doc__\n                         break\n+            elif (isinstance(val, property) and\n+                  is_public_member(key) and\n+                  val.__doc__ is None):\n+                for base in cls.__mro__[1:]:\n+                    super_method = getattr(base, key, None)\n+                    if super_method is not None:\n+                        new_prop = property(val.fget, val.fset, val.fdel,\n+                                            super_method.__doc__)\n+                        dct[key] = new_prop\n+                        setattr(cls, key, new_prop)\n+                        break\n \n         super().__init__(name, bases, dct)\n \n"
+  }
+}

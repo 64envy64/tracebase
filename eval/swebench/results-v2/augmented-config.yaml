@@ -1,0 +1,106 @@
+agent:
+  cost_limit: 1.0
+  instance_template: "<pr_description>\nConsider the following PR description:\n{{task}}\n\
+    </pr_description>\n\n<instructions>\n# Task Instructions\n\nYou're a software\
+    \ engineer fixing a bug in /testbed.\nMake changes ONLY to non-test source files.\n\
+    \n## MANDATORY Workflow (follow this EXACTLY):\n\n1. **Reproduce**: Write and\
+    \ run a minimal script that triggers the bug\n2. **Locate**: Find the source code\
+    \ responsible\n3. **Check institutional memory**: Does this match a known bug\
+    \ pattern?\n   If yes, use it as a starting hypothesis — but VERIFY against the\
+    \ actual code\n4. **Fix**: Make the minimal code change to fix the root cause\n\
+    5. **Verify**: Run your reproduction script again — confirm it passes\n6. **Test**:\
+    \ Run the relevant test module to check for regressions\n7. **Submit**: Only after\
+    \ verification passes\n\n## CRITICAL: Pre-submit Verification\n\nYou MUST verify\
+    \ your fix BEFORE submitting:\n```\ncd /testbed && python -c \"... your reproduction\
+    \ script ...\"\n```\nIf the reproduction still fails, DO NOT submit. Go back to\
+    \ step 4.\n\nYou can also run relevant tests:\n```\ncd /testbed && python -m pytest\
+    \ <relevant_test_file> -x --tb=short -q 2>&1 | head -50\n```\n\n## Command Rules\n\
+    \n- Each response: reasoning text + at least one bash tool call\n- Directory changes\
+    \ are NOT persistent. Use `cd /testbed && ...` every time\n- Use non-interactive\
+    \ flags (-y, -f)\n- No vi, nano, or interactive tools\n\n## Submission (ONLY after\
+    \ verification passes)\n\nStep 1: `cd /testbed && git diff -- file1.py file2.py\
+    \ > /tmp/patch.txt`\nStep 2: `cat /tmp/patch.txt` (verify it looks correct)\n\
+    Step 3: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/patch.txt`\n\n\
+    Creating the patch and submitting MUST be separate commands.\nDo NOT submit if\
+    \ your verification failed.\n</instructions>\n"
+  step_limit: 40
+  system_template: "You are a helpful assistant that can interact with a computer\
+    \ shell to solve programming tasks.\n\nYou have access to institutional memory\
+    \ from previously resolved bugs in this codebase.\nThese are REASONING PATTERNS\
+    \ — they describe bug mechanisms and fix approaches.\nUse them as hypotheses to\
+    \ investigate, NOT as blind fixes to apply.\n\nAlways verify any hypothesis from\
+    \ institutional memory against the actual code before fixing.\n\n\nInstitutional\
+    \ memory (5 resolved patterns):\nRepository: astropy/astropy\n  - Bug: ASCII table\
+    \ output to HTML does not support supplied \"formats\"\n<!-- This comment\n  \
+    \  Files: astropy/io/ascii/html.py\n    Fix approach: self.data.cols = cols; self.data._set_col_formats()\n\
+    \  - Bug: Subclassed SkyCoord gives misleading attribute access message\nI'm trying\
+    \ to subc\n    Files: astropy/coordinates/sky_coordinate.py\n    Fix approach:\
+    \ for cls in type(self).__mro__:; if attr in cls.__dict__:; getattr(type(self),\
+    \ attr).__get__(self, ty\n  - Bug: IndexError: tuple index out of range in identify_format\
+    \ (io.registry)\n<!-- This \n    Files: astropy/io/fits/connect.py\n    Fix approach:\
+    \ return False\n  - Bug: ascii.qdp Table format assumes QDP commands are upper\
+    \ case\n### Description\n\nasci\n    Files: astropy/io/ascii/qdp.py\n    Fix approach:\
+    \ _line_type_re = re.compile(_type_re, re.IGNORECASE)\n  - Bug: In v5.3, NDDataRef\
+    \ mask propagation fails when one of the operand does not have \n    Files: astropy/nddata/mixins/ndarithmetic.py\n\
+    \    Fix approach: elif operand.mask is None:; return deepcopy(self.mask)"
+environment:
+  cwd: /testbed
+  env:
+    LESS: -R
+    MANPAGER: cat
+    PAGER: cat
+    PIP_PROGRESS_BAR: 'off'
+    TQDM_DISABLE: '1'
+  environment_class: docker
+  interpreter:
+  - bash
+  - -c
+  timeout: 60
+model:
+  format_error_template: 'Tool call error:
+
+    <error>{{error}}</error>
+
+    Every response needs the ''bash'' tool.
+
+    '
+  model_kwargs:
+    drop_params: true
+    parallel_tool_calls: true
+    temperature: 0.0
+  model_name: anthropic/claude-sonnet-4-6
+  observation_template: '{% if output.exception_info -%}
+
+    <exception>{{output.exception_info}}</exception>
+
+    {% endif -%}
+
+    <returncode>{{output.returncode}}</returncode>
+
+    {% if output.output | length < 10000 -%}
+
+    <output>
+
+    {{ output.output -}}
+
+    </output>
+
+    {%- else -%}
+
+    <warning>Output too long. Use head/tail/grep to view selectively.</warning>
+
+    <output_head>
+
+    {{ output.output[:5000] }}
+
+    </output_head>
+
+    <output_tail>
+
+    {{ output.output[-5000:] }}
+
+    </output_tail>
+
+    {%- endif -%}
+
+    '

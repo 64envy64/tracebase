@@ -1,0 +1,14 @@
+{
+  "model": "sonnet",
+  "holdout_n": 5,
+  "baseline_submitted": 2,
+  "augmented_submitted": 2,
+  "baseline_resolved": 1,
+  "augmented_resolved": 1,
+  "resolved_delta": 0,
+  "new_resolved": [],
+  "regressions": [],
+  "baseline_cost": 1.6343755500000003,
+  "augmented_cost": 1.7821804499999998,
+  "gate_fire_rate": 0.4
+}
