@@ -59,6 +59,33 @@ export {
   DEFAULT_BLOCK_CONFIDENCE,
 } from "./core/block.js";
 
+// v2 storage foundation (Phase 1 — see docs/DESIGN_v2.md)
+export {
+  BlockStore,
+  LeakageError,
+  BlockIntegrityError,
+  expandScopeHierarchy,
+  scopeSpecificity,
+} from "./core/block-store.js";
+export type {
+  BlockStoreOptions,
+  ListBlocksOptions,
+  FactSearchQuery,
+  EventReadOptions,
+} from "./core/block-store.js";
+
+// v2 serving base (Phase 2 — see docs/DESIGN_v2.md §L5)
+export { BlockServer, identityCalibrator, formatInjection } from "./core/block-serving.js";
+export type {
+  BlockRecallQuery,
+  BlockHit,
+  FactHit,
+  RecallV2Result,
+  Calibrator,
+  BlockServerOptions,
+  InjectionFormatOptions,
+} from "./core/block-serving.js";
+
 // Types — re-export everything
 export type {
   ReasoningTrace,
@@ -99,6 +126,16 @@ export type {
   BlockQuality,
   BlockEmbeddings,
   StoreBlockInput,
+  // v2 evidence / linkage (L3)
+  BlockCaseRef,
+  BlockCaseRole,
+  EvidenceQuality,
+  // v2 semantic / project memory (L4)
+  ProjectFact,
+  ProjectFactType,
+  ProjectFactStatus,
+  ProjectFactSource,
+  StoreProjectFactInput,
   // v2 analytics events
   AnalyticsEvent,
   RetrievalEvent,

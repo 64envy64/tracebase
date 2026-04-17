@@ -1,348 +1,570 @@
-# TraceBase v2 — Research-Grade Design
+# TraceBase v2 — Research-Grade Memory Substrate
 
-**Status:** design-first commit; implementation follows.
-**Scope:** re-found the SDK on 4 explicit pillars before any benchmark scaling.
+**Status:** design-first commit; implementation follows in phases.
+**Scope:** full end-to-end architecture for production-grade reasoning
+reuse. Not a patch to v1 — v2 treats v1 traces as one layer of a
+six-layer substrate.
 
 The fundamental claim of the product: **measurable win on repeated
-engineering / operational tasks** — higher accuracy, less time, fewer
-dead ends, less spend. Token savings are a side effect, not the pitch.
+engineering and operational tasks** — higher accuracy, less time,
+fewer dead ends, lower spend. Token savings are a side effect, not
+the pitch.
 
-Prior benchmark work (Phase 1 retrieval, Phase 2 ablation, Phase 3 pilot)
-showed the current SDK is too coarse to deliver this claim: whole-trace
-units store noise, retrieval scores correlate with shallow lexical
-overlap rather than reasoning reuse, and no signal is logged about
-whether an injection actually helped. These 4 pillars fix those gaps.
+Prior benchmark work (Phase 1 retrieval analysis, Phase 2 ablation,
+Phase 3 pilot) and the initial Pillar 1 schema work together showed
+that a single "distilled block" layer is necessary but not sufficient:
+blocks alone cannot answer *why* an injection helped, cannot survive
+repo/codebase drift, and conflate procedural reuse (how to fix bugs
+of class X) with project semantics (what the schema of table Y looks
+like). v2 is the substrate those two kinds of memory live in, plus
+the serving and lifecycle layers that keep them honest.
 
 ---
 
-## Pillar 1. ReasoningBlock — the atomic memory unit
+## Immovable principles
 
-A `ReasoningBlock` is the smallest piece of reasoning worth reusing. Not a
-whole trajectory; not a solution summary; a **single recognizable
-pattern**: *"when situation X, mechanism Y, avoid Z, unlock W, verify V"*.
+These are not up for debate inside v2 implementation. Any proposed
+change that violates one of them is scoped as v3 and kept on the
+shelf until v2 is measured.
 
-### Schema (authoritative definition)
+1. **Blocks are never the single source of truth.** Every block links
+   back to at least one source case (trace) via `BlockCaseRef`.
+   Retrieval surfaces the evidence ref alongside the block so the
+   agent or a human can audit it.
+2. **Evidence is required.** A block may only reach `active` status
+   after it has at least one linked case ref with `role = "origin"`
+   and non-null `evidenceQuality`.
+3. **Helpful ≠ retrieved, helpful ≠ injected.** The `helpful` signal
+   is only set from observable agent behavior plus outcome: the agent
+   must have used the block's reasoning AND the task must have
+   resolved (or the measurable target metric must have improved).
+   Retrieval alone never increments helpful. Injection alone never
+   increments helpful.
+4. **The v1 trace API stays non-breaking.** `ReasoningTrace` and all
+   its SDK surfaces (`ReasoningLayer`, `TraceStore`, middleware
+   wrappers) stay source-compatible for v2. New capability ships as
+   additional tables and additional exports.
+5. **Never claim benchmark wins from retrieved/injected rates alone.**
+   Shadow control groups must exist before any external lift claim.
+
+---
+
+## Out of scope for v2
+
+We will not build these until the substrate is proven by measurable
+lift on a held-out evaluation:
+
+- Dashboard UI (graphs, knowledge-graph view, drift alerts).
+- Cloud / admin / tenant surfaces.
+- Organization-level access control, team-scoped sharing.
+- Marketing / pricing surfaces.
+
+We will still *log the data* that those features need (e.g. events
+are scoped per run / per deployment) so they can be built later with
+no schema rewrite.
+
+---
+
+## The 6-layer substrate
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ L1. Episodic substrate — raw append-only trajectories            │
+│     (ReasoningTrace; v1-compatible; keeps every case forever)    │
+├─────────────────────────────────────────────────────────────────┤
+│ L2. Procedural memory — distilled reasoning blocks               │
+│     (ReasoningBlock; trigger + body; evidence required)          │
+├─────────────────────────────────────────────────────────────────┤
+│ L3. Block ↔ case linkage                                         │
+│     (BlockCaseRef; every block points to its source cases)       │
+├─────────────────────────────────────────────────────────────────┤
+│ L4. Semantic / project memory                                    │
+│     (ProjectFact; conventions, schemas, repo facts, preferences) │
+├─────────────────────────────────────────────────────────────────┤
+│ L5. Serving stack                                                │
+│     hard-invariant prefilter → lexical → optional semantic       │
+│     rerank → calibrated gate → injection as HYPOTHESIS           │
+├─────────────────────────────────────────────────────────────────┤
+│ L6. Analytics + lifecycle repair                                 │
+│     event sink → aggregates → demote/merge/split/recalibrate     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+Each layer has a single responsibility, a single storage surface,
+and well-defined contracts with adjacent layers. Below, each layer
+gets a section covering: purpose, schema, invariants, and the
+contracts with other layers.
+
+---
+
+### L1. Episodic substrate — raw append-only trajectories
+
+**Purpose.** Durable record of what happened. One row per task run.
+Never rewritten. The ground truth for distillation, drift analysis,
+and post-hoc evaluation.
+
+**Storage.** Existing `traces` table (v1) — unchanged. The
+`ReasoningTrace` type defined in `src/types.ts` is stable.
+
+**Invariants.**
+- Append-only. Updating a trace requires incrementing its
+  `updatedAt` but never overwrites the original `problem` or the
+  step list; corrections go into provenance/quality.
+- Outcome (`solution.outcome`) is captured by whatever grader
+  produced it; for agent evaluation that's the formal grader (e.g.
+  SWE-bench `run_evaluation`), not self-report.
+- No leakage constraints — traces can contain gold patch material,
+  pytest IDs, etc. Leakage protection is the distiller's job (L2).
+
+**Contracts.**
+- L2 (distillation) reads traces to produce blocks. It never deletes
+  or rewrites a trace.
+- L3 (case refs) points at trace IDs. Delete of a trace cascades:
+  any ref to it becomes `role = "orphan"`, the block is demoted
+  until re-linked.
+- L6 (analytics) reads trace metadata to attribute token/step
+  savings to outcomes.
+
+---
+
+### L2. Procedural memory — distilled reasoning blocks
+
+**Purpose.** The smallest recognizable, reusable pattern:
+*"when situation X holds, mechanism Y explains it, avoid Z, unlock
+with W, verify via V."* Not a summary of a trace; not a how-to
+tutorial. A hypothesis the agent can test against the current task.
+
+**Schema.** `ReasoningBlock` (already in `src/types.ts`, committed in
+Pillar 1). The schema is intentionally preserved; v2 adds two new
+lifecycle states:
+
+- `"candidate"` — a distilled block that has not yet accumulated
+  the minimum evidence (one `origin` case ref + passed leakage
+  guards) to be served. Visible to audit, never retrieved.
+- `"merged"` — a block that was superseded by merging into another
+  block with the same trigger fingerprint. Kept for provenance
+  continuity; never retrieved.
+
+Final enum: `"candidate" | "active" | "demoted" | "merged" | "retired"`.
+
+**Invariants.**
+- `trigger` is what retrieval matches. `body` is never in the query
+  path.
+- A block may be `active` only if at least one `BlockCaseRef` with
+  `role = "origin"` exists for it.
+- Fingerprint dedupe is mandatory: two distilled blocks with the
+  same trigger fingerprint must be reconciled before the second one
+  is accepted (merge or reject).
+- Anti-leakage regex guards (diff headers, patch hunks, pytest
+  IDs, `/testbed/…` paths) run on every insert and every update
+  that touches `body`. Any positive match hard-rejects the change.
+
+**Contracts.**
+- L3 (case refs) is *the* evidence surface for a block. A block
+  with zero case refs is an integrity violation.
+- L5 (serving) reads `status`, `quality.confidence`, `stats`, and
+  trigger fields only.
+- L6 (analytics) writes to `stats` and triggers status transitions
+  (candidate → active, active → demoted, etc.).
+
+---
+
+### L3. Block ↔ case linkage
+
+**Purpose.** Audit trail and evidence. Every block must be
+traceable to one or more concrete task runs (L1 traces). Without
+this, we cannot tell a distillation error from a misuse, and we
+cannot safely demote a bad block.
+
+**Schema (new — added to `src/types.ts`):**
 
 ```typescript
-interface ReasoningBlock {
-  id: string;              // UUID
-  version: number;         // for schema evolution
+interface BlockCaseRef {
+  id: string;
+  blockId: string;
+  traceId: string;                    // references ReasoningTrace.id
 
-  // TRIGGER — when this block applies
-  trigger: {
-    situation: string;     // ≤ 40 words, compressed pattern description
-    invariants: {          // structural filters applied BEFORE ranking
-      language?: string;
-      framework?: string;
-      error_type?: string;
-      api_surface?: string[];  // specific public APIs implicated
-    };
-    keywords: string[];    // extracted for BM25
-    fingerprint: string;   // sha256 of canonical invariants + keywords
-  };
+  /**
+   * Why this case supports / contests the block.
+   * - "origin"     — block was distilled from this case.
+   * - "supporting" — case later confirmed the block's mechanism.
+   * - "counter"    — case contradicted the block; used to demote.
+   * - "orphan"     — referenced trace no longer exists; block is quarantined.
+   */
+  role: "origin" | "supporting" | "counter" | "orphan";
 
-  // BODY — the reusable reasoning
-  body: {
-    mechanism: string;     // root cause structure
-    dead_ends: string[];   // approaches that look plausible but fail
-    unlock: string;        // the key insight (≤ 30 words)
-    verification: string;  // how to confirm the fix works
-  };
+  /**
+   * Distiller / verifier's confidence that this case actually
+   * instantiates the block's trigger and mechanism.
+   */
+  evidenceQuality: "strong" | "moderate" | "weak";
 
-  // PROVENANCE — how this block came to be
-  provenance: {
-    source_task_id: string;           // e.g. astropy__astropy-12907
-    source_agent?: string;            // "mini-swe-agent" etc.
-    source_model?: string;            // model that produced the trajectory
-    extracted_from: "trajectory"
-                  | "gold_patch"
-                  | "manual"
-                  | "imported";
-    distilled_at: number;
-    distilled_by: "llm" | "rule" | "manual";
-    distilled_with_model?: string;    // model used for distillation
-    parent_trace_id?: string;         // link back to full trajectory if kept
-  };
+  /**
+   * Optional pointer into the trace for audit (e.g. message index
+   * or file path in the trajectory where the unlock happened).
+   */
+  locator?: string;
 
-  // REUSE STATS — populated by analytics pipeline (Pillar 4)
-  stats: {
-    times_retrieved: number;          // top-K included this block
-    times_injected: number;           // passed confidence gate
-    times_agent_used: number;         // agent output resembles block
-    times_helpful: number;            // verified-positive outcome
-    times_counterproductive: number;  // verified regression
-    last_used_at?: number;
-    cumulative_tokens_saved: number;
-    cumulative_steps_saved: number;
-  };
-
-  // QUALITY — calibrated priors for serving (Pillar 3)
-  quality: {
-    confidence: number;               // 0..1, posterior mean
-    wilson_lower_bound: number;       // used for ranking tie-break
-    calibration_cohort?: string;      // which isotonic model calibrated
-  };
-
-  // EMBEDDINGS — optional, for semantic retrieval
-  embeddings?: {
-    situation_vec?: Float32Array;
-    unlock_vec?: Float32Array;
-    model: string;                    // e.g. text-embedding-3-small
-  };
-
-  // LIFECYCLE
   createdAt: number;
-  updatedAt: number;
-  status: "active" | "demoted" | "retired";
 }
 ```
 
-### Why these fields and not others
+**Invariants.**
+- Every `active` block has `role = "origin"` on at least one ref.
+- A block with any `role = "counter"` ref cannot be `active` until
+  the conflict is resolved (typically by split or demote).
+- Ref insert with a missing `traceId` is rejected; ref deletion
+  requires a reason (manual audit).
 
-- **trigger vs body separation** — retrieval matches on trigger only.
-  Body is the reward you get when the trigger matches. Mixing them (as the
-  old `ReasoningTrace.problem.description` + `solution.summary` did)
-  forces retrieval to match body content, which is noise from the
-  retrieval POV.
-- **invariants are explicit** — Phase 1 showed that structural match
-  (same framework) dominated scores and caused false positives. v2 moves
-  invariants from a weighted signal to a **hard pre-filter**: if
-  `invariants.language` is set on the block, a query of different
-  language never retrieves it, regardless of BM25.
-- **provenance is mandatory** — without it, analytics cannot track which
-  task produced which block, and drift cannot be diagnosed.
-- **stats separate from quality** — stats are raw counts; quality is
-  the calibrated posterior. Keeping them separate avoids the bug where
-  a newly-stored block with `times_helpful = 0` gets confidence 0 and
-  is never served.
-
-### Relation to existing `ReasoningTrace`
-
-`ReasoningTrace` stays as the "raw trajectory record" (problem description
-+ full solution + metadata). A `ReasoningBlock` is **derived** from one
-or more traces via the distillation pipeline. Traces can be kept for
-audit; blocks are the unit that gets injected.
-
-Migration: add a new table `reasoning_blocks` next to the existing
-`traces` table. No breaking changes to existing API. Deprecation of
-direct trace-based injection happens in a separate minor release.
+**Contracts.**
+- L2 (block CRUD) cannot set a block to `active` without at least
+  one origin ref. This is enforced at the storage layer, not the
+  caller.
+- L5 (serving) optionally returns a block's top 1-3 refs alongside
+  the block so the agent / human can audit. The serving layer does
+  not use refs for scoring.
 
 ---
 
-## Pillar 2. Distillation pipeline — trajectory → block
+### L4. Semantic / project memory
 
-Without this, the block library fills with paraphrases and shallow
-summaries. We need a **disciplined, automatable, verifiable** distiller.
+**Purpose.** Facts that are *not* reasoning patterns. Things like:
+*"tenant_id is always the first column in migration files in this
+repo"*, *"the team prefers bounded concurrency over worker pools"*,
+*"the `users` table has a soft-delete column `deleted_at`"*. Stored
+and retrieved separately from blocks because the retrieval
+semantics and the lifecycle are different:
 
-### Input
+- Blocks are retrieved when a task *matches a pattern*. Facts are
+  retrieved when a task *operates on a known entity*.
+- Blocks' staleness is driven by whether the mechanism still holds.
+  Facts' staleness is driven by whether the underlying artifact
+  (schema, file, convention) has changed.
 
-- Full trajectory of a solved task: messages, tool calls, tool outputs.
-- Ground truth outcome: resolved / unresolved by **grader** (not
-  submission status).
-- Optional: the gold patch, for comparison with agent's submitted patch.
+**Schema (new — added to `src/types.ts`):**
 
-### Stages
+```typescript
+interface ProjectFact {
+  id: string;
+  version: number;
 
-1. **Gate**: accept only grader-verified `resolved=true` trajectories.
-   This is the primary defense against distilling from "plausible
-   but wrong" agent output.
-2. **Locate unlock step**: find the last message before the agent's
-   first successful `editFile` that led to `runTests=pass`. That message
-   typically contains the reasoning that mattered.
-3. **Mine dead ends**: iterate backwards through assistant messages;
-   any hypothesis the agent abandoned (edited, then reverted, or
-   explicitly said "that didn't work") is a candidate dead end.
-4. **Distill**: LLM call with a tight JSON-schema prompt. Budget: ≤ 400
-   output tokens. Prompt enforces the 5-field structure. Temperature 0.
-5. **Validate structurally**: reject distillations that leak gold patch
-   file paths, exact diff lines, or task instance IDs. These would leak
-   ground truth into future retrieval.
-6. **Dedupe**: compute fingerprint from invariants + keywords; if a
-   block with same fingerprint exists, merge stats instead of creating
-   a duplicate.
-7. **Self-verify (optional, expensive)**: run a fresh agent on a
-   *different* task from the same bug class, with ONLY this block
-   injected. If the agent reuses the block and resolves, mark the block
-   as `verified`. This is the best quality signal but costs ~$0.30 per
-   block. Use it sparingly (e.g. for blocks that repeatedly serve).
-8. **Store**: commit with `confidence = 0.5` prior, `status = active`.
+  /**
+   * Scope. How wide this fact applies. Used by retrieval to filter.
+   * Dotted path; more specific scopes override less specific at
+   * retrieval.
+   */
+  scope: string;            // e.g. "repo:myorg/app", "team:payments"
 
-### Anti-leakage guarantees
+  factType:
+    | "convention"          // "tests go in tests/, not __tests__/"
+    | "schema"              // "users.email is UNIQUE NOT NULL"
+    | "repo_fact"           // "build command is `pnpm build`"
+    | "architecture"        // "auth lives in services/auth/, not middleware/"
+    | "preference";         // "favor small PRs over big ones"
 
-- Distiller never sees the gold patch or the specific FAIL_TO_PASS test
-  identifier. Only the agent's trajectory + a binary resolved flag.
-- Distilled output must pass a regex guard: no file paths of form
-  `(*/*/*\.py)`, no `assert` statements, no patch hunks.
-- Any block that fails either guard is discarded silently; counter
-  incremented for alerting.
+  statement: string;        // the fact itself, ≤ 60 words, declarative
+  invariants: BlockInvariants;  // same structure as blocks for filtering
 
-### Offline re-run pipeline
+  source: {
+    origin: "observed" | "declared" | "imported";
+    traceId?: string;       // if observed from a trace
+    author?: string;        // if declared by a user
+    reference?: string;     // e.g. file path or commit sha
+  };
 
-Phase 3 partial data already contains 4 grader-verified resolved
-trajectories (easy-subset pilot). The distiller can be run offline on
-those trajectories to produce the first real (non-hand-crafted) blocks.
-That's the first populated KB we can ablate against.
+  confidence: number;       // 0..1
+  lastVerifiedAt: number;   // when this fact was last confirmed still true
 
----
-
-## Pillar 3. Serving quality — retrieval, calibration, policy
-
-Phase 1 showed current scores are not calibrated: 0.70-0.80 did not
-correspond to "useful 70-80% of the time." Without calibration, the
-confidence gate is arbitrary.
-
-### Retrieval architecture
-
-```
-query
-  │
-  ├─► invariant extraction (from task text)
-  │
-  ▼
-hard filter by invariants ─► candidates (≤ all blocks matching invariants)
-  │
-  ▼
-BM25 over (situation + keywords) ─► top K=20
-  │
-  ▼
-cross-encoder reranker over (query, block.situation + block.unlock)
-     ─► top K=5
-  │
-  ▼
-calibrated confidence gate (isotonic regression)
-     if p(helpful | score) < τ, skip injection
-  │
-  ▼
-inject block.body (mechanism + dead_ends + unlock + verification)
-     formatted as HYPOTHESIS, not command
+  createdAt: number;
+  updatedAt: number;
+  status: "active" | "stale" | "retired";
+}
 ```
 
-### Calibration
+**Invariants.**
+- Facts are keyed (for dedupe) by a hash over `scope + factType +
+  normalized(statement)`. Two facts with the same key are merged;
+  their sources union.
+- `stale` is a soft state: fact is not retrieved by default but
+  remains visible to background verification, which can restore it
+  to `active`.
+- Never contains diffs, patches, or pytest IDs. Anti-leakage regex
+  guards apply, same as blocks.
 
-We log every retrieval event as `(query, block_id, ranker_score,
-injected, agent_used_block, outcome_resolved, outcome_regressed)`. After
-N ≥ 200 events, fit an isotonic regression `score → P(helpful)` using
-`helpful = outcome_resolved AND agent_used_block AND NOT regressed`.
-
-The gate threshold τ is set by the **operating point**:
-- If we want **high precision** (rarely inject but inject well): τ such
-  that calibrated P(helpful) ≥ 0.8.
-- If we want **high coverage** (inject often, accept some noise): τ such
-  that calibrated P(helpful) ≥ 0.5.
-These are per-deployment choices, not baked defaults.
-
-### Negative cache
-
-When a block's injection is followed by `outcome_resolved=false AND
-outcome_regressed=true` (the agent would have resolved without it but
-didn't with it), the block's `stats.times_counterproductive` increments
-and it is demoted: `status = demoted`. Demoted blocks are not served
-again until explicitly re-promoted. Closes the loop on "our own bad
-blocks hurt us."
-
-### Shadow mode
-
-In production or during benchmarks, a configurable fraction (e.g. 10%)
-of queries runs **without** injection even when a high-confidence match
-is found. Their outcomes are the control data for calibration. Without
-this, calibration data is confounded by "would have solved anyway."
+**Contracts.**
+- L5 (serving) queries facts by scope + invariants in parallel to
+  blocks. Facts and blocks are returned in separate slots in the
+  recall result; the caller composes them for injection.
+- L6 (analytics + lifecycle) writes `lastVerifiedAt` and may flip
+  `active ↔ stale` based on observed behavior.
 
 ---
 
-## Pillar 4. Reuse analytics — measure what's paid for
+### L5. Serving stack
 
-### Event log
+**Purpose.** Turn a fresh task query into a calibrated, auditable
+set of candidates — blocks and facts — to inject as a *hypothesis*
+for the agent. Never as a command.
 
-Append-only JSONL per deployment:
+**Pipeline.**
 
-```jsonc
-{ "ts": 1776..., "event": "retrieval",    "query_id": "...", "block_ids": [...], "scores": [...] }
-{ "ts": 1776..., "event": "injection",    "query_id": "...", "block_id": "...", "score": 0.83 }
-{ "ts": 1776..., "event": "agent_used",   "query_id": "...", "block_id": "...", "match_signal": "jaccard≥0.3" }
-{ "ts": 1776..., "event": "outcome",      "query_id": "...", "resolved": true, "tokens": 4200, "steps": 14, "control_group": false }
+```
+query + invariants
+  │
+  ├─► hard-invariant prefilter (L2 blocks AND L4 facts)
+  │      query-invariants (lang, framework, errorType, apiSurface,
+  │      scope for facts) intersected with block/fact invariants.
+  │      If a block sets `language=python` and the query is typescript,
+  │      that block is eliminated before scoring.
+  │
+  ▼
+lexical ranker  (BM25 over trigger.situation + trigger.keywords for
+                 blocks; statement + keywords for facts)
+  │
+  ▼
+  optional: semantic reranker
+      (cross-encoder OR cosine over embeddings, plug-in slot)
+  │
+  ▼
+calibrated confidence gate
+      (isotonic regression fitted offline from L6 events;
+       threshold τ is a per-deployment operating point, not baked)
+  │
+  ▼
+injection as HYPOTHESIS
+      (framed "a prior case suggests …, you can verify via …" —
+       not "do this")
 ```
 
-### Aggregates (SQL views)
+**Non-negotiable behaviors.**
 
-- **Coverage**: `retrievals_with_injection / total_retrievals`
-- **Hit rate**: `agent_used / injected`
-- **Lift (resolved rate)**: `resolved(injected) - resolved(control)` —
-  requires shadow mode to compute honestly.
-- **Lift (tokens)**: `mean(tokens | no_injection) - mean(tokens |
-  injected)` on the same task distribution.
-- **Calibration curve**: binned `score → observed P(helpful)`.
-- **Per-block**: times used, times helpful, cumulative lift, last use,
-  drift indicator.
+- The hard-invariant prefilter is applied **before** BM25, not as a
+  weighted signal. Phase 1 showed that weighted structural signals
+  inflate scores for same-framework unrelated tasks; we don't allow
+  that in v2 at any point.
+- The gate slot must exist from day one, with a **pass-through
+  calibrator** (identity). Nothing else changes when the isotonic
+  calibrator ships in Phase 5; it drops into the same slot with no
+  schema change.
+- Retrieval returns blocks **with their top case refs attached** so
+  the agent / a human can audit.
+- Injection framing is declarative-hypothesis, not imperative. The
+  agent is told what mechanism *might* apply and how to verify it.
 
-### Dashboard surfaces (non-technical users)
-
-1. **Coverage × Lift scatter** per team/project.
-2. **Top-10 blocks** by cumulative tokens saved / steps saved.
-3. **Drift alert list**: blocks whose rolling-30d helpful-rate dropped
-   > 2σ from prior.
-4. **Calibration plot** (makes the confidence number trustworthy).
-5. Later, the knowledge graph view (nodes = blocks, edges = "derived
-   from" and "co-retrieved with").
-
-The dashboard is Pillar 4 output, not a separate pillar — we log the
-events correctly once and the UI reads views.
+**Contracts.**
+- L2 and L4 are read-only from serving's POV. The only writes
+  serving does are to L6 (emit retrieval + injection events).
+- L6 (analytics) is the sole consumer of serving events and the
+  sole producer of calibration models.
 
 ---
 
-## Order of implementation
+### L6. Analytics + lifecycle repair
 
-1. **Pillar 1** — schema + SQLite migration v4 + types.ts update.
-   Backwards-compatible: existing `ReasoningTrace` API untouched. New
-   `ReasoningBlock` API added in parallel.
-2. **Pillar 3 (retrieval only)** — before distillation, the retrieval
-   path must work on blocks. Add invariant pre-filter + basic BM25 over
-   trigger fields. Cross-encoder is optional at first (can mock with
-   cosine). Calibration fitting starts disabled; infrastructure present.
-3. **Pillar 4 (event log only)** — add `logs/events.jsonl` append path
-   and aggregate script. No dashboard yet, but data from here on is
-   shaped right for one.
-4. **Pillar 2 (distillation)** — implement the pipeline, run offline on
-   the 4 grader-verified trajectories from pilot. First real (not
-   hand-crafted) blocks in KB.
-5. **Re-run Phase 3 ablation** against the new block KB, with shadow
-   mode enabled to generate calibration data. This is where a benchmark
-   claim can first be tested.
-6. **Dashboard UI** (Pillar 4 front-end). Deliberate: dashboard only
-   after the data behind it is trustworthy.
+**Purpose.** Measure reuse, measure helpfulness, and keep the
+block library healthy (demote bad blocks, merge duplicates, split
+over-broad ones, refresh stale project facts, recalibrate gates).
 
-Only after step 5 does a benchmark claim become defensible. Step 6 is
-the commercial surface. Scaling to 50+ tasks / 3 models happens after
-step 5, not before.
+**Storage.**
+- Append-only JSONL event log at `<config-dir>/events.jsonl`.
+  One event per line, schema is the `AnalyticsEvent` union already
+  in `src/types.ts`.
+- SQL views materialized nightly (or on-demand) for aggregates.
+
+**Events.** (Already defined in types; kept here for reference.)
+
+| Event        | Fires when                                        |
+|--------------|---------------------------------------------------|
+| retrieval    | a query returns a ranked candidate list           |
+| injection    | a block / fact passed the gate and was injected   |
+| agent_used   | observable signal agent followed the injection    |
+| outcome      | outcome is known (resolved / regressed / tokens)  |
+
+**Helpfulness definition (binding).**
+A block is credited `helpful` only if **all three** hold:
+
+1. `injection` event fired for that block on that query.
+2. `agent_used` event fired for that block on that query (observed
+   via structural or semantic match against the agent's output).
+3. `outcome.resolved = true` (or the measurable metric improved,
+   for non-binary tasks).
+
+If `(1) ∧ (2) ∧ ¬ outcome.resolved`, the block is credited
+`counterproductive`.
+
+If `(1) ∧ ¬ (2)`, the block is *neutral*: retrieved but ignored,
+not scored either way.
+
+Retrievals without injection (shadow group) are **control data**
+and never count toward helpfulness for the candidate block; they
+are the reference distribution for outcome lift.
+
+**Lifecycle repair actions.**
+
+| Action        | Trigger                                                | Effect                      |
+|---------------|--------------------------------------------------------|-----------------------------|
+| promote       | candidate with ≥ 1 origin ref and passes guards        | status: candidate → active  |
+| demote        | Wilson_lb(helpful, injected) ≤ τ_demote                | status: active → demoted    |
+| merge         | duplicate trigger fingerprint                          | keep winner, loser → merged |
+| split         | block has high retrieval but low `agent_used` rate     | flag for distiller rerun    |
+| stale         | fact `lastVerifiedAt` older than scope-dependent TTL   | status: active → stale      |
+| reverify      | background check resolves stale fact as still true     | status: stale → active      |
+| recalibrate   | ≥ 200 new outcome events since last fit               | refit isotonic calibrator   |
+
+All transitions are event-driven, not time-driven. The repair loop
+reads from the event log, never from live traffic.
+
+---
+
+## Cross-cutting data flows
+
+### Trace → Block (distillation, L1 → L2+L3)
+
+1. Trace enters L1 with `outcome = success` (grader-verified).
+2. Distiller runs on its trajectory, produces a candidate block.
+3. Candidate passes leakage guards; fingerprint computed.
+4. Dedupe: if fingerprint collides, merge stats + refs; else insert
+   as `candidate`.
+5. Case ref inserted with `role = "origin"`, `evidenceQuality`
+   assigned by distiller's own confidence.
+6. Block promoted `candidate → active` at end of step 5.
+
+### Query → Injection → Outcome (L5 → L6)
+
+1. `retrieval` event emitted with full candidate list.
+2. If gate passes, `injection` event emitted.
+3. After agent runs, `agent_used` is emitted iff observable match.
+4. When outcome is known, `outcome` event emitted with
+   `resolved` + cost metrics + `control` flag.
+5. Aggregation job consumes the event tuple and updates the block's
+   `stats`; `quality.wilsonLowerBound` is refreshed; lifecycle
+   check may fire a transition.
+
+### Fact freshness (L4 ↔ L6)
+
+- On every query that *touches* a fact's scope, if the fact was
+  actually injected and the outcome was `resolved`, bump
+  `lastVerifiedAt`.
+- Scope-dependent TTL determines when `active → stale`. Schema
+  facts are shorter-lived than preference facts.
+
+---
+
+## Order of implementation (phases)
+
+### Phase 0 — Design commit. (this document.)
+
+### Phase 1 — Storage foundation.
+Types and tables only. No retrieval behavior changes.
+
+- `src/types.ts`: add `BlockCaseRef`, `ProjectFact`; extend
+  `ReasoningBlock.status` to the 5-state enum.
+- SQLite tables: `reasoning_blocks`, `block_case_refs`,
+  `project_facts`, `analytics_events`.
+- Operations:
+  - Block CRUD (create/get/list/update_status).
+  - Case ref attach/list/detach; cascade to `orphan` on trace
+    delete.
+  - Project fact CRUD + scope/invariants search.
+  - Append-only event writer + reader.
+  - Dedupe primitive: `mergeByTriggerFingerprint(block)`.
+- Migration path: additive. All v1 tables unchanged.
+- Tests: unit coverage for each storage operation + invariant
+  enforcement (no `active` block without origin ref, leakage
+  guard, fingerprint dedupe).
+
+### Phase 2 — Serving base.
+Retrieval reads L2 + L3 + L4; hard invariant prefilter + BM25 over
+trigger-only (or statement-only) fields; gate slot is pass-through
+identity.
+
+- New API: `recallV2(query) → { blocks: BlockHit[], facts: FactHit[] }`.
+- Each `BlockHit` carries top 1-3 case refs for audit.
+- Injection helper: formats hypothesis framing (no imperative).
+- Old `recall()` stays as v1 behavior.
+- Tests: prefilter correctness, trigger-only scoring (body fields
+  never contribute), deterministic ranking.
+
+### Phase 3 — Analytics event sink.
+Append-only JSONL writer + basic aggregation.
+
+- Serving layer emits `retrieval` + `injection` events.
+- Middleware adapters emit `agent_used` + `outcome` events.
+- Events reference `traceId`, `runId`, `blockId`, optional
+  `caseRefId`, `factId`.
+- Shadow-group flag on every `retrieval` event.
+- Tests: event schema validation, round-trip, control-group
+  accounting, no PII in default events.
+
+### Phase 4 — Distillation pipeline.
+Trace → candidate block → leakage check → dedupe → origin ref →
+promote to active. Offline runnable against existing trace store.
+
+### Phase 5 — Lifecycle repair loop.
+Consume the event log; run the repair action table above.
+Isotonic calibrator fits here and is swapped into L5's gate slot.
+
+### Phase 6 — Evaluation harness.
+Re-run SWE-bench Verified (easy subset) against the full stack
+with shadow mode enabled. First defensible external metric.
+
+---
+
+## Definition of done for the next milestone (Phase 1 + early Phase 2)
+
+All the following must be true before we call the next milestone
+complete:
+
+- Block CRUD with all 5 lifecycle states.
+- BlockCaseRef attach / list / detach; `active` blocks cannot exist
+  without an origin ref (enforced).
+- ProjectFact stored in a separate table with scope + invariants
+  search.
+- Retrieval returns candidates filtered by hard invariants,
+  ranked by trigger-only BM25, with case refs attached.
+- Retrieval and injection events emitted to `events.jsonl`.
+- Gate slot is present and pluggable. A calibrator can be dropped
+  in without changing any other schema.
+- v1 trace API (`ReasoningLayer`, `TraceStore`, middleware) is
+  source-compatible and all 134 existing tests pass.
+
+Only after all six bullets hold do we move to Phase 3's full event
+wiring and Phase 4's distiller.
 
 ---
 
 ## What this design explicitly does NOT do
 
-- **No hand-crafted oracle patterns** in the main product code. Oracle
-  patterns stay strictly in `eval/` as internal diagnostics.
-- **No whole-trace injection**. The old `trace.solution.summary` path
-  still exists but is deprecated and excluded from block-based
-  evaluation.
-- **No benchmark claims** from data collected before Pillar 4 event
-  log is wired up. Without shadow-group outcomes, lift is not
+- **No hand-crafted oracle patterns** in product code. Oracles live
+  strictly in `eval/` as internal diagnostics.
+- **No whole-trace injection** as a supported path. The legacy
+  `trace.solution.summary` injection stays only for v1
+  back-compat; v2 eval excludes it from lift measurement.
+- **No benchmark claim** from data collected before Phase 5 shadow
+  calibration is wired up. Without control outcomes, lift is not
   identifiable.
-- **No knowledge graph visualization** in v1. It's downstream of having
-  real block reuse data. We log the edges now; render them later.
+- **No single-source-of-truth block.** Blocks without case refs do
+  not become active. Period.
+- **No dashboard, no admin UI, no org controls** in v2. We log the
+  data they need; we build them only after the substrate earns it.
 
 ---
 
-## Open questions (explicit, to answer during implementation)
+## Open questions (to answer during implementation, not blocking)
 
-1. What LLM to use for distillation step 4? Sonnet 4.6 same model?
-   Cheaper Haiku? A smaller open model self-hosted?
-2. Cross-encoder: do we use a hosted API, a small local model, or
-   pseudo-cross-encoder via cosine with a good embedding model?
-3. Confidence gate: one global τ, or one per-invariant-class τ?
-4. How do we resolve block-merge conflicts when two traces distill to
-   the same fingerprint but slightly different bodies? Vote by success
-   rate? Keep both and let ranker choose?
-5. Does self-verify in Stage 7 need a held-out task, or can it use a
-   paraphrase of the source task? Paraphrase is cheaper; held-out is
-   stricter.
+1. Distillation model: Sonnet 4.6, Haiku, or a self-hosted smaller
+   model? Cost vs. leakage discipline trade-off.
+2. Semantic reranker: hosted cross-encoder, local ONNX, or pseudo
+   cross-encoder via embedding cosine?
+3. One global gate threshold τ or one per invariant class
+   (language × framework × errorType)?
+4. Merge conflict policy for same-fingerprint, different-body
+   blocks: vote by success rate, keep both as siblings with
+   ranker choice, or hand off to the distiller for reconciliation?
+5. Verifier design for project facts: schema facts verify by
+   re-reading the schema; architecture facts verify by grep over
+   file tree; preference facts verify by asking the author.
+6. Event-log retention: rotate nightly? keep 90 days? compact into
+   parquet?
 
-These do not block Pillar 1; they influence Pillars 2 and 3.
+These do not block Phase 1 or Phase 2.

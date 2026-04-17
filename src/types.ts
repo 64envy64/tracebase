@@ -545,12 +545,20 @@ export interface ReasoningBlock {
   createdAt: number;
   updatedAt: number;
   /**
-   * Lifecycle state.
-   * - active: eligible for retrieval and injection.
-   * - demoted: retained for audit but never served (e.g. caused regression).
-   * - retired: obsolete, kept only for provenance chains.
+   * Lifecycle state. See docs/DESIGN_v2.md §L2 + §L6 for transitions.
+   *
+   * - candidate: distilled but not yet promoted (no origin case ref yet,
+   *              or has not passed leakage guards + fingerprint dedupe).
+   *              Never served. Visible to audit / distillation replay.
+   * - active:    eligible for retrieval and injection. Requires at least
+   *              one linked BlockCaseRef with role="origin".
+   * - demoted:   observed to be unhelpful or counterproductive; kept for
+   *              audit but never served. Repair loop may promote back.
+   * - merged:    superseded by another block with the same trigger
+   *              fingerprint. Kept as a provenance node; never served.
+   * - retired:   permanently obsolete. Kept only for reference chains.
    */
-  status: "active" | "demoted" | "retired";
+  status: "candidate" | "active" | "demoted" | "merged" | "retired";
 }
 
 /**
@@ -655,6 +663,106 @@ export interface StoreBlockInput {
   trigger: Omit<BlockTrigger, "fingerprint" | "keywords">;
   body: BlockBody;
   provenance: Omit<BlockProvenance, "distilledAt">;
+}
+
+// ============================================================================
+// BlockCaseRef — evidence linking a block to its source cases (L3).
+//
+// Every `active` block MUST have at least one ref with role="origin".
+// This is how we avoid "block is the single source of truth": the block
+// is always auditable against its evidence cases.
+// See docs/DESIGN_v2.md §L3 for the integrity rules.
+// ============================================================================
+
+export type BlockCaseRole =
+  /** Block was distilled from this case. Required on ≥ 1 ref per active block. */
+  | "origin"
+  /** Case later confirmed the block's mechanism in a different task. */
+  | "supporting"
+  /** Case contradicted the block; used by repair loop to drive demotion. */
+  | "counter"
+  /** Referenced trace no longer exists; block quarantined until re-linked. */
+  | "orphan";
+
+export type EvidenceQuality = "strong" | "moderate" | "weak";
+
+export interface BlockCaseRef {
+  id: string;
+  blockId: string;
+  /** References ReasoningTrace.id in the episodic substrate (L1). */
+  traceId: string;
+  role: BlockCaseRole;
+  /** Distiller / verifier's confidence that this case instantiates the block. */
+  evidenceQuality: EvidenceQuality;
+  /**
+   * Optional pointer into the trace for audit (e.g. step index or a file
+   * path inside the trajectory where the unlock happened).
+   */
+  locator?: string;
+  createdAt: number;
+}
+
+// ============================================================================
+// ProjectFact — semantic / project memory (L4).
+//
+// Facts are NOT reasoning patterns. They are durable statements about a
+// concrete artifact, repo, or team preference. Retrieved in parallel to
+// blocks but by scope + invariants, not by trigger match.
+// See docs/DESIGN_v2.md §L4 for retrieval semantics and lifecycle.
+// ============================================================================
+
+export type ProjectFactType =
+  | "convention"      // "tests go in tests/, not __tests__/"
+  | "schema"          // "users.email is UNIQUE NOT NULL"
+  | "repo_fact"       // "build command is `pnpm build`"
+  | "architecture"    // "auth lives in services/auth/, not middleware/"
+  | "preference";     // "favor small PRs over big ones"
+
+export type ProjectFactStatus = "active" | "stale" | "retired";
+
+export interface ProjectFactSource {
+  origin: "observed" | "declared" | "imported";
+  /** If observed, the trace from which it was inferred. */
+  traceId?: string;
+  /** If declared, who declared it. */
+  author?: string;
+  /** Optional reference: file path, commit sha, URL, etc. */
+  reference?: string;
+}
+
+export interface ProjectFact {
+  id: string;
+  version: number;
+  /**
+   * Scope: dotted path, most-specific first. More-specific scopes
+   * override less-specific ones at retrieval time.
+   * Examples: "repo:myorg/app", "team:payments", "global".
+   */
+  scope: string;
+  factType: ProjectFactType;
+  /** The fact itself, ≤ 60 words, declarative. */
+  statement: string;
+  /** Same invariants structure as blocks, used as hard prefilter. */
+  invariants: BlockInvariants;
+  source: ProjectFactSource;
+  /** Posterior confidence 0..1 (0.5 prior before verification). */
+  confidence: number;
+  /** Last time this fact was confirmed still true. */
+  lastVerifiedAt: number;
+  createdAt: number;
+  updatedAt: number;
+  status: ProjectFactStatus;
+}
+
+/** Input for creating a new project fact; computed fields filled by storage. */
+export interface StoreProjectFactInput {
+  scope: string;
+  factType: ProjectFactType;
+  statement: string;
+  invariants: BlockInvariants;
+  source: ProjectFactSource;
+  /** Optional override of default 0.5 prior. */
+  confidence?: number;
 }
 
 // ============================================================================
