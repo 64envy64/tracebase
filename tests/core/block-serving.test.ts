@@ -456,3 +456,150 @@ describe("formatInjection", () => {
     expect(md).not.toContain("favor small PRs");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Gate / payload contract — prompt content must equal injection events.
+// ---------------------------------------------------------------------------
+
+describe("Gate/payload contract — passesGate drives both formatter and events", () => {
+  let store: BlockStore;
+  beforeEach(() => { store = makeStore(); });
+
+  it("formatInjection renders only facts whose calibratedProb clears the gate", () => {
+    storeActive(store, PY_BLOCK);
+    // Two facts sharing tokens with the query; one high conf, one low.
+    store.storeFact({
+      scope: "global",
+      factType: "convention",
+      statement: "metaclass inspect high-conf unique-fact-hi",
+      invariants: {},
+      source: { origin: "declared" },
+      confidence: 0.9,
+    });
+    store.storeFact({
+      scope: "global",
+      factType: "convention",
+      statement: "metaclass inspect low-conf unique-fact-lo",
+      invariants: {},
+      source: { origin: "declared" },
+      confidence: 0.1,
+    });
+    const server = new BlockServer(store, { gateThreshold: 0.8 });
+    const out = server.recall({ text: "metaclass inspect" });
+
+    // Both facts come back in the result for debugging …
+    expect(out.facts.length).toBe(2);
+    const hi = out.facts.find((f) => f.calibratedProb >= 0.8)!;
+    const lo = out.facts.find((f) => f.calibratedProb < 0.8)!;
+    expect(hi.passesGate).toBe(true);
+    expect(lo.passesGate).toBe(false);
+
+    // … but only the above-gate fact appears in the rendered prompt.
+    const md = formatInjection(out);
+    expect(md).toContain("unique-fact-hi");
+    expect(md).not.toContain("unique-fact-lo");
+  });
+
+  it("one-to-one correspondence: fact_injection events === rendered facts", () => {
+    storeActive(store, PY_BLOCK);
+    store.storeFact({
+      scope: "global", factType: "convention",
+      statement: "metaclass inspect token-hi one",
+      invariants: {}, source: { origin: "declared" }, confidence: 0.9,
+    });
+    store.storeFact({
+      scope: "global", factType: "convention",
+      statement: "metaclass inspect token-lo two",
+      invariants: {}, source: { origin: "declared" }, confidence: 0.2,
+    });
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    const out = server.recall({ text: "metaclass inspect" });
+    const md = formatInjection(out);
+
+    const factEvents = store.readEvents({ eventType: "fact_injection" });
+    expect(factEvents.length).toBe(1);
+    // The one emitted event is for the fact that ALSO appears in the prompt.
+    const emittedId = (factEvents[0] as { factId: string }).factId;
+    const renderedFact = out.facts.find((f) => f.passesGate)!;
+    expect(emittedId).toBe(renderedFact.fact.id);
+    expect(md).toContain(renderedFact.fact.statement);
+  });
+
+  it("formatInjection returns empty string on shadow queries even with hits", () => {
+    storeActive(store, PY_BLOCK);
+    store.storeFact({
+      scope: "global", factType: "convention",
+      statement: "metaclass inspect shadow-fact anchor",
+      invariants: {}, source: { origin: "declared" }, confidence: 0.95,
+    });
+    const server = new BlockServer(store);
+    const out = server.recall({ text: "metaclass inspect", shadow: true });
+
+    // Hits returned for debug view but flagged non-rendering.
+    expect(out.blocks.length).toBeGreaterThan(0);
+    expect(out.blocks.every((h) => h.passesGate === false)).toBe(true);
+    expect(out.facts.every((h) => h.passesGate === false)).toBe(true);
+    expect(out.shouldInject).toBe(false);
+
+    // Prompt is empty; no injection events were emitted either.
+    expect(formatInjection(out)).toBe("");
+    expect(store.readEvents({ eventType: "injection" }).length).toBe(0);
+    expect(store.readEvents({ eventType: "fact_injection" }).length).toBe(0);
+  });
+
+  it("block injection events match rendered blocks one-to-one under a strict calibrator", () => {
+    // Two blocks, only one passes a high gate via a custom calibrator.
+    storeActive(store, PY_BLOCK);
+    storeActive(store, TS_BLOCK);
+    const strict: Calibrator = (_score, b) =>
+      b.trigger.invariants.language === "python" ? 0.95 : 0.1;
+    const server = new BlockServer(store, { calibrator: strict, gateThreshold: 0.5 });
+    const out = server.recall({ text: "metaclass inspect useEffect stale" });
+
+    const renderedCount = out.blocks.filter((h) => h.passesGate).length;
+    const events = store.readEvents({ eventType: "injection" });
+    expect(renderedCount).toBe(events.length);
+
+    const md = formatInjection(out);
+    for (const h of out.blocks) {
+      if (h.passesGate) {
+        expect(md).toContain(h.block.trigger.situation);
+      } else {
+        expect(md).not.toContain(h.block.trigger.situation);
+      }
+    }
+  });
+
+  it("xml formatter also obeys passesGate", () => {
+    storeActive(store, PY_BLOCK);
+    store.storeFact({
+      scope: "global", factType: "convention",
+      statement: "metaclass inspect xml-lo should-not-leak",
+      invariants: {}, source: { origin: "declared" }, confidence: 0.1,
+    });
+    const server = new BlockServer(store, { gateThreshold: 0.8 });
+    const out = server.recall({ text: "metaclass inspect" });
+    const xml = formatInjection(out, { format: "xml" });
+    expect(xml).not.toContain("should-not-leak");
+    // Facts section omitted entirely when no fact passes.
+    expect(xml).not.toContain("<project_facts>");
+  });
+
+  it("when no hit passes the gate, formatter returns empty regardless of candidate count", () => {
+    storeActive(store, PY_BLOCK);
+    store.storeFact({
+      scope: "global", factType: "convention",
+      statement: "metaclass inspect nope one",
+      invariants: {}, source: { origin: "declared" }, confidence: 0.1,
+    });
+    const server = new BlockServer(store, {
+      calibrator: () => 0.1, // force blocks below gate
+      gateThreshold: 0.8,
+    });
+    const out = server.recall({ text: "metaclass inspect" });
+    expect(out.blocks.length).toBeGreaterThan(0);
+    expect(out.facts.length).toBeGreaterThan(0);
+    expect(out.shouldInject).toBe(false);
+    expect(formatInjection(out)).toBe("");
+  });
+});

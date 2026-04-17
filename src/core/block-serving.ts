@@ -75,6 +75,14 @@ export interface BlockHit {
   score: number;
   /** Gate output: calibrated P(helpful). Identity by default. */
   calibratedProb: number;
+  /**
+   * Binding contract: true iff this hit WILL be included in the
+   * injection payload AND produce an `injection` analytics event.
+   * False for hits below the gate threshold and for every hit of a
+   * shadow query. Consumers formatting the prompt must filter by
+   * this flag — otherwise prompt content drifts from analytics.
+   */
+  passesGate: boolean;
   /** Top-N case refs for audit. Never used in scoring. */
   refs: BlockCaseRef[];
 }
@@ -89,6 +97,13 @@ export interface FactHit {
    * so downstream consumers can treat blocks and facts symmetrically.
    */
   calibratedProb: number;
+  /**
+   * Binding contract: true iff this fact WILL appear in the
+   * injection payload AND produce a `fact_injection` analytics
+   * event. False below gate and for shadow queries. Parallel to
+   * BlockHit.passesGate.
+   */
+  passesGate: boolean;
 }
 
 export interface RecallV2Result {
@@ -185,44 +200,48 @@ export class BlockServer {
     const blocks = this.searchBlocks(query.text, query.invariants, limit);
     const rawFacts = this.searchFacts(query.text, query.invariants, query.scope, factLimit);
 
-    // Apply calibrator and attach refs.
-    const blockHits: BlockHit[] = blocks.map(({ block, score }) => ({
-      block,
-      score,
-      calibratedProb: clamp01(this.calibrator(score, block)),
-      refs: this.store.listCaseRefs(block.id).slice(0, refLimit),
-    }));
+    // Apply calibrator, stamp the single-source-of-truth gate decision
+    // on each hit, and attach refs. passesGate is the contract that
+    // the injection formatter and analytics emission both key off.
+    const blockHits: BlockHit[] = blocks.map(({ block, score }) => {
+      const calibratedProb = clamp01(this.calibrator(score, block));
+      return {
+        block,
+        score,
+        calibratedProb,
+        passesGate: !shadow && calibratedProb >= this.gateThreshold,
+        refs: this.store.listCaseRefs(block.id).slice(0, refLimit),
+      };
+    });
 
     // Facts: no calibrator slot yet (Phase 5). Use confidence as the
-    // gated probability. Facts pass the same gate threshold as blocks;
-    // per-item-type thresholds can be introduced later without changing
-    // the event schema.
-    const factHits: FactHit[] = rawFacts.map(({ fact, score }) => ({
-      fact,
-      score,
-      calibratedProb: clamp01(fact.confidence),
-    }));
+    // gated probability. Same gate threshold as blocks; per-item-type
+    // thresholds can be introduced later without changing the event
+    // schema.
+    const factHits: FactHit[] = rawFacts.map(({ fact, score }) => {
+      const calibratedProb = clamp01(fact.confidence);
+      return {
+        fact,
+        score,
+        calibratedProb,
+        passesGate: !shadow && calibratedProb >= this.gateThreshold,
+      };
+    });
 
-    // shouldInject logic: never on shadow; else require at least one
-    // hit (block OR fact) passing the gate.
-    const anyBlockPasses = blockHits.some((h) => h.calibratedProb >= this.gateThreshold);
-    const anyFactPasses = factHits.some((h) => h.calibratedProb >= this.gateThreshold);
-    const shouldInject = !shadow && (anyBlockPasses || anyFactPasses);
+    // shouldInject: true iff any hit passes the gate. passesGate
+    // already encodes "not shadow", so this is a simple disjunction.
+    const shouldInject =
+      blockHits.some((h) => h.passesGate) || factHits.some((h) => h.passesGate);
 
-    // Emit events.
+    // Emit events. One injection event per hit with passesGate=true —
+    // one-to-one correspondence with what the formatter will render.
     if (this.emitEvents) {
       this.emitRetrieval(queryId, blockHits, factHits, shadow, query.runId);
-      if (shouldInject) {
-        for (const h of blockHits) {
-          if (h.calibratedProb >= this.gateThreshold) {
-            this.emitInjection(queryId, h, query.runId);
-          }
-        }
-        for (const h of factHits) {
-          if (h.calibratedProb >= this.gateThreshold) {
-            this.emitFactInjection(queryId, h, query.runId);
-          }
-        }
+      for (const h of blockHits) {
+        if (h.passesGate) this.emitInjection(queryId, h, query.runId);
+      }
+      for (const h of factHits) {
+        if (h.passesGate) this.emitFactInjection(queryId, h, query.runId);
       }
     }
 
@@ -427,6 +446,14 @@ export interface InjectionFormatOptions {
 
 /**
  * Turn a recall result into a text blob to inject into the agent's prompt.
+ *
+ * Gate contract: the formatter renders *exactly* the hits that the
+ * server decided to inject (hit.passesGate === true) and nothing else.
+ * Low-confidence hits stay in `result.blocks` / `result.facts` for
+ * inspection but never reach the prompt — this keeps the injection
+ * payload and the `injection` / `fact_injection` analytics events in
+ * one-to-one correspondence. Shadow queries always render empty.
+ *
  * Framing is always declarative-hypothesis:
  *   "A prior case with a similar signature suggests that …"
  *   "You can verify this by …"
@@ -441,41 +468,53 @@ export function formatInjection(
   const includeAudit = opts.includeAudit ?? true;
   const includeFacts = opts.includeFacts ?? true;
 
-  if (!result.shouldInject && result.blocks.length === 0 && result.facts.length === 0) {
+  // If the server decided not to inject anything (shadow query, or no
+  // hit cleared the gate), render empty — even if candidate lists are
+  // non-empty. Candidates exist for debugging; the prompt does not.
+  if (!result.shouldInject) return "";
+
+  // Filter by the gate contract. Hits with passesGate=false are
+  // debug-only; they would otherwise leak into the prompt without a
+  // matching injection event.
+  const renderableBlocks = result.blocks.filter((h) => h.passesGate);
+  const renderableFacts = result.facts.filter((h) => h.passesGate);
+  if (renderableBlocks.length === 0 && renderableFacts.length === 0) {
     return "";
   }
 
   const lines: string[] = [];
   if (format === "markdown") {
-    if (result.blocks.length > 0) {
+    if (renderableBlocks.length > 0) {
       lines.push("## Prior reasoning hypotheses");
       lines.push("");
       lines.push(
         "_The following are hypotheses drawn from prior cases — they may or may not apply to the current task. Consider each, verify independently, discard if the mechanism does not match._",
       );
       lines.push("");
-      for (const hit of result.blocks) {
+      for (const hit of renderableBlocks) {
         lines.push(renderBlockHitMarkdown(hit, includeAudit));
         lines.push("");
       }
     }
-    if (includeFacts && result.facts.length > 0) {
+    if (includeFacts && renderableFacts.length > 0) {
       lines.push("## Known project facts");
       lines.push("");
-      for (const f of result.facts) {
+      for (const f of renderableFacts) {
         lines.push(renderFactHitMarkdown(f, includeAudit));
       }
     }
   } else {
     // XML (for LLMs tuned for XML tagging).
-    lines.push("<prior_reasoning>");
-    for (const hit of result.blocks) {
-      lines.push(renderBlockHitXml(hit, includeAudit));
+    if (renderableBlocks.length > 0) {
+      lines.push("<prior_reasoning>");
+      for (const hit of renderableBlocks) {
+        lines.push(renderBlockHitXml(hit, includeAudit));
+      }
+      lines.push("</prior_reasoning>");
     }
-    lines.push("</prior_reasoning>");
-    if (includeFacts && result.facts.length > 0) {
+    if (includeFacts && renderableFacts.length > 0) {
       lines.push("<project_facts>");
-      for (const f of result.facts) {
+      for (const f of renderableFacts) {
         lines.push(renderFactHitXml(f, includeAudit));
       }
       lines.push("</project_facts>");

@@ -350,6 +350,15 @@ injection as HYPOTHESIS
   the agent / a human can audit.
 - Injection framing is declarative-hypothesis, not imperative. The
   agent is told what mechanism *might* apply and how to verify it.
+- **Gate / payload one-to-one rule.** Every block or fact rendered
+  into the injection prompt MUST have a matching `injection` /
+  `fact_injection` event, and vice versa. Hits below the gate
+  threshold (or every hit under a shadow query) stay in the recall
+  result for debugging but never reach the prompt. Without this
+  rule, analytics under-count prompt content and lift claims are
+  unprovable. Concretely: the server stamps `passesGate` on each
+  hit; the formatter renders exactly those hits; event emission
+  fires for exactly those hits.
 
 **Contracts.**
 - L2 and L4 are read-only from serving's POV. The only writes
