@@ -115,6 +115,13 @@ export interface BlockServerOptions {
   emitEvents?: boolean;
   /** Override Date.now() for deterministic tests. */
   now?: () => number;
+  /**
+   * Optional side-channel sink — invoked once per emitted event, in
+   * addition to the SQLite event log. Use this to fan out to a JSONL
+   * file, a message queue, or any other sink. Errors are swallowed so
+   * a bad side-sink never breaks retrieval.
+   */
+  sideSink?: (event: import("../types.js").AnalyticsEvent, extra?: { runId?: string }) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,6 +134,7 @@ export class BlockServer {
   private readonly calibrator: Calibrator;
   private readonly emitEvents: boolean;
   private readonly now: () => number;
+  private readonly sideSink?: BlockServerOptions["sideSink"];
 
   constructor(store: BlockStore, opts: BlockServerOptions = {}) {
     this.store = store;
@@ -134,6 +142,7 @@ export class BlockServer {
     this.calibrator = opts.calibrator ?? identityCalibrator;
     this.emitEvents = opts.emitEvents ?? true;
     this.now = opts.now ?? Date.now;
+    this.sideSink = opts.sideSink;
   }
 
   /**
@@ -333,6 +342,7 @@ export class BlockServer {
       shadow,
     };
     this.store.appendEvent(ev, { runId });
+    this.fanOut(ev, { runId });
   }
 
   private emitInjection(queryId: string, hit: BlockHit, runId?: string): void {
@@ -345,6 +355,19 @@ export class BlockServer {
       calibratedProb: hit.calibratedProb,
     };
     this.store.appendEvent(ev, { runId });
+    this.fanOut(ev, { runId });
+  }
+
+  private fanOut(
+    ev: import("../types.js").AnalyticsEvent,
+    extra?: { runId?: string },
+  ): void {
+    if (!this.sideSink) return;
+    try {
+      this.sideSink(ev, extra);
+    } catch {
+      // A bad side-sink must never break retrieval.
+    }
   }
 }
 

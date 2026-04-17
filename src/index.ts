@@ -86,6 +86,25 @@ export type {
   InjectionFormatOptions,
 } from "./core/block-serving.js";
 
+// v2 analytics (Phase 3 — see docs/DESIGN_v2.md §L6)
+export {
+  JsonlEventSink,
+  exportEventsToJsonl,
+  importEventsFromJsonl,
+  emitAgentUsed,
+  emitOutcome,
+  computeAggregates,
+} from "./core/analytics.js";
+export type {
+  AggregateCounts,
+  RetrievalSplit,
+  OutcomeSplit,
+  AggregateRates,
+  PerBlockStats,
+  EventAggregates,
+  AggregateOptions,
+} from "./core/analytics.js";
+
 // Types — re-export everything
 export type {
   ReasoningTrace,
