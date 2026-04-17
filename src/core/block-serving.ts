@@ -36,6 +36,7 @@ import type {
   ProjectFact,
   RetrievalEvent,
   InjectionEvent,
+  FactInjectionEvent,
 } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -80,7 +81,14 @@ export interface BlockHit {
 
 export interface FactHit {
   fact: ProjectFact;
+  /** Raw ranker score; currently fact.confidence until Phase 5's fact calibrator ships. */
   score: number;
+  /**
+   * Gated probability: score after any calibrator. Currently equals
+   * `score` (no fact-side calibrator yet), but the field is present
+   * so downstream consumers can treat blocks and facts symmetrically.
+   */
+  calibratedProb: number;
 }
 
 export interface RecallV2Result {
@@ -162,8 +170,10 @@ export class BlockServer {
 
   /**
    * Run retrieval. Returns hits plus a `shouldInject` recommendation.
-   * Emits a `retrieval` event (always) and an `injection` event for every
-   * hit above the gate (unless shadow).
+   * Emits a `retrieval` event (always) and one `injection` event per
+   * block and one `fact_injection` event per fact that pass the gate
+   * (unless the query is shadow). Blocks and facts attribute
+   * independently at aggregation time.
    */
   recall(query: BlockRecallQuery): RecallV2Result {
     const queryId = query.queryId ?? randomUUID();
@@ -173,7 +183,7 @@ export class BlockServer {
     const refLimit = query.refLimit ?? 3;
 
     const blocks = this.searchBlocks(query.text, query.invariants, limit);
-    const facts = this.searchFacts(query.text, query.invariants, query.scope, factLimit);
+    const rawFacts = this.searchFacts(query.text, query.invariants, query.scope, factLimit);
 
     // Apply calibrator and attach refs.
     const blockHits: BlockHit[] = blocks.map(({ block, score }) => ({
@@ -183,18 +193,34 @@ export class BlockServer {
       refs: this.store.listCaseRefs(block.id).slice(0, refLimit),
     }));
 
-    // shouldInject logic: never inject on shadow; else require at least
-    // one hit passing the gate.
-    const anyPassesGate = blockHits.some((h) => h.calibratedProb >= this.gateThreshold);
-    const shouldInject = !shadow && anyPassesGate && blockHits.length > 0;
+    // Facts: no calibrator slot yet (Phase 5). Use confidence as the
+    // gated probability. Facts pass the same gate threshold as blocks;
+    // per-item-type thresholds can be introduced later without changing
+    // the event schema.
+    const factHits: FactHit[] = rawFacts.map(({ fact, score }) => ({
+      fact,
+      score,
+      calibratedProb: clamp01(fact.confidence),
+    }));
+
+    // shouldInject logic: never on shadow; else require at least one
+    // hit (block OR fact) passing the gate.
+    const anyBlockPasses = blockHits.some((h) => h.calibratedProb >= this.gateThreshold);
+    const anyFactPasses = factHits.some((h) => h.calibratedProb >= this.gateThreshold);
+    const shouldInject = !shadow && (anyBlockPasses || anyFactPasses);
 
     // Emit events.
     if (this.emitEvents) {
-      this.emitRetrieval(queryId, blockHits, shadow, query.runId);
+      this.emitRetrieval(queryId, blockHits, factHits, shadow, query.runId);
       if (shouldInject) {
         for (const h of blockHits) {
           if (h.calibratedProb >= this.gateThreshold) {
             this.emitInjection(queryId, h, query.runId);
+          }
+        }
+        for (const h of factHits) {
+          if (h.calibratedProb >= this.gateThreshold) {
+            this.emitFactInjection(queryId, h, query.runId);
           }
         }
       }
@@ -204,7 +230,7 @@ export class BlockServer {
       queryId,
       shadow,
       blocks: blockHits,
-      facts,
+      facts: factHits,
       shouldInject,
     };
   }
@@ -300,9 +326,10 @@ export class BlockServer {
     invariants: BlockInvariants | undefined,
     scope: string | undefined,
     limit: number,
-  ): FactHit[] {
-    // searchFacts delegates to the store; scoring is BM25 from FTS when
-    // text present, else confidence/recency order.
+  ): Array<{ fact: ProjectFact; score: number }> {
+    // Store-side retrieval already applies hard-invariant prefilter,
+    // hierarchical scope resolution, and FTS when text is present.
+    // Scoring is confidence-based until Phase 5 ships a fact calibrator.
     const facts = this.store.searchFacts({
       text,
       scope,
@@ -310,8 +337,6 @@ export class BlockServer {
       status: "active",
       limit,
     });
-    // Fact score = confidence for this phase (lexical match was already
-    // applied in the store). Phase 5 may replace with a calibrated value.
     return facts.map((fact) => ({ fact, score: fact.confidence }));
   }
 
@@ -345,7 +370,8 @@ export class BlockServer {
 
   private emitRetrieval(
     queryId: string,
-    hits: BlockHit[],
+    blockHits: BlockHit[],
+    factHits: FactHit[],
     shadow: boolean,
     runId?: string,
   ): void {
@@ -353,8 +379,11 @@ export class BlockServer {
       ts: this.now(),
       queryId,
       event: "retrieval",
-      candidates: hits.map((h) => ({ blockId: h.block.id, score: h.score })),
+      candidates: blockHits.map((h) => ({ blockId: h.block.id, score: h.score })),
       shadow,
+      ...(factHits.length > 0
+        ? { factCandidates: factHits.map((h) => ({ factId: h.fact.id, score: h.score })) }
+        : {}),
     };
     this.emitter.emit(ev, runId !== undefined ? { runId } : undefined);
   }
@@ -365,6 +394,18 @@ export class BlockServer {
       queryId,
       event: "injection",
       blockId: hit.block.id,
+      score: hit.score,
+      calibratedProb: hit.calibratedProb,
+    };
+    this.emitter.emit(ev, runId !== undefined ? { runId } : undefined);
+  }
+
+  private emitFactInjection(queryId: string, hit: FactHit, runId?: string): void {
+    const ev: FactInjectionEvent = {
+      ts: this.now(),
+      queryId,
+      event: "fact_injection",
+      factId: hit.fact.id,
       score: hit.score,
       calibratedProb: hit.calibratedProb,
     };

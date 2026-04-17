@@ -373,30 +373,39 @@ over-broad ones, refresh stale project facts, recalibrate gates).
 
 **Events.** (Already defined in types; kept here for reference.)
 
-| Event        | Fires when                                        |
-|--------------|---------------------------------------------------|
-| retrieval    | a query returns a ranked candidate list           |
-| injection    | a block / fact passed the gate and was injected   |
-| agent_used   | observable signal agent followed the injection    |
-| outcome      | outcome is known (resolved / regressed / tokens)  |
+| Event              | Fires when                                                     |
+|--------------------|----------------------------------------------------------------|
+| retrieval          | a query returns ranked block + fact candidate lists            |
+| injection          | a **block** passed the gate and was injected                   |
+| fact_injection     | a **fact** passed the gate and was injected                    |
+| agent_used         | observable signal agent followed an injected **block**         |
+| fact_agent_used    | observable signal agent followed an injected **fact**          |
+| outcome            | outcome is known (resolved / regressed / tokens)               |
+
+Blocks and facts attribute independently: a single query may have
+any combination of block/fact injections, and their helpfulness
+tallies do not mix.
 
 **Helpfulness definition (binding).**
-A block is credited `helpful` only if **all three** hold:
+For each `entity ∈ {block, fact}`, the entity is credited `helpful`
+only if **all three** hold:
 
-1. `injection` event fired for that block on that query.
-2. `agent_used` event fired for that block on that query (observed
-   via structural or semantic match against the agent's output).
+1. An `injection` or `fact_injection` event fired for that entity on
+   that query.
+2. The matching `agent_used` / `fact_agent_used` event fired for
+   that entity on that query (observed via structural or semantic
+   match against the agent's output).
 3. `outcome.resolved = true` (or the measurable metric improved,
    for non-binary tasks).
 
-If `(1) ∧ (2) ∧ ¬ outcome.resolved`, the block is credited
+If `(1) ∧ (2) ∧ ¬ outcome.resolved`, the entity is credited
 `counterproductive`.
 
-If `(1) ∧ ¬ (2)`, the block is *neutral*: retrieved but ignored,
+If `(1) ∧ ¬ (2)`, the entity is *neutral*: retrieved but ignored,
 not scored either way.
 
 Retrievals without injection (shadow group) are **control data**
-and never count toward helpfulness for the candidate block; they
+and never count toward helpfulness for the candidate entity; they
 are the reference distribution for outcome lift.
 
 **Lifecycle repair actions.**

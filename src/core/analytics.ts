@@ -32,6 +32,8 @@ import type {
   InjectionEvent,
   AgentUsedEvent,
   OutcomeEvent,
+  FactInjectionEvent,
+  FactAgentUsedEvent,
 } from "../types.js";
 import type { BlockStore } from "./block-store.js";
 
@@ -153,11 +155,13 @@ function isValidEvent(ev: unknown): ev is AnalyticsEvent {
   if (e.runId !== undefined && typeof e.runId !== "string") return false;
 
   switch (e.event) {
-    case "retrieval":       return isValidRetrieval(e);
-    case "injection":       return isValidInjection(e);
-    case "agent_used":      return isValidAgentUsed(e);
-    case "outcome":         return isValidOutcome(e);
-    default:                return false;
+    case "retrieval":        return isValidRetrieval(e);
+    case "injection":        return isValidInjection(e);
+    case "agent_used":       return isValidAgentUsed(e);
+    case "outcome":          return isValidOutcome(e);
+    case "fact_injection":   return isValidFactInjection(e);
+    case "fact_agent_used":  return isValidFactAgentUsed(e);
+    default:                 return false;
   }
 }
 
@@ -169,6 +173,16 @@ function isValidRetrieval(e: Record<string, unknown>): boolean {
     const cc = c as Record<string, unknown>;
     if (typeof cc.blockId !== "string" || cc.blockId.length === 0) return false;
     if (typeof cc.score !== "number" || !Number.isFinite(cc.score)) return false;
+  }
+  // factCandidates is optional; when present, validate its shape.
+  if (e.factCandidates !== undefined) {
+    if (!Array.isArray(e.factCandidates)) return false;
+    for (const c of e.factCandidates) {
+      if (!c || typeof c !== "object") return false;
+      const cc = c as Record<string, unknown>;
+      if (typeof cc.factId !== "string" || cc.factId.length === 0) return false;
+      if (typeof cc.score !== "number" || !Number.isFinite(cc.score)) return false;
+    }
   }
   return true;
 }
@@ -198,6 +212,25 @@ function isValidOutcome(e: Record<string, unknown>): boolean {
   if (e.regressed !== undefined && typeof e.regressed !== "boolean") return false;
   if (e.tokens !== undefined && (typeof e.tokens !== "number" || !Number.isFinite(e.tokens))) return false;
   if (e.steps !== undefined && (typeof e.steps !== "number" || !Number.isFinite(e.steps))) return false;
+  return true;
+}
+
+function isValidFactInjection(e: Record<string, unknown>): boolean {
+  if (typeof e.factId !== "string" || e.factId.length === 0) return false;
+  if (typeof e.score !== "number" || !Number.isFinite(e.score)) return false;
+  if (e.calibratedProb !== undefined &&
+      (typeof e.calibratedProb !== "number" || !Number.isFinite(e.calibratedProb))) {
+    return false;
+  }
+  return true;
+}
+
+function isValidFactAgentUsed(e: Record<string, unknown>): boolean {
+  if (typeof e.factId !== "string" || e.factId.length === 0) return false;
+  if (e.matchSignal !== "jaccard" && e.matchSignal !== "embedding" && e.matchSignal !== "explicit") {
+    return false;
+  }
+  if (typeof e.matchScore !== "number" || !Number.isFinite(e.matchScore)) return false;
   return true;
 }
 
@@ -284,6 +317,35 @@ export function emitAgentUsed(
 }
 
 /**
+ * Fact-side analogue of `emitAgentUsed`. Called by middleware /
+ * evaluators when the agent's output shows observable evidence the
+ * agent acted on a ProjectFact (matched statement, cited id, etc.).
+ * Fact helpfulness is scored independently from block helpfulness.
+ */
+export function emitFactAgentUsed(
+  target: EmitTarget,
+  args: {
+    queryId: string;
+    factId: string;
+    matchSignal: "jaccard" | "embedding" | "explicit";
+    matchScore: number;
+    ts?: number;
+    runId?: string;
+  },
+): FactAgentUsedEvent {
+  const ev: FactAgentUsedEvent = {
+    ts: args.ts ?? Date.now(),
+    queryId: args.queryId,
+    event: "fact_agent_used",
+    factId: args.factId,
+    matchSignal: args.matchSignal,
+    matchScore: args.matchScore,
+  };
+  toEmitter(target).emit(ev, args.runId !== undefined ? { runId: args.runId } : undefined);
+  return ev;
+}
+
+/**
  * Emit an `outcome` event for a task run. `control=true` marks the
  * query as part of the shadow control group (no injection was shown).
  * `resolved` is the grader-verified pass/fail, not a self-report.
@@ -327,6 +389,8 @@ export interface AggregateCounts {
   injection: number;
   agentUsed: number;
   outcome: number;
+  factInjection: number;
+  factAgentUsed: number;
 }
 
 export interface RetrievalSplit {
@@ -348,15 +412,24 @@ export interface OutcomeSplit {
 export interface AggregateRates {
   /**
    * Fraction of non-shadow retrievals that produced at least one
-   * injection. Measures how often the gate actually fires in the wild.
+   * injection (block OR fact). Measures how often the gate actually
+   * fires in the wild.
    */
   coverage: number;
-  /** agent_used ÷ injection. null when no injections yet. */
+  // Block-level rates (procedural memory L2).
+  /** agent_used ÷ injection for blocks. null when no block injections. */
   hitRate: number | null;
-  /** helpful ÷ injection, per design definition. null when no injections. */
+  /** helpful ÷ injection for blocks, per §L6. null when no block injections. */
   helpfulRate: number | null;
-  /** counterproductive ÷ injection. null when no injections. */
+  /** counterproductive ÷ injection for blocks. null when no block injections. */
   counterproductiveRate: number | null;
+  // Fact-level rates (semantic memory L4). Computed symmetrically.
+  /** fact_agent_used ÷ fact_injection. null when no fact injections. */
+  factHitRate: number | null;
+  /** helpful ÷ fact_injection, using the parallel §L6 helpfulness definition. */
+  factHelpfulRate: number | null;
+  /** counterproductive ÷ fact_injection. null when no fact injections. */
+  factCounterproductiveRate: number | null;
   /**
    * Resolved-rate lift of treatment (injected) minus shadow (control).
    * null when either arm is empty; this is the only aggregate that
@@ -369,6 +442,17 @@ export interface AggregateRates {
 
 export interface PerBlockStats {
   blockId: string;
+  retrieved: number;
+  injected: number;
+  agentUsed: number;
+  helpful: number;
+  counterproductive: number;
+  neutral: number;
+}
+
+/** Parallel stats for facts (L4 semantic memory). */
+export interface PerFactStats {
+  factId: string;
   retrieved: number;
   injected: number;
   agentUsed: number;
@@ -400,6 +484,8 @@ export interface EventAggregates {
   outcome: OutcomeSplit;
   rates: AggregateRates;
   perBlock: PerBlockStats[];
+  /** Per-fact stats; parallel structure to perBlock. */
+  perFact: PerFactStats[];
   /**
    * Integrity diagnostics. Non-zero values do not invalidate the
    * metrics — they signal that upstream instrumentation has data-
@@ -440,7 +526,10 @@ export function computeAggregates(
     limit: 1_000_000,
   });
 
-  const counts: AggregateCounts = { retrieval: 0, injection: 0, agentUsed: 0, outcome: 0 };
+  const counts: AggregateCounts = {
+    retrieval: 0, injection: 0, agentUsed: 0, outcome: 0,
+    factInjection: 0, factAgentUsed: 0,
+  };
 
   // Indexes.
   const shadowByQuery = new Map<string, boolean>();
@@ -449,6 +538,9 @@ export function computeAggregates(
   const outcomeByQuery = new Map<string, OutcomeEvent>();
   const retrievalTreatment = new Set<string>();  // queryIds with non-shadow retrieval
   const retrievalShadow = new Set<string>();
+  // Fact-side indexes — parallel to the block-side ones.
+  const factInjectionsByQuery = new Map<string, Set<string>>();
+  const factAgentUsedByQuery = new Map<string, Set<string>>();
 
   for (const ev of events) {
     switch (ev.event) {
@@ -478,6 +570,20 @@ export function computeAggregates(
         outcomeByQuery.set(ev.queryId, ev);
         break;
       }
+      case "fact_injection": {
+        counts.factInjection++;
+        let set = factInjectionsByQuery.get(ev.queryId);
+        if (!set) { set = new Set(); factInjectionsByQuery.set(ev.queryId, set); }
+        set.add(ev.factId);
+        break;
+      }
+      case "fact_agent_used": {
+        counts.factAgentUsed++;
+        let set = factAgentUsedByQuery.get(ev.queryId);
+        if (!set) { set = new Set(); factAgentUsedByQuery.set(ev.queryId, set); }
+        set.add(ev.factId);
+        break;
+      }
     }
   }
 
@@ -492,13 +598,28 @@ export function computeAggregates(
     row[field] = (row[field] as number) + 1;
   }
 
-  // retrieved counts use the retrieval event's candidate list.
+  // Per-fact roll-up (same shape).
+  const perFactMap = new Map<string, PerFactStats>();
+  function bumpFact(id: string, field: keyof Omit<PerFactStats, "factId">): void {
+    let row = perFactMap.get(id);
+    if (!row) {
+      row = { factId: id, retrieved: 0, injected: 0, agentUsed: 0, helpful: 0, counterproductive: 0, neutral: 0 };
+      perFactMap.set(id, row);
+    }
+    row[field] = (row[field] as number) + 1;
+  }
+
+  // retrieved counts use the retrieval event's candidate lists.
+  // Blocks come from `candidates`; facts from the optional `factCandidates`.
   for (const ev of events) {
     if (ev.event !== "retrieval") continue;
     for (const c of ev.candidates) bumpBlock(c.blockId, "retrieved");
+    if (ev.factCandidates) {
+      for (const c of ev.factCandidates) bumpFact(c.factId, "retrieved");
+    }
   }
 
-  // For each queryId that has both injection(s) and an outcome, classify.
+  // For each queryId that has block injection(s), classify against outcome.
   for (const [queryId, blockIds] of injectionsByQuery) {
     const used = agentUsedByQuery.get(queryId) ?? new Set<string>();
     const outcome = outcomeByQuery.get(queryId);
@@ -512,6 +633,24 @@ export function computeAggregates(
         else bumpBlock(bId, "counterproductive");
       } else {
         bumpBlock(bId, "neutral");
+      }
+    }
+  }
+
+  // Fact-side classification — symmetric to block side.
+  for (const [queryId, factIds] of factInjectionsByQuery) {
+    const used = factAgentUsedByQuery.get(queryId) ?? new Set<string>();
+    const outcome = outcomeByQuery.get(queryId);
+    for (const fId of factIds) {
+      bumpFact(fId, "injected");
+      if (used.has(fId)) bumpFact(fId, "agentUsed");
+
+      if (!outcome) continue;
+      if (used.has(fId)) {
+        if (outcome.resolved) bumpFact(fId, "helpful");
+        else bumpFact(fId, "counterproductive");
+      } else {
+        bumpFact(fId, "neutral");
       }
     }
   }
@@ -553,15 +692,17 @@ export function computeAggregates(
   }
 
   // Rates.
-  // Coverage: non-shadow queries that had at least one injection.
+  // Coverage: non-shadow queries that had at least one injection of
+  // ANY kind (block or fact). Reflects "how often does the gate fire".
   const treatmentWithInjection = [...retrievalTreatment].filter((qid) =>
-    (injectionsByQuery.get(qid)?.size ?? 0) > 0,
+    (injectionsByQuery.get(qid)?.size ?? 0) > 0 ||
+    (factInjectionsByQuery.get(qid)?.size ?? 0) > 0,
   ).length;
   const coverage = retrievalTreatment.size > 0
     ? treatmentWithInjection / retrievalTreatment.size
     : 0;
 
-  // Sum helpful / counterproductive / agentUsed across per-block rows.
+  // Sum per-block rates.
   let helpfulTotal = 0;
   let counterTotal = 0;
   let agentUsedTotal = 0;
@@ -573,11 +714,26 @@ export function computeAggregates(
     injectedTotal += row.injected;
   }
 
+  // Sum per-fact rates.
+  let factHelpfulTotal = 0;
+  let factCounterTotal = 0;
+  let factAgentUsedTotal = 0;
+  let factInjectedTotal = 0;
+  for (const row of perFactMap.values()) {
+    factHelpfulTotal += row.helpful;
+    factCounterTotal += row.counterproductive;
+    factAgentUsedTotal += row.agentUsed;
+    factInjectedTotal += row.injected;
+  }
+
   const rates: AggregateRates = {
     coverage,
     hitRate: injectedTotal > 0 ? agentUsedTotal / injectedTotal : null,
     helpfulRate: injectedTotal > 0 ? helpfulTotal / injectedTotal : null,
     counterproductiveRate: injectedTotal > 0 ? counterTotal / injectedTotal : null,
+    factHitRate: factInjectedTotal > 0 ? factAgentUsedTotal / factInjectedTotal : null,
+    factHelpfulRate: factInjectedTotal > 0 ? factHelpfulTotal / factInjectedTotal : null,
+    factCounterproductiveRate: factInjectedTotal > 0 ? factCounterTotal / factInjectedTotal : null,
     resolvedLift: null,
     tokenLift: null,
   };
@@ -601,6 +757,7 @@ export function computeAggregates(
     outcome: outcomeSplit,
     rates,
     perBlock: [...perBlockMap.values()].sort((a, b) => b.helpful - a.helpful),
+    perFact: [...perFactMap.values()].sort((a, b) => b.helpful - a.helpful),
     integrity: {
       shadowControlMismatches,
       outcomesWithoutRetrieval,
@@ -620,4 +777,12 @@ function mean(xs: number[]): number {
 }
 
 // Re-exports so consumers do not need two imports.
-export type { RetrievalEvent, InjectionEvent, AgentUsedEvent, OutcomeEvent, AnalyticsEvent };
+export type {
+  RetrievalEvent,
+  InjectionEvent,
+  AgentUsedEvent,
+  OutcomeEvent,
+  FactInjectionEvent,
+  FactAgentUsedEvent,
+  AnalyticsEvent,
+};

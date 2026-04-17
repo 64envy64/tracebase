@@ -93,6 +93,7 @@ export {
   exportEventsToJsonl,
   importEventsFromJsonl,
   emitAgentUsed,
+  emitFactAgentUsed,
   emitOutcome,
   computeAggregates,
 } from "./core/analytics.js";
@@ -103,6 +104,7 @@ export type {
   OutcomeSplit,
   AggregateRates,
   PerBlockStats,
+  PerFactStats,
   AggregateIntegrity,
   EventAggregates,
   AggregateOptions,
@@ -164,4 +166,6 @@ export type {
   InjectionEvent,
   AgentUsedEvent,
   OutcomeEvent,
+  FactInjectionEvent,
+  FactAgentUsedEvent,
 } from "./types.js";

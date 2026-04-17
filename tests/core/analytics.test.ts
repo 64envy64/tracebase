@@ -11,6 +11,7 @@ import {
   exportEventsToJsonl,
   importEventsFromJsonl,
   emitAgentUsed,
+  emitFactAgentUsed,
   emitOutcome,
   computeAggregates,
 } from "../../src/core/analytics.js";
@@ -289,10 +290,15 @@ describe("computeAggregates", () => {
   it("returns zeros on empty store", () => {
     const store = makeStore();
     const agg = computeAggregates(store);
-    expect(agg.counts).toEqual({ retrieval: 0, injection: 0, agentUsed: 0, outcome: 0 });
+    expect(agg.counts).toEqual({
+      retrieval: 0, injection: 0, agentUsed: 0, outcome: 0,
+      factInjection: 0, factAgentUsed: 0,
+    });
     expect(agg.rates.helpfulRate).toBeNull();
+    expect(agg.rates.factHelpfulRate).toBeNull();
     expect(agg.rates.resolvedLift).toBeNull();
     expect(agg.perBlock).toEqual([]);
+    expect(agg.perFact).toEqual([]);
   });
 
   it("counts helpful only when injection ∧ agent_used ∧ resolved", () => {
@@ -715,5 +721,261 @@ describe("EventEmitter — unified fan-out", () => {
     // the sink inside the emitter if they want it covering emit*).
     expect(emitterCaptured.length).toBeGreaterThan(0);
     expect(sideCaptured.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fact-level analytics (L4 first-class attribution)
+// ---------------------------------------------------------------------------
+
+describe("analytics — fact-level attribution", () => {
+  it("BlockServer emits fact_injection events for above-gate facts", () => {
+    const store = makeStore();
+    storeActive(store, SAMPLE);
+    // Statement shares tokens with the query so FTS returns a hit;
+    // high confidence so the fact clears the default gate (threshold=0).
+    store.storeFact({
+      scope: "global",
+      factType: "convention",
+      statement: "metaclass inspection uses the standard library module",
+      invariants: { language: "python" },
+      source: { origin: "declared" },
+      confidence: 0.9,
+    });
+    const server = new BlockServer(store);
+    server.recall({ text: "metaclass inspect", invariants: { language: "python" } });
+
+    const facts = store.readEvents({ eventType: "fact_injection" });
+    expect(facts.length).toBe(1);
+    const ev = facts[0];
+    if (ev.event !== "fact_injection") throw new Error("wrong event");
+    expect(ev.factId).toBeTruthy();
+    expect(ev.calibratedProb).toBeCloseTo(0.9);
+  });
+
+  it("retrieval event carries factCandidates when facts are in the result", () => {
+    const store = makeStore();
+    storeActive(store, SAMPLE);
+    // Statement shares BOTH tokens of the query so FTS AND-match succeeds.
+    store.storeFact({
+      scope: "global",
+      factType: "convention",
+      statement: "metaclass inspect convention for this repo",
+      invariants: {},
+      source: { origin: "declared" },
+    });
+    const server = new BlockServer(store);
+    server.recall({ text: "metaclass inspect" });
+
+    const retr = store.readEvents({ eventType: "retrieval" });
+    expect(retr.length).toBe(1);
+    const ev = retr[0];
+    if (ev.event !== "retrieval") throw new Error("wrong event");
+    expect(ev.factCandidates).toBeDefined();
+    expect(ev.factCandidates!.length).toBe(1);
+    expect(typeof ev.factCandidates![0].factId).toBe("string");
+  });
+
+  it("emitFactAgentUsed writes a fact_agent_used event", () => {
+    const store = makeStore();
+    emitFactAgentUsed(store, {
+      queryId: "q", factId: "f1", matchSignal: "explicit", matchScore: 1.0,
+    });
+    const evs = store.readEvents({ eventType: "fact_agent_used" });
+    expect(evs.length).toBe(1);
+    const ev = evs[0];
+    if (ev.event !== "fact_agent_used") throw new Error("wrong type");
+    expect(ev.factId).toBe("f1");
+    expect(ev.matchSignal).toBe("explicit");
+  });
+
+  it("computeAggregates classifies fact helpful/counter/neutral independently of blocks", () => {
+    const store = makeStore();
+
+    // Query q1: fact_injection + fact_agent_used + resolved → fact helpful
+    //           block_injection + block_agent_used + resolved → block helpful
+    store.appendEvent({
+      ts: 1, queryId: "q1", event: "retrieval",
+      candidates: [{ blockId: "B1", score: 0.9 }],
+      factCandidates: [{ factId: "F1", score: 0.8 }],
+      shadow: false,
+    });
+    store.appendEvent({ ts: 2, queryId: "q1", event: "injection", blockId: "B1", score: 0.9 });
+    store.appendEvent({ ts: 3, queryId: "q1", event: "fact_injection", factId: "F1", score: 0.8 });
+    store.appendEvent({ ts: 4, queryId: "q1", event: "agent_used", blockId: "B1", matchSignal: "jaccard", matchScore: 0.7 });
+    store.appendEvent({ ts: 5, queryId: "q1", event: "fact_agent_used", factId: "F1", matchSignal: "explicit", matchScore: 1.0 });
+    store.appendEvent({ ts: 6, queryId: "q1", event: "outcome", resolved: true, control: false });
+
+    // Query q2: fact injected but not used by agent, task resolves → fact neutral
+    store.appendEvent({
+      ts: 7, queryId: "q2", event: "retrieval",
+      candidates: [],
+      factCandidates: [{ factId: "F1", score: 0.8 }],
+      shadow: false,
+    });
+    store.appendEvent({ ts: 8, queryId: "q2", event: "fact_injection", factId: "F1", score: 0.8 });
+    store.appendEvent({ ts: 9, queryId: "q2", event: "outcome", resolved: true, control: false });
+
+    // Query q3: fact injected + used + NOT resolved → fact counterproductive
+    store.appendEvent({
+      ts: 10, queryId: "q3", event: "retrieval",
+      candidates: [],
+      factCandidates: [{ factId: "F1", score: 0.8 }],
+      shadow: false,
+    });
+    store.appendEvent({ ts: 11, queryId: "q3", event: "fact_injection", factId: "F1", score: 0.8 });
+    store.appendEvent({ ts: 12, queryId: "q3", event: "fact_agent_used", factId: "F1", matchSignal: "jaccard", matchScore: 0.4 });
+    store.appendEvent({ ts: 13, queryId: "q3", event: "outcome", resolved: false, control: false });
+
+    const agg = computeAggregates(store);
+
+    const b1 = agg.perBlock.find((r) => r.blockId === "B1")!;
+    expect(b1.helpful).toBe(1);
+
+    const f1 = agg.perFact.find((r) => r.factId === "F1")!;
+    expect(f1.injected).toBe(3);
+    expect(f1.agentUsed).toBe(2);
+    expect(f1.helpful).toBe(1);
+    expect(f1.counterproductive).toBe(1);
+    expect(f1.neutral).toBe(1);
+
+    expect(agg.rates.factHelpfulRate).toBeCloseTo(1 / 3);
+    expect(agg.rates.factCounterproductiveRate).toBeCloseTo(1 / 3);
+    expect(agg.rates.factHitRate).toBeCloseTo(2 / 3);
+    // Block metrics remain independent.
+    expect(agg.rates.helpfulRate).toBeCloseTo(1);
+  });
+
+  it("coverage counts queries with EITHER block or fact injection", () => {
+    const store = makeStore();
+    // Treatment query with only a fact injection.
+    store.appendEvent({
+      ts: 1, queryId: "q1", event: "retrieval",
+      candidates: [], factCandidates: [{ factId: "F1", score: 0.8 }], shadow: false,
+    });
+    store.appendEvent({ ts: 2, queryId: "q1", event: "fact_injection", factId: "F1", score: 0.8 });
+    // Treatment query with no injection at all (gate skipped).
+    store.appendEvent({ ts: 3, queryId: "q2", event: "retrieval", candidates: [], shadow: false });
+    const agg = computeAggregates(store);
+    expect(agg.rates.coverage).toBeCloseTo(0.5);
+  });
+
+  it("import strict-rejects fact_injection missing factId", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tb-strict-fact-"));
+    const path = join(dir, "e.jsonl");
+    try {
+      writeFileSync(path, `{"ts":1,"queryId":"q","event":"fact_injection","score":0.9}\n`);
+      const store = makeStore();
+      expect(importEventsFromJsonl(store, path)).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("import accepts a valid fact_injection and fact_agent_used", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tb-strict-fact-ok-"));
+    const path = join(dir, "e.jsonl");
+    try {
+      writeFileSync(path,
+        `{"ts":1,"queryId":"q","event":"fact_injection","factId":"F1","score":0.9}\n` +
+        `{"ts":2,"queryId":"q","event":"fact_agent_used","factId":"F1","matchSignal":"explicit","matchScore":1.0}\n`,
+      );
+      const store = makeStore();
+      expect(importEventsFromJsonl(store, path)).toBe(2);
+      expect(store.countEvents("fact_injection" as never)).toBe(1);
+      expect(store.countEvents("fact_agent_used" as never)).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("retrieval event with malformed factCandidates is rejected on import", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tb-strict-factcand-"));
+    const path = join(dir, "e.jsonl");
+    try {
+      writeFileSync(path,
+        `{"ts":1,"queryId":"q","event":"retrieval","shadow":false,"candidates":[],"factCandidates":[{"factId":"F1"}]}\n`,
+      );
+      const store = makeStore();
+      expect(importEventsFromJsonl(store, path)).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fact injection events survive SQLite → JSONL → SQLite round-trip", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tb-fact-rt-"));
+    const path = join(dir, "e.jsonl");
+    try {
+      const src = makeStore();
+      src.appendEvent(
+        { ts: 1, queryId: "q", event: "fact_injection", factId: "F1", score: 0.9 },
+        { runId: "rt-1" },
+      );
+      src.appendEvent(
+        { ts: 2, queryId: "q", event: "fact_agent_used", factId: "F1", matchSignal: "jaccard", matchScore: 0.8 },
+        { runId: "rt-1" },
+      );
+      exportEventsToJsonl(src, path);
+
+      const dst = makeStore();
+      expect(importEventsFromJsonl(dst, path)).toBe(2);
+      const byRun = dst.readEvents({ runId: "rt-1" });
+      expect(byRun.length).toBe(2);
+      const byFact = dst.readEvents({ factId: "F1" });
+      expect(byFact.length).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Schema migration v1 → v2 (analytics_events gets fact_id column)
+// ---------------------------------------------------------------------------
+
+describe("BlockStore — v1 → v2 analytics_events migration", () => {
+  it("migrates a v1-schema DB to v2 and accepts fact events after", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tb-mig-"));
+    const path = join(dir, "migrate.db");
+    try {
+      // Manually construct a v1-shaped analytics_events table + schema meta
+      // row so the migration path (not the fresh-install path) runs.
+      const raw = new Database(path);
+      raw.exec(`
+        CREATE TABLE analytics_events (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          ts          INTEGER NOT NULL,
+          event_type  TEXT NOT NULL CHECK(event_type IN ('retrieval','injection','agent_used','outcome')),
+          query_id    TEXT NOT NULL,
+          block_id    TEXT,
+          run_id      TEXT,
+          shadow      INTEGER,
+          payload     TEXT NOT NULL
+        );
+        CREATE TABLE v2_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO v2_schema_meta(key, value) VALUES ('version', '1');
+        INSERT INTO analytics_events (ts, event_type, query_id, run_id, shadow, payload)
+          VALUES (1, 'retrieval', 'q1', 'old-run', 0,
+                  '{"ts":1,"queryId":"q1","event":"retrieval","candidates":[],"shadow":false}');
+      `);
+      raw.close();
+
+      // Opening via BlockStore must run the v1 → v2 migration. Legacy
+      // row must be preserved; new fact events must be insertable.
+      const store = new BlockStore(path);
+      const legacy = store.readEvents({ runId: "old-run" });
+      expect(legacy.length).toBe(1);
+
+      // Fact event — would violate the old CHECK constraint; must now work.
+      store.appendEvent({
+        ts: 2, queryId: "q2", event: "fact_injection", factId: "F1", score: 0.9,
+      });
+      expect(store.readEvents({ factId: "F1" }).length).toBe(1);
+
+      store.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

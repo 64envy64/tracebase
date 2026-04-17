@@ -776,7 +776,9 @@ export type AnalyticsEvent =
   | RetrievalEvent
   | InjectionEvent
   | AgentUsedEvent
-  | OutcomeEvent;
+  | OutcomeEvent
+  | FactInjectionEvent
+  | FactAgentUsedEvent;
 
 interface EventBase {
   ts: number;
@@ -794,6 +796,8 @@ interface EventBase {
 export interface RetrievalEvent extends EventBase {
   event: "retrieval";
   candidates: Array<{ blockId: string; score: number }>;
+  /** Fact candidates retrieved alongside procedural blocks (may be empty). */
+  factCandidates?: Array<{ factId: string; score: number }>;
   /** Whether this query is in the shadow control group (no injection will fire). */
   shadow: boolean;
 }
@@ -823,4 +827,35 @@ export interface OutcomeEvent extends EventBase {
   steps?: number;
   /** True if this query was a shadow control (no injection was shown). */
   control: boolean;
+}
+
+// ----------------------------------------------------------------------------
+// Fact-level events (L4 first-class analytics). ProjectFact is memory in its
+// own right, with its own retrieval path, its own lifecycle, and therefore
+// its own helpful/counterproductive attribution. Parallel to block events,
+// never mixed — facts and blocks are orthogonal.
+// ----------------------------------------------------------------------------
+
+/**
+ * Emitted when a retrieved ProjectFact passes the gate and is included in
+ * the injection payload for a query. Analogous to InjectionEvent but for
+ * the semantic (L4) layer.
+ */
+export interface FactInjectionEvent extends EventBase {
+  event: "fact_injection";
+  factId: string;
+  score: number;
+  calibratedProb?: number;
+}
+
+/**
+ * Emitted when the agent's output provides observable evidence it used a
+ * ProjectFact (e.g. mentioned it by id, or its statement overlaps the
+ * agent's reasoning). Mirrors AgentUsedEvent but for facts.
+ */
+export interface FactAgentUsedEvent extends EventBase {
+  event: "fact_agent_used";
+  factId: string;
+  matchSignal: "jaccard" | "embedding" | "explicit";
+  matchScore: number;
 }

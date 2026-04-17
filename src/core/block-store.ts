@@ -41,7 +41,7 @@ import { detectLeakage } from "./block.js";
 // Schema
 // ---------------------------------------------------------------------------
 
-const V2_SCHEMA_VERSION = 1;
+const V2_SCHEMA_VERSION = 2;
 
 const V2_SCHEMA = `
 CREATE TABLE IF NOT EXISTS reasoning_blocks (
@@ -208,15 +208,20 @@ BEGIN
   INSERT INTO project_facts_fts(rowid, statement) VALUES (new.rowid, new.statement);
 END;
 
--- Analytics events (L6). Append-only.
+-- Analytics events (L6). Append-only. Supports block-level events
+-- (retrieval / injection / agent_used / outcome) and parallel fact-
+-- level events (fact_injection / fact_agent_used) for §L4 semantic
+-- memory attribution. event_type is intentionally un-CHECKed so the
+-- schema can evolve without table rebuilds as new event types land.
 CREATE TABLE IF NOT EXISTS analytics_events (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   ts          INTEGER NOT NULL,
-  event_type  TEXT NOT NULL CHECK(event_type IN ('retrieval','injection','agent_used','outcome')),
+  event_type  TEXT NOT NULL,
   query_id    TEXT NOT NULL,
   block_id    TEXT,
+  fact_id     TEXT,
   run_id      TEXT,
-  shadow      INTEGER,                -- nullable boolean, only meaningful for retrieval
+  shadow      INTEGER,                -- nullable boolean, only meaningful for retrieval/outcome
   payload     TEXT NOT NULL           -- full event as JSON (forward-compat)
 );
 
@@ -224,6 +229,7 @@ CREATE INDEX IF NOT EXISTS idx_events_ts     ON analytics_events(ts);
 CREATE INDEX IF NOT EXISTS idx_events_type   ON analytics_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_events_query  ON analytics_events(query_id);
 CREATE INDEX IF NOT EXISTS idx_events_block  ON analytics_events(block_id);
+CREATE INDEX IF NOT EXISTS idx_events_fact   ON analytics_events(fact_id);
 CREATE INDEX IF NOT EXISTS idx_events_run    ON analytics_events(run_id);
 
 CREATE TABLE IF NOT EXISTS v2_schema_meta (
@@ -231,6 +237,40 @@ CREATE TABLE IF NOT EXISTS v2_schema_meta (
   value  TEXT NOT NULL
 );
 `;
+
+/**
+ * Incremental migrations for existing v2 databases. Fresh installs run
+ * the full V2_SCHEMA above; existing databases walk this map step-by-step
+ * from their current version to V2_SCHEMA_VERSION.
+ */
+const V2_MIGRATIONS: Record<number, string[]> = {
+  // v1 → v2: add `fact_id` column + index and relax event_type CHECK
+  // so fact_injection / fact_agent_used can be written. SQLite cannot
+  // alter CHECK in place, so this rebuilds the table.
+  2: [
+    `CREATE TABLE analytics_events_v2 (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts          INTEGER NOT NULL,
+      event_type  TEXT NOT NULL,
+      query_id    TEXT NOT NULL,
+      block_id    TEXT,
+      fact_id     TEXT,
+      run_id      TEXT,
+      shadow      INTEGER,
+      payload     TEXT NOT NULL
+    )`,
+    `INSERT INTO analytics_events_v2 (id, ts, event_type, query_id, block_id, run_id, shadow, payload)
+       SELECT id, ts, event_type, query_id, block_id, run_id, shadow, payload FROM analytics_events`,
+    `DROP TABLE analytics_events`,
+    `ALTER TABLE analytics_events_v2 RENAME TO analytics_events`,
+    `CREATE INDEX IF NOT EXISTS idx_events_ts    ON analytics_events(ts)`,
+    `CREATE INDEX IF NOT EXISTS idx_events_type  ON analytics_events(event_type)`,
+    `CREATE INDEX IF NOT EXISTS idx_events_query ON analytics_events(query_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_events_block ON analytics_events(block_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_events_fact  ON analytics_events(fact_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_events_run   ON analytics_events(run_id)`,
+  ],
+};
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -285,6 +325,8 @@ export interface EventReadOptions {
   eventType?: AnalyticsEvent["event"] | AnalyticsEvent["event"][];
   queryId?: string;
   blockId?: string;
+  /** Filter to events referencing a specific ProjectFact (L4). */
+  factId?: string;
   runId?: string;
   limit?: number;
 }
@@ -319,8 +361,26 @@ export class BlockStore {
     this.db.pragma("foreign_keys = ON");
     const current = this.getSchemaVersion();
     if (current >= V2_SCHEMA_VERSION) return;
-    this.db.exec(V2_SCHEMA);
-    this.setSchemaVersion(V2_SCHEMA_VERSION);
+
+    if (current === 0) {
+      // Fresh DB — run full current schema.
+      this.db.exec(V2_SCHEMA);
+      this.setSchemaVersion(V2_SCHEMA_VERSION);
+      return;
+    }
+
+    // Existing DB at an older v2 version — walk incremental migrations.
+    for (let v = current + 1; v <= V2_SCHEMA_VERSION; v++) {
+      const steps = V2_MIGRATIONS[v];
+      if (!steps) continue;
+      const tx = this.db.transaction(() => {
+        for (const sql of steps) {
+          this.db.exec(sql);
+        }
+        this.setSchemaVersion(v);
+      });
+      tx();
+    }
   }
 
   private getSchemaVersion(): number {
@@ -1080,6 +1140,8 @@ export class BlockStore {
 
     const blockId =
       event.event === "injection" || event.event === "agent_used" ? event.blockId : null;
+    const factId =
+      event.event === "fact_injection" || event.event === "fact_agent_used" ? event.factId : null;
     const shadow =
       event.event === "retrieval" ? (event.shadow ? 1 : 0)
       : event.event === "outcome" ? (event.control ? 1 : 0)
@@ -1087,14 +1149,15 @@ export class BlockStore {
 
     const res = this.db
       .prepare(
-        `INSERT INTO analytics_events (ts, event_type, query_id, block_id, run_id, shadow, payload)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO analytics_events (ts, event_type, query_id, block_id, fact_id, run_id, shadow, payload)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         event.ts,
         event.event,
         event.queryId,
         blockId,
+        factId,
         effectiveRunId,
         shadow,
         JSON.stringify(payload),
@@ -1121,6 +1184,7 @@ export class BlockStore {
     }
     if (opts.queryId) { clauses.push("query_id = @queryId"); params.queryId = opts.queryId; }
     if (opts.blockId) { clauses.push("block_id = @blockId"); params.blockId = opts.blockId; }
+    if (opts.factId)  { clauses.push("fact_id = @factId"); params.factId = opts.factId; }
     if (opts.runId)   { clauses.push("run_id = @runId"); params.runId = opts.runId; }
 
     // Also select `run_id` so that legacy rows (written before runId
