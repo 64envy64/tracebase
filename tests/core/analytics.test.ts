@@ -7,6 +7,7 @@ import { BlockStore } from "../../src/core/block-store.js";
 import { BlockServer } from "../../src/core/block-serving.js";
 import {
   JsonlEventSink,
+  EventEmitter,
   exportEventsToJsonl,
   importEventsFromJsonl,
   emitAgentUsed,
@@ -422,5 +423,297 @@ describe("computeAggregates", () => {
     const b = agg.perBlock.find((r) => r.blockId === "B")!;
     expect(a.retrieved).toBe(2);
     expect(b.retrieved).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P1 — runId round-trip
+// ---------------------------------------------------------------------------
+
+describe("analytics — runId round-trip", () => {
+  let dir: string;
+  let path: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "tb-runid-"));
+    path = join(dir, "e.jsonl");
+  });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  it("readEvents returns runId that was written via the extra param", () => {
+    const store = makeStore();
+    store.appendEvent(
+      { ts: 1, queryId: "q1", event: "retrieval", candidates: [], shadow: false },
+      { runId: "run-1" },
+    );
+    const ev = store.readEvents({})[0];
+    expect(ev.runId).toBe("run-1");
+    expect(store.readEvents({ runId: "run-1" }).length).toBe(1);
+  });
+
+  it("readEvents returns runId that was written via the event object", () => {
+    const store = makeStore();
+    store.appendEvent(
+      { ts: 1, queryId: "q1", event: "retrieval", candidates: [], shadow: false, runId: "run-2" },
+    );
+    const ev = store.readEvents({})[0];
+    expect(ev.runId).toBe("run-2");
+    expect(store.readEvents({ runId: "run-2" }).length).toBe(1);
+  });
+
+  it("runId survives SQLite → JSONL → SQLite round-trip", () => {
+    const src = makeStore();
+    storeActive(src, SAMPLE);
+    const server = new BlockServer(src);
+    server.recall({ text: "metaclass inspect", runId: "bench-42" });
+    emitAgentUsed(src, {
+      queryId: "sep-q", blockId: "some-b", matchSignal: "jaccard", matchScore: 0.5,
+      runId: "bench-42",
+    });
+    emitOutcome(src, { queryId: "sep-q", resolved: true, control: false, runId: "bench-42" });
+
+    const wrote = exportEventsToJsonl(src, path);
+    expect(wrote).toBeGreaterThan(0);
+
+    // Sanity: the JSONL file actually has runId on every line.
+    const lines = readFileSync(path, "utf8").trim().split("\n");
+    for (const line of lines) {
+      expect(JSON.parse(line).runId).toBe("bench-42");
+    }
+
+    const dst = makeStore();
+    const imported = importEventsFromJsonl(dst, path);
+    expect(imported).toBe(wrote);
+
+    // Filtered query works after round-trip.
+    const byRun = dst.readEvents({ runId: "bench-42" });
+    expect(byRun.length).toBe(imported);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P2 — strict per-variant validation on import
+// ---------------------------------------------------------------------------
+
+describe("importEventsFromJsonl — strict validation", () => {
+  let dir: string;
+  let path: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "tb-strict-"));
+    path = join(dir, "e.jsonl");
+  });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  it("rejects an injection event missing blockId", () => {
+    writeFileSync(path, `{"ts":1,"queryId":"q1","event":"injection","score":0.5}\n`);
+    const store = makeStore();
+    expect(importEventsFromJsonl(store, path)).toBe(0);
+  });
+
+  it("rejects an injection event missing score", () => {
+    writeFileSync(path, `{"ts":1,"queryId":"q1","event":"injection","blockId":"b"}\n`);
+    const store = makeStore();
+    expect(importEventsFromJsonl(store, path)).toBe(0);
+  });
+
+  it("rejects a retrieval event without candidates array", () => {
+    writeFileSync(path, `{"ts":1,"queryId":"q1","event":"retrieval","shadow":false}\n`);
+    const store = makeStore();
+    expect(importEventsFromJsonl(store, path)).toBe(0);
+  });
+
+  it("rejects a retrieval event with a malformed candidate row", () => {
+    writeFileSync(
+      path,
+      `{"ts":1,"queryId":"q1","event":"retrieval","shadow":false,"candidates":[{"blockId":"b"}]}\n`,
+    );
+    const store = makeStore();
+    expect(importEventsFromJsonl(store, path)).toBe(0);
+  });
+
+  it("rejects an agent_used event with an unknown matchSignal", () => {
+    writeFileSync(
+      path,
+      `{"ts":1,"queryId":"q","event":"agent_used","blockId":"b","matchSignal":"bogus","matchScore":0.5}\n`,
+    );
+    const store = makeStore();
+    expect(importEventsFromJsonl(store, path)).toBe(0);
+  });
+
+  it("rejects an outcome event missing resolved", () => {
+    writeFileSync(path, `{"ts":1,"queryId":"q","event":"outcome","control":false}\n`);
+    const store = makeStore();
+    expect(importEventsFromJsonl(store, path)).toBe(0);
+  });
+
+  it("rejects an event with non-string runId", () => {
+    writeFileSync(
+      path,
+      `{"ts":1,"queryId":"q","event":"retrieval","shadow":false,"candidates":[],"runId":123}\n`,
+    );
+    const store = makeStore();
+    expect(importEventsFromJsonl(store, path)).toBe(0);
+  });
+
+  it("accepts a fully-valid event of each variant", () => {
+    writeFileSync(path,
+      `{"ts":1,"queryId":"q","event":"retrieval","shadow":false,"candidates":[{"blockId":"b","score":0.9}]}\n` +
+      `{"ts":2,"queryId":"q","event":"injection","blockId":"b","score":0.9}\n` +
+      `{"ts":3,"queryId":"q","event":"agent_used","blockId":"b","matchSignal":"jaccard","matchScore":0.4}\n` +
+      `{"ts":4,"queryId":"q","event":"outcome","resolved":true,"control":false}\n`,
+    );
+    const store = makeStore();
+    expect(importEventsFromJsonl(store, path)).toBe(4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P3 — shadow/control authoritative source
+// ---------------------------------------------------------------------------
+
+describe("computeAggregates — shadow authoritative source", () => {
+  it("uses retrieval.shadow over outcome.control when they disagree", () => {
+    const store = makeStore();
+    // retrieval says shadow=true (i.e. a control query) but outcome
+    // self-reports control=false. Retrieval must win.
+    store.appendEvent({
+      ts: 1, queryId: "q1", event: "retrieval", candidates: [], shadow: true,
+    });
+    store.appendEvent({
+      ts: 2, queryId: "q1", event: "outcome", resolved: true, control: false, tokens: 100,
+    });
+    // Second query: retrieval says treatment, outcome reports control.
+    // Also a mismatch; treatment wins.
+    store.appendEvent({
+      ts: 3, queryId: "q2", event: "retrieval",
+      candidates: [{ blockId: "b", score: 0.9 }], shadow: false,
+    });
+    store.appendEvent({
+      ts: 4, queryId: "q2", event: "outcome", resolved: false, control: true, tokens: 200,
+    });
+
+    const agg = computeAggregates(store);
+    expect(agg.integrity.shadowControlMismatches).toBe(2);
+    // q1 → shadow bucket; q2 → treatment bucket per retrieval.
+    expect(agg.outcome.totalShadow).toBe(1);
+    expect(agg.outcome.totalTreatment).toBe(1);
+    expect(agg.outcome.resolvedShadow).toBe(1);
+    expect(agg.outcome.resolvedTreatment).toBe(0);
+  });
+
+  it("falls back to outcome.control when no retrieval is in the window", () => {
+    const store = makeStore();
+    store.appendEvent({
+      ts: 1, queryId: "orphan", event: "outcome", resolved: true, control: true,
+    });
+    const agg = computeAggregates(store);
+    expect(agg.integrity.outcomesWithoutRetrieval).toBe(1);
+    expect(agg.outcome.totalShadow).toBe(1);
+    expect(agg.integrity.shadowControlMismatches).toBe(0);
+  });
+
+  it("reports zero mismatches when flags agree", () => {
+    const store = makeStore();
+    store.appendEvent({
+      ts: 1, queryId: "q", event: "retrieval", candidates: [], shadow: true,
+    });
+    store.appendEvent({
+      ts: 2, queryId: "q", event: "outcome", resolved: false, control: true,
+    });
+    const agg = computeAggregates(store);
+    expect(agg.integrity.shadowControlMismatches).toBe(0);
+    expect(agg.integrity.outcomesWithoutRetrieval).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P4 — EventEmitter unifies SQLite + side-sink fan-out across helpers
+// ---------------------------------------------------------------------------
+
+describe("EventEmitter — unified fan-out", () => {
+  it("emitAgentUsed through EventEmitter reaches both SQLite and side-sink", () => {
+    const store = makeStore();
+    const sideCaptured: AnalyticsEvent[] = [];
+    const emitter = new EventEmitter(store, (ev) => sideCaptured.push(ev));
+
+    emitAgentUsed(emitter, {
+      queryId: "q", blockId: "b", matchSignal: "jaccard", matchScore: 0.5,
+    });
+
+    expect(store.countEvents("agent_used")).toBe(1);
+    expect(sideCaptured.length).toBe(1);
+    expect(sideCaptured[0].event).toBe("agent_used");
+  });
+
+  it("emitOutcome through EventEmitter reaches both SQLite and side-sink", () => {
+    const store = makeStore();
+    const sideCaptured: AnalyticsEvent[] = [];
+    const emitter = new EventEmitter(store, (ev) => sideCaptured.push(ev));
+
+    emitOutcome(emitter, {
+      queryId: "q", resolved: true, control: false, tokens: 200,
+    });
+
+    expect(store.countEvents("outcome")).toBe(1);
+    expect(sideCaptured.length).toBe(1);
+    expect(sideCaptured[0].event).toBe("outcome");
+  });
+
+  it("BlockServer + emit helpers sharing an emitter cover all four event types on one sink", () => {
+    const store = makeStore();
+    storeActive(store, SAMPLE);
+    const captured: AnalyticsEvent[] = [];
+    const emitter = new EventEmitter(store, (ev) => captured.push(ev));
+
+    const server = new BlockServer(store, { emitter });
+    const out = server.recall({ text: "metaclass inspect" });
+    const blockId = out.blocks[0]?.block.id ?? "b";
+    emitAgentUsed(emitter, {
+      queryId: out.queryId, blockId, matchSignal: "jaccard", matchScore: 0.5,
+    });
+    emitOutcome(emitter, {
+      queryId: out.queryId, resolved: true, control: false,
+    });
+
+    const types = new Set(captured.map((e) => e.event));
+    expect(types.has("retrieval")).toBe(true);
+    expect(types.has("injection")).toBe(true);
+    expect(types.has("agent_used")).toBe(true);
+    expect(types.has("outcome")).toBe(true);
+  });
+
+  it("emitAgentUsed(store) still works as BlockStore back-compat", () => {
+    const store = makeStore();
+    emitAgentUsed(store, {
+      queryId: "q", blockId: "b", matchSignal: "jaccard", matchScore: 0.5,
+    });
+    expect(store.countEvents("agent_used")).toBe(1);
+  });
+
+  it("side-sink exceptions never break EventEmitter.emit", () => {
+    const store = makeStore();
+    const emitter = new EventEmitter(store, () => { throw new Error("boom"); });
+    expect(() => emitAgentUsed(emitter, {
+      queryId: "q", blockId: "b", matchSignal: "jaccard", matchScore: 0.5,
+    })).not.toThrow();
+    expect(store.countEvents("agent_used")).toBe(1);
+  });
+
+  it("BlockServer prefers opts.emitter when both emitter and sideSink are given", () => {
+    const store = makeStore();
+    storeActive(store, SAMPLE);
+    const emitterCaptured: AnalyticsEvent[] = [];
+    const sideCaptured: AnalyticsEvent[] = [];
+    const emitter = new EventEmitter(store, (ev) => emitterCaptured.push(ev));
+
+    const server = new BlockServer(store, {
+      emitter,
+      sideSink: (ev) => sideCaptured.push(ev),
+    });
+    server.recall({ text: "metaclass inspect" });
+
+    // emitter fires, sideSink option is ignored (the user should put
+    // the sink inside the emitter if they want it covering emit*).
+    expect(emitterCaptured.length).toBeGreaterThan(0);
+    expect(sideCaptured.length).toBe(0);
   });
 });

@@ -87,6 +87,11 @@ export class JsonlEventSink {
 /**
  * One-shot export of all events from the BlockStore to a JSONL file.
  * Overwrites any existing file at `path`. Returns the number written.
+ *
+ * runId survives the round-trip: after the Phase 3 fix, `readEvents`
+ * returns events with their `runId` already embedded at the top level,
+ * so `sink.append(event)` writes it as-is and `importEventsFromJsonl`
+ * recovers it via the same top-level field.
  */
 export function exportEventsToJsonl(store: BlockStore, path: string): number {
   const sink = new JsonlEventSink(path);
@@ -106,11 +111,9 @@ export function exportEventsToJsonl(store: BlockStore, path: string): number {
 
 /**
  * One-shot import of events from JSONL into the BlockStore. Returns the
- * number imported. Skips events that fail schema validation (wrong type
- * / missing fields).
- *
- * Use case: migrating between deployments, restoring from backup, or
- * sharing trace runs between developers.
+ * number imported. Events that fail strict per-variant schema
+ * validation are skipped rather than imported with missing fields —
+ * half-valid events would silently corrupt aggregate metrics.
  */
 export function importEventsFromJsonl(store: BlockStore, path: string): number {
   if (!existsSync(path)) return 0;
@@ -118,33 +121,130 @@ export function importEventsFromJsonl(store: BlockStore, path: string): number {
   let n = 0;
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
-    let ev: AnalyticsEvent;
+    let parsed: unknown;
     try {
-      ev = JSON.parse(line) as AnalyticsEvent;
-      if (!isValidEvent(ev)) continue;
+      parsed = JSON.parse(line);
     } catch {
       continue;
     }
-    const extra = extractExtra(ev as unknown as Record<string, unknown>);
-    store.appendEvent(ev, extra);
+    if (!isValidEvent(parsed)) continue;
+    // After isValidEvent, the top-level runId (if any) is already on the
+    // parsed object — `appendEvent` preserves it via event.runId.
+    store.appendEvent(parsed);
     n++;
   }
   return n;
 }
 
+// ---------------------------------------------------------------------------
+// Strict per-variant event validation.
+//
+// A half-valid event (missing required fields for its union case) would
+// silently miscount aggregates. Validate each case strictly so imports
+// reject bad rows at the boundary rather than letting them contaminate
+// the event log.
+// ---------------------------------------------------------------------------
+
 function isValidEvent(ev: unknown): ev is AnalyticsEvent {
   if (!ev || typeof ev !== "object") return false;
   const e = ev as Record<string, unknown>;
-  if (typeof e.ts !== "number") return false;
-  if (typeof e.queryId !== "string") return false;
-  return e.event === "retrieval" || e.event === "injection"
-      || e.event === "agent_used" || e.event === "outcome";
+  if (typeof e.ts !== "number" || !Number.isFinite(e.ts)) return false;
+  if (typeof e.queryId !== "string" || e.queryId.length === 0) return false;
+  if (e.runId !== undefined && typeof e.runId !== "string") return false;
+
+  switch (e.event) {
+    case "retrieval":       return isValidRetrieval(e);
+    case "injection":       return isValidInjection(e);
+    case "agent_used":      return isValidAgentUsed(e);
+    case "outcome":         return isValidOutcome(e);
+    default:                return false;
+  }
 }
 
-function extractExtra(raw: Record<string, unknown>): { runId?: string } {
-  const out: { runId?: string } = {};
-  if (typeof raw.runId === "string") out.runId = raw.runId;
-  return out;
+function isValidRetrieval(e: Record<string, unknown>): boolean {
+  if (typeof e.shadow !== "boolean") return false;
+  if (!Array.isArray(e.candidates)) return false;
+  for (const c of e.candidates) {
+    if (!c || typeof c !== "object") return false;
+    const cc = c as Record<string, unknown>;
+    if (typeof cc.blockId !== "string" || cc.blockId.length === 0) return false;
+    if (typeof cc.score !== "number" || !Number.isFinite(cc.score)) return false;
+  }
+  return true;
+}
+
+function isValidInjection(e: Record<string, unknown>): boolean {
+  if (typeof e.blockId !== "string" || e.blockId.length === 0) return false;
+  if (typeof e.score !== "number" || !Number.isFinite(e.score)) return false;
+  if (e.calibratedProb !== undefined &&
+      (typeof e.calibratedProb !== "number" || !Number.isFinite(e.calibratedProb))) {
+    return false;
+  }
+  return true;
+}
+
+function isValidAgentUsed(e: Record<string, unknown>): boolean {
+  if (typeof e.blockId !== "string" || e.blockId.length === 0) return false;
+  if (e.matchSignal !== "jaccard" && e.matchSignal !== "embedding" && e.matchSignal !== "explicit") {
+    return false;
+  }
+  if (typeof e.matchScore !== "number" || !Number.isFinite(e.matchScore)) return false;
+  return true;
+}
+
+function isValidOutcome(e: Record<string, unknown>): boolean {
+  if (typeof e.resolved !== "boolean") return false;
+  if (typeof e.control !== "boolean") return false;
+  if (e.regressed !== undefined && typeof e.regressed !== "boolean") return false;
+  if (e.tokens !== undefined && (typeof e.tokens !== "number" || !Number.isFinite(e.tokens))) return false;
+  if (e.steps !== undefined && (typeof e.steps !== "number" || !Number.isFinite(e.steps))) return false;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// EventEmitter — unified emission with optional side-sink fan-out.
+//
+// Motivation: without this abstraction, a high-volume client could
+// easily wire a JSONL sink into `BlockServer` (covering retrieval +
+// injection) but forget to thread the same sink through
+// `emitAgentUsed` / `emitOutcome` — producing a silent undercount.
+// EventEmitter carries the sink and the store together so any emission
+// surface gets both destinations for free.
+// ---------------------------------------------------------------------------
+
+export type SideSink = (
+  event: AnalyticsEvent,
+  extra?: { runId?: string },
+) => void;
+
+export class EventEmitter {
+  constructor(
+    private readonly store: BlockStore,
+    private readonly sideSink?: SideSink,
+  ) {}
+
+  /** Persist the event to SQLite and fan out to the side sink if set. */
+  emit(event: AnalyticsEvent, extra?: { runId?: string }): void {
+    this.store.appendEvent(event, extra);
+    if (this.sideSink) {
+      try {
+        this.sideSink(event, extra);
+      } catch {
+        // Bad side sinks must never break emission.
+      }
+    }
+  }
+
+  /** Convenience: the underlying BlockStore (for callers that need both). */
+  get blockStore(): BlockStore {
+    return this.store;
+  }
+}
+
+type EmitTarget = BlockStore | EventEmitter;
+
+function toEmitter(target: EmitTarget): EventEmitter {
+  return target instanceof EventEmitter ? target : new EventEmitter(target);
 }
 
 // ---------------------------------------------------------------------------
@@ -156,9 +256,12 @@ function extractExtra(raw: Record<string, unknown>): { runId?: string } {
  * Middleware / evaluator wrappers call this after they observe that the
  * agent's output resembled the injected block (e.g. Jaccard ≥ τ on the
  * agent's patch vs. the block's unlock text, or explicit mention by id).
+ *
+ * Accepts either a BlockStore (back-compat, no side-sink fan-out) or an
+ * EventEmitter (will also fan out to a JSONL sink if configured).
  */
 export function emitAgentUsed(
-  store: BlockStore,
+  target: EmitTarget,
   args: {
     queryId: string;
     blockId: string;
@@ -176,7 +279,7 @@ export function emitAgentUsed(
     matchSignal: args.matchSignal,
     matchScore: args.matchScore,
   };
-  store.appendEvent(ev, { runId: args.runId });
+  toEmitter(target).emit(ev, args.runId !== undefined ? { runId: args.runId } : undefined);
   return ev;
 }
 
@@ -184,9 +287,12 @@ export function emitAgentUsed(
  * Emit an `outcome` event for a task run. `control=true` marks the
  * query as part of the shadow control group (no injection was shown).
  * `resolved` is the grader-verified pass/fail, not a self-report.
+ *
+ * Accepts either a BlockStore (back-compat) or an EventEmitter (fans
+ * out to the configured side sink in addition to SQLite).
  */
 export function emitOutcome(
-  store: BlockStore,
+  target: EmitTarget,
   args: {
     queryId: string;
     resolved: boolean;
@@ -208,7 +314,7 @@ export function emitOutcome(
     ...(args.tokens !== undefined ? { tokens: args.tokens } : {}),
     ...(args.steps !== undefined ? { steps: args.steps } : {}),
   };
-  store.appendEvent(ev, { runId: args.runId });
+  toEmitter(target).emit(ev, args.runId !== undefined ? { runId: args.runId } : undefined);
   return ev;
 }
 
@@ -271,12 +377,35 @@ export interface PerBlockStats {
   neutral: number;
 }
 
+export interface AggregateIntegrity {
+  /**
+   * Number of queries where the retrieval event's `shadow` flag
+   * disagreed with the outcome event's `control` flag. Retrieval's
+   * flag is treated as authoritative (it reflects what actually
+   * happened at serving time); this counter surfaces data-quality
+   * issues rather than silently distorting lift metrics.
+   */
+  shadowControlMismatches: number;
+  /**
+   * Number of outcome events that had no corresponding retrieval
+   * event in the aggregation window. Such outcomes fall back to the
+   * outcome's own `control` field for classification.
+   */
+  outcomesWithoutRetrieval: number;
+}
+
 export interface EventAggregates {
   counts: AggregateCounts;
   retrieval: RetrievalSplit;
   outcome: OutcomeSplit;
   rates: AggregateRates;
   perBlock: PerBlockStats[];
+  /**
+   * Integrity diagnostics. Non-zero values do not invalidate the
+   * metrics — they signal that upstream instrumentation has data-
+   * quality issues a caller may want to fix before trusting lift.
+   */
+  integrity: AggregateIntegrity;
   /** The window used; undefined on either side means "open-ended". */
   window: { afterTs?: number; beforeTs?: number };
 }
@@ -387,7 +516,11 @@ export function computeAggregates(
     }
   }
 
-  // Outcome split.
+  // Outcome split — classify each outcome as shadow or treatment using
+  // the retrieval event's `shadow` flag as authoritative. If the outcome
+  // has no matching retrieval event in the window, fall back to its own
+  // `control` field but flag it. Mismatches between retrieval.shadow
+  // and outcome.control are counted for integrity reporting.
   const outcomeSplit: OutcomeSplit = {
     totalTreatment: 0,
     totalShadow: 0,
@@ -396,8 +529,19 @@ export function computeAggregates(
     tokensTreatment: [],
     tokensShadow: [],
   };
-  for (const outcome of outcomeByQuery.values()) {
-    if (outcome.control) {
+  let shadowControlMismatches = 0;
+  let outcomesWithoutRetrieval = 0;
+  for (const [queryId, outcome] of outcomeByQuery) {
+    const retrievalShadow = shadowByQuery.get(queryId);
+    let effectiveShadow: boolean;
+    if (retrievalShadow === undefined) {
+      outcomesWithoutRetrieval++;
+      effectiveShadow = outcome.control;
+    } else {
+      effectiveShadow = retrievalShadow;
+      if (retrievalShadow !== outcome.control) shadowControlMismatches++;
+    }
+    if (effectiveShadow) {
       outcomeSplit.totalShadow++;
       if (outcome.resolved) outcomeSplit.resolvedShadow++;
       if (typeof outcome.tokens === "number") outcomeSplit.tokensShadow.push(outcome.tokens);
@@ -457,6 +601,10 @@ export function computeAggregates(
     outcome: outcomeSplit,
     rates,
     perBlock: [...perBlockMap.values()].sort((a, b) => b.helpful - a.helpful),
+    integrity: {
+      shadowControlMismatches,
+      outcomesWithoutRetrieval,
+    },
     window: {
       ...(opts.afterTs !== undefined ? { afterTs: opts.afterTs } : {}),
       ...(opts.beforeTs !== undefined ? { beforeTs: opts.beforeTs } : {}),

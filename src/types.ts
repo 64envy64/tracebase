@@ -781,6 +781,14 @@ export type AnalyticsEvent =
 interface EventBase {
   ts: number;
   queryId: string;
+  /**
+   * Optional correlation id for grouping events produced by a single
+   * evaluation / benchmark / user session. Preserved by storage,
+   * JSONL export, and aggregation filters. May be provided via the
+   * event object directly or via `appendEvent`'s `extra` param — if
+   * both are given, the `extra` value wins.
+   */
+  runId?: string;
 }
 
 export interface RetrievalEvent extends EventBase {

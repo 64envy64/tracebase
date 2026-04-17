@@ -89,6 +89,7 @@ export type {
 // v2 analytics (Phase 3 — see docs/DESIGN_v2.md §L6)
 export {
   JsonlEventSink,
+  EventEmitter,
   exportEventsToJsonl,
   importEventsFromJsonl,
   emitAgentUsed,
@@ -96,11 +97,13 @@ export {
   computeAggregates,
 } from "./core/analytics.js";
 export type {
+  SideSink,
   AggregateCounts,
   RetrievalSplit,
   OutcomeSplit,
   AggregateRates,
   PerBlockStats,
+  AggregateIntegrity,
   EventAggregates,
   AggregateOptions,
 } from "./core/analytics.js";

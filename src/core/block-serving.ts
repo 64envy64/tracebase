@@ -28,6 +28,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { BlockStore } from "./block-store.js";
+import { EventEmitter, type SideSink } from "./analytics.js";
 import type {
   ReasoningBlock,
   BlockCaseRef,
@@ -116,12 +117,23 @@ export interface BlockServerOptions {
   /** Override Date.now() for deterministic tests. */
   now?: () => number;
   /**
-   * Optional side-channel sink — invoked once per emitted event, in
-   * addition to the SQLite event log. Use this to fan out to a JSONL
-   * file, a message queue, or any other sink. Errors are swallowed so
-   * a bad side-sink never breaks retrieval.
+   * Unified emission channel. When provided, retrieval / injection
+   * events flow through this emitter and benefit from whatever side
+   * sinks it carries. If unset, a default emitter is built from
+   * `store` and (optionally) `sideSink`.
+   *
+   * Prefer this over `sideSink` when `emitAgentUsed` / `emitOutcome`
+   * are also called in the same deployment — a single shared emitter
+   * ensures all four event types reach the same destinations.
    */
-  sideSink?: (event: import("../types.js").AnalyticsEvent, extra?: { runId?: string }) => void;
+  emitter?: EventEmitter;
+  /**
+   * Convenience: when no `emitter` is provided, this side-channel is
+   * attached to the default emitter for retrieval / injection events.
+   * Ignored when `emitter` is provided (configure the emitter instead).
+   * Errors are swallowed so a bad sink never breaks retrieval.
+   */
+  sideSink?: SideSink;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +146,7 @@ export class BlockServer {
   private readonly calibrator: Calibrator;
   private readonly emitEvents: boolean;
   private readonly now: () => number;
-  private readonly sideSink?: BlockServerOptions["sideSink"];
+  private readonly emitter: EventEmitter;
 
   constructor(store: BlockStore, opts: BlockServerOptions = {}) {
     this.store = store;
@@ -142,7 +154,10 @@ export class BlockServer {
     this.calibrator = opts.calibrator ?? identityCalibrator;
     this.emitEvents = opts.emitEvents ?? true;
     this.now = opts.now ?? Date.now;
-    this.sideSink = opts.sideSink;
+    // Unified emission: either the caller-supplied emitter (preferred,
+    // shared with emit helpers) or a fresh one wrapping the store and
+    // optional sideSink shim.
+    this.emitter = opts.emitter ?? new EventEmitter(store, opts.sideSink);
   }
 
   /**
@@ -341,8 +356,7 @@ export class BlockServer {
       candidates: hits.map((h) => ({ blockId: h.block.id, score: h.score })),
       shadow,
     };
-    this.store.appendEvent(ev, { runId });
-    this.fanOut(ev, { runId });
+    this.emitter.emit(ev, runId !== undefined ? { runId } : undefined);
   }
 
   private emitInjection(queryId: string, hit: BlockHit, runId?: string): void {
@@ -354,20 +368,7 @@ export class BlockServer {
       score: hit.score,
       calibratedProb: hit.calibratedProb,
     };
-    this.store.appendEvent(ev, { runId });
-    this.fanOut(ev, { runId });
-  }
-
-  private fanOut(
-    ev: import("../types.js").AnalyticsEvent,
-    extra?: { runId?: string },
-  ): void {
-    if (!this.sideSink) return;
-    try {
-      this.sideSink(ev, extra);
-    } catch {
-      // A bad side-sink must never break retrieval.
-    }
+    this.emitter.emit(ev, runId !== undefined ? { runId } : undefined);
   }
 }
 

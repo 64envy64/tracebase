@@ -1065,6 +1065,19 @@ export class BlockStore {
   // -------------------------------------------------------------------------
 
   appendEvent(event: AnalyticsEvent, extra?: { runId?: string }): number {
+    // Resolve the effective runId: `extra` wins (so explicit emit-site
+    // overrides whatever happens to be on the event), else fall back to
+    // the event's own runId (for imports / JSONL read-back).
+    const effectiveRunId = extra?.runId ?? event.runId ?? null;
+
+    // Embed runId in the stored payload so `readEvents` round-trips it
+    // without an extra SELECT column join. Previously the `run_id`
+    // column was written but readEvents returned only the payload JSON,
+    // which silently dropped runId on JSONL export.
+    const payload = effectiveRunId !== null
+      ? { ...event, runId: effectiveRunId }
+      : event;
+
     const blockId =
       event.event === "injection" || event.event === "agent_used" ? event.blockId : null;
     const shadow =
@@ -1082,9 +1095,9 @@ export class BlockStore {
         event.event,
         event.queryId,
         blockId,
-        extra?.runId ?? null,
+        effectiveRunId,
         shadow,
-        JSON.stringify(event),
+        JSON.stringify(payload),
       );
     return Number(res.lastInsertRowid);
   }
@@ -1110,14 +1123,22 @@ export class BlockStore {
     if (opts.blockId) { clauses.push("block_id = @blockId"); params.blockId = opts.blockId; }
     if (opts.runId)   { clauses.push("run_id = @runId"); params.runId = opts.runId; }
 
+    // Also select `run_id` so that legacy rows (written before runId
+    // was embedded in the payload) still round-trip correctly.
     const sql = `
-      SELECT payload FROM analytics_events
+      SELECT payload, run_id FROM analytics_events
       ${clauses.length ? "WHERE " + clauses.join(" AND ") : ""}
       ORDER BY ts ASC, id ASC
       LIMIT @limit
     `;
-    const rows = this.db.prepare(sql).all(params) as Array<{ payload: string }>;
-    return rows.map((r) => JSON.parse(r.payload) as AnalyticsEvent);
+    const rows = this.db.prepare(sql).all(params) as Array<{ payload: string; run_id: string | null }>;
+    return rows.map((r) => {
+      const ev = JSON.parse(r.payload) as AnalyticsEvent;
+      if (r.run_id && ev.runId === undefined) {
+        ev.runId = r.run_id;
+      }
+      return ev;
+    });
   }
 
   countEvents(eventType?: AnalyticsEvent["event"]): number {
