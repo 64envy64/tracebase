@@ -1,0 +1,2171 @@
+{
+  "info": {
+    "model_stats": {
+      "instance_cost": 0.14029245,
+      "api_calls": 20
+    },
+    "config": {
+      "agent": {
+        "system_template": "You are a helpful assistant that can interact with a computer shell to solve programming tasks.\n",
+        "instance_template": "<pr_description>\nConsider the following PR description:\n{{task}}\n</pr_description>\n\n<instructions>\nYou're a software engineer fixing a bug in /testbed.\nMake changes ONLY to non-test source files.\n\nWorkflow:\n1. Analyze the codebase by finding and reading relevant files\n2. Create a minimal reproduction if useful\n3. Edit the source code to resolve the issue\n4. Submit your patch\n\nCommand rules:\n- Each response: reasoning + at least one bash tool call\n- Directory changes NOT persistent. Use `cd /testbed && ...`\n- Non-interactive flags (-y, -f). No vi/nano.\n\nSubmission:\nStep 1: `cd /testbed && git diff -- file1.py > /tmp/patch.txt`\nStep 2: `cat /tmp/patch.txt`\nStep 3: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/patch.txt`\nCreating the patch and submitting MUST be separate commands.\n</instructions>\n",
+        "step_limit": 40,
+        "cost_limit": 1.0,
+        "output_path": null
+      },
+      "agent_type": "__main__.ProgressTrackingAgent",
+      "model": {
+        "model_name": "anthropic/claude-sonnet-4-6",
+        "model_kwargs": {
+          "drop_params": true,
+          "temperature": 0.0,
+          "parallel_tool_calls": true
+        },
+        "litellm_model_registry": null,
+        "set_cache_control": "default_end",
+        "cost_tracking": "default",
+        "format_error_template": "Tool call error:\n<error>{{error}}</error>\nEvery response needs the 'bash' tool.\n",
+        "observation_template": "{% if output.exception_info -%}\n<exception>{{output.exception_info}}</exception>\n{% endif -%}\n<returncode>{{output.returncode}}</returncode>\n{% if output.output | length < 10000 -%}\n<output>\n{{ output.output -}}\n</output>\n{%- else -%}\n<output_head>\n{{ output.output[:5000] }}\n</output_head>\n<output_tail>\n{{ output.output[-5000:] }}\n</output_tail>\n{%- endif -%}\n",
+        "multimodal_regex": ""
+      },
+      "model_type": "minisweagent.models.litellm_model.LitellmModel",
+      "environment": {
+        "image": "docker.io/swebench/sweb.eval.x86_64.astropy_1776_astropy-14995:latest",
+        "cwd": "/testbed",
+        "env": {
+          "PAGER": "cat",
+          "MANPAGER": "cat",
+          "LESS": "-R",
+          "PIP_PROGRESS_BAR": "off",
+          "TQDM_DISABLE": "1"
+        },
+        "forward_env": [],
+        "timeout": 60,
+        "executable": "docker",
+        "run_args": [
+          "--rm"
+        ],
+        "container_timeout": "2h",
+        "pull_timeout": 120,
+        "interpreter": [
+          "bash",
+          "-c"
+        ]
+      },
+      "environment_type": "minisweagent.environments.docker.DockerEnvironment"
+    },
+    "mini_version": "2.2.8",
+    "exit_status": "Submitted",
+    "submission": "diff --git a/astropy/nddata/mixins/ndarithmetic.py b/astropy/nddata/mixins/ndarithmetic.py\nindex 4153dfccb..28c34ca32 100644\n--- a/astropy/nddata/mixins/ndarithmetic.py\n+++ b/astropy/nddata/mixins/ndarithmetic.py\n@@ -522,6 +522,9 @@ class NDArithmeticMixin:\n             return deepcopy(operand.mask)\n         elif operand is None:\n             return deepcopy(self.mask)\n+        elif operand.mask is None:\n+            # Make a copy so there is no reference in the result.\n+            return deepcopy(self.mask)\n         else:\n             # Now lets calculate the resulting mask (operation enforces copy)\n             return handle_mask(self.mask, operand.mask, **kwds)\n"
+  },
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant that can interact with a computer shell to solve programming tasks."
+    },
+    {
+      "role": "user",
+      "content": "<pr_description>\nConsider the following PR description:\nIn v5.3, NDDataRef mask propagation fails when one of the operand does not have a mask\n### Description\n\nThis applies to v5.3. \r\n\r\nIt looks like when one of the operand does not have a mask, the mask propagation when doing arithmetic, in particular with `handle_mask=np.bitwise_or` fails.  This is not a problem in v5.2.\r\n\r\nI don't know enough about how all that works, but it seems from the error that the operand without a mask is set as a mask of None's and then the bitwise_or tries to operate on an integer and a None and fails.\n\n### Expected behavior\n\nWhen one of the operand does not have mask, the mask that exists should just be copied over to the output.  Or whatever was done in that situation in v5.2 where there's no problem.\n\n### How to Reproduce\n\nThis is with v5.3.   With v5.2, there are no errors.\r\n\r\n```\r\n>>> import numpy as np\r\n>>> from astropy.nddata import NDDataRef\r\n\r\n>>> array = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])\r\n>>> mask = np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]])\r\n\r\n>>> nref_nomask = NDDataRef(array)\r\n>>> nref_mask = NDDataRef(array, mask=mask)\r\n\r\n# multiply no mask by constant (no mask * no mask)\r\n>>> nref_nomask.multiply(1., handle_mask=np.bitwise_or).mask   # returns nothing, no mask,  OK\r\n\r\n# multiply no mask by itself (no mask * no mask)\r\n>>> nref_nomask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask # return nothing, no mask, OK\r\n\r\n# multiply mask by constant (mask * no mask)\r\n>>> nref_mask.multiply(1., handle_mask=np.bitwise_or).mask\r\n...\r\nTypeError: unsupported operand type(s) for |: 'int' and 'NoneType'\r\n\r\n# multiply mask by itself (mask * mask)\r\n>>> nref_mask.multiply(nref_mask, handle_mask=np.bitwise_or).mask\r\narray([[ 0,  1, 64],\r\n       [ 8,  0,  1],\r\n       [ 2,  1,  0]])\r\n\r\n# multiply mask by no mask (mask * no mask)\r\n>>> nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\r\n...\r\nTypeError: unsupported operand type(s) for |: 'int' and 'NoneType'\r\n```\r\n\n\n### Versions\n\n>>> import sys; print(\"Python\", sys.version)\r\nPython 3.10.11 | packaged by conda-forge | (main, May 10 2023, 19:07:22) [Clang 14.0.6 ]\r\n>>> import astropy; print(\"astropy\", astropy.__version__)\r\nastropy 5.3\r\n>>> import numpy; print(\"Numpy\", numpy.__version__)\r\nNumpy 1.24.3\r\n>>> import erfa; print(\"pyerfa\", erfa.__version__)\r\npyerfa 2.0.0.3\r\n>>> import scipy; print(\"Scipy\", scipy.__version__)\r\nScipy 1.10.1\r\n>>> import matplotlib; print(\"Matplotlib\", matplotlib.__version__)\r\nMatplotlib 3.7.1\r\n\n\n</pr_description>\n\n<instructions>\nYou're a software engineer fixing a bug in /testbed.\nMake changes ONLY to non-test source files.\n\nWorkflow:\n1. Analyze the codebase by finding and reading relevant files\n2. Create a minimal reproduction if useful\n3. Edit the source code to resolve the issue\n4. Submit your patch\n\nCommand rules:\n- Each response: reasoning + at least one bash tool call\n- Directory changes NOT persistent. Use `cd /testbed && ...`\n- Non-interactive flags (-y, -f). No vi/nano.\n\nSubmission:\nStep 1: `cd /testbed && git diff -- file1.py > /tmp/patch.txt`\nStep 2: `cat /tmp/patch.txt`\nStep 3: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/patch.txt`\nCreating the patch and submitting MUST be separate commands.\n</instructions>"
+    },
+    {
+      "content": "Let me start by analyzing the codebase to understand the issue.",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"find /testbed -type f -name \\\"*.py\\\" | xargs grep -l \\\"handle_mask\\\" | head -20\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01Xe8ScdZLo2hqTWvLCWCWN5",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "find /testbed -type f -name \"*.py\" | xargs grep -l \"handle_mask\" | head -20",
+            "tool_call_id": "toolu_01Xe8ScdZLo2hqTWvLCWCWN5"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-ca1519d0-8723-46b2-9465-2d5c28870bb0",
+          "created": 1776377435,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "Let me start by analyzing the codebase to understand the issue.",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"find /testbed -type f -name \\\"*.py\\\" | xargs grep -l \\\"handle_mask\\\" | head -20\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01Xe8ScdZLo2hqTWvLCWCWN5",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 93,
+            "prompt_tokens": 1644,
+            "total_tokens": 1737,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 93
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 0,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 0,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.006326999999999999,
+        "timestamp": 1776377435.482719
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n/testbed/astropy/nddata/mixins/ndarithmetic.py\n/testbed/astropy/nddata/mixins/tests/test_ndarithmetic.py\n</output>",
+      "extra": {
+        "raw_output": "/testbed/astropy/nddata/mixins/ndarithmetic.py\n/testbed/astropy/nddata/mixins/tests/test_ndarithmetic.py\n",
+        "returncode": 0,
+        "timestamp": 1776377435.823623,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01Xe8ScdZLo2hqTWvLCWCWN5",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && grep -n \\\"handle_mask\\\\|_arithmetic_mask\\\" astropy/nddata/mixins/ndarithmetic.py | head -60\"}",
+            "name": "bash"
+          },
+          "id": "toolu_017q9vTJ5MZddLA6DpKuytsH",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && grep -n \"handle_mask\\|_arithmetic_mask\" astropy/nddata/mixins/ndarithmetic.py | head -60",
+            "tool_call_id": "toolu_017q9vTJ5MZddLA6DpKuytsH"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-0c370f84-f235-4806-b66f-3991ade0679f",
+          "created": 1776377437,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && grep -n \\\"handle_mask\\\\|_arithmetic_mask\\\" astropy/nddata/mixins/ndarithmetic.py | head -60\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_017q9vTJ5MZddLA6DpKuytsH",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 88,
+            "prompt_tokens": 1808,
+            "total_tokens": 1896,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 88
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 0,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 0,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.006744,
+        "timestamp": 1776377437.7702029
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n44:    handle_mask : callable, ``'first_found'`` or ``None``, optional\n171:        handle_mask=np.logical_or,\n199:        handle_mask : callable, ``'first_found'`` or ``None``, optional\n221:            different :meth:`NDArithmeticMixin._arithmetic_mask` (or wcs, ...)\n323:        if handle_mask is None:\n329:        elif handle_mask in [\"ff\", \"first_found\"]:\n335:            kwargs[\"mask\"] = self._arithmetic_mask(\n336:                operation, operand, handle_mask, axis=axis, **kwds2[\"mask\"]\n485:    def _arithmetic_mask(self, operation, operand, handle_mask, axis=None, **kwds):\n502:        handle_mask : callable\n506:            Additional parameters given to ``handle_mask``.\n513:            ``handle_mask`` must create (and copy) the returned mask.\n518:        ) or handle_mask is None:\n527:            return handle_mask(self.mask, operand.mask, **kwds)\n742:            # for collapse operations, use astropy.utils.masked rather than handle_mask\n</output>",
+      "extra": {
+        "raw_output": "44:    handle_mask : callable, ``'first_found'`` or ``None``, optional\n171:        handle_mask=np.logical_or,\n199:        handle_mask : callable, ``'first_found'`` or ``None``, optional\n221:            different :meth:`NDArithmeticMixin._arithmetic_mask` (or wcs, ...)\n323:        if handle_mask is None:\n329:        elif handle_mask in [\"ff\", \"first_found\"]:\n335:            kwargs[\"mask\"] = self._arithmetic_mask(\n336:                operation, operand, handle_mask, axis=axis, **kwds2[\"mask\"]\n485:    def _arithmetic_mask(self, operation, operand, handle_mask, axis=None, **kwds):\n502:        handle_mask : callable\n506:            Additional parameters given to ``handle_mask``.\n513:            ``handle_mask`` must create (and copy) the returned mask.\n518:        ) or handle_mask is None:\n527:            return handle_mask(self.mask, operand.mask, **kwds)\n742:            # for collapse operations, use astropy.utils.masked rather than handle_mask\n",
+        "returncode": 0,
+        "timestamp": 1776377437.936645,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_017q9vTJ5MZddLA6DpKuytsH",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && sed -n '485,540p' astropy/nddata/mixins/ndarithmetic.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01ESqT4oNFFRUkNQHYphiW9F",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && sed -n '485,540p' astropy/nddata/mixins/ndarithmetic.py",
+            "tool_call_id": "toolu_01ESqT4oNFFRUkNQHYphiW9F"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-4b2584fd-924f-4b47-8194-52ae9a9320ac",
+          "created": 1776377439,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && sed -n '485,540p' astropy/nddata/mixins/ndarithmetic.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01ESqT4oNFFRUkNQHYphiW9F",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 79,
+            "prompt_tokens": 2205,
+            "total_tokens": 2284,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 79
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 0,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 2204,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 2204,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 2204,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.009453,
+        "timestamp": 1776377439.472278
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n    def _arithmetic_mask(self, operation, operand, handle_mask, axis=None, **kwds):\n        \"\"\"\n        Calculate the resulting mask.\n\n        This is implemented as the piecewise ``or`` operation if both have a\n        mask.\n\n        Parameters\n        ----------\n        operation : callable\n            see :meth:`NDArithmeticMixin._arithmetic` parameter description.\n            By default, the ``operation`` will be ignored.\n\n        operand : `NDData`-like instance\n            The second operand wrapped in an instance of the same class as\n            self.\n\n        handle_mask : callable\n            see :meth:`NDArithmeticMixin.add`\n\n        kwds :\n            Additional parameters given to ``handle_mask``.\n\n        Returns\n        -------\n        result_mask : any type\n            If only one mask was present this mask is returned.\n            If neither had a mask ``None`` is returned. Otherwise\n            ``handle_mask`` must create (and copy) the returned mask.\n        \"\"\"\n        # If only one mask is present we need not bother about any type checks\n        if (\n            self.mask is None and operand is not None and operand.mask is None\n        ) or handle_mask is None:\n            return None\n        elif self.mask is None and operand is not None:\n            # Make a copy so there is no reference in the result.\n            return deepcopy(operand.mask)\n        elif operand is None:\n            return deepcopy(self.mask)\n        else:\n            # Now lets calculate the resulting mask (operation enforces copy)\n            return handle_mask(self.mask, operand.mask, **kwds)\n\n    def _arithmetic_wcs(self, operation, operand, compare_wcs, **kwds):\n        \"\"\"\n        Calculate the resulting wcs.\n\n        There is actually no calculation involved but it is a good place to\n        compare wcs information of both operands. This is currently not working\n        properly with `~astropy.wcs.WCS` (which is the suggested class for\n        storing as wcs property) but it will not break it neither.\n\n        Parameters\n        ----------\n        operation : callable\n</output>",
+      "extra": {
+        "raw_output": "    def _arithmetic_mask(self, operation, operand, handle_mask, axis=None, **kwds):\n        \"\"\"\n        Calculate the resulting mask.\n\n        This is implemented as the piecewise ``or`` operation if both have a\n        mask.\n\n        Parameters\n        ----------\n        operation : callable\n            see :meth:`NDArithmeticMixin._arithmetic` parameter description.\n            By default, the ``operation`` will be ignored.\n\n        operand : `NDData`-like instance\n            The second operand wrapped in an instance of the same class as\n            self.\n\n        handle_mask : callable\n            see :meth:`NDArithmeticMixin.add`\n\n        kwds :\n            Additional parameters given to ``handle_mask``.\n\n        Returns\n        -------\n        result_mask : any type\n            If only one mask was present this mask is returned.\n            If neither had a mask ``None`` is returned. Otherwise\n            ``handle_mask`` must create (and copy) the returned mask.\n        \"\"\"\n        # If only one mask is present we need not bother about any type checks\n        if (\n            self.mask is None and operand is not None and operand.mask is None\n        ) or handle_mask is None:\n            return None\n        elif self.mask is None and operand is not None:\n            # Make a copy so there is no reference in the result.\n            return deepcopy(operand.mask)\n        elif operand is None:\n            return deepcopy(self.mask)\n        else:\n            # Now lets calculate the resulting mask (operation enforces copy)\n            return handle_mask(self.mask, operand.mask, **kwds)\n\n    def _arithmetic_wcs(self, operation, operand, compare_wcs, **kwds):\n        \"\"\"\n        Calculate the resulting wcs.\n\n        There is actually no calculation involved but it is a good place to\n        compare wcs information of both operands. This is currently not working\n        properly with `~astropy.wcs.WCS` (which is the suggested class for\n        storing as wcs property) but it will not break it neither.\n\n        Parameters\n        ----------\n        operation : callable\n",
+        "returncode": 0,
+        "timestamp": 1776377439.6608698,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01ESqT4oNFFRUkNQHYphiW9F",
+      "role": "tool"
+    },
+    {
+      "content": "Now I can see the issue. In the `_arithmetic_mask` method, when `self.mask is None` and `operand.mask is None`, it returns `None`. But when `self.mask` is not None and `operand.mask` is None, it falls through to the `else` branch and calls `handle_mask(self.mask, operand.mask, **kwds)` which tries to do `bitwise_or(int, None)`.\n\nLet me look at the condition more carefully:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && sed -n '515,530p' astropy/nddata/mixins/ndarithmetic.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01BUuCxA3uruNaUQKidAhtGp",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && sed -n '515,530p' astropy/nddata/mixins/ndarithmetic.py",
+            "tool_call_id": "toolu_01BUuCxA3uruNaUQKidAhtGp"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-4e5b245e-59f4-4157-ac88-43569b14c73f",
+          "created": 1776377442,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "Now I can see the issue. In the `_arithmetic_mask` method, when `self.mask is None` and `operand.mask is None`, it returns `None`. But when `self.mask` is not None and `operand.mask` is None, it falls through to the `else` branch and calls `handle_mask(self.mask, operand.mask, **kwds)` which tries to do `bitwise_or(int, None)`.\n\nLet me look at the condition more carefully:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && sed -n '515,530p' astropy/nddata/mixins/ndarithmetic.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01BUuCxA3uruNaUQKidAhtGp",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 194,
+            "prompt_tokens": 2820,
+            "total_tokens": 3014,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 194
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 0,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 2819,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 2819,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 2819,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.01348425,
+        "timestamp": 1776377442.61657
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n        # If only one mask is present we need not bother about any type checks\n        if (\n            self.mask is None and operand is not None and operand.mask is None\n        ) or handle_mask is None:\n            return None\n        elif self.mask is None and operand is not None:\n            # Make a copy so there is no reference in the result.\n            return deepcopy(operand.mask)\n        elif operand is None:\n            return deepcopy(self.mask)\n        else:\n            # Now lets calculate the resulting mask (operation enforces copy)\n            return handle_mask(self.mask, operand.mask, **kwds)\n\n    def _arithmetic_wcs(self, operation, operand, compare_wcs, **kwds):\n        \"\"\"\n</output>",
+      "extra": {
+        "raw_output": "        # If only one mask is present we need not bother about any type checks\n        if (\n            self.mask is None and operand is not None and operand.mask is None\n        ) or handle_mask is None:\n            return None\n        elif self.mask is None and operand is not None:\n            # Make a copy so there is no reference in the result.\n            return deepcopy(operand.mask)\n        elif operand is None:\n            return deepcopy(self.mask)\n        else:\n            # Now lets calculate the resulting mask (operation enforces copy)\n            return handle_mask(self.mask, operand.mask, **kwds)\n\n    def _arithmetic_wcs(self, operation, operand, compare_wcs, **kwds):\n        \"\"\"\n",
+        "returncode": 0,
+        "timestamp": 1776377442.811765,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01BUuCxA3uruNaUQKidAhtGp",
+      "role": "tool"
+    },
+    {
+      "content": "The issue is clear. The conditions are:\n1. If both masks are None \u2192 return None \u2713\n2. If `self.mask is None` and `operand is not None` (and `operand.mask` is not None) \u2192 return copy of operand.mask \u2713\n3. If `operand is None` \u2192 return copy of self.mask \u2713\n4. Else \u2192 call `handle_mask(self.mask, operand.mask)` \u2190 This is the problem!\n\nThe `else` branch handles the case where both masks exist, but it also catches the case where `self.mask` is not None but `operand.mask` is None (when operand is not None).\n\nThe fix should add a condition to handle the case where `self.mask` is not None but `operand.mask` is None:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && python -c \\\"\\nimport numpy as np\\nfrom astropy.nddata import NDDataRef\\n\\narray = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])\\nmask = np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]])\\n\\nnref_nomask = NDDataRef(array)\\nnref_mask = NDDataRef(array, mask=mask)\\n\\n# multiply mask by constant (mask * no mask)\\ntry:\\n    result = nref_mask.multiply(1., handle_mask=np.bitwise_or).mask\\n    print('mask * constant:', result)\\nexcept Exception as e:\\n    print('mask * constant ERROR:', e)\\n\\n# multiply mask by no mask (mask * no mask)\\ntry:\\n    result = nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\\n    print('mask * no mask:', result)\\nexcept Exception as e:\\n    print('mask * no mask ERROR:', e)\\n\\\"\\n\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01D597bEsvwfSJGuKbnfBz7j",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && python -c \"\nimport numpy as np\nfrom astropy.nddata import NDDataRef\n\narray = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])\nmask = np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]])\n\nnref_nomask = NDDataRef(array)\nnref_mask = NDDataRef(array, mask=mask)\n\n# multiply mask by constant (mask * no mask)\ntry:\n    result = nref_mask.multiply(1., handle_mask=np.bitwise_or).mask\n    print('mask * constant:', result)\nexcept Exception as e:\n    print('mask * constant ERROR:', e)\n\n# multiply mask by no mask (mask * no mask)\ntry:\n    result = nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\n    print('mask * no mask:', result)\nexcept Exception as e:\n    print('mask * no mask ERROR:', e)\n\"\n",
+            "tool_call_id": "toolu_01D597bEsvwfSJGuKbnfBz7j"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-c945a47d-06a9-4158-b318-f15f7abab590",
+          "created": 1776377450,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "The issue is clear. The conditions are:\n1. If both masks are None \u2192 return None \u2713\n2. If `self.mask is None` and `operand is not None` (and `operand.mask` is not None) \u2192 return copy of operand.mask \u2713\n3. If `operand is None` \u2192 return copy of self.mask \u2713\n4. Else \u2192 call `handle_mask(self.mask, operand.mask)` \u2190 This is the problem!\n\nThe `else` branch handles the case where both masks exist, but it also catches the case where `self.mask` is not None but `operand.mask` is None (when operand is not None).\n\nThe fix should add a condition to handle the case where `self.mask` is not None but `operand.mask` is None:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && python -c \\\"\\nimport numpy as np\\nfrom astropy.nddata import NDDataRef\\n\\narray = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])\\nmask = np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]])\\n\\nnref_nomask = NDDataRef(array)\\nnref_mask = NDDataRef(array, mask=mask)\\n\\n# multiply mask by constant (mask * no mask)\\ntry:\\n    result = nref_mask.multiply(1., handle_mask=np.bitwise_or).mask\\n    print('mask * constant:', result)\\nexcept Exception as e:\\n    print('mask * constant ERROR:', e)\\n\\n# multiply mask by no mask (mask * no mask)\\ntry:\\n    result = nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\\n    print('mask * no mask:', result)\\nexcept Exception as e:\\n    print('mask * no mask ERROR:', e)\\n\\\"\\n\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01D597bEsvwfSJGuKbnfBz7j",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 505,
+            "prompt_tokens": 3225,
+            "total_tokens": 3730,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 505
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 2819,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 405,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 405,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 405,
+            "cache_read_input_tokens": 2819,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00994245,
+        "timestamp": 1776377450.9625962
+      }
+    },
+    {
+      "content": "<returncode>1</returncode>\n<output>\nTraceback (most recent call last):\n  File \"<string>\", line 2, in <module>\nModuleNotFoundError: No module named 'numpy'\n</output>",
+      "extra": {
+        "raw_output": "Traceback (most recent call last):\n  File \"<string>\", line 2, in <module>\nModuleNotFoundError: No module named 'numpy'\n",
+        "returncode": 1,
+        "timestamp": 1776377451.322298,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01D597bEsvwfSJGuKbnfBz7j",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && pip install numpy -q && python -c \\\"\\nimport numpy as np\\nfrom astropy.nddata import NDDataRef\\n\\narray = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])\\nmask = np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]])\\n\\nnref_nomask = NDDataRef(array)\\nnref_mask = NDDataRef(array, mask=mask)\\n\\n# multiply mask by constant (mask * no mask)\\ntry:\\n    result = nref_mask.multiply(1., handle_mask=np.bitwise_or).mask\\n    print('mask * constant:', result)\\nexcept Exception as e:\\n    print('mask * constant ERROR:', e)\\n\\n# multiply mask by no mask (mask * no mask)\\ntry:\\n    result = nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\\n    print('mask * no mask:', result)\\nexcept Exception as e:\\n    print('mask * no mask ERROR:', e)\\n\\\"\\n\"}",
+            "name": "bash"
+          },
+          "id": "toolu_014w3EC2PpsU3bYrKx2iMn4d",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && pip install numpy -q && python -c \"\nimport numpy as np\nfrom astropy.nddata import NDDataRef\n\narray = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])\nmask = np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]])\n\nnref_nomask = NDDataRef(array)\nnref_mask = NDDataRef(array, mask=mask)\n\n# multiply mask by constant (mask * no mask)\ntry:\n    result = nref_mask.multiply(1., handle_mask=np.bitwise_or).mask\n    print('mask * constant:', result)\nexcept Exception as e:\n    print('mask * constant ERROR:', e)\n\n# multiply mask by no mask (mask * no mask)\ntry:\n    result = nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\n    print('mask * no mask:', result)\nexcept Exception as e:\n    print('mask * no mask ERROR:', e)\n\"\n",
+            "tool_call_id": "toolu_014w3EC2PpsU3bYrKx2iMn4d"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-a620aacc-e9a5-42cd-8165-7a70176178dc",
+          "created": 1776377454,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && pip install numpy -q && python -c \\\"\\nimport numpy as np\\nfrom astropy.nddata import NDDataRef\\n\\narray = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])\\nmask = np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]])\\n\\nnref_nomask = NDDataRef(array)\\nnref_mask = NDDataRef(array, mask=mask)\\n\\n# multiply mask by constant (mask * no mask)\\ntry:\\n    result = nref_mask.multiply(1., handle_mask=np.bitwise_or).mask\\n    print('mask * constant:', result)\\nexcept Exception as e:\\n    print('mask * constant ERROR:', e)\\n\\n# multiply mask by no mask (mask * no mask)\\ntry:\\n    result = nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\\n    print('mask * no mask:', result)\\nexcept Exception as e:\\n    print('mask * no mask ERROR:', e)\\n\\\"\\n\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_014w3EC2PpsU3bYrKx2iMn4d",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 320,
+            "prompt_tokens": 3796,
+            "total_tokens": 4116,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 320
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 3224,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 571,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 571,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 571,
+            "cache_read_input_tokens": 3224,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00791145,
+        "timestamp": 1776377454.565815
+      }
+    },
+    {
+      "content": "<returncode>1</returncode>\n<output>\nWARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv\nTraceback (most recent call last):\n  File \"<string>\", line 3, in <module>\n  File \"/testbed/astropy/__init__.py\", line 21, in <module>\n    from . import config as _config\n  File \"/testbed/astropy/config/__init__.py\", line 8, in <module>\n    from .configuration import *\n  File \"/testbed/astropy/config/configuration.py\", line 24, in <module>\n    from astropy.utils import find_current_module, silence\n  File \"/testbed/astropy/utils/__init__.py\", line 17, in <module>\n    from .codegen import *\n  File \"/testbed/astropy/utils/codegen.py\", line 12, in <module>\n    from .introspection import find_current_module\n  File \"/testbed/astropy/utils/introspection.py\", line 14, in <module>\n    from astropy.utils.decorators import deprecated_renamed_argument\n  File \"/testbed/astropy/utils/decorators.py\", line 13, in <module>\n    from .exceptions import (\n  File \"/testbed/astropy/utils/exceptions.py\", line 11, in <module>\n    from erfa import ErfaError, ErfaWarning  # noqa: F401\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'erfa'\n</output>",
+      "extra": {
+        "raw_output": "WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv\nTraceback (most recent call last):\n  File \"<string>\", line 3, in <module>\n  File \"/testbed/astropy/__init__.py\", line 21, in <module>\n    from . import config as _config\n  File \"/testbed/astropy/config/__init__.py\", line 8, in <module>\n    from .configuration import *\n  File \"/testbed/astropy/config/configuration.py\", line 24, in <module>\n    from astropy.utils import find_current_module, silence\n  File \"/testbed/astropy/utils/__init__.py\", line 17, in <module>\n    from .codegen import *\n  File \"/testbed/astropy/utils/codegen.py\", line 12, in <module>\n    from .introspection import find_current_module\n  File \"/testbed/astropy/utils/introspection.py\", line 14, in <module>\n    from astropy.utils.decorators import deprecated_renamed_argument\n  File \"/testbed/astropy/utils/decorators.py\", line 13, in <module>\n    from .exceptions import (\n  File \"/testbed/astropy/utils/exceptions.py\", line 11, in <module>\n    from erfa import ErfaError, ErfaWarning  # noqa: F401\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'erfa'\n",
+        "returncode": 1,
+        "timestamp": 1776377459.779628,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_014w3EC2PpsU3bYrKx2iMn4d",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && pip install -e . -q 2>&1 | tail -5\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01VhbzCbyVXtFxzsUS3cstzh",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && pip install -e . -q 2>&1 | tail -5",
+            "tool_call_id": "toolu_01VhbzCbyVXtFxzsUS3cstzh"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-44afe931-1e4d-4f20-80a9-b04bdc841415",
+          "created": 1776377462,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && pip install -e . -q 2>&1 | tail -5\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01VhbzCbyVXtFxzsUS3cstzh",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 71,
+            "prompt_tokens": 4533,
+            "total_tokens": 4604,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 71
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 3795,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 737,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 737,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 737,
+            "cache_read_input_tokens": 3795,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00497025,
+        "timestamp": 1776377462.1194339
+      }
+    },
+    {
+      "content": "<exception>An error occurred while executing the command: Command '['docker', 'exec', '-w', '/testbed', '-e', 'PAGER=cat', '-e', 'MANPAGER=cat', '-e', 'LESS=-R', '-e', 'PIP_PROGRESS_BAR=off', '-e', 'TQDM_DISABLE=1', '1690f9b20a91b2188bae240dd2bdafa0b009e56de9996f49c775b086ed8385a0', 'bash', '-c', 'cd /testbed && pip install -e . -q 2>&1 | tail -5']' timed out after 60 seconds</exception>\n<returncode>-1</returncode>\n<output>\n</output>",
+      "extra": {
+        "raw_output": "",
+        "returncode": -1,
+        "timestamp": 1776377522.16225,
+        "exception_info": "An error occurred while executing the command: Command '['docker', 'exec', '-w', '/testbed', '-e', 'PAGER=cat', '-e', 'MANPAGER=cat', '-e', 'LESS=-R', '-e', 'PIP_PROGRESS_BAR=off', '-e', 'TQDM_DISABLE=1', '1690f9b20a91b2188bae240dd2bdafa0b009e56de9996f49c775b086ed8385a0', 'bash', '-c', 'cd /testbed && pip install -e . -q 2>&1 | tail -5']' timed out after 60 seconds",
+        "exception_type": "TimeoutExpired",
+        "exception": "Command '['docker', 'exec', '-w', '/testbed', '-e', 'PAGER=cat', '-e', 'MANPAGER=cat', '-e', 'LESS=-R', '-e', 'PIP_PROGRESS_BAR=off', '-e', 'TQDM_DISABLE=1', '1690f9b20a91b2188bae240dd2bdafa0b009e56de9996f49c775b086ed8385a0', 'bash', '-c', 'cd /testbed && pip install -e . -q 2>&1 | tail -5']' timed out after 60 seconds"
+      },
+      "tool_call_id": "toolu_01VhbzCbyVXtFxzsUS3cstzh",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && python -c \\\"import sys; sys.path.insert(0, '.'); import astropy\\\" 2>&1 | head -5\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01QiXz1sgFRYoLRs17G2yYWP",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && python -c \"import sys; sys.path.insert(0, '.'); import astropy\" 2>&1 | head -5",
+            "tool_call_id": "toolu_01QiXz1sgFRYoLRs17G2yYWP"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-bc053c9f-b407-47ce-becc-9250312a6e44",
+          "created": 1776377524,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && python -c \\\"import sys; sys.path.insert(0, '.'); import astropy\\\" 2>&1 | head -5\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01QiXz1sgFRYoLRs17G2yYWP",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 85,
+            "prompt_tokens": 4805,
+            "total_tokens": 4890,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 85
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 4532,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 272,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 272,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 272,
+            "cache_read_input_tokens": 4532,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0036576,
+        "timestamp": 1776377524.2515001
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/testbed/astropy/__init__.py\", line 21, in <module>\n    from . import config as _config\n  File \"/testbed/astropy/config/__init__.py\", line 8, in <module>\n</output>",
+      "extra": {
+        "raw_output": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/testbed/astropy/__init__.py\", line 21, in <module>\n    from . import config as _config\n  File \"/testbed/astropy/config/__init__.py\", line 8, in <module>\n",
+        "returncode": 0,
+        "timestamp": 1776377524.5616798,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01QiXz1sgFRYoLRs17G2yYWP",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"which python3 && python3 -c \\\"import astropy; print(astropy.__version__)\\\"\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01DU7hDwwSMMcdiVDHuye9YR",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "which python3 && python3 -c \"import astropy; print(astropy.__version__)\"",
+            "tool_call_id": "toolu_01DU7hDwwSMMcdiVDHuye9YR"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-e587c592-e111-40ea-91d2-901c2be4d444",
+          "created": 1776377525,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"which python3 && python3 -c \\\"import astropy; print(astropy.__version__)\\\"\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01DU7hDwwSMMcdiVDHuye9YR",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 73,
+            "prompt_tokens": 4997,
+            "total_tokens": 5070,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 73
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 4532,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 464,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 464,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 464,
+            "cache_read_input_tokens": 4532,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.004197599999999999,
+        "timestamp": 1776377525.960726
+      }
+    },
+    {
+      "content": "<returncode>1</returncode>\n<output>\n/opt/miniconda3/bin/python3\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/testbed/astropy/__init__.py\", line 21, in <module>\n    from . import config as _config\n  File \"/testbed/astropy/config/__init__.py\", line 8, in <module>\n    from .configuration import *\n  File \"/testbed/astropy/config/configuration.py\", line 24, in <module>\n    from astropy.utils import find_current_module, silence\n  File \"/testbed/astropy/utils/__init__.py\", line 17, in <module>\n    from .codegen import *\n  File \"/testbed/astropy/utils/codegen.py\", line 12, in <module>\n    from .introspection import find_current_module\n  File \"/testbed/astropy/utils/introspection.py\", line 14, in <module>\n    from astropy.utils.decorators import deprecated_renamed_argument\n  File \"/testbed/astropy/utils/decorators.py\", line 13, in <module>\n    from .exceptions import (\n  File \"/testbed/astropy/utils/exceptions.py\", line 11, in <module>\n    from erfa import ErfaError, ErfaWarning  # noqa: F401\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'erfa'\n</output>",
+      "extra": {
+        "raw_output": "/opt/miniconda3/bin/python3\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/testbed/astropy/__init__.py\", line 21, in <module>\n    from . import config as _config\n  File \"/testbed/astropy/config/__init__.py\", line 8, in <module>\n    from .configuration import *\n  File \"/testbed/astropy/config/configuration.py\", line 24, in <module>\n    from astropy.utils import find_current_module, silence\n  File \"/testbed/astropy/utils/__init__.py\", line 17, in <module>\n    from .codegen import *\n  File \"/testbed/astropy/utils/codegen.py\", line 12, in <module>\n    from .introspection import find_current_module\n  File \"/testbed/astropy/utils/introspection.py\", line 14, in <module>\n    from astropy.utils.decorators import deprecated_renamed_argument\n  File \"/testbed/astropy/utils/decorators.py\", line 13, in <module>\n    from .exceptions import (\n  File \"/testbed/astropy/utils/exceptions.py\", line 11, in <module>\n    from erfa import ErfaError, ErfaWarning  # noqa: F401\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'erfa'\n",
+        "returncode": 1,
+        "timestamp": 1776377526.241824,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01DU7hDwwSMMcdiVDHuye9YR",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"find /opt/miniconda3 -name \\\"erfa\\\" -type d 2>/dev/null | head -5; pip show erfa 2>/dev/null; conda list erfa 2>/dev/null | head -5\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01BSFoBwUe1zSauhX4zB7ajB",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "find /opt/miniconda3 -name \"erfa\" -type d 2>/dev/null | head -5; pip show erfa 2>/dev/null; conda list erfa 2>/dev/null | head -5",
+            "tool_call_id": "toolu_01BSFoBwUe1zSauhX4zB7ajB"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-2b4d506f-8b62-4106-a431-32051af05328",
+          "created": 1776377528,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"find /opt/miniconda3 -name \\\"erfa\\\" -type d 2>/dev/null | head -5; pip show erfa 2>/dev/null; conda list erfa 2>/dev/null | head -5\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01BSFoBwUe1zSauhX4zB7ajB",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 104,
+            "prompt_tokens": 5450,
+            "total_tokens": 5554,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 104
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 4996,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 453,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 453,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 453,
+            "cache_read_input_tokens": 4996,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00476055,
+        "timestamp": 1776377528.4228559
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n/opt/miniconda3/envs/testbed/lib/python3.9/site-packages/erfa\n# packages in environment at /opt/miniconda3:\n#\n# Name                    Version                   Build  Channel\n</output>",
+      "extra": {
+        "raw_output": "/opt/miniconda3/envs/testbed/lib/python3.9/site-packages/erfa\n# packages in environment at /opt/miniconda3:\n#\n# Name                    Version                   Build  Channel\n",
+        "returncode": 0,
+        "timestamp": 1776377529.832395,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01BSFoBwUe1zSauhX4zB7ajB",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"/opt/miniconda3/envs/testbed/bin/python -c \\\"import astropy; print(astropy.__version__)\\\"\"}",
+            "name": "bash"
+          },
+          "id": "toolu_016PvCafVyMqCD4xt6cjUhU4",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "/opt/miniconda3/envs/testbed/bin/python -c \"import astropy; print(astropy.__version__)\"",
+            "tool_call_id": "toolu_016PvCafVyMqCD4xt6cjUhU4"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-949bb63d-6ff1-4ac5-aada-4b6de12fd74a",
+          "created": 1776377531,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"/opt/miniconda3/envs/testbed/bin/python -c \\\"import astropy; print(astropy.__version__)\\\"\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_016PvCafVyMqCD4xt6cjUhU4",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 82,
+            "prompt_tokens": 5636,
+            "total_tokens": 5718,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 82
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 5449,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 186,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 186,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 186,
+            "cache_read_input_tokens": 5449,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0035652,
+        "timestamp": 1776377531.472196
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n6.0.dev329+g1e905ced3\n</output>",
+      "extra": {
+        "raw_output": "6.0.dev329+g1e905ced3\n",
+        "returncode": 0,
+        "timestamp": 1776377532.3782358,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_016PvCafVyMqCD4xt6cjUhU4",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"/opt/miniconda3/envs/testbed/bin/python -c \\\"\\nimport numpy as np\\nfrom astropy.nddata import NDDataRef\\n\\narray = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])\\nmask = np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]])\\n\\nnref_nomask = NDDataRef(array)\\nnref_mask = NDDataRef(array, mask=mask)\\n\\n# multiply mask by constant (mask * no mask)\\ntry:\\n    result = nref_mask.multiply(1., handle_mask=np.bitwise_or).mask\\n    print('mask * constant:', result)\\nexcept Exception as e:\\n    print('mask * constant ERROR:', e)\\n\\n# multiply mask by no mask (mask * no mask)\\ntry:\\n    result = nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\\n    print('mask * no mask:', result)\\nexcept Exception as e:\\n    print('mask * no mask ERROR:', e)\\n\\\"\\n\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01LuMdx3Lh2QXDWvsqz1Nhzr",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "/opt/miniconda3/envs/testbed/bin/python -c \"\nimport numpy as np\nfrom astropy.nddata import NDDataRef\n\narray = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])\nmask = np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]])\n\nnref_nomask = NDDataRef(array)\nnref_mask = NDDataRef(array, mask=mask)\n\n# multiply mask by constant (mask * no mask)\ntry:\n    result = nref_mask.multiply(1., handle_mask=np.bitwise_or).mask\n    print('mask * constant:', result)\nexcept Exception as e:\n    print('mask * constant ERROR:', e)\n\n# multiply mask by no mask (mask * no mask)\ntry:\n    result = nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\n    print('mask * no mask:', result)\nexcept Exception as e:\n    print('mask * no mask ERROR:', e)\n\"\n",
+            "tool_call_id": "toolu_01LuMdx3Lh2QXDWvsqz1Nhzr"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-5bbebc76-bfa7-40f7-872a-6e94d0bc49f9",
+          "created": 1776377535,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"/opt/miniconda3/envs/testbed/bin/python -c \\\"\\nimport numpy as np\\nfrom astropy.nddata import NDDataRef\\n\\narray = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])\\nmask = np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]])\\n\\nnref_nomask = NDDataRef(array)\\nnref_mask = NDDataRef(array, mask=mask)\\n\\n# multiply mask by constant (mask * no mask)\\ntry:\\n    result = nref_mask.multiply(1., handle_mask=np.bitwise_or).mask\\n    print('mask * constant:', result)\\nexcept Exception as e:\\n    print('mask * constant ERROR:', e)\\n\\n# multiply mask by no mask (mask * no mask)\\ntry:\\n    result = nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\\n    print('mask * no mask:', result)\\nexcept Exception as e:\\n    print('mask * no mask ERROR:', e)\\n\\\"\\n\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01LuMdx3Lh2QXDWvsqz1Nhzr",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 325,
+            "prompt_tokens": 5760,
+            "total_tokens": 6085,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 325
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 5635,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 124,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 124,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 124,
+            "cache_read_input_tokens": 5635,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0070335,
+        "timestamp": 1776377535.768824
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nmask * constant ERROR: unsupported operand type(s) for |: 'int' and 'NoneType'\nmask * no mask ERROR: unsupported operand type(s) for |: 'int' and 'NoneType'\n</output>",
+      "extra": {
+        "raw_output": "mask * constant ERROR: unsupported operand type(s) for |: 'int' and 'NoneType'\nmask * no mask ERROR: unsupported operand type(s) for |: 'int' and 'NoneType'\n",
+        "returncode": 0,
+        "timestamp": 1776377537.148973,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01LuMdx3Lh2QXDWvsqz1Nhzr",
+      "role": "tool"
+    },
+    {
+      "content": "I've confirmed the bug. Now let me fix it. The issue is in the `_arithmetic_mask` method. When `self.mask` is not None but `operand.mask` is None (and operand is not None), it should return a copy of `self.mask` instead of calling `handle_mask`.",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && cat -n astropy/nddata/mixins/ndarithmetic.py | sed -n '514,530p'\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01NGzACjaHid4ScZdWzvSHBQ",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && cat -n astropy/nddata/mixins/ndarithmetic.py | sed -n '514,530p'",
+            "tool_call_id": "toolu_01NGzACjaHid4ScZdWzvSHBQ"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-4ba34fbc-a458-4bcf-b286-71fa7366f898",
+          "created": 1776377540,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "I've confirmed the bug. Now let me fix it. The issue is in the `_arithmetic_mask` method. When `self.mask` is not None but `operand.mask` is None (and operand is not None), it should return a copy of `self.mask` instead of calling `handle_mask`.",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && cat -n astropy/nddata/mixins/ndarithmetic.py | sed -n '514,530p'\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01NGzACjaHid4ScZdWzvSHBQ",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 154,
+            "prompt_tokens": 6171,
+            "total_tokens": 6325,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 154
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 5759,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 411,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 411,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 411,
+            "cache_read_input_tokens": 5759,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0055819500000000005,
+        "timestamp": 1776377540.4336178
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n   514\t        \"\"\"\n   515\t        # If only one mask is present we need not bother about any type checks\n   516\t        if (\n   517\t            self.mask is None and operand is not None and operand.mask is None\n   518\t        ) or handle_mask is None:\n   519\t            return None\n   520\t        elif self.mask is None and operand is not None:\n   521\t            # Make a copy so there is no reference in the result.\n   522\t            return deepcopy(operand.mask)\n   523\t        elif operand is None:\n   524\t            return deepcopy(self.mask)\n   525\t        else:\n   526\t            # Now lets calculate the resulting mask (operation enforces copy)\n   527\t            return handle_mask(self.mask, operand.mask, **kwds)\n   528\t\n   529\t    def _arithmetic_wcs(self, operation, operand, compare_wcs, **kwds):\n   530\t        \"\"\"\n</output>",
+      "extra": {
+        "raw_output": "   514\t        \"\"\"\n   515\t        # If only one mask is present we need not bother about any type checks\n   516\t        if (\n   517\t            self.mask is None and operand is not None and operand.mask is None\n   518\t        ) or handle_mask is None:\n   519\t            return None\n   520\t        elif self.mask is None and operand is not None:\n   521\t            # Make a copy so there is no reference in the result.\n   522\t            return deepcopy(operand.mask)\n   523\t        elif operand is None:\n   524\t            return deepcopy(self.mask)\n   525\t        else:\n   526\t            # Now lets calculate the resulting mask (operation enforces copy)\n   527\t            return handle_mask(self.mask, operand.mask, **kwds)\n   528\t\n   529\t    def _arithmetic_wcs(self, operation, operand, compare_wcs, **kwds):\n   530\t        \"\"\"\n",
+        "returncode": 0,
+        "timestamp": 1776377540.581901,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01NGzACjaHid4ScZdWzvSHBQ",
+      "role": "tool"
+    },
+    {
+      "content": "Now I'll fix the `_arithmetic_mask` method to handle the case where `self.mask` is not None but `operand.mask` is None:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && cat > /tmp/fix.py << 'EOF'\\nimport re\\n\\nwith open('astropy/nddata/mixins/ndarithmetic.py', 'r') as f:\\n    content = f.read()\\n\\nold_code = '''        # If only one mask is present we need not bother about any type checks\\n        if (\\n            self.mask is None and operand is not None and operand.mask is None\\n        ) or handle_mask is None:\\n            return None\\n        elif self.mask is None and operand is not None:\\n            # Make a copy so there is no reference in the result.\\n            return deepcopy(operand.mask)\\n        elif operand is None:\\n            return deepcopy(self.mask)\\n        else:\\n            # Now lets calculate the resulting mask (operation enforces copy)\\n            return handle_mask(self.mask, operand.mask, **kwds)'''\\n\\nnew_code = '''        # If only one mask is present we need not bother about any type checks\\n        if (\\n            self.mask is None and operand is not None and operand.mask is None\\n        ) or handle_mask is None:\\n            return None\\n        elif self.mask is None and operand is not None:\\n            # Make a copy so there is no reference in the result.\\n            return deepcopy(operand.mask)\\n        elif operand is None:\\n            return deepcopy(self.mask)\\n        elif operand.mask is None:\\n            # Make a copy so there is no reference in the result.\\n            return deepcopy(self.mask)\\n        else:\\n            # Now lets calculate the resulting mask (operation enforces copy)\\n            return handle_mask(self.mask, operand.mask, **kwds)'''\\n\\nassert old_code in content, \\\"Old code not found!\\\"\\ncontent = content.replace(old_code, new_code)\\n\\nwith open('astropy/nddata/mixins/ndarithmetic.py', 'w') as f:\\n    f.write(content)\\n\\nprint(\\\"Done!\\\")\\nEOF\\npython /tmp/fix.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01SuRuUuYmLGwpTmZ5TQYrMx",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && cat > /tmp/fix.py << 'EOF'\nimport re\n\nwith open('astropy/nddata/mixins/ndarithmetic.py', 'r') as f:\n    content = f.read()\n\nold_code = '''        # If only one mask is present we need not bother about any type checks\n        if (\n            self.mask is None and operand is not None and operand.mask is None\n        ) or handle_mask is None:\n            return None\n        elif self.mask is None and operand is not None:\n            # Make a copy so there is no reference in the result.\n            return deepcopy(operand.mask)\n        elif operand is None:\n            return deepcopy(self.mask)\n        else:\n            # Now lets calculate the resulting mask (operation enforces copy)\n            return handle_mask(self.mask, operand.mask, **kwds)'''\n\nnew_code = '''        # If only one mask is present we need not bother about any type checks\n        if (\n            self.mask is None and operand is not None and operand.mask is None\n        ) or handle_mask is None:\n            return None\n        elif self.mask is None and operand is not None:\n            # Make a copy so there is no reference in the result.\n            return deepcopy(operand.mask)\n        elif operand is None:\n            return deepcopy(self.mask)\n        elif operand.mask is None:\n            # Make a copy so there is no reference in the result.\n            return deepcopy(self.mask)\n        else:\n            # Now lets calculate the resulting mask (operation enforces copy)\n            return handle_mask(self.mask, operand.mask, **kwds)'''\n\nassert old_code in content, \"Old code not found!\"\ncontent = content.replace(old_code, new_code)\n\nwith open('astropy/nddata/mixins/ndarithmetic.py', 'w') as f:\n    f.write(content)\n\nprint(\"Done!\")\nEOF\npython /tmp/fix.py",
+            "tool_call_id": "toolu_01SuRuUuYmLGwpTmZ5TQYrMx"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-1183ca15-8656-4f38-90bf-d930aefcad6c",
+          "created": 1776377545,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "Now I'll fix the `_arithmetic_mask` method to handle the case where `self.mask` is not None but `operand.mask` is None:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && cat > /tmp/fix.py << 'EOF'\\nimport re\\n\\nwith open('astropy/nddata/mixins/ndarithmetic.py', 'r') as f:\\n    content = f.read()\\n\\nold_code = '''        # If only one mask is present we need not bother about any type checks\\n        if (\\n            self.mask is None and operand is not None and operand.mask is None\\n        ) or handle_mask is None:\\n            return None\\n        elif self.mask is None and operand is not None:\\n            # Make a copy so there is no reference in the result.\\n            return deepcopy(operand.mask)\\n        elif operand is None:\\n            return deepcopy(self.mask)\\n        else:\\n            # Now lets calculate the resulting mask (operation enforces copy)\\n            return handle_mask(self.mask, operand.mask, **kwds)'''\\n\\nnew_code = '''        # If only one mask is present we need not bother about any type checks\\n        if (\\n            self.mask is None and operand is not None and operand.mask is None\\n        ) or handle_mask is None:\\n            return None\\n        elif self.mask is None and operand is not None:\\n            # Make a copy so there is no reference in the result.\\n            return deepcopy(operand.mask)\\n        elif operand is None:\\n            return deepcopy(self.mask)\\n        elif operand.mask is None:\\n            # Make a copy so there is no reference in the result.\\n            return deepcopy(self.mask)\\n        else:\\n            # Now lets calculate the resulting mask (operation enforces copy)\\n            return handle_mask(self.mask, operand.mask, **kwds)'''\\n\\nassert old_code in content, \\\"Old code not found!\\\"\\ncontent = content.replace(old_code, new_code)\\n\\nwith open('astropy/nddata/mixins/ndarithmetic.py', 'w') as f:\\n    f.write(content)\\n\\nprint(\\\"Done!\\\")\\nEOF\\npython /tmp/fix.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01SuRuUuYmLGwpTmZ5TQYrMx",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 581,
+            "prompt_tokens": 6591,
+            "total_tokens": 7172,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 581
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 6170,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 420,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 420,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 420,
+            "cache_read_input_tokens": 6170,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.012144,
+        "timestamp": 1776377545.594062
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nDone!\n</output>",
+      "extra": {
+        "raw_output": "Done!\n",
+        "returncode": 0,
+        "timestamp": 1776377546.004052,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01SuRuUuYmLGwpTmZ5TQYrMx",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && sed -n '514,532p' astropy/nddata/mixins/ndarithmetic.py\"}",
+            "name": "bash"
+          },
+          "id": "toolu_012V2ShC9upZMUzYTBWrGhfY",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && sed -n '514,532p' astropy/nddata/mixins/ndarithmetic.py",
+            "tool_call_id": "toolu_012V2ShC9upZMUzYTBWrGhfY"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-4d9e8da1-fde7-47f2-b26c-a57f8d5eb1aa",
+          "created": 1776377547,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && sed -n '514,532p' astropy/nddata/mixins/ndarithmetic.py\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_012V2ShC9upZMUzYTBWrGhfY",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 79,
+            "prompt_tokens": 7202,
+            "total_tokens": 7281,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 79
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 6590,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 611,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 611,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 611,
+            "cache_read_input_tokens": 6590,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00545625,
+        "timestamp": 1776377547.7910311
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n        \"\"\"\n        # If only one mask is present we need not bother about any type checks\n        if (\n            self.mask is None and operand is not None and operand.mask is None\n        ) or handle_mask is None:\n            return None\n        elif self.mask is None and operand is not None:\n            # Make a copy so there is no reference in the result.\n            return deepcopy(operand.mask)\n        elif operand is None:\n            return deepcopy(self.mask)\n        elif operand.mask is None:\n            # Make a copy so there is no reference in the result.\n            return deepcopy(self.mask)\n        else:\n            # Now lets calculate the resulting mask (operation enforces copy)\n            return handle_mask(self.mask, operand.mask, **kwds)\n\n    def _arithmetic_wcs(self, operation, operand, compare_wcs, **kwds):\n</output>",
+      "extra": {
+        "raw_output": "        \"\"\"\n        # If only one mask is present we need not bother about any type checks\n        if (\n            self.mask is None and operand is not None and operand.mask is None\n        ) or handle_mask is None:\n            return None\n        elif self.mask is None and operand is not None:\n            # Make a copy so there is no reference in the result.\n            return deepcopy(operand.mask)\n        elif operand is None:\n            return deepcopy(self.mask)\n        elif operand.mask is None:\n            # Make a copy so there is no reference in the result.\n            return deepcopy(self.mask)\n        else:\n            # Now lets calculate the resulting mask (operation enforces copy)\n            return handle_mask(self.mask, operand.mask, **kwds)\n\n    def _arithmetic_wcs(self, operation, operand, compare_wcs, **kwds):\n",
+        "returncode": 0,
+        "timestamp": 1776377547.966953,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_012V2ShC9upZMUzYTBWrGhfY",
+      "role": "tool"
+    },
+    {
+      "content": "Now let me verify the fix works:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"/opt/miniconda3/envs/testbed/bin/python -c \\\"\\nimport numpy as np\\nfrom astropy.nddata import NDDataRef\\n\\narray = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])\\nmask = np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]])\\n\\nnref_nomask = NDDataRef(array)\\nnref_mask = NDDataRef(array, mask=mask)\\n\\n# multiply no mask by constant (no mask * no mask)\\nresult = nref_nomask.multiply(1., handle_mask=np.bitwise_or).mask\\nprint('no mask * constant:', result)  # should be None\\n\\n# multiply no mask by itself (no mask * no mask)\\nresult = nref_nomask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\\nprint('no mask * no mask:', result)  # should be None\\n\\n# multiply mask by constant (mask * no mask)\\nresult = nref_mask.multiply(1., handle_mask=np.bitwise_or).mask\\nprint('mask * constant:', result)  # should return the mask\\n\\n# multiply mask by itself (mask * mask)\\nresult = nref_mask.multiply(nref_mask, handle_mask=np.bitwise_or).mask\\nprint('mask * mask:', result)  # should return the mask\\n\\n# multiply mask by no mask (mask * no mask)\\nresult = nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\\nprint('mask * no mask:', result)  # should return the mask\\n\\\"\\n\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01WnDdQjfrnynkQxVRf86Kfw",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "/opt/miniconda3/envs/testbed/bin/python -c \"\nimport numpy as np\nfrom astropy.nddata import NDDataRef\n\narray = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])\nmask = np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]])\n\nnref_nomask = NDDataRef(array)\nnref_mask = NDDataRef(array, mask=mask)\n\n# multiply no mask by constant (no mask * no mask)\nresult = nref_nomask.multiply(1., handle_mask=np.bitwise_or).mask\nprint('no mask * constant:', result)  # should be None\n\n# multiply no mask by itself (no mask * no mask)\nresult = nref_nomask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\nprint('no mask * no mask:', result)  # should be None\n\n# multiply mask by constant (mask * no mask)\nresult = nref_mask.multiply(1., handle_mask=np.bitwise_or).mask\nprint('mask * constant:', result)  # should return the mask\n\n# multiply mask by itself (mask * mask)\nresult = nref_mask.multiply(nref_mask, handle_mask=np.bitwise_or).mask\nprint('mask * mask:', result)  # should return the mask\n\n# multiply mask by no mask (mask * no mask)\nresult = nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\nprint('mask * no mask:', result)  # should return the mask\n\"\n",
+            "tool_call_id": "toolu_01WnDdQjfrnynkQxVRf86Kfw"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-c0d52227-1989-4a66-a59c-35cde5e54ad5",
+          "created": 1776377552,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "Now let me verify the fix works:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"/opt/miniconda3/envs/testbed/bin/python -c \\\"\\nimport numpy as np\\nfrom astropy.nddata import NDDataRef\\n\\narray = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])\\nmask = np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]])\\n\\nnref_nomask = NDDataRef(array)\\nnref_mask = NDDataRef(array, mask=mask)\\n\\n# multiply no mask by constant (no mask * no mask)\\nresult = nref_nomask.multiply(1., handle_mask=np.bitwise_or).mask\\nprint('no mask * constant:', result)  # should be None\\n\\n# multiply no mask by itself (no mask * no mask)\\nresult = nref_nomask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\\nprint('no mask * no mask:', result)  # should be None\\n\\n# multiply mask by constant (mask * no mask)\\nresult = nref_mask.multiply(1., handle_mask=np.bitwise_or).mask\\nprint('mask * constant:', result)  # should return the mask\\n\\n# multiply mask by itself (mask * mask)\\nresult = nref_mask.multiply(nref_mask, handle_mask=np.bitwise_or).mask\\nprint('mask * mask:', result)  # should return the mask\\n\\n# multiply mask by no mask (mask * no mask)\\nresult = nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask\\nprint('mask * no mask:', result)  # should return the mask\\n\\\"\\n\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01WnDdQjfrnynkQxVRf86Kfw",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 467,
+            "prompt_tokens": 7528,
+            "total_tokens": 7995,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 467
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 7201,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 326,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 326,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 326,
+            "cache_read_input_tokens": 7201,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0103908,
+        "timestamp": 1776377552.3936
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\nno mask * constant: None\nno mask * no mask: None\nmask * constant: [[ 0  1 64]\n [ 8  0  1]\n [ 2  1  0]]\nmask * mask: [[ 0  1 64]\n [ 8  0  1]\n [ 2  1  0]]\nmask * no mask: [[ 0  1 64]\n [ 8  0  1]\n [ 2  1  0]]\n</output>",
+      "extra": {
+        "raw_output": "no mask * constant: None\nno mask * no mask: None\nmask * constant: [[ 0  1 64]\n [ 8  0  1]\n [ 2  1  0]]\nmask * mask: [[ 0  1 64]\n [ 8  0  1]\n [ 2  1  0]]\nmask * no mask: [[ 0  1 64]\n [ 8  0  1]\n [ 2  1  0]]\n",
+        "returncode": 0,
+        "timestamp": 1776377553.310669,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01WnDdQjfrnynkQxVRf86Kfw",
+      "role": "tool"
+    },
+    {
+      "content": "The fix works correctly. Let me also run the existing tests to make sure nothing is broken:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"/opt/miniconda3/envs/testbed/bin/python -m pytest /testbed/astropy/nddata/mixins/tests/test_ndarithmetic.py -x -q 2>&1 | tail -30\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01VLwwZKHd53Ls1gHxSunSSv",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "/opt/miniconda3/envs/testbed/bin/python -m pytest /testbed/astropy/nddata/mixins/tests/test_ndarithmetic.py -x -q 2>&1 | tail -30",
+            "tool_call_id": "toolu_01VLwwZKHd53Ls1gHxSunSSv"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-cff7328e-0af9-4d96-a017-674271bc9bce",
+          "created": 1776377555,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "The fix works correctly. Let me also run the existing tests to make sure nothing is broken:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"/opt/miniconda3/envs/testbed/bin/python -m pytest /testbed/astropy/nddata/mixins/tests/test_ndarithmetic.py -x -q 2>&1 | tail -30\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01VLwwZKHd53Ls1gHxSunSSv",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 126,
+            "prompt_tokens": 8140,
+            "total_tokens": 8266,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 126
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 7527,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 612,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 612,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 612,
+            "cache_read_input_tokens": 7527,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.006446100000000001,
+        "timestamp": 1776377555.8394198
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n<frozen importlib._bootstrap>:228: RuntimeWarning: numpy.ndarray size changed, may indicate binary incompatibility. Expected 80 from C header, got 96 from PyObject\nInternet access disabled\n\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 40%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 80%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m                                      [100%]\u001b[0m\n\u001b[32m\u001b[32m\u001b[1m179 passed\u001b[0m\u001b[32m in 0.53s\u001b[0m\u001b[0m\n</output>",
+      "extra": {
+        "raw_output": "<frozen importlib._bootstrap>:228: RuntimeWarning: numpy.ndarray size changed, may indicate binary incompatibility. Expected 80 from C header, got 96 from PyObject\nInternet access disabled\n\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 40%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m [ 80%]\n\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m                                      [100%]\u001b[0m\n\u001b[32m\u001b[32m\u001b[1m179 passed\u001b[0m\u001b[32m in 0.53s\u001b[0m\u001b[0m\n",
+        "returncode": 0,
+        "timestamp": 1776377557.970531,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01VLwwZKHd53Ls1gHxSunSSv",
+      "role": "tool"
+    },
+    {
+      "content": "All 179 tests pass. Now let me create the patch:",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 1,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cd /testbed && git diff -- astropy/nddata/mixins/ndarithmetic.py > /tmp/patch.txt\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01DEaaZyiWGpyvsTRM9N8Cwe",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cd /testbed && git diff -- astropy/nddata/mixins/ndarithmetic.py > /tmp/patch.txt",
+            "tool_call_id": "toolu_01DEaaZyiWGpyvsTRM9N8Cwe"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-b8418b73-c880-4552-8d86-80d288f5bd6e",
+          "created": 1776377560,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": "All 179 tests pass. Now let me create the patch:",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 1,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cd /testbed && git diff -- astropy/nddata/mixins/ndarithmetic.py > /tmp/patch.txt\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01DEaaZyiWGpyvsTRM9N8Cwe",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 95,
+            "prompt_tokens": 9483,
+            "total_tokens": 9578,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 95
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 8139,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 1343,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 1343,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 1343,
+            "cache_read_input_tokens": 8139,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00890595,
+        "timestamp": 1776377560.243223
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\n</output>",
+      "extra": {
+        "raw_output": "",
+        "returncode": 0,
+        "timestamp": 1776377560.4617422,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01DEaaZyiWGpyvsTRM9N8Cwe",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"cat /tmp/patch.txt\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01EnECLaAtB5cyxv1c3sUQ8m",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "cat /tmp/patch.txt",
+            "tool_call_id": "toolu_01EnECLaAtB5cyxv1c3sUQ8m"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-270f710d-9964-4b00-b934-a494825fa11b",
+          "created": 1776377562,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"cat /tmp/patch.txt\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01EnECLaAtB5cyxv1c3sUQ8m",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 57,
+            "prompt_tokens": 9605,
+            "total_tokens": 9662,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 57
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 9482,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 122,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 122,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 122,
+            "cache_read_input_tokens": 9482,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.0041601,
+        "timestamp": 1776377562.416203
+      }
+    },
+    {
+      "content": "<returncode>0</returncode>\n<output>\ndiff --git a/astropy/nddata/mixins/ndarithmetic.py b/astropy/nddata/mixins/ndarithmetic.py\nindex 4153dfccb..28c34ca32 100644\n--- a/astropy/nddata/mixins/ndarithmetic.py\n+++ b/astropy/nddata/mixins/ndarithmetic.py\n@@ -522,6 +522,9 @@ class NDArithmeticMixin:\n             return deepcopy(operand.mask)\n         elif operand is None:\n             return deepcopy(self.mask)\n+        elif operand.mask is None:\n+            # Make a copy so there is no reference in the result.\n+            return deepcopy(self.mask)\n         else:\n             # Now lets calculate the resulting mask (operation enforces copy)\n             return handle_mask(self.mask, operand.mask, **kwds)\n</output>",
+      "extra": {
+        "raw_output": "diff --git a/astropy/nddata/mixins/ndarithmetic.py b/astropy/nddata/mixins/ndarithmetic.py\nindex 4153dfccb..28c34ca32 100644\n--- a/astropy/nddata/mixins/ndarithmetic.py\n+++ b/astropy/nddata/mixins/ndarithmetic.py\n@@ -522,6 +522,9 @@ class NDArithmeticMixin:\n             return deepcopy(operand.mask)\n         elif operand is None:\n             return deepcopy(self.mask)\n+        elif operand.mask is None:\n+            # Make a copy so there is no reference in the result.\n+            return deepcopy(self.mask)\n         else:\n             # Now lets calculate the resulting mask (operation enforces copy)\n             return handle_mask(self.mask, operand.mask, **kwds)\n",
+        "returncode": 0,
+        "timestamp": 1776377562.579957,
+        "exception_info": ""
+      },
+      "tool_call_id": "toolu_01EnECLaAtB5cyxv1c3sUQ8m",
+      "role": "tool"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "index": 0,
+          "caller": {
+            "type": "direct"
+          },
+          "function": {
+            "arguments": "{\"command\": \"echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/patch.txt\"}",
+            "name": "bash"
+          },
+          "id": "toolu_01QD7Lf6ZZw9Jq8MhL4ALBDF",
+          "type": "function"
+        }
+      ],
+      "function_call": null,
+      "provider_specific_fields": {
+        "citations": null,
+        "thinking_blocks": null
+      },
+      "extra": {
+        "actions": [
+          {
+            "command": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/patch.txt",
+            "tool_call_id": "toolu_01QD7Lf6ZZw9Jq8MhL4ALBDF"
+          }
+        ],
+        "response": {
+          "id": "chatcmpl-94c4be97-39d7-4ba0-a76b-9ca9e4aa4d25",
+          "created": 1776377564,
+          "model": "claude-sonnet-4-6",
+          "object": "chat.completion",
+          "system_fingerprint": null,
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "caller": {
+                      "type": "direct"
+                    },
+                    "function": {
+                      "arguments": "{\"command\": \"echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/patch.txt\"}",
+                      "name": "bash"
+                    },
+                    "id": "toolu_01QD7Lf6ZZw9Jq8MhL4ALBDF",
+                    "type": "function"
+                  }
+                ],
+                "function_call": null,
+                "provider_specific_fields": {
+                  "citations": null,
+                  "thinking_blocks": null
+                }
+              }
+            }
+          ],
+          "usage": {
+            "completion_tokens": 74,
+            "prompt_tokens": 9916,
+            "total_tokens": 9990,
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "text_tokens": 74
+            },
+            "prompt_tokens_details": {
+              "audio_tokens": null,
+              "cached_tokens": 9604,
+              "text_tokens": null,
+              "image_tokens": null,
+              "video_tokens": null,
+              "cache_creation_tokens": 311,
+              "cache_creation_token_details": {
+                "ephemeral_5m_input_tokens": 311,
+                "ephemeral_1h_input_tokens": 0
+              }
+            },
+            "cache_creation_input_tokens": 311,
+            "cache_read_input_tokens": 9604,
+            "inference_geo": "global",
+            "speed": null
+          }
+        },
+        "cost": 0.00516045,
+        "timestamp": 1776377564.841347
+      }
+    },
+    {
+      "role": "exit",
+      "content": "diff --git a/astropy/nddata/mixins/ndarithmetic.py b/astropy/nddata/mixins/ndarithmetic.py\nindex 4153dfccb..28c34ca32 100644\n--- a/astropy/nddata/mixins/ndarithmetic.py\n+++ b/astropy/nddata/mixins/ndarithmetic.py\n@@ -522,6 +522,9 @@ class NDArithmeticMixin:\n             return deepcopy(operand.mask)\n         elif operand is None:\n             return deepcopy(self.mask)\n+        elif operand.mask is None:\n+            # Make a copy so there is no reference in the result.\n+            return deepcopy(self.mask)\n         else:\n             # Now lets calculate the resulting mask (operation enforces copy)\n             return handle_mask(self.mask, operand.mask, **kwds)\n",
+      "extra": {
+        "exit_status": "Submitted",
+        "submission": "diff --git a/astropy/nddata/mixins/ndarithmetic.py b/astropy/nddata/mixins/ndarithmetic.py\nindex 4153dfccb..28c34ca32 100644\n--- a/astropy/nddata/mixins/ndarithmetic.py\n+++ b/astropy/nddata/mixins/ndarithmetic.py\n@@ -522,6 +522,9 @@ class NDArithmeticMixin:\n             return deepcopy(operand.mask)\n         elif operand is None:\n             return deepcopy(self.mask)\n+        elif operand.mask is None:\n+            # Make a copy so there is no reference in the result.\n+            return deepcopy(self.mask)\n         else:\n             # Now lets calculate the resulting mask (operation enforces copy)\n             return handle_mask(self.mask, operand.mask, **kwds)\n"
+      }
+    }
+  ],
+  "trajectory_format": "mini-swe-agent-1.1",
+  "instance_id": "astropy__astropy-14995"
+}

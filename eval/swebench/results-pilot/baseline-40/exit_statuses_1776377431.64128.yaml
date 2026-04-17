@@ -1,0 +1,14 @@
+instances_by_exit_status:
+    CalledProcessError:
+    - matplotlib__matplotlib-22719
+    - sphinx-doc__sphinx-10435
+    - sphinx-doc__sphinx-7440
+    - sympy__sympy-12481
+    - sympy__sympy-13372
+    Submitted:
+    - astropy__astropy-14995
+    - astropy__astropy-7336
+    - django__django-10880
+    - django__django-10914
+    TimeoutExpired:
+    - matplotlib__matplotlib-20676

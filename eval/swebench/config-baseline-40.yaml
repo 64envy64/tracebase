@@ -1,0 +1,74 @@
+# Capability pilot: plain baseline (no injection, no verify), step_limit=40, cost_limit=$1
+# Identical to condition A from Phase 2 ablation.
+agent:
+  system_template: |
+    You are a helpful assistant that can interact with a computer shell to solve programming tasks.
+  instance_template: |
+    <pr_description>
+    Consider the following PR description:
+    {{task}}
+    </pr_description>
+
+    <instructions>
+    You're a software engineer fixing a bug in /testbed.
+    Make changes ONLY to non-test source files.
+
+    Workflow:
+    1. Analyze the codebase by finding and reading relevant files
+    2. Create a minimal reproduction if useful
+    3. Edit the source code to resolve the issue
+    4. Submit your patch
+
+    Command rules:
+    - Each response: reasoning + at least one bash tool call
+    - Directory changes NOT persistent. Use `cd /testbed && ...`
+    - Non-interactive flags (-y, -f). No vi/nano.
+
+    Submission:
+    Step 1: `cd /testbed && git diff -- file1.py > /tmp/patch.txt`
+    Step 2: `cat /tmp/patch.txt`
+    Step 3: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/patch.txt`
+    Creating the patch and submitting MUST be separate commands.
+    </instructions>
+  step_limit: 40
+  cost_limit: 1.0
+
+environment:
+  cwd: "/testbed"
+  timeout: 60
+  interpreter: ["bash", "-c"]
+  env:
+    PAGER: cat
+    MANPAGER: cat
+    LESS: -R
+    PIP_PROGRESS_BAR: "off"
+    TQDM_DISABLE: "1"
+  environment_class: docker
+
+model:
+  observation_template: |
+    {% if output.exception_info -%}
+    <exception>{{output.exception_info}}</exception>
+    {% endif -%}
+    <returncode>{{output.returncode}}</returncode>
+    {% if output.output | length < 10000 -%}
+    <output>
+    {{ output.output -}}
+    </output>
+    {%- else -%}
+    <output_head>
+    {{ output.output[:5000] }}
+    </output_head>
+    <output_tail>
+    {{ output.output[-5000:] }}
+    </output_tail>
+    {%- endif -%}
+  format_error_template: |
+    Tool call error:
+    <error>{{error}}</error>
+    Every response needs the 'bash' tool.
+  model_name: "anthropic/claude-sonnet-4-6"
+  model_kwargs:
+    drop_params: true
+    temperature: 0.0
+    parallel_tool_calls: true
