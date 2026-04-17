@@ -7,6 +7,14 @@
   --text: #edecec;
   --text-secondary: rgba(237, 236, 236, 0.55);
   --text-tertiary: rgba(237, 236, 236, 0.3);
+  --accent: #b1ff6d;
+  --accent-soft: rgba(177, 255, 109, 0.12);
+  --signal: #7dd3fc;
+  --signal-soft: rgba(125, 211, 252, 0.12);
+  --success: #6de7b7;
+  --success-soft: rgba(109, 231, 183, 0.12);
+  --warning: #f2c572;
+  --warning-soft: rgba(242, 197, 114, 0.12);
 }
 
 @theme inline {
@@ -28,4 +36,20 @@ body {
 
 html {
   scroll-behavior: smooth;
+}
+
+/* Dashboard: subtle entrance — keep opacity/transform only (GPU-friendly) */
+@keyframes dash-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.dash-enter {
+  animation: dash-enter 0.42s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }

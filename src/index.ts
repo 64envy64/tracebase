@@ -45,6 +45,20 @@ export { performRecall, injectIntoOpenAIMessages, injectIntoAnthropicSystem } fr
 // Knowledge Base utilities
 export { writeJsonl, readJsonl, toJsonl, fromJsonl } from "./kb/jsonl.js";
 
+// ReasoningBlock primitives (v2 schema — see docs/DESIGN_v2.md)
+export {
+  createBlock,
+  extractKeywords,
+  canonicalTrigger,
+  fingerprintTrigger,
+  detectLeakage,
+  bumpStat,
+  wilsonLowerBound,
+  refreshWilson,
+  BLOCK_SCHEMA_VERSION,
+  DEFAULT_BLOCK_CONFIDENCE,
+} from "./core/block.js";
+
 // Types — re-export everything
 export type {
   ReasoningTrace,
@@ -75,4 +89,20 @@ export type {
   FeatureConfig,
   StructuralWeights,
   FeatureExtractor,
+  // v2 block schema
+  ReasoningBlock,
+  BlockTrigger,
+  BlockBody,
+  BlockInvariants,
+  BlockProvenance,
+  BlockStats,
+  BlockQuality,
+  BlockEmbeddings,
+  StoreBlockInput,
+  // v2 analytics events
+  AnalyticsEvent,
+  RetrievalEvent,
+  InjectionEvent,
+  AgentUsedEvent,
+  OutcomeEvent,
 } from "./types.js";

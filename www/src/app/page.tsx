@@ -1,3 +1,5 @@
+import Image from "next/image";
+import Link from "next/link";
 import { CodeBlock } from "@/components/CodeBlock";
 import { CopyCommand } from "@/components/CopyButton";
 
@@ -46,16 +48,17 @@ export default function Home() {
         style={{ borderColor: "var(--border)", background: "var(--bg)" }}
       >
         <div className="max-w-[1080px] mx-auto px-6 h-12 flex items-center justify-between">
-          <a href="/" className="flex items-center gap-2">
-            <img src="/logo.svg" alt="TraceBase" className="h-5 w-5" />
+          <Link href="/" className="flex items-center gap-2">
+            <Image src="/logo.svg" alt="TraceBase" width={20} height={20} className="h-5 w-5" />
             <span className="text-sm font-light tracking-wide" style={{ color: "var(--text)" }}>
               tracebase
             </span>
-          </a>
+          </Link>
           <div className="flex items-center gap-8">
             <a href="#how" className="text-xs font-light" style={{ color: "var(--text-secondary)" }}>How it works</a>
             <a href="#setup" className="text-xs font-light" style={{ color: "var(--text-secondary)" }}>Setup</a>
-            <a href="/whitepaper" className="text-xs font-light" style={{ color: "var(--text-secondary)" }}>Whitepaper</a>
+            <Link href="/dashboard" className="text-xs font-light" style={{ color: "var(--text-secondary)" }}>Dashboard</Link>
+            <Link href="/whitepaper" className="text-xs font-light" style={{ color: "var(--text-secondary)" }}>Whitepaper</Link>
             <a href="#pricing" className="text-xs font-light" style={{ color: "var(--text-secondary)" }}>Pricing</a>
             <a
               href="https://github.com/64envy64/tracebase"

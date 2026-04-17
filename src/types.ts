@@ -506,3 +506,205 @@ export interface RecallInjectConfig {
   /** Optional context to improve matching quality. */
   context?: RecallContext;
 }
+
+// ============================================================================
+// ReasoningBlock — the atomic memory unit (v2 schema)
+//
+// A ReasoningBlock is the smallest reusable pattern: trigger + body.
+// Retrieval matches ONLY on the trigger. Body is the reward for a match.
+// This separates what the query looks like from what gets injected, which
+// the whole-trace v1 schema conflated.
+//
+// Relation to ReasoningTrace: a block is *derived* from one or more traces
+// via the distillation pipeline. Traces are raw records; blocks are
+// curated reuse units. Both can coexist; traces remain v1-compatible.
+// See docs/DESIGN_v2.md Pillar 1 for full rationale.
+// ============================================================================
+
+/**
+ * The smallest reusable unit of reasoning. See docs/DESIGN_v2.md.
+ *
+ * Invariants:
+ *   - `trigger` is what retrieval matches against.
+ *   - `body` is what gets injected when trigger matches.
+ *   - Never put body content in trigger fields (contaminates retrieval).
+ *   - Never put trigger invariants in body (agent ignores them there).
+ */
+export interface ReasoningBlock {
+  id: string;
+  /** Schema version, bumps on breaking change. v1 = first release. */
+  version: number;
+
+  trigger: BlockTrigger;
+  body: BlockBody;
+  provenance: BlockProvenance;
+  stats: BlockStats;
+  quality: BlockQuality;
+  embeddings?: BlockEmbeddings;
+
+  createdAt: number;
+  updatedAt: number;
+  /**
+   * Lifecycle state.
+   * - active: eligible for retrieval and injection.
+   * - demoted: retained for audit but never served (e.g. caused regression).
+   * - retired: obsolete, kept only for provenance chains.
+   */
+  status: "active" | "demoted" | "retired";
+}
+
+/**
+ * Trigger: what a query must look like to match this block.
+ * Retrieval compares trigger to the current query. Body is excluded from
+ * similarity scoring.
+ */
+export interface BlockTrigger {
+  /** Compressed pattern description, ≤ 40 words. */
+  situation: string;
+  /**
+   * Hard pre-filter. If a field is set, retrieval rejects queries whose
+   * corresponding query-invariant is present and different.
+   * Unset = no filter on that dimension.
+   */
+  invariants: BlockInvariants;
+  /** Tokens extracted from `situation` + `invariants` for BM25. */
+  keywords: string[];
+  /** sha256 of canonical `invariants || sorted(keywords)`. Dedupe key. */
+  fingerprint: string;
+}
+
+export interface BlockInvariants {
+  language?: string;
+  framework?: string;
+  errorType?: string;
+  /** Specific public APIs implicated (e.g. `["numpy.ndarray.__array_ufunc__"]`). */
+  apiSurface?: string[];
+}
+
+/**
+ * Body: the reusable reasoning itself. Only seen by the agent after the
+ * trigger has matched.
+ */
+export interface BlockBody {
+  /** Root cause structure. */
+  mechanism: string;
+  /** Approaches that look plausible but fail; prevents wasted exploration. */
+  deadEnds: string[];
+  /** The key insight, ≤ 30 words. */
+  unlock: string;
+  /** How the agent confirms the fix actually worked (e.g. reproduction test). */
+  verification: string;
+}
+
+/**
+ * How this block came to exist. Mandatory — un-sourced blocks cannot be
+ * audited or drift-diagnosed.
+ */
+export interface BlockProvenance {
+  sourceTaskId: string;
+  sourceAgent?: string;
+  sourceModel?: string;
+  extractedFrom: "trajectory" | "gold_patch" | "manual" | "imported";
+  distilledAt: number;
+  distilledBy: "llm" | "rule" | "manual";
+  distilledWithModel?: string;
+  /** Link back to the full trace if retained. */
+  parentTraceId?: string;
+}
+
+/**
+ * Raw counts populated by the analytics pipeline. Do NOT derive retrieval
+ * confidence directly from these; that is `quality.confidence`'s job,
+ * which is calibrated separately.
+ */
+export interface BlockStats {
+  timesRetrieved: number;
+  timesInjected: number;
+  timesAgentUsed: number;
+  timesHelpful: number;
+  timesCounterproductive: number;
+  lastUsedAt?: number;
+  cumulativeTokensSaved: number;
+  cumulativeStepsSaved: number;
+}
+
+/**
+ * Calibrated priors used by retrieval serving (Pillar 3).
+ * Separate from stats so that calibration can be re-fit without touching
+ * raw counts.
+ */
+export interface BlockQuality {
+  /** Posterior mean P(helpful). Starts at 0.5 until calibrated. */
+  confidence: number;
+  /** Wilson 95% lower bound; used for tie-breaking. */
+  wilsonLowerBound: number;
+  /** Which isotonic-regression cohort this confidence came from. */
+  calibrationCohort?: string;
+}
+
+export interface BlockEmbeddings {
+  /** Situation-field embedding (for query → trigger similarity). */
+  situationVec?: Float32Array;
+  /** Unlock-field embedding (for cross-block dedup / clustering). */
+  unlockVec?: Float32Array;
+  model: string;
+}
+
+/** Input for creating a new block; computed fields filled by the distiller. */
+export interface StoreBlockInput {
+  trigger: Omit<BlockTrigger, "fingerprint" | "keywords">;
+  body: BlockBody;
+  provenance: Omit<BlockProvenance, "distilledAt">;
+}
+
+// ============================================================================
+// Analytics events (Pillar 4) — append-only log records
+//
+// Emitted to a JSONL sink; aggregated into SQL views by the analytics
+// pipeline. Each event is self-contained; consumers need no shared state.
+// ============================================================================
+
+export type AnalyticsEvent =
+  | RetrievalEvent
+  | InjectionEvent
+  | AgentUsedEvent
+  | OutcomeEvent;
+
+interface EventBase {
+  ts: number;
+  queryId: string;
+}
+
+export interface RetrievalEvent extends EventBase {
+  event: "retrieval";
+  candidates: Array<{ blockId: string; score: number }>;
+  /** Whether this query is in the shadow control group (no injection will fire). */
+  shadow: boolean;
+}
+
+export interface InjectionEvent extends EventBase {
+  event: "injection";
+  blockId: string;
+  score: number;
+  /** Calibrated probability of helpful, if calibrator has been fit. */
+  calibratedProb?: number;
+}
+
+export interface AgentUsedEvent extends EventBase {
+  event: "agent_used";
+  blockId: string;
+  /** How we detected the agent actually followed the block. */
+  matchSignal: "jaccard" | "embedding" | "explicit";
+  matchScore: number;
+}
+
+export interface OutcomeEvent extends EventBase {
+  event: "outcome";
+  resolved: boolean;
+  /** True if an inverse-counterfactual suggests the injection caused a regression. */
+  regressed?: boolean;
+  tokens?: number;
+  steps?: number;
+  /** True if this query was a shadow control (no injection was shown). */
+  control: boolean;
+}
