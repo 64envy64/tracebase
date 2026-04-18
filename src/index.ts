@@ -158,6 +158,25 @@ export type {
   VerdictStatus,
 } from "./distillation/verifier.js";
 
+// v2 held-out self-verify runner (Phase 4.5)
+export {
+  HeldOutVerifier,
+  StaticTaskPicker,
+  MockAgentRunner,
+  invariantsMatch,
+  isHeldOutFrom,
+  formatBlockForVerification,
+  reverifyBlock,
+} from "./distillation/held-out-verifier.js";
+export type {
+  VerificationTask,
+  AgentRunArgs,
+  AgentRunResult,
+  AgentRunner,
+  TaskPicker,
+  HeldOutVerifierOptions,
+} from "./distillation/held-out-verifier.js";
+
 // v2 analytics (Phase 3 — see docs/DESIGN_v2.md §L6)
 export {
   JsonlEventSink,
