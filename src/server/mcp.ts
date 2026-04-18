@@ -1,5 +1,11 @@
 import type { TraceBaseConfig } from "../types.js";
 import { ReasoningLayer } from "../core/engine.js";
+import Database from "better-sqlite3";
+import { BlockStore } from "../core/block-store.js";
+import { BlockServer, formatInjection } from "../core/block-serving.js";
+import { EventEmitter, emitAgentUsed, emitFactAgentUsed, emitOutcome } from "../core/analytics.js";
+import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
+import { collectInjectedFromQuery, resolveUsedItems } from "./mcp-v2-helpers.js";
 
 /**
  * Start TraceBase as an MCP (Model Context Protocol) server.
@@ -17,6 +23,20 @@ export async function startMcpServer(config: TraceBaseConfig): Promise<void> {
   const { z } = await import("zod");
 
   const layer = new ReasoningLayer(config);
+
+  // v2 block-store + block-server over the same SQLite file. Separate
+  // connection (BlockStore opens its own) — the two stores share the
+  // file, not the handle, which is supported by better-sqlite3 under
+  // WAL (the mode TraceStore sets). The block-server picks up a
+  // calibrator if one has been fitted by Phase 5.2; otherwise the
+  // identity fallback runs and gate=0 lets everything through.
+  const blockDb = new Database(config.storagePath);
+  const blockStore = new BlockStore(blockDb);
+  const blockServer = new BlockServer(blockStore, {
+    calibrator: loadBlockCalibrator(blockStore),
+    gateThreshold: 0, // can be tuned via config later
+  });
+  const eventEmitter = new EventEmitter(blockStore);
 
   const server = new McpServer({
     name: "tracebase",
@@ -267,8 +287,197 @@ export async function startMcpServer(config: TraceBaseConfig): Promise<void> {
     },
   );
 
+  // --- Tool: get_reasoning_patterns (v2) ---
+  server.tool(
+    "get_reasoning_patterns",
+    "CALL THIS FIRST before starting any debugging, bug-fixing, or problem-solving task. " +
+    "Returns prior reasoning patterns that may apply — as HYPOTHESES to verify, not commands to follow. " +
+    "Records a retrieval event and, for every pattern clearing the gate, an injection event. " +
+    "Always respond with the queryId from the reply when you later call record_reasoning_outcome.",
+    {
+      problem: z.string().describe("Description of the current problem, bug, or task"),
+      language: z.string().optional().describe("Programming language"),
+      framework: z.string().optional().describe("Framework (react, django, astropy, etc.)"),
+      errorType: z.string().optional().describe("Error type (TypeError, NullPointerException, etc.)"),
+      apiSurface: z
+        .array(z.string())
+        .optional()
+        .describe("Public APIs implicated (e.g. ['inspect.isfunction'])"),
+      scope: z.string().optional().describe("Fact scope, e.g. 'repo:myorg/app'"),
+      runId: z.string().optional().describe("Correlation id for eval / benchmark runs"),
+      shadow: z
+        .boolean()
+        .optional()
+        .describe("True to treat this query as a shadow control (no injection fires)"),
+      limit: z.number().optional().describe("Max blocks to return (default 5)"),
+      factLimit: z.number().optional().describe("Max facts to return (default 5)"),
+    },
+    async (args) => {
+      const invariants: Record<string, unknown> = {};
+      if (args.language) invariants.language = args.language;
+      if (args.framework) invariants.framework = args.framework;
+      if (args.errorType) invariants.errorType = args.errorType;
+      if (args.apiSurface) invariants.apiSurface = args.apiSurface;
+
+      const result = blockServer.recall({
+        text: args.problem,
+        invariants: invariants as Parameters<typeof blockServer.recall>[0]["invariants"],
+        ...(args.scope ? { scope: args.scope } : {}),
+        ...(args.runId ? { runId: args.runId } : {}),
+        ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        ...(args.factLimit !== undefined ? { factLimit: args.factLimit } : {}),
+        shadow: args.shadow ?? false,
+      });
+
+      const formatted = formatInjection(result, {
+        format: "markdown",
+        includeAudit: true,
+        includeFacts: true,
+      });
+
+      const header =
+        `queryId: ${result.queryId}\n` +
+        (result.shadow
+          ? "shadow: true (this run is a control — no injection fired)"
+          : result.shouldInject
+            ? `patterns: ${result.blocks.filter((h) => h.passesGate).length} block(s), ${result.facts.filter((h) => h.passesGate).length} fact(s)`
+            : "no high-confidence patterns cleared the gate");
+
+      const guidance =
+        result.shouldInject
+          ? "These are HYPOTHESES drawn from prior cases — verify the mechanism against the current task before acting. When you finish, call record_reasoning_outcome with this queryId."
+          : "No applicable patterns. Proceed normally. Still call record_reasoning_outcome with usedPattern=false so future retrievals can calibrate.";
+
+      const body =
+        formatted && formatted.trim().length > 0
+          ? formatted
+          : "_no applicable patterns cleared the gate for this query_";
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `${header}\n\n${guidance}\n\n${body}`,
+          },
+        ],
+      };
+    },
+  );
+
+  // --- Tool: record_reasoning_outcome (v2) ---
+  server.tool(
+    "record_reasoning_outcome",
+    "CALL THIS WHEN YOU FINISH a task (solved, gave up, or regressed). " +
+    "Takes the queryId from a prior get_reasoning_patterns call. Emits agent_used events for " +
+    "the specific patterns you actually used and an outcome event for the task. " +
+    "This closes the self-correction loop — future calibrations get real outcomes.",
+    {
+      queryId: z.string().describe("queryId returned by get_reasoning_patterns"),
+      resolved: z.boolean().describe("Did the task resolve (tests pass, bug fixed, etc.)?"),
+      usedPattern: z
+        .boolean()
+        .optional()
+        .describe("Shorthand: true = credit every injected pattern; omit/false = none"),
+      usedBlocks: z
+        .array(z.string())
+        .optional()
+        .describe("Specific block IDs you used (overrides usedPattern)"),
+      usedFacts: z
+        .array(z.string())
+        .optional()
+        .describe("Specific fact IDs you used (overrides usedPattern)"),
+      tokens: z.number().optional().describe("Tokens spent on the task"),
+      steps: z.number().optional().describe("Steps/actions the agent took"),
+      regressed: z
+        .boolean()
+        .optional()
+        .describe("True if the injected pattern appears to have caused a regression"),
+      runId: z.string().optional().describe("Same runId as on the retrieval, if any"),
+    },
+    async (args) => {
+      const injected = collectInjectedFromQuery(blockStore, args.queryId);
+      const resolved = resolveUsedItems(injected, {
+        ...(args.usedPattern !== undefined ? { usedPattern: args.usedPattern } : {}),
+        ...(args.usedBlocks !== undefined ? { usedBlocks: args.usedBlocks } : {}),
+        ...(args.usedFacts !== undefined ? { usedFacts: args.usedFacts } : {}),
+      });
+
+      for (const blockId of resolved.usedBlockIds) {
+        emitAgentUsed(eventEmitter, {
+          queryId: args.queryId,
+          blockId,
+          matchSignal: "explicit",
+          matchScore: 1.0,
+          ...(args.runId ? { runId: args.runId } : {}),
+        });
+      }
+      for (const factId of resolved.usedFactIds) {
+        emitFactAgentUsed(eventEmitter, {
+          queryId: args.queryId,
+          factId,
+          matchSignal: "explicit",
+          matchScore: 1.0,
+          ...(args.runId ? { runId: args.runId } : {}),
+        });
+      }
+
+      emitOutcome(eventEmitter, {
+        queryId: args.queryId,
+        resolved: args.resolved,
+        control: false,
+        ...(args.regressed !== undefined ? { regressed: args.regressed } : {}),
+        ...(args.tokens !== undefined ? { tokens: args.tokens } : {}),
+        ...(args.steps !== undefined ? { steps: args.steps } : {}),
+        ...(args.runId ? { runId: args.runId } : {}),
+      });
+
+      const summary =
+        `Recorded outcome for ${args.queryId}:\n` +
+        `  resolved=${args.resolved}\n` +
+        `  used blocks: ${resolved.usedBlockIds.length}/${injected.blockIds.length}\n` +
+        `  used facts:  ${resolved.usedFactIds.length}/${injected.factIds.length}`;
+
+      return {
+        content: [{ type: "text" as const, text: summary }],
+      };
+    },
+  );
+
+  // --- Tool: list_patterns (v2, diagnostic) ---
+  server.tool(
+    "list_patterns",
+    "Diagnostic: list recent active reasoning blocks in the store. " +
+    "Useful when you want to see what patterns exist without running a query.",
+    {
+      limit: z.number().optional().describe("Max entries (default 10)"),
+      status: z.enum(["active", "candidate", "demoted", "merged", "retired"]).optional(),
+    },
+    async (args) => {
+      const blocks = blockStore.listBlocks({
+        status: args.status ?? "active",
+        limit: args.limit ?? 10,
+        orderBy: "updated_at",
+      });
+      if (blocks.length === 0) {
+        return {
+          content: [{ type: "text" as const, text: "No matching blocks." }],
+        };
+      }
+      const lines = blocks.map((b, i) => {
+        const inv = b.trigger.invariants;
+        const tags = [inv.language, inv.framework, inv.errorType].filter(Boolean).join(" · ");
+        return `${i + 1}. [${b.status}] ${b.trigger.situation}\n   ${tags ? `_${tags}_\n   ` : ""}id=${b.id}  helpful=${b.stats.timesHelpful}/${b.stats.timesInjected}  wilson=${b.quality.wilsonLowerBound.toFixed(3)}`;
+      });
+      return { content: [{ type: "text" as const, text: lines.join("\n\n") }] };
+    },
+  );
+
   // Graceful shutdown — use once() to avoid listener accumulation
-  const cleanup = () => { layer.close(); process.exit(0); };
+  const cleanup = () => {
+    layer.close();
+    blockStore.close();
+    process.exit(0);
+  };
   process.once("SIGINT", cleanup);
   process.once("SIGTERM", cleanup);
 
