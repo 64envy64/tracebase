@@ -541,6 +541,14 @@ export interface ReasoningBlock {
   stats: BlockStats;
   quality: BlockQuality;
   embeddings?: BlockEmbeddings;
+  /**
+   * Orthogonal to `status`: whether this block has been independently
+   * verified on a held-out task by an external verifier. Phase 4 ships
+   * this as metadata only ({status: "unverified"} default); Phase 4.5
+   * introduces the real verifier that flips `pending` → `verified` /
+   * `disproved`. A `verified` flag is not required for serving.
+   */
+  verification?: BlockVerification;
 
   createdAt: number;
   updatedAt: number;
@@ -618,6 +626,60 @@ export interface BlockProvenance {
   distilledWithModel?: string;
   /** Link back to the full trace if retained. */
   parentTraceId?: string;
+  /**
+   * Distiller's own 0..1 self-reported confidence that the extracted
+   * pattern is clean and reusable (not task-specific noise). Immutable
+   * snapshot at distillation time; calibrator output lives in
+   * `quality.confidence` instead.
+   */
+  distillationConfidence?: number;
+  /**
+   * Structural validation report captured at distillation time.
+   * Immutable. See ValidationReport for the shape of individual checks.
+   */
+  validationReport?: ValidationReport;
+}
+
+/**
+ * A single structural check run by the distillation validator. Names
+ * are namespaced by check family (e.g. "leakage:patch-hunk",
+ * "schema:situation-length").
+ */
+export interface ValidationCheck {
+  name: string;
+  passed: boolean;
+  reason?: string;
+}
+
+/**
+ * Report of all structural checks run by the distillation validator on
+ * a candidate block. Stored in `BlockProvenance.validationReport` as
+ * an audit trail — never mutated after creation.
+ */
+export interface ValidationReport {
+  passed: boolean;
+  checks: ValidationCheck[];
+  /** Epoch ms at validation time. */
+  checkedAt: number;
+}
+
+/**
+ * Lifecycle of verification separately from the block's own status.
+ * A block may be `active` (served) but `unverified`; Phase 4.5 adds a
+ * real verifier that advances the status based on held-out task runs.
+ */
+export type VerificationStatus = "unverified" | "pending" | "verified" | "disproved";
+
+export interface BlockVerification {
+  status: VerificationStatus;
+  /** Name of the verifier that produced the current status. */
+  verifier?: string;
+  /** Last time verification was attempted / updated. Epoch ms. */
+  verifiedAt?: number;
+  /** Task ID used for verification (e.g. a held-out benchmark case). */
+  taskId?: string;
+  /** Free-text explanation (used on pending / disproved). */
+  reason?: string;
 }
 
 /**

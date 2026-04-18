@@ -935,14 +935,56 @@ describe("analytics — fact-level attribution", () => {
 // ---------------------------------------------------------------------------
 
 describe("BlockStore — v1 → v2 analytics_events migration", () => {
-  it("migrates a v1-schema DB to v2 and accepts fact events after", () => {
+  it("migrates a v1-schema DB through v2 → v3 and accepts new events after", () => {
     const dir = mkdtempSync(join(tmpdir(), "tb-mig-"));
     const path = join(dir, "migrate.db");
     try {
-      // Manually construct a v1-shaped analytics_events table + schema meta
-      // row so the migration path (not the fresh-install path) runs.
+      // Manually construct a v1-shaped DB including reasoning_blocks,
+      // analytics_events (with the legacy CHECK), and schema_meta. We
+      // must include reasoning_blocks because the v2→v3 migration ALTERs
+      // it to add distillation/validation/verification hook columns.
       const raw = new Database(path);
       raw.exec(`
+        CREATE TABLE reasoning_blocks (
+          id                  TEXT PRIMARY KEY,
+          version             INTEGER NOT NULL,
+          created_at          INTEGER NOT NULL,
+          updated_at          INTEGER NOT NULL,
+          status              TEXT NOT NULL,
+          trig_situation      TEXT NOT NULL,
+          trig_fingerprint    TEXT NOT NULL,
+          trig_keywords       TEXT NOT NULL DEFAULT '[]',
+          trig_language       TEXT,
+          trig_framework      TEXT,
+          trig_error_type     TEXT,
+          trig_api_surface    TEXT NOT NULL DEFAULT '[]',
+          body_mechanism      TEXT NOT NULL,
+          body_dead_ends      TEXT NOT NULL DEFAULT '[]',
+          body_unlock         TEXT NOT NULL,
+          body_verification   TEXT NOT NULL,
+          prov_source_task_id        TEXT NOT NULL,
+          prov_source_agent          TEXT,
+          prov_source_model          TEXT,
+          prov_extracted_from        TEXT NOT NULL,
+          prov_distilled_at          INTEGER NOT NULL,
+          prov_distilled_by          TEXT NOT NULL,
+          prov_distilled_with_model  TEXT,
+          prov_parent_trace_id       TEXT,
+          stats_times_retrieved        INTEGER NOT NULL DEFAULT 0,
+          stats_times_injected         INTEGER NOT NULL DEFAULT 0,
+          stats_times_agent_used       INTEGER NOT NULL DEFAULT 0,
+          stats_times_helpful          INTEGER NOT NULL DEFAULT 0,
+          stats_times_counterproductive INTEGER NOT NULL DEFAULT 0,
+          stats_last_used_at           INTEGER,
+          stats_cum_tokens_saved       INTEGER NOT NULL DEFAULT 0,
+          stats_cum_steps_saved        INTEGER NOT NULL DEFAULT 0,
+          qual_confidence          REAL NOT NULL DEFAULT 0.5,
+          qual_wilson_lb           REAL NOT NULL DEFAULT 0,
+          qual_calibration_cohort  TEXT,
+          embed_situation          BLOB,
+          embed_unlock             BLOB,
+          embed_model              TEXT
+        );
         CREATE TABLE analytics_events (
           id          INTEGER PRIMARY KEY AUTOINCREMENT,
           ts          INTEGER NOT NULL,
@@ -961,17 +1003,31 @@ describe("BlockStore — v1 → v2 analytics_events migration", () => {
       `);
       raw.close();
 
-      // Opening via BlockStore must run the v1 → v2 migration. Legacy
-      // row must be preserved; new fact events must be insertable.
+      // Opening via BlockStore walks v1 → v2 → v3. Legacy rows preserved;
+      // new fact events insertable; new provenance/verification columns
+      // exist on reasoning_blocks.
       const store = new BlockStore(path);
       const legacy = store.readEvents({ runId: "old-run" });
       expect(legacy.length).toBe(1);
 
-      // Fact event — would violate the old CHECK constraint; must now work.
+      // Fact event — would violate the v1 CHECK constraint; must now work.
       store.appendEvent({
         ts: 2, queryId: "q2", event: "fact_injection", factId: "F1", score: 0.9,
       });
       expect(store.readEvents({ factId: "F1" }).length).toBe(1);
+
+      // v3 columns exist and round-trip via a block insert.
+      const b = createBlock(SAMPLE); b.status = "candidate";
+      b.provenance.distillationConfidence = 0.82;
+      b.provenance.validationReport = {
+        passed: true, checkedAt: 999, checks: [{ name: "leakage", passed: true }],
+      };
+      b.verification = { status: "unverified" };
+      store.storeBlock(b);
+      const got = store.getBlock(b.id)!;
+      expect(got.provenance.distillationConfidence).toBeCloseTo(0.82);
+      expect(got.provenance.validationReport?.passed).toBe(true);
+      expect(got.verification?.status).toBe("unverified");
 
       store.close();
     } finally {

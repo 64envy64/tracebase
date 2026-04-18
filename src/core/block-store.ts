@@ -41,7 +41,7 @@ import { detectLeakage } from "./block.js";
 // Schema
 // ---------------------------------------------------------------------------
 
-const V2_SCHEMA_VERSION = 2;
+const V2_SCHEMA_VERSION = 3;
 
 const V2_SCHEMA = `
 CREATE TABLE IF NOT EXISTS reasoning_blocks (
@@ -67,14 +67,19 @@ CREATE TABLE IF NOT EXISTS reasoning_blocks (
   body_verification   TEXT NOT NULL,
 
   -- Provenance
-  prov_source_task_id        TEXT NOT NULL,
-  prov_source_agent          TEXT,
-  prov_source_model          TEXT,
-  prov_extracted_from        TEXT NOT NULL,
-  prov_distilled_at          INTEGER NOT NULL,
-  prov_distilled_by          TEXT NOT NULL,
-  prov_distilled_with_model  TEXT,
-  prov_parent_trace_id       TEXT,
+  prov_source_task_id         TEXT NOT NULL,
+  prov_source_agent           TEXT,
+  prov_source_model           TEXT,
+  prov_extracted_from         TEXT NOT NULL,
+  prov_distilled_at           INTEGER NOT NULL,
+  prov_distilled_by           TEXT NOT NULL,
+  prov_distilled_with_model   TEXT,
+  prov_parent_trace_id        TEXT,
+  prov_distillation_confidence REAL,        -- Phase 4: distiller self-reported 0..1
+  prov_validation_report      TEXT,         -- Phase 4: JSON ValidationReport at distill time
+
+  -- Verification (Phase 4.5 writes; Phase 4 only leaves the hook)
+  verification                TEXT,         -- JSON BlockVerification or NULL
 
   -- Stats
   stats_times_retrieved        INTEGER NOT NULL DEFAULT 0,
@@ -270,6 +275,14 @@ const V2_MIGRATIONS: Record<number, string[]> = {
     `CREATE INDEX IF NOT EXISTS idx_events_fact  ON analytics_events(fact_id)`,
     `CREATE INDEX IF NOT EXISTS idx_events_run   ON analytics_events(run_id)`,
   ],
+  // v2 → v3: add distillation-confidence / validation-report / verification
+  // hooks to reasoning_blocks. ALTER TABLE ADD COLUMN is safe (SQLite
+  // sets NULL for existing rows, which is the "unknown / Phase 3" semantic).
+  3: [
+    `ALTER TABLE reasoning_blocks ADD COLUMN prov_distillation_confidence REAL`,
+    `ALTER TABLE reasoning_blocks ADD COLUMN prov_validation_report TEXT`,
+    `ALTER TABLE reasoning_blocks ADD COLUMN verification TEXT`,
+  ],
 };
 
 // ---------------------------------------------------------------------------
@@ -458,6 +471,8 @@ export class BlockStore {
         prov_source_task_id, prov_source_agent, prov_source_model,
         prov_extracted_from, prov_distilled_at, prov_distilled_by,
         prov_distilled_with_model, prov_parent_trace_id,
+        prov_distillation_confidence, prov_validation_report,
+        verification,
         stats_times_retrieved, stats_times_injected, stats_times_agent_used,
         stats_times_helpful, stats_times_counterproductive,
         stats_last_used_at, stats_cum_tokens_saved, stats_cum_steps_saved,
@@ -471,6 +486,8 @@ export class BlockStore {
         @prov_source_task_id, @prov_source_agent, @prov_source_model,
         @prov_extracted_from, @prov_distilled_at, @prov_distilled_by,
         @prov_distilled_with_model, @prov_parent_trace_id,
+        @prov_distillation_confidence, @prov_validation_report,
+        @verification,
         @stats_times_retrieved, @stats_times_injected, @stats_times_agent_used,
         @stats_times_helpful, @stats_times_counterproductive,
         @stats_last_used_at, @stats_cum_tokens_saved, @stats_cum_steps_saved,
@@ -605,6 +622,9 @@ export class BlockStore {
         prov_distilled_by = @prov_distilled_by,
         prov_distilled_with_model = @prov_distilled_with_model,
         prov_parent_trace_id = @prov_parent_trace_id,
+        prov_distillation_confidence = @prov_distillation_confidence,
+        prov_validation_report = @prov_validation_report,
+        verification = @verification,
         stats_times_retrieved = @stats_times_retrieved,
         stats_times_injected = @stats_times_injected,
         stats_times_agent_used = @stats_times_agent_used,
@@ -1257,6 +1277,11 @@ export class BlockStore {
       prov_distilled_by: b.provenance.distilledBy,
       prov_distilled_with_model: b.provenance.distilledWithModel ?? null,
       prov_parent_trace_id: b.provenance.parentTraceId ?? null,
+      prov_distillation_confidence: b.provenance.distillationConfidence ?? null,
+      prov_validation_report: b.provenance.validationReport
+        ? JSON.stringify(b.provenance.validationReport)
+        : null,
+      verification: b.verification ? JSON.stringify(b.verification) : null,
       stats_times_retrieved: b.stats.timesRetrieved,
       stats_times_injected: b.stats.timesInjected,
       stats_times_agent_used: b.stats.timesAgentUsed,
@@ -1311,7 +1336,14 @@ export class BlockStore {
         distilledBy: r.prov_distilled_by as ReasoningBlock["provenance"]["distilledBy"],
         distilledWithModel: r.prov_distilled_with_model ?? undefined,
         parentTraceId: r.prov_parent_trace_id ?? undefined,
+        distillationConfidence: r.prov_distillation_confidence ?? undefined,
+        validationReport: r.prov_validation_report
+          ? (JSON.parse(r.prov_validation_report) as ReasoningBlock["provenance"]["validationReport"])
+          : undefined,
       },
+      verification: r.verification
+        ? (JSON.parse(r.verification) as ReasoningBlock["verification"])
+        : undefined,
       stats: {
         timesRetrieved: r.stats_times_retrieved,
         timesInjected: r.stats_times_injected,
@@ -1458,6 +1490,9 @@ interface BlockRow {
   prov_distilled_by: string;
   prov_distilled_with_model: string | null;
   prov_parent_trace_id: string | null;
+  prov_distillation_confidence: number | null;
+  prov_validation_report: string | null;
+  verification: string | null;
   stats_times_retrieved: number;
   stats_times_injected: number;
   stats_times_agent_used: number;

@@ -86,6 +86,51 @@ export type {
   InjectionFormatOptions,
 } from "./core/block-serving.js";
 
+// v2 distillation (Phase 4 — see docs/DESIGN_v2.md §L2 "Pillar 2")
+export { DistillationPipeline } from "./distillation/pipeline.js";
+export type {
+  DistillationPipelineOptions,
+  DistillationResult,
+  RejectionReason,
+} from "./distillation/pipeline.js";
+export {
+  extractTrajectory,
+  findUnlockStep,
+  mineDeadEnds,
+  summarizeDeadEnd,
+} from "./distillation/heuristics.js";
+export type {
+  TrajectoryStep,
+  ExtractedTrajectory,
+} from "./distillation/heuristics.js";
+export {
+  validateCandidate,
+  failedChecks,
+  SCHEMA_LIMITS,
+} from "./distillation/validator.js";
+export type { ValidateOptions } from "./distillation/validator.js";
+export {
+  AnthropicDistiller,
+  MockDistiller,
+  DistillerError,
+  DEFAULT_DISTILL_MODEL,
+  QUALITY_DISTILL_MODEL,
+} from "./distillation/llm-distiller.js";
+export type {
+  LlmDistiller,
+  DistillerInput,
+  DistillerOutput,
+  AnthropicDistillerOptions,
+  AnthropicMessagesLike,
+} from "./distillation/llm-distiller.js";
+export { noopVerifier } from "./distillation/verifier.js";
+export type {
+  Verifier,
+  VerifyOptions,
+  VerificationResult,
+  VerdictStatus,
+} from "./distillation/verifier.js";
+
 // v2 analytics (Phase 3 — see docs/DESIGN_v2.md §L6)
 export {
   JsonlEventSink,
@@ -168,4 +213,9 @@ export type {
   OutcomeEvent,
   FactInjectionEvent,
   FactAgentUsedEvent,
+  // v2 distillation + verification hooks (Phase 4)
+  ValidationReport,
+  ValidationCheck,
+  BlockVerification,
+  VerificationStatus,
 } from "./types.js";

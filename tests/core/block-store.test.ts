@@ -91,6 +91,58 @@ describe("BlockStore — block CRUD", () => {
     expect(got!.trigger.invariants.apiSurface).toEqual(["inspect.isfunction"]);
   });
 
+  it("round-trips Phase 4 hook fields: distillation confidence, validation report, verification", () => {
+    const b = createBlock(SAMPLE);
+    b.status = "candidate";
+    b.provenance.distillationConfidence = 0.73;
+    b.provenance.validationReport = {
+      passed: true,
+      checkedAt: 12345,
+      checks: [
+        { name: "leakage:diff-header", passed: true },
+        { name: "schema:situation-length", passed: true },
+      ],
+    };
+    b.verification = {
+      status: "unverified",
+      verifier: "noop",
+    };
+    store.storeBlock(b);
+
+    const got = store.getBlock(b.id)!;
+    expect(got.provenance.distillationConfidence).toBeCloseTo(0.73);
+    expect(got.provenance.validationReport?.passed).toBe(true);
+    expect(got.provenance.validationReport?.checks.length).toBe(2);
+    expect(got.provenance.validationReport?.checks[0].name).toBe("leakage:diff-header");
+    expect(got.verification?.status).toBe("unverified");
+    expect(got.verification?.verifier).toBe("noop");
+
+    // Mutating verification via replaceBlock (Phase 4.5 lifecycle path).
+    got.verification = {
+      status: "verified",
+      verifier: "held-out-runner",
+      verifiedAt: 67890,
+      taskId: "swebench-verified__astropy-7166",
+    };
+    store.replaceBlock(got);
+
+    const updated = store.getBlock(b.id)!;
+    expect(updated.verification?.status).toBe("verified");
+    expect(updated.verification?.taskId).toBe("swebench-verified__astropy-7166");
+    // Immutable provenance fields unchanged.
+    expect(updated.provenance.distillationConfidence).toBeCloseTo(0.73);
+  });
+
+  it("defaults Phase 4 hook fields to undefined when not set", () => {
+    const b = createBlock(SAMPLE);
+    b.status = "candidate";
+    store.storeBlock(b);
+    const got = store.getBlock(b.id)!;
+    expect(got.provenance.distillationConfidence).toBeUndefined();
+    expect(got.provenance.validationReport).toBeUndefined();
+    expect(got.verification).toBeUndefined();
+  });
+
   it("findBlockByFingerprint returns the block", () => {
     const b = createBlock(SAMPLE);
     b.status = "candidate";
