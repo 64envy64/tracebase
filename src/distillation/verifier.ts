@@ -3,8 +3,9 @@
  *
  * Phase 4 ships the interface + a noop default implementation. The
  * DistillationPipeline accepts any Verifier via its options; by
- * default it uses `noopVerifier`, which records `status: "unverified"`
- * without running anything.
+ * default it uses `noopVerifier`, which records
+ * `BlockVerification.status = "unverified"` (mapped from an
+ * `inconclusive` verdict) without running anything.
  *
  * Phase 4.5 will introduce a real verifier that takes a newly-distilled
  * block, runs a fresh agent on a held-out task with ONLY this block
@@ -15,10 +16,16 @@
  * Contract points Phase 4.5 must honor:
  *   • `name` is persisted on BlockVerification.verifier so we can
  *     correlate verdicts to verifier versions.
- *   • Errors from verify() must not crash the pipeline; the pipeline
- *     catches and records a "pending" state with the error in reason.
+ *   • Errors from verify() must not crash the pipeline. The pipeline
+ *     catches and records the verdict as `inconclusive` (verifier
+ *     message in `reason`); BlockVerification.status ends up as
+ *     "unverified" so the block is a candidate for later re-verify.
  *   • Verify is allowed to return "inconclusive" (e.g. no held-out
  *     task available for this pattern).
+ *   • The "pending" BlockVerification.status is reserved for Phase
+ *     4.5's async flow (a verifier that queues a job and returns
+ *     "pending" while the job runs); the synchronous Phase 4 pipeline
+ *     never writes it.
  */
 import type { ReasoningBlock } from "../types.js";
 

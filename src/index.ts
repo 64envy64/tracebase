@@ -86,6 +86,16 @@ export type {
   InjectionFormatOptions,
 } from "./core/block-serving.js";
 
+// v2 lifecycle repair (Phase 5 — see docs/DESIGN_v2.md §L6)
+export { LifecycleRepair } from "./lifecycle/repair.js";
+export type {
+  LifecycleRepairOptions,
+  LifecycleSyncReport,
+  LifecycleDemotionAction,
+  LifecycleActionReport,
+  LifecycleRunReport,
+} from "./lifecycle/repair.js";
+
 // v2 distillation (Phase 4 — see docs/DESIGN_v2.md §L2 "Pillar 2")
 export { DistillationPipeline } from "./distillation/pipeline.js";
 export type {
