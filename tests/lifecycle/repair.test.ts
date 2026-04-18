@@ -361,3 +361,167 @@ describe("LifecycleRepair — serving integration sanity", () => {
     expect(result.blocks.length).toBe(0); // demoted — filtered out.
   });
 });
+
+// ---------------------------------------------------------------------------
+// Scoping safety: syncStats is always global.
+//
+// Regression guard against the pre-fix behaviour where passing runId /
+// afterTs / beforeTs into LifecycleRepairOptions would make syncStats
+// write partial aggregates into the persistent block.stats materialized
+// view, silently corrupting global quality state. Phase 5.1 (post-fix)
+// removes those options entirely; scoped analysis belongs to the
+// read-only computeAggregates(store, window) from core/analytics.
+// ---------------------------------------------------------------------------
+
+describe("LifecycleRepair — scoping safety", () => {
+  it("syncStats always integrates over the full log, across run ids", () => {
+    const store = makeStore();
+    const b = activeBlock(store, BLOCK_A);
+
+    // Events across two different run ids. In the old (broken) API,
+    // constructing with runId="run-a" would drop the run-b events.
+    const emitAcross = (qid: string, runId: string, ts: number, resolved: boolean): void => {
+      store.appendEvent(
+        { ts, queryId: qid, event: "retrieval",
+          candidates: [{ blockId: b.id, score: 0.9 }], shadow: false },
+        { runId },
+      );
+      store.appendEvent(
+        { ts: ts + 1, queryId: qid, event: "injection", blockId: b.id, score: 0.9 },
+        { runId },
+      );
+      store.appendEvent(
+        { ts: ts + 2, queryId: qid, event: "agent_used", blockId: b.id,
+          matchSignal: "jaccard", matchScore: 0.5 },
+        { runId },
+      );
+      store.appendEvent(
+        { ts: ts + 3, queryId: qid, event: "outcome", resolved, control: false },
+        { runId },
+      );
+    };
+
+    emitAcross("q1", "run-a", 100, true);
+    emitAcross("q2", "run-b", 200, false);
+
+    new LifecycleRepair({ store }).syncStats();
+    const after = store.getBlock(b.id)!;
+    // Both runs' events must be counted.
+    expect(after.stats.timesInjected).toBe(2);
+    expect(after.stats.timesHelpful).toBe(1);
+    expect(after.stats.timesCounterproductive).toBe(1);
+  });
+
+  it("LifecycleRepairOptions does NOT accept runId / afterTs / beforeTs", () => {
+    // Type-level regression: the following should fail to compile if
+    // anyone re-introduces window options on LifecycleRepair. We can't
+    // assert "does not compile" at runtime, but we can assert that the
+    // options the caller might try to pass are silently ignored by
+    // TypeScript (no runtime effect) and that the result matches a
+    // construction with no extra options.
+    const store = makeStore();
+    const b = activeBlock(store, BLOCK_A);
+    // Two runs, opposite outcomes.
+    const emitAcross = (qid: string, runId: string, ts: number, resolved: boolean): void => {
+      store.appendEvent(
+        { ts, queryId: qid, event: "retrieval",
+          candidates: [{ blockId: b.id, score: 0.9 }], shadow: false },
+        { runId },
+      );
+      store.appendEvent(
+        { ts: ts + 1, queryId: qid, event: "injection", blockId: b.id, score: 0.9 },
+        { runId },
+      );
+      store.appendEvent(
+        { ts: ts + 2, queryId: qid, event: "agent_used", blockId: b.id,
+          matchSignal: "jaccard", matchScore: 0.5 },
+        { runId },
+      );
+      store.appendEvent(
+        { ts: ts + 3, queryId: qid, event: "outcome", resolved, control: false },
+        { runId },
+      );
+    };
+    emitAcross("q1", "run-a", 100, true);
+    emitAcross("q2", "run-b", 200, false);
+
+    // Passing an extra property that doesn't exist on the options type
+    // is rejected at compile time by TS. At runtime, the fallback is
+    // that the constructor ignores unknown keys and produces a global
+    // sync. We sanity-check via `as unknown as LifecycleRepairOptions`
+    // to simulate what a stale caller might have written before the
+    // API was tightened; the RESULT must still match the plain call.
+    const taint = new LifecycleRepair({
+      store,
+      ...({ runId: "run-a" } as Record<string, unknown>),
+    } as unknown as ConstructorParameters<typeof LifecycleRepair>[0]);
+    taint.syncStats();
+    const taintStats = { ...store.getBlock(b.id)!.stats };
+
+    // Re-sync with the plain API.
+    new LifecycleRepair({ store }).syncStats();
+    const plainStats = { ...store.getBlock(b.id)!.stats };
+
+    // They must agree: the stale caller's runId is silently dropped,
+    // and BOTH passes integrate the full log.
+    expect(taintStats.timesInjected).toBe(plainStats.timesInjected);
+    expect(taintStats.timesHelpful).toBe(plainStats.timesHelpful);
+    expect(taintStats.timesCounterproductive).toBe(plainStats.timesCounterproductive);
+    expect(plainStats.timesInjected).toBe(2);
+  });
+
+  it("applyDemotionRules reads block.stats which reflects the full log", () => {
+    const store = makeStore();
+    const b = activeBlock(store, BLOCK_A);
+    // Mix helpful (run-a) and unhelpful (run-b); if either run were
+    // dropped, the demote decision would flip.
+    for (let i = 0; i < 3; i++) {
+      store.appendEvent(
+        { ts: 100 + i, queryId: `a-${i}`, event: "retrieval",
+          candidates: [{ blockId: b.id, score: 0.9 }], shadow: false },
+        { runId: "run-a" },
+      );
+      store.appendEvent(
+        { ts: 101 + i, queryId: `a-${i}`, event: "injection", blockId: b.id, score: 0.9 },
+        { runId: "run-a" },
+      );
+      store.appendEvent(
+        { ts: 102 + i, queryId: `a-${i}`, event: "agent_used", blockId: b.id,
+          matchSignal: "jaccard", matchScore: 0.5 },
+        { runId: "run-a" },
+      );
+      store.appendEvent(
+        { ts: 103 + i, queryId: `a-${i}`, event: "outcome", resolved: true, control: false },
+        { runId: "run-a" },
+      );
+    }
+    for (let i = 0; i < 7; i++) {
+      store.appendEvent(
+        { ts: 200 + i, queryId: `b-${i}`, event: "retrieval",
+          candidates: [{ blockId: b.id, score: 0.9 }], shadow: false },
+        { runId: "run-b" },
+      );
+      store.appendEvent(
+        { ts: 201 + i, queryId: `b-${i}`, event: "injection", blockId: b.id, score: 0.9 },
+        { runId: "run-b" },
+      );
+      store.appendEvent(
+        { ts: 202 + i, queryId: `b-${i}`, event: "agent_used", blockId: b.id,
+          matchSignal: "jaccard", matchScore: 0.5 },
+        { runId: "run-b" },
+      );
+      store.appendEvent(
+        { ts: 203 + i, queryId: `b-${i}`, event: "outcome", resolved: false, control: false },
+        { runId: "run-b" },
+      );
+    }
+    const repair = new LifecycleRepair({ store });
+    repair.syncStats();
+    const stats = store.getBlock(b.id)!.stats;
+    // Global counts: 3 helpful + 7 counter.
+    expect(stats.timesHelpful).toBe(3);
+    expect(stats.timesCounterproductive).toBe(7);
+    const { demoted } = repair.applyDemotionRules();
+    expect(demoted.length).toBe(1); // decision is driven by full log, not any subset.
+  });
+});

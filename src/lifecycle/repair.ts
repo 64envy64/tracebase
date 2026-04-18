@@ -4,9 +4,8 @@
  *
  * Two responsibilities in Phase 5.1:
  *   1. `syncStats()` — recompute per-block `stats` and
- *      `quality.wilsonLowerBound` from the event log. Idempotent,
- *      order-independent, safe to rerun. Source of truth is the
- *      event log; stats in the block row are a materialized view.
+ *      `quality.wilsonLowerBound` from the **full** event log.
+ *      Idempotent, order-independent, safe to rerun.
  *   2. `applyDemotionRules()` — walk active blocks and move them
  *      to `demoted` when any of:
  *        a. `verification.status === "disproved"` (hard signal from
@@ -16,6 +15,17 @@
  *      `status: demoted` is already excluded from serving, so a
  *      demoted block is immediately taken out of the path.
  *
+ * **Scoping policy (important):** this module ALWAYS operates on the
+ * full event log, never on a windowed subset. The block-row stats
+ * fields (`stats.*`, `quality.wilsonLowerBound`) are a materialized
+ * view of the global log; writing partial aggregates into them from
+ * a cohort / runId / time-window pass would silently corrupt global
+ * quality state and let a canary or verifier cohort poison production
+ * decisions. For cohort-scoped analysis, use
+ * `computeAggregates(store, {afterTs, beforeTs, runId})` directly
+ * from `core/analytics` — that function is read-only and returns
+ * transient aggregates without ever touching the store.
+ *
  * Deliberately NOT part of Phase 5.1 (scheduled for later):
  *   • Re-promote: demoted → active. This requires a fresh verify
  *     signal or a manual unblock, both of which land with Phase 4.5.
@@ -24,13 +34,12 @@
  *   • `cumulativeTokensSaved` / `cumulativeStepsSaved` rollup. Phase
  *     5.3 — needs shadow-arm comparison to be honest.
  *
- * Everything here reads from the event log, never from live traffic.
  * Ref: §L6 "Lifecycle repair reads from the event log, never from
  * live traffic."
  */
 import type { BlockStore } from "../core/block-store.js";
 import { refreshWilson } from "../core/block.js";
-import { computeAggregates, type AggregateOptions } from "../core/analytics.js";
+import { computeAggregates } from "../core/analytics.js";
 import type { ReasoningBlock } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -57,10 +66,10 @@ export interface LifecycleRepairOptions {
    * the sample is large enough. Default 2.0.
    */
   counterToHelpfulRatio?: number;
-  /** Window / scoping for the aggregate underlying syncStats. */
-  afterTs?: number;
-  beforeTs?: number;
-  runId?: string;
+  // Deliberately no window / runId options here. See the module header:
+  // scoping the persistent stats refresh would silently corrupt the
+  // global materialized view. Use `computeAggregates(store, window)`
+  // from `core/analytics` for read-only cohort analysis.
 }
 
 export interface LifecycleSyncReport {
@@ -96,18 +105,12 @@ export class LifecycleRepair {
   private readonly minInjectionSample: number;
   private readonly wilsonDemoteThreshold: number;
   private readonly counterToHelpfulRatio: number;
-  private readonly window: AggregateOptions;
 
   constructor(opts: LifecycleRepairOptions) {
     this.store = opts.store;
     this.minInjectionSample = opts.minInjectionSample ?? 5;
     this.wilsonDemoteThreshold = opts.wilsonDemoteThreshold ?? 0.3;
     this.counterToHelpfulRatio = opts.counterToHelpfulRatio ?? 2.0;
-    this.window = {
-      ...(opts.afterTs !== undefined ? { afterTs: opts.afterTs } : {}),
-      ...(opts.beforeTs !== undefined ? { beforeTs: opts.beforeTs } : {}),
-      ...(opts.runId !== undefined ? { runId: opts.runId } : {}),
-    };
   }
 
   /**
@@ -118,7 +121,10 @@ export class LifecycleRepair {
    * untouched (both are owned by separate modules).
    */
   syncStats(): LifecycleSyncReport {
-    const agg = computeAggregates(this.store, this.window);
+    // Always global — no window. Writing scoped aggregates into the
+    // persistent stats row would corrupt global quality state and let
+    // a canary / cohort pass poison production serving decisions.
+    const agg = computeAggregates(this.store);
     let updated = 0;
     let orphaned = 0;
 
@@ -218,12 +224,12 @@ export class LifecycleRepair {
 
   /**
    * Max timestamp across injection + agent_used events for a block —
-   * the "last time this block was in front of an agent".
+   * the "last time this block was in front of an agent". Always reads
+   * the full log; no window option (same policy as syncStats).
    * Returns undefined if no such events exist.
    */
   private latestUsageTs(blockId: string): number | undefined {
     const events = this.store.readEvents({
-      ...this.window,
       blockId,
       eventType: ["injection", "agent_used"],
       limit: 100_000,
