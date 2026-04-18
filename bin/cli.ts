@@ -14,6 +14,8 @@ import { setupCommand } from "../src/cli/commands/setup.js";
 import { explainCommand } from "../src/cli/commands/explain.js";
 import { seedCommand } from "../src/cli/commands/seed.js";
 import { syncCommand } from "../src/cli/commands/sync.js";
+import { statusCommand } from "../src/cli/commands/status.js";
+import { doctorCommand } from "../src/cli/commands/doctor.js";
 import { isInitialized } from "../src/core/config.js";
 
 // Read version from package.json at runtime
@@ -44,6 +46,8 @@ program.addCommand(pruneCommand);
 program.addCommand(explainCommand);
 program.addCommand(seedCommand);
 program.addCommand(syncCommand);
+program.addCommand(statusCommand);
+program.addCommand(doctorCommand);
 
 // No args → guided quickstart instead of generic help
 if (process.argv.length <= 2) {
