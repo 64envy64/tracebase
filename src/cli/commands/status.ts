@@ -17,7 +17,7 @@ import { statSync } from "node:fs";
 import { join } from "node:path";
 import pc from "picocolors";
 import Database from "better-sqlite3";
-import { findConfigDir, loadConfig } from "../../core/config.js";
+import { findProjectRoot, loadConfig } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
 
 interface StatusReport {
@@ -60,9 +60,13 @@ export const statusCommand = new Command("status")
     renderStatus(report);
   });
 
-export function buildStatusReport(projectPath: string): StatusReport {
-  const configDir = findConfigDir(projectPath);
-  const initialized = configDir !== null;
+export function buildStatusReport(invocationPath: string): StatusReport {
+  // Walk up from the invocation dir; the real project root may be an
+  // ancestor. All subsequent file-presence checks must key off this
+  // resolved root, not `invocationPath`, otherwise running the command
+  // from a nested subdirectory gives false negatives.
+  const projectRoot = findProjectRoot(invocationPath);
+  const initialized = projectRoot !== null;
 
   if (!initialized) {
     return {
@@ -80,10 +84,10 @@ export function buildStatusReport(projectPath: string): StatusReport {
     };
   }
 
-  const cfg = loadConfig(projectPath);
+  const cfg = loadConfig(invocationPath);
   const storageBytes = existsSync(cfg.storagePath) ? statSync(cfg.storagePath).size : null;
-  const claudeSettingsPresent = existsSync(join(projectPath, ".claude", "settings.json"));
-  const claudeMdPresent = existsSync(join(projectPath, "CLAUDE.md"));
+  const claudeSettingsPresent = existsSync(join(projectRoot, ".claude", "settings.json"));
+  const claudeMdPresent = existsSync(join(projectRoot, "CLAUDE.md"));
 
   const blocks = { active: 0, candidate: 0, demoted: 0, merged: 0, retired: 0 };
   let factsActive = 0;
@@ -121,7 +125,7 @@ export function buildStatusReport(projectPath: string): StatusReport {
 
   return {
     initialized: true,
-    projectPath,
+    projectPath: projectRoot,
     workspaceId: cfg.workspaceId ?? null,
     storagePath: cfg.storagePath,
     storageBytes,

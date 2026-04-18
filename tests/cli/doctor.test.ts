@@ -152,3 +152,39 @@ describe("runDoctor — summary", () => {
     expect(r.summary).toEqual(totals);
   });
 });
+
+describe("runDoctor — regressions", () => {
+  it("malformed .tracebase/config.json is a hard FAIL, not a soft WARN", async () => {
+    // Regression: runDoctor used to call loadConfig() which silently
+    // swallows JSON parse errors, so a corrupted config.json was only
+    // reported as WARN (missing workspaceId). It must be a FAIL.
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    mkdirSync(join(dir, ".tracebase"), { recursive: true });
+    writeFileSync(join(dir, ".tracebase", "config.json"), "{ not valid json");
+
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "tracebase-config")!;
+    expect(c.level).toBe("fail");
+    expect(c.message).toMatch(/not valid JSON/i);
+    expect(r.summary.fail).toBeGreaterThan(0);
+  });
+
+  it("from a nested subdirectory: checks key off the discovered project root", async () => {
+    // Regression: runDoctor used the invocation path for
+    // .claude/settings.json and CLAUDE.md checks, so running doctor
+    // from a subdir reported them missing even when healthy.
+    initConfig(dir);
+    writeClaudeSettings(dir, false);
+    writeClaudeMarkdown(dir);
+
+    const { mkdirSync } = await import("node:fs");
+    const nested = join(dir, "packages", "a", "src");
+    mkdirSync(nested, { recursive: true });
+
+    const r = runDoctor(nested);
+    expect(byName(r.checks, "tracebase-config")!.level).toBe("pass");
+    expect(byName(r.checks, "claude-settings")!.level).toBe("pass");
+    expect(byName(r.checks, "claude-md")!.level).toBe("pass");
+    expect(r.projectPath).toBe(dir);
+  });
+});

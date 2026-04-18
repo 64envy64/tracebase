@@ -14,8 +14,9 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import pc from "picocolors";
 import Database from "better-sqlite3";
-import { findConfigDir, loadConfig } from "../../core/config.js";
+import { findProjectRoot, loadConfig } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
+import type { TraceBaseConfig } from "../../types.js";
 
 export type DoctorLevel = "pass" | "warn" | "fail";
 
@@ -49,34 +50,70 @@ export const doctorCommand = new Command("doctor")
     if (report.summary.fail > 0) process.exitCode = 1;
   });
 
-export function runDoctor(projectPath: string): DoctorReport {
+export function runDoctor(invocationPath: string): DoctorReport {
   const checks: DoctorCheck[] = [];
 
-  // --- .tracebase/config.json
-  const configDir = findConfigDir(projectPath);
-  if (!configDir) {
+  // Walk up from the invocation dir. All subsequent checks key off the
+  // discovered project root so running `doctor` from a subdirectory
+  // doesn't false-negative on .claude/settings.json or CLAUDE.md.
+  const projectRoot = findProjectRoot(invocationPath);
+  if (!projectRoot) {
     checks.push({
       name: "tracebase-config",
       level: "fail",
       message: ".tracebase/config.json is missing",
       fix: "Run `npx tracebase init` in this project directory.",
     });
-    return finalize(projectPath, checks);
+    return finalize(invocationPath, checks);
   }
 
-  const configFile = join(configDir, "config.json");
-  let cfg: ReturnType<typeof loadConfig>;
+  // --- .tracebase/config.json
+  //
+  // Read the config file DIRECTLY rather than going through loadConfig,
+  // because loadConfig silently swallows JSON parse errors and returns
+  // defaults — a forgiving runtime contract that would hide file
+  // corruption from a deep integrity check.
+  const configFile = join(projectRoot, ".tracebase", "config.json");
+  let cfg: TraceBaseConfig | null = null;
+  if (!existsSync(configFile)) {
+    checks.push({
+      name: "tracebase-config",
+      level: "fail",
+      message: ".tracebase/config.json is missing",
+      fix: "Run `npx tracebase init` in this project directory.",
+    });
+    return finalize(projectRoot, checks);
+  }
+
+  let rawConfig: string;
   try {
-    cfg = loadConfig(projectPath);
+    rawConfig = readFileSync(configFile, "utf-8");
   } catch (e) {
     checks.push({
       name: "tracebase-config",
       level: "fail",
       message: `config.json is unreadable: ${e instanceof Error ? e.message : String(e)}`,
-      fix: "Inspect .tracebase/config.json or re-run `npx tracebase init --force`.",
+      fix: "Check file permissions; re-run `npx tracebase init --force` if necessary.",
     });
-    return finalize(projectPath, checks);
+    return finalize(projectRoot, checks);
   }
+
+  try {
+    cfg = JSON.parse(rawConfig) as TraceBaseConfig;
+  } catch (e) {
+    checks.push({
+      name: "tracebase-config",
+      level: "fail",
+      message: `config.json is not valid JSON: ${e instanceof Error ? e.message : String(e)}`,
+      fix: "Fix the JSON by hand or re-run `npx tracebase init --force` (this rewrites the file).",
+    });
+    return finalize(projectRoot, checks);
+  }
+
+  // Merge with loadConfig's defaults so downstream checks have the
+  // resolved storagePath etc.; loadConfig is safe to call now, parse
+  // errors would already have been caught above.
+  const resolvedCfg = loadConfig(invocationPath);
 
   if (!cfg.workspaceId) {
     checks.push({
@@ -92,6 +129,7 @@ export function runDoctor(projectPath: string): DoctorReport {
       message: `parseable, workspaceId ${cfg.workspaceId.slice(0, 8)}…`,
     });
   }
+  cfg = resolvedCfg;
 
   // --- storage
   if (!existsSync(cfg.storagePath)) {
@@ -139,8 +177,8 @@ export function runDoctor(projectPath: string): DoctorReport {
     }
   }
 
-  // --- .claude/settings.json
-  const settingsFile = join(projectPath, ".claude", "settings.json");
+  // --- .claude/settings.json (project-root scoped)
+  const settingsFile = join(projectRoot, ".claude", "settings.json");
   if (!existsSync(settingsFile)) {
     checks.push({
       name: "claude-settings",
@@ -189,8 +227,8 @@ export function runDoctor(projectPath: string): DoctorReport {
     }
   }
 
-  // --- CLAUDE.md
-  const claudeMd = join(projectPath, "CLAUDE.md");
+  // --- CLAUDE.md (project-root scoped)
+  const claudeMd = join(projectRoot, "CLAUDE.md");
   if (!existsSync(claudeMd)) {
     checks.push({
       name: "claude-md",
@@ -266,9 +304,7 @@ export function runDoctor(projectPath: string): DoctorReport {
     }
   }
 
-  return finalize(projectPath, checks);
-  // config file path is included only so finalize can skip it in JSON.
-  void configFile;
+  return finalize(projectRoot, checks);
 }
 
 function finalize(projectPath: string, checks: DoctorCheck[]): DoctorReport {

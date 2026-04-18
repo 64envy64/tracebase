@@ -35,15 +35,31 @@ export function findConfigDir(startPath: string = process.cwd()): string | null 
   return null;
 }
 
-/** Load configuration, merging file config with defaults. */
+/**
+ * Load configuration, merging file config with defaults.
+ *
+ * Resolution rule (important — both arms walk up the filesystem):
+ *   • If `basePath` is given, search up from it for `.tracebase/`.
+ *     Running from a nested cwd must still find the project-root
+ *     install, not pretend an empty install lives in the subdirectory.
+ *   • If `basePath` is omitted, search up from `process.cwd()`.
+ *   • If no `.tracebase/` is found anywhere, return defaults rooted at
+ *     the passed `basePath` (or cwd) — this is the "not yet initialized"
+ *     state and the caller decides what to do about it.
+ *
+ * Parse errors on `config.json` fall through to defaults, preserving
+ * the forgiving runtime contract. Deep integrity checks (doctor) must
+ * NOT rely on this function for corruption detection — they should
+ * read the config file directly and surface the parse error.
+ */
 export function loadConfig(basePath?: string): TraceBaseConfig {
-  const configDir = basePath
-    ? join(basePath, CONFIG_DIR)
-    : findConfigDir();
+  const searchFrom = basePath ?? process.cwd();
+  const configDir = findConfigDir(searchFrom);
 
   if (!configDir) {
-    // No config found — use defaults in cwd
-    return defaultConfig(process.cwd());
+    // No config found anywhere up the tree — defaults rooted at the
+    // caller's basePath (or cwd).
+    return defaultConfig(searchFrom);
   }
 
   const configFile = join(configDir, CONFIG_FILE);
@@ -58,6 +74,20 @@ export function loadConfig(basePath?: string): TraceBaseConfig {
   } catch {
     return defaults;
   }
+}
+
+/**
+ * Return the resolved project root for a given start path — i.e. the
+ * directory that contains the `.tracebase/` config dir (walked up
+ * from `startPath`). Returns null when no install exists up the tree.
+ *
+ * Used by commands that need to read files OUTSIDE `.tracebase/` but
+ * still rooted at the project (`.claude/settings.json`, `CLAUDE.md`)
+ * so they work correctly from nested subdirectories.
+ */
+export function findProjectRoot(startPath: string = process.cwd()): string | null {
+  const configDir = findConfigDir(startPath);
+  return configDir ? dirname(configDir) : null;
 }
 
 /**

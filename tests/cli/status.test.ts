@@ -118,4 +118,35 @@ describe("buildStatusReport — config-dir search from subdir", () => {
     const r = buildStatusReport(nested);
     expect(r.initialized).toBe(true);
   });
+
+  it("from a nested cwd: workspaceId + storagePath come from the real root, not a phantom subdir", () => {
+    // Regression: loadConfig used to rebuild the config path as
+    // <basePath>/.tracebase, which from a nested invocation path
+    // pointed at a phantom store with no workspaceId.
+    const cfg = initConfig(dir);
+    const nested = join(dir, "src", "deep");
+    mkdirSync(nested, { recursive: true });
+
+    const r = buildStatusReport(nested);
+    expect(r.workspaceId).toBe(cfg.workspaceId);
+    expect(r.storagePath).toBe(cfg.storagePath); // root's path, not nested/.tracebase/memory.db
+    expect(r.projectPath).toBe(dir);
+  });
+
+  it("from a nested cwd: claudeSettingsPresent + claudeMdPresent reflect the real root", async () => {
+    // Regression: the report used to check these files under the
+    // invocation directory rather than the discovered project root,
+    // so running status from a subdir reported them missing even
+    // when the install was healthy.
+    initConfig(dir);
+    const { writeClaudeSettings, writeClaudeMarkdown } = await import("../../src/cli/commands/init.js");
+    writeClaudeSettings(dir, false);
+    writeClaudeMarkdown(dir);
+
+    const nested = join(dir, "packages", "foo", "src");
+    mkdirSync(nested, { recursive: true });
+    const r = buildStatusReport(nested);
+    expect(r.claudeSettingsPresent).toBe(true);
+    expect(r.claudeMdPresent).toBe(true);
+  });
 });
