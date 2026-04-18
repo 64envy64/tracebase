@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join, dirname } from "node:path";
 import type { TraceBaseConfig } from "../types.js";
 
@@ -59,7 +60,14 @@ export function loadConfig(basePath?: string): TraceBaseConfig {
   }
 }
 
-/** Initialize a new TraceBase config directory. */
+/**
+ * Initialize a new TraceBase config directory. Idempotent:
+ *   - Running on a fresh directory creates .tracebase/ and writes a
+ *     config with a freshly-generated workspaceId.
+ *   - Running on an already-initialized directory preserves the
+ *     existing workspaceId (it's a stable identifier, re-init must
+ *     not rotate it) and merges any new `overrides`.
+ */
 export function initConfig(
   basePath: string,
   overrides?: Partial<TraceBaseConfig>,
@@ -67,11 +75,22 @@ export function initConfig(
   const dir = join(basePath, CONFIG_DIR);
   mkdirSync(dir, { recursive: true });
 
-  const config = { ...defaultConfig(basePath), ...overrides };
-  const configFile = join(dir, CONFIG_FILE);
+  // Pick up any existing workspaceId so re-init doesn't rotate it.
+  const existing = readExistingConfig(dir);
+  const preservedWorkspaceId = existing?.workspaceId;
 
-  // Write config (without non-serializable fields)
+  const config: TraceBaseConfig = {
+    ...defaultConfig(basePath),
+    workspaceId: preservedWorkspaceId ?? overrides?.workspaceId ?? randomUUID(),
+    ...overrides,
+  };
+  // `overrides` above may include workspaceId explicitly (tests); if the
+  // existing file already had one, keep that — stable identity wins.
+  if (preservedWorkspaceId) config.workspaceId = preservedWorkspaceId;
+
+  const configFile = join(dir, CONFIG_FILE);
   const serializable: Record<string, unknown> = {
+    workspaceId: config.workspaceId,
     storagePath: config.storagePath,
     maxTraces: config.maxTraces,
     pruneThreshold: config.pruneThreshold,
@@ -88,6 +107,17 @@ export function initConfig(
 
   writeFileSync(configFile, JSON.stringify(serializable, null, 2) + "\n");
   return config;
+}
+
+/** Read an existing on-disk config (or null if none). Internal use. */
+function readExistingConfig(configDir: string): Partial<TraceBaseConfig> | null {
+  const file = join(configDir, CONFIG_FILE);
+  if (!existsSync(file)) return null;
+  try {
+    return JSON.parse(readFileSync(file, "utf-8")) as Partial<TraceBaseConfig>;
+  } catch {
+    return null;
+  }
 }
 
 /** Check if TraceBase is initialized in the given directory. */
