@@ -41,7 +41,7 @@ import { detectLeakage } from "./block.js";
 // Schema
 // ---------------------------------------------------------------------------
 
-const V2_SCHEMA_VERSION = 3;
+const V2_SCHEMA_VERSION = 4;
 
 const V2_SCHEMA = `
 CREATE TABLE IF NOT EXISTS reasoning_blocks (
@@ -241,6 +241,15 @@ CREATE TABLE IF NOT EXISTS v2_schema_meta (
   key    TEXT PRIMARY KEY,
   value  TEXT NOT NULL
 );
+
+-- Calibrator models (Phase 5.2). Named JSON blobs so multiple named
+-- calibrators can coexist (e.g. per-cohort, per-deployment). Phase 5
+-- ships a single canonical name; future calibrators reuse the table.
+CREATE TABLE IF NOT EXISTS calibrator_models (
+  name       TEXT PRIMARY KEY,
+  payload    TEXT NOT NULL,
+  fitted_at  INTEGER NOT NULL
+);
 `;
 
 /**
@@ -282,6 +291,15 @@ const V2_MIGRATIONS: Record<number, string[]> = {
     `ALTER TABLE reasoning_blocks ADD COLUMN prov_distillation_confidence REAL`,
     `ALTER TABLE reasoning_blocks ADD COLUMN prov_validation_report TEXT`,
     `ALTER TABLE reasoning_blocks ADD COLUMN verification TEXT`,
+  ],
+  // v3 → v4: add calibrator_models table for persisted isotonic (etc.)
+  // models. Additive; existing rows untouched.
+  4: [
+    `CREATE TABLE IF NOT EXISTS calibrator_models (
+      name       TEXT PRIMARY KEY,
+      payload    TEXT NOT NULL,
+      fitted_at  INTEGER NOT NULL
+    )`,
   ],
 };
 
@@ -1236,6 +1254,63 @@ export class BlockStore {
       .prepare("SELECT COUNT(*) AS c FROM analytics_events")
       .get() as { c: number };
     return row.c;
+  }
+
+  // -------------------------------------------------------------------------
+  // Calibrator models (Phase 5.2)
+  //
+  // Named JSON blobs keyed by `name`. The store does not interpret the
+  // payload — it just persists whatever the caller serializes. The
+  // calibrator module (src/lifecycle/calibrator.ts) owns the concrete
+  // schema of each named model.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Persist a calibrator model. `fittedAt` is pulled off the payload
+   * so callers can query by recency without deserializing the full
+   * JSON. Overwrites any existing model with the same name.
+   */
+  saveCalibrator<T extends { fittedAt: number }>(
+    name: string,
+    model: T,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO calibrator_models(name, payload, fitted_at)
+         VALUES (?, ?, ?)`,
+      )
+      .run(name, JSON.stringify(model), model.fittedAt);
+  }
+
+  /**
+   * Load a named calibrator model. Returns null if no model exists
+   * under this name, or if the stored payload is malformed JSON.
+   */
+  loadCalibrator<T = unknown>(name: string): T | null {
+    const row = this.db
+      .prepare("SELECT payload FROM calibrator_models WHERE name = ?")
+      .get(name) as { payload: string } | undefined;
+    if (!row) return null;
+    try {
+      return JSON.parse(row.payload) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Delete a named calibrator model. Returns true iff a row was removed. */
+  deleteCalibrator(name: string): boolean {
+    const res = this.db
+      .prepare("DELETE FROM calibrator_models WHERE name = ?")
+      .run(name);
+    return res.changes > 0;
+  }
+
+  /** List all stored calibrator model names (for diagnostics / audit). */
+  listCalibratorNames(): Array<{ name: string; fittedAt: number }> {
+    return this.db
+      .prepare("SELECT name, fitted_at AS fittedAt FROM calibrator_models ORDER BY fitted_at DESC")
+      .all() as Array<{ name: string; fittedAt: number }>;
   }
 
   // -------------------------------------------------------------------------

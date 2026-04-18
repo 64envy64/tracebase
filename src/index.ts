@@ -96,6 +96,23 @@ export type {
   LifecycleRunReport,
 } from "./lifecycle/repair.js";
 
+// v2 isotonic calibrator + serving integration (Phase 5.2)
+export {
+  fitIsotonic,
+  predictIsotonic,
+  isMonotone,
+} from "./lifecycle/isotonic.js";
+export type { IsotonicModel } from "./lifecycle/isotonic.js";
+export {
+  BLOCK_CALIBRATOR_NAME,
+  fitCalibratorFromEvents,
+  fitAndSaveBlockCalibrator,
+  loadBlockCalibrator,
+  isotonicCalibrator,
+  identityBlockCalibrator,
+} from "./lifecycle/calibrator.js";
+export type { FitCalibratorOptions } from "./lifecycle/calibrator.js";
+
 // v2 distillation (Phase 4 — see docs/DESIGN_v2.md §L2 "Pillar 2")
 export { DistillationPipeline } from "./distillation/pipeline.js";
 export type {
