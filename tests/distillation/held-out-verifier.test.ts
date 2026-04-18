@@ -301,6 +301,38 @@ describe("HeldOutVerifier", () => {
     expect(r.reason?.toLowerCase()).toContain("circular");
   });
 
+  it("rejects a caller-supplied taskId whose invariants do not match the block", async () => {
+    // Regression: the taskId override path used to skip invariantsMatch,
+    // which let a Python/Astropy block be "verified" against a TS/React
+    // task. The runner must never be invoked in that case — only the
+    // invariants-mismatch reason should surface as inconclusive.
+    let runnerCalled = false;
+    const verifier = new HeldOutVerifier({
+      runner: new MockAgentRunner(() => {
+        runnerCalled = true;
+        return { output: "", resolved: false, agentReusedBlock: true };
+      }),
+      picker: new StaticTaskPicker([HELD_OUT_TASK, UNRELATED_TASK]),
+    });
+    const r = await verifier.verify(makeBlock(), { taskId: UNRELATED_TASK.id });
+    expect(r.status).toBe("inconclusive");
+    expect(r.reason?.toLowerCase()).toContain("invariants do not match");
+    // The taskId whose validation failed is still surfaced.
+    expect(r.taskId).toBe(UNRELATED_TASK.id);
+    // Never disproved, never verified.
+    expect(runnerCalled).toBe(false);
+  });
+
+  it("returns 'task not found' when the caller-supplied taskId is unknown to the picker", async () => {
+    const verifier = new HeldOutVerifier({
+      runner: new MockAgentRunner({ output: "", resolved: true, agentReusedBlock: true }),
+      picker: new StaticTaskPicker([HELD_OUT_TASK]),
+    });
+    const r = await verifier.verify(makeBlock(), { taskId: "does-not-exist" });
+    expect(r.status).toBe("inconclusive");
+    expect(r.reason?.toLowerCase()).toContain("not found");
+  });
+
   it("names the verifier so verdicts correlate with runner version", () => {
     const v = new HeldOutVerifier({
       runner: new MockAgentRunner({ output: "", resolved: true, agentReusedBlock: true }, { name: "my-runner@v2" }),

@@ -165,6 +165,7 @@ export {
   MockAgentRunner,
   invariantsMatch,
   isHeldOutFrom,
+  validateTaskForBlock,
   formatBlockForVerification,
   reverifyBlock,
 } from "./distillation/held-out-verifier.js";

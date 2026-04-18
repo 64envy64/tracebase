@@ -125,9 +125,7 @@ export class StaticTaskPicker implements TaskPicker {
 
   pickTaskFor(block: ReasoningBlock): VerificationTask | null {
     for (const t of this.tasks) {
-      if (isHeldOutFrom(t, block) && invariantsMatch(t.invariants, block.trigger.invariants)) {
-        return t;
-      }
+      if (validateTaskForBlock(t, block).ok) return t;
     }
     return null;
   }
@@ -176,6 +174,36 @@ export function isHeldOutFrom(
   if (task.sourceTraceId && task.sourceTraceId === block.provenance.parentTraceId) return false;
   if (task.sourceTraceId && task.sourceTraceId === block.provenance.sourceTaskId) return false;
   return true;
+}
+
+/**
+ * Full validity check: both `isHeldOutFrom` and `invariantsMatch` must
+ * pass. Returned `{ ok, reason? }` shape so the verifier can surface
+ * the specific failure mode in the `inconclusive` verdict's reason.
+ *
+ * Both the automatic (picker.pickTaskFor) and the explicit
+ * (VerifyOptions.taskId) paths route through this predicate — they
+ * must, otherwise a caller-supplied taskId could bypass the
+ * invariants check and let a Python block be verified against a
+ * TypeScript task, producing a bogus "disproved" / "verified" verdict.
+ */
+export function validateTaskForBlock(
+  task: VerificationTask,
+  block: ReasoningBlock,
+): { ok: true } | { ok: false; reason: string } {
+  if (!isHeldOutFrom(task, block)) {
+    return {
+      ok: false,
+      reason: `task ${task.id} is the block's origin — would be circular`,
+    };
+  }
+  if (!invariantsMatch(task.invariants, block.trigger.invariants)) {
+    return {
+      ok: false,
+      reason: `task ${task.id} invariants do not match the block's trigger`,
+    };
+  }
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -240,17 +268,29 @@ export class HeldOutVerifier implements Verifier {
     opts?: VerifyOptions,
   ): Promise<VerificationResult> {
     // Task selection:
-    //   (1) caller-supplied id wins,
-    //   (2) else picker.pickTaskFor picks a held-out match,
+    //   (1) caller-supplied id wins — but it must still pass the
+    //       FULL validity check (held-out + invariants), not just
+    //       held-out. Otherwise a Python block could be verified
+    //       against a TypeScript task, producing a bogus verdict.
+    //   (2) else picker.pickTaskFor picks a validated match,
     //   (3) else inconclusive.
     let task: VerificationTask | null = null;
     if (opts?.taskId) {
       task = this.picker.getTaskById?.(opts.taskId) ?? null;
-      if (task && !isHeldOutFrom(task, block)) {
+      if (!task) {
         return {
           status: "inconclusive",
           verifier: this.name,
-          reason: `task ${opts.taskId} is the block's origin — would be circular`,
+          reason: `task ${opts.taskId} not found in picker`,
+        };
+      }
+      const check = validateTaskForBlock(task, block);
+      if (!check.ok) {
+        return {
+          status: "inconclusive",
+          verifier: this.name,
+          taskId: task.id,
+          reason: check.reason,
         };
       }
     } else {
