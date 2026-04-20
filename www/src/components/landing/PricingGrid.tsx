@@ -1,8 +1,17 @@
+"use client";
+
+import { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
+
+type BillingMode = "monthly" | "annual";
+
 type PricingPlan = {
   name: string;
   badge: string;
-  price: string;
-  subtitle: string;
+  monthlyPrice: number | null;
+  annualMonthlyPrice: number | null;
+  annualSavings: string | null;
+  monthlySubtitle: string;
+  annualSubtitle: string;
   features: readonly string[];
   accent: boolean;
   ctaLabel: string;
@@ -10,12 +19,17 @@ type PricingPlan = {
   ctaHref?: string;
 };
 
+const CALENDLY_URL = "https://calendly.com/a-sarzhigitov07/30min";
+
 const PRICING_PLANS: readonly PricingPlan[] = [
   {
     name: "Open Source",
-    badge: "Current",
-    price: "$0",
-    subtitle: "Available today for self-hosted teams and local workflows.",
+    badge: "Available now",
+    monthlyPrice: 0,
+    annualMonthlyPrice: 0,
+    annualSavings: null,
+    monthlySubtitle: "Self-hosted memory, MCP, SDK middleware, and local SQLite storage.",
+    annualSubtitle: "Self-hosted memory, MCP, SDK middleware, and local SQLite storage.",
     features: [
       "Local SQLite memory",
       "MCP / HTTP / SDK access",
@@ -23,15 +37,18 @@ const PRICING_PLANS: readonly PricingPlan[] = [
       "Embeddings with your own API key",
     ],
     accent: false,
-    ctaLabel: "Try free",
+    ctaLabel: "Start free",
     ctaStyle: "quiet",
     ctaHref: "#setup",
   },
   {
     name: "Startup",
-    badge: "Planned",
-    price: "$159/mo",
-    subtitle: "Draft launch pricing for a managed tier aimed at small teams.",
+    badge: "Managed tier",
+    monthlyPrice: 159,
+    annualMonthlyPrice: 149,
+    annualSavings: "Save $120 / year",
+    monthlySubtitle: "Managed traces, analytics, and team access for small product teams shipping weekly.",
+    annualSubtitle: "Same managed tier with a modest annual discount for teams committing to a yearly rollout.",
     features: [
       "50,000 injections / mo",
       "Unlimited API keys",
@@ -39,14 +56,18 @@ const PRICING_PLANS: readonly PricingPlan[] = [
       "Hosted traces + analytics",
     ],
     accent: true,
-    ctaLabel: "Upgrade",
+    ctaLabel: "Talk to us",
     ctaStyle: "light",
+    ctaHref: CALENDLY_URL,
   },
   {
     name: "Enterprise",
-    badge: "Planned",
-    price: "Custom",
-    subtitle: "Design-partner rollout for higher-volume and regulated environments.",
+    badge: "Custom rollout",
+    monthlyPrice: null,
+    annualMonthlyPrice: null,
+    annualSavings: null,
+    monthlySubtitle: "Private deployment, SSO, and support for higher-volume or regulated environments.",
+    annualSubtitle: "Private deployment, SSO, and support for higher-volume or regulated environments.",
     features: [
       "Unlimited injections",
       "SSO + SAML",
@@ -54,8 +75,9 @@ const PRICING_PLANS: readonly PricingPlan[] = [
       "Custom retention + support",
     ],
     accent: false,
-    ctaLabel: "Talk to sales",
+    ctaLabel: "Talk to us",
     ctaStyle: "light",
+    ctaHref: CALENDLY_URL,
   },
 ] as const;
 
@@ -69,7 +91,7 @@ function PricingCtaButton({
   href?: string;
 }) {
   const className =
-    "group inline-flex min-h-[60px] w-full items-center justify-center rounded-[20px] border px-5 py-4 text-center transition-[background-color,color,border-color,box-shadow] duration-200 ease-out";
+    "inline-flex min-h-[56px] w-full items-center justify-center rounded-[18px] border px-5 py-4 text-center text-sm font-semibold tracking-tight transition-[background-color,color,border-color,box-shadow] duration-200 ease-out";
 
   const style =
     tone === "light"
@@ -85,43 +107,114 @@ function PricingCtaButton({
           color: "rgba(237,236,236,0.82)",
         };
 
-  const roll = (
-    <span className="relative flex h-12 w-full max-w-full items-stretch justify-center overflow-hidden">
-      <span className="flex w-full flex-col transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:-translate-y-12 motion-reduce:transition-none motion-reduce:group-hover:translate-y-0">
-        <span className="flex h-12 shrink-0 items-center justify-center font-mono text-[12px] uppercase tracking-[0.18em]">
-          {label}
-        </span>
-        <span className="flex h-12 shrink-0 items-center justify-center font-mono text-[12px] uppercase tracking-[0.18em]" aria-hidden>
-          {label}
-        </span>
-      </span>
-    </span>
-  );
-
   if (href) {
     return (
-      <a href={href} className={className} style={style}>
-        {roll}
+      <a href={href} className={className} style={style} target={href.startsWith("http") ? "_blank" : undefined} rel={href.startsWith("http") ? "noopener noreferrer" : undefined}>
+        {label}
       </a>
     );
   }
 
   return (
     <button type="button" className={className} style={style}>
-      {roll}
+      {label}
     </button>
   );
 }
 
-function PricingCard({ plan }: { plan: PricingPlan }) {
+function useAnimatedNumber(target: number) {
+  const [display, setDisplay] = useState(target);
+  const previousRef = useRef(target);
+  const reducedMotionRef = useRef(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const sync = () => {
+      reducedMotionRef.current = media.matches;
+    };
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    if (reducedMotionRef.current) {
+      previousRef.current = target;
+      setDisplay(target);
+      return;
+    }
+
+    const from = previousRef.current;
+    if (from === target) return;
+
+    const start = performance.now();
+    const duration = 420;
+    let frame = 0;
+
+    const tick = (now: number) => {
+      const progress = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const next = from + (target - from) * eased;
+      setDisplay(next);
+
+      if (progress < 1) {
+        frame = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      previousRef.current = target;
+    };
+
+    frame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frame);
+  }, [target]);
+
+  return display;
+}
+
+function AnimatedPriceValue({
+  amount,
+  suffix,
+}: {
+  amount: number | null;
+  suffix: string;
+}) {
+  const animated = useAnimatedNumber(amount ?? 0);
+  const rounded = Math.round(animated);
+
+  if (amount === null) {
+    return <span className="font-mono text-[clamp(2.65rem,5vw,4.35rem)] leading-[0.88] tracking-[-0.04em]">Custom</span>;
+  }
+
+  return (
+    <span className="flex items-end gap-2">
+      <span className="font-mono text-[clamp(2.65rem,5vw,4.35rem)] leading-[0.88] tracking-[-0.04em] tabular-nums">${rounded}</span>
+      <span className="pb-2 text-sm font-light" style={{ color: "var(--text-secondary)" }}>
+        {suffix}
+      </span>
+    </span>
+  );
+}
+
+function PricingCard({
+  plan,
+  billing,
+}: {
+  plan: PricingPlan;
+  billing: BillingMode;
+}) {
+  const amount = billing === "annual" ? plan.annualMonthlyPrice : plan.monthlyPrice;
+  const subtitle = billing === "annual" ? plan.annualSubtitle : plan.monthlySubtitle;
+  const showSavings = billing === "annual" && plan.annualSavings;
+
   return (
     <article
-      className="grid min-h-[680px] grid-rows-[minmax(136px,auto)_minmax(236px,auto)_1fr_auto] p-8 md:p-10"
+      className="grid min-h-[640px] grid-rows-[minmax(132px,auto)_minmax(208px,auto)_1fr_auto] p-8 md:p-10"
       style={{ background: "var(--bg)" }}
     >
-      <header className="grid min-h-[136px] content-start gap-5">
+      <header className="grid min-h-[132px] content-start gap-5">
         <h3 className="font-mono text-[clamp(1.9rem,3vw,2.5rem)] font-medium leading-[0.94] tracking-tight">{plan.name}</h3>
-        <div>
+        <div className="flex flex-wrap items-center gap-2.5">
           <span
             className="rounded-full border px-3 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
             style={{
@@ -132,16 +225,35 @@ function PricingCard({ plan }: { plan: PricingPlan }) {
           >
             {plan.badge}
           </span>
+          {showSavings ? (
+            <span
+              className="rounded-full border px-3 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
+              style={{
+                borderColor: "rgba(177,255,109,0.18)",
+                background: "rgba(177,255,109,0.05)",
+                color: "rgba(177,255,109,0.72)",
+              }}
+            >
+              {plan.annualSavings}
+            </span>
+          ) : null}
         </div>
       </header>
 
-      <div className="grid min-h-[236px] grid-rows-[minmax(112px,auto)_minmax(96px,auto)] content-start">
+      <div className="grid min-h-[208px] grid-rows-[minmax(96px,auto)_minmax(96px,auto)] content-start">
         <div className="flex items-start">
-          <p className="font-mono text-[clamp(2.65rem,5vw,4.35rem)] leading-[0.88] tracking-[-0.04em]">{plan.price}</p>
+          <AnimatedPriceValue amount={amount} suffix={billing === "annual" ? "/mo billed yearly" : "/mo"} />
         </div>
-        <p className="mt-7 max-w-[17rem] text-sm font-light leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-          {plan.subtitle}
-        </p>
+        <div className="mt-7 space-y-2">
+          <p className="max-w-[18rem] text-sm font-light leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+            {subtitle}
+          </p>
+          {billing === "annual" && plan.annualMonthlyPrice !== null && plan.monthlyPrice !== null && plan.annualMonthlyPrice !== plan.monthlyPrice ? (
+            <p className="text-[11px] font-light leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+              Billed as ${plan.annualMonthlyPrice * 12} / year.
+            </p>
+          ) : null}
+        </div>
       </div>
 
       <ul className="mt-10 space-y-4">
@@ -167,6 +279,15 @@ function PricingCard({ plan }: { plan: PricingPlan }) {
 }
 
 export function PricingGrid() {
+  const [billing, setBilling] = useState<BillingMode>("monthly");
+  const deferredBilling = useDeferredValue(billing);
+
+  const setMode = (next: BillingMode) => {
+    startTransition(() => {
+      setBilling(next);
+    });
+  };
+
   return (
     <div
       className="overflow-hidden border"
@@ -175,9 +296,53 @@ export function PricingGrid() {
         background: "rgba(255,255,255,0.02)",
       }}
     >
+      <div className="border-b px-6 py-6 md:px-8" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm font-medium tracking-tight">Choose billing cadence</p>
+            <p className="mt-1 text-[13px] font-light" style={{ color: "var(--text-secondary)" }}>
+              Annual keeps pricing a little lower for teams committing to a production rollout.
+            </p>
+          </div>
+
+          <div
+            className="relative inline-grid grid-cols-2 rounded-full border p-1"
+            style={{ borderColor: "rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.02)" }}
+            role="tablist"
+            aria-label="Billing cadence"
+          >
+            <span
+              className="absolute bottom-1 top-1 rounded-full border bg-white/[0.05] transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+              style={{
+                width: "calc(50% - 4px)",
+                transform: billing === "monthly" ? "translateX(0)" : "translateX(calc(100% + 0px))",
+                borderColor: billing === "annual" ? "rgba(177,255,109,0.18)" : "rgba(255,255,255,0.08)",
+                background: billing === "annual" ? "rgba(177,255,109,0.08)" : "rgba(255,255,255,0.04)",
+              }}
+              aria-hidden
+            />
+            {(["monthly", "annual"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="tab"
+                aria-selected={billing === mode}
+                onClick={() => setMode(mode)}
+                className="relative z-10 min-w-[118px] rounded-full px-5 py-2.5 text-sm font-semibold tracking-tight transition-colors"
+                style={{
+                  color: billing === mode ? "var(--text)" : "var(--text-secondary)",
+                }}
+              >
+                {mode === "monthly" ? "Monthly" : "Annual"}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div className="grid gap-px lg:grid-cols-3" style={{ background: "var(--border)" }}>
         {PRICING_PLANS.map((plan) => (
-          <PricingCard key={plan.name} plan={plan} />
+          <PricingCard key={plan.name} plan={plan} billing={deferredBilling} />
         ))}
       </div>
     </div>

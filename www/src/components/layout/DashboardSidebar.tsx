@@ -43,8 +43,8 @@ export function DashboardSidebar() {
       <div className="flex flex-1 flex-col gap-8 overflow-y-auto px-4 py-6">
         <Link href="/" className="flex items-center gap-2.5 px-1">
           <Image src="/logo.svg" alt="" width={20} height={20} className="h-5 w-5" />
-          <span className="text-sm font-light tracking-wide" style={{ color: "var(--text)" }}>
-            tracebase
+          <span className="text-base font-semibold tracking-tight" style={{ color: "var(--text)" }}>
+            TraceBase
           </span>
         </Link>
 

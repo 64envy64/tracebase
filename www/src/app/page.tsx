@@ -1,5 +1,6 @@
 import Image from "next/image";
 import { type ReactNode } from "react";
+import { CustomIntegrationsSection } from "@/components/landing/CustomIntegrationsSection";
 import { CtaSection } from "@/components/landing/CtaSection";
 import { HeroWithVideo } from "@/components/landing/HeroWithVideo";
 import { IntegrationsGrid } from "@/components/landing/IntegrationsGrid";
@@ -7,6 +8,7 @@ import { LandingNav } from "@/components/landing/LandingNav";
 import { PricingGrid } from "@/components/landing/PricingGrid";
 import { RunComparisonSection } from "@/components/landing/RunComparisonSection";
 import { SetupTabs } from "@/components/landing/SetupTabs";
+import { GitHubMark } from "@/components/ui/GitHubMark";
 
 function SectionHeading({
   eyebrow,
@@ -100,10 +102,6 @@ export default function Home() {
       <HeroWithVideo />
 
       <main className="mx-auto max-w-[1080px] bg-[var(--bg)] px-6" style={{ color: "var(--text)" }}>
-        <RunComparisonSection />
-
-        <div className="border-t" style={{ borderColor: "var(--border)" }} />
-
         <section className="scroll-mt-20 py-20 md:py-24" id="overview" aria-labelledby="overview-heading">
           <p className="mb-3 text-xs font-light tracking-widest uppercase" style={{ color: "var(--text-tertiary)" }}>
             Overview
@@ -149,6 +147,10 @@ export default function Home() {
 
         <div className="border-t" style={{ borderColor: "var(--border)" }} />
 
+        <RunComparisonSection />
+
+        <div className="border-t" style={{ borderColor: "var(--border)" }} />
+
         {/* How it works */}
         <section className="scroll-mt-20 py-24" id="how">
           <SectionHeading
@@ -173,7 +175,7 @@ export default function Home() {
         <div className="border-t" style={{ borderColor: "var(--border)" }} />
 
         {/* Integrations */}
-        <section className="py-24">
+        <section className="scroll-mt-20 py-24" id="integrations">
           <SectionHeading
             eyebrow="Integrations"
             muted="Works with any agent."
@@ -221,6 +223,10 @@ export default function Home() {
 
         <div className="border-t" style={{ borderColor: "var(--border)" }} />
 
+        <CustomIntegrationsSection />
+
+        <div className="border-t" style={{ borderColor: "var(--border)" }} />
+
         {/* Pricing */}
         <section className="scroll-mt-20 py-24" id="pricing">
           <SectionHeading
@@ -244,7 +250,7 @@ export default function Home() {
         >
           <div className="flex min-w-0 flex-col gap-2">
             <span className="text-xs font-light" style={{ color: "var(--text-tertiary)" }}>
-              MIT &middot; tracebase
+              MIT &middot; TraceBase
             </span>
             <p className="max-w-sm text-[11px] font-light leading-relaxed lg:max-w-xs" style={{ color: "var(--text-tertiary)" }}>
               Part of the{" "}
@@ -277,15 +283,22 @@ export default function Home() {
             />
           </a>
 
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 self-start lg:self-center">
+          <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 self-start lg:self-center" aria-label="Footer">
             <a
               href="https://github.com/64envy64/tracebase"
-              className="text-xs font-light"
-              style={{ color: "var(--text-tertiary)" }}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-[var(--text-tertiary)] transition-colors hover:text-[var(--text)]"
               target="_blank"
               rel="noopener noreferrer"
+              aria-label="GitHub repository"
             >
-              GitHub
+              <GitHubMark className="h-[18px] w-[18px]" />
+            </a>
+            <a
+              href="/whitepaper"
+              className="text-xs font-light"
+              style={{ color: "var(--text-tertiary)" }}
+            >
+              Whitepaper
             </a>
             <a
               href="https://www.npmjs.com/package/tracebase-ai"
@@ -296,7 +309,7 @@ export default function Home() {
             >
               npm
             </a>
-          </div>
+          </nav>
         </footer>
       </main>
     </div>

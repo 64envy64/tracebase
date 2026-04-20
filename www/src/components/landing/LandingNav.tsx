@@ -4,15 +4,17 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { GetStartedButton } from "@/components/auth/GetStartedButton";
+import { GitHubMark } from "@/components/ui/GitHubMark";
 
 type NavItem = { href: string; label: string; external?: boolean };
 
 const NAV_LINKS: NavItem[] = [
+  { href: "#overview", label: "Overview" },
   { href: "#how", label: "How it works" },
+  { href: "#integrations", label: "Integrations" },
   { href: "#setup", label: "Setup" },
-  { href: "/whitepaper", label: "Whitepaper" },
   { href: "#pricing", label: "Pricing" },
-  { href: "https://github.com/64envy64/tracebase", label: "GitHub", external: true },
+  { href: "/whitepaper", label: "Whitepaper" },
 ];
 
 const linkClass =
@@ -21,7 +23,9 @@ const linkClass =
 const mobileRowClass =
   "flex w-full items-center rounded-md px-3 py-3 text-[15px] font-normal tracking-tight text-[var(--text-secondary)] transition-colors hover:bg-white/[0.04] hover:text-[var(--text)] active:bg-white/[0.06]";
 
-/** Two-bar menu — static SVG, no morph. */
+const iconLinkClass =
+  "inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-[var(--text-secondary)] transition-colors hover:border-white/18 hover:text-[var(--text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]";
+
 function IconMenuDouble() {
   return (
     <svg width="20" height="12" viewBox="0 0 20 12" fill="none" aria-hidden className="shrink-0">
@@ -30,7 +34,6 @@ function IconMenuDouble() {
   );
 }
 
-/** Separate close mark — geometrically even. */
 function IconClose() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0">
@@ -84,6 +87,20 @@ function MobileRow({ item, onNavigate }: { item: NavItem; onNavigate: () => void
   );
 }
 
+function GitHubIconLink({ className = iconLinkClass }: { className?: string }) {
+  return (
+    <a
+      href="https://github.com/64envy64/tracebase"
+      className={className}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="GitHub repository"
+    >
+      <GitHubMark className="h-[18px] w-[18px]" />
+    </a>
+  );
+}
+
 export function LandingNav() {
   const [open, setOpen] = useState(false);
 
@@ -123,8 +140,8 @@ export function LandingNav() {
           onClick={close}
         >
           <Image src="/logo.svg" alt="" width={20} height={20} className="h-5 w-5 shrink-0" aria-hidden />
-          <span className="truncate text-sm font-medium tracking-tight" style={{ color: "var(--text)" }}>
-            tracebase
+          <span className="truncate text-base font-semibold tracking-tight" style={{ color: "var(--text)" }}>
+            TraceBase
           </span>
         </Link>
 
@@ -134,6 +151,7 @@ export function LandingNav() {
               <DesktopLink key={item.href} {...item} />
             ))}
           </nav>
+          <GitHubIconLink />
           <GetStartedButton />
         </div>
 
@@ -175,6 +193,9 @@ export function LandingNav() {
                     <MobileRow item={item} onNavigate={close} />
                   </li>
                 ))}
+                <li className="px-1 pb-2 pt-3">
+                  <GitHubIconLink className={`${iconLinkClass} h-11 w-11`} />
+                </li>
               </ul>
               <div className="border-t border-white/[0.08] px-1 pb-3 pt-4">
                 <GetStartedButton fullWidth />

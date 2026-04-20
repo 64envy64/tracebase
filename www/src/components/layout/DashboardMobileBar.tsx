@@ -19,8 +19,8 @@ export function DashboardMobileBar() {
     >
       <Link href="/" className="flex shrink-0 items-center gap-2">
         <Image src="/logo.svg" alt="" width={20} height={20} className="h-5 w-5" />
-        <span className="text-sm font-light tracking-wide" style={{ color: "var(--text)" }}>
-          tracebase
+        <span className="text-base font-semibold tracking-tight" style={{ color: "var(--text)" }}>
+          TraceBase
         </span>
       </Link>
 
