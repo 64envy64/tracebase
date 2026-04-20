@@ -1,6 +1,5 @@
 import type { CSSProperties } from "react";
 import { CopyCommand } from "@/components/CopyButton";
-import { GetStartedButton } from "@/components/auth/GetStartedButton";
 import styles from "./CtaSection.module.css";
 
 const GRID_COLUMNS = 44;
@@ -165,7 +164,6 @@ export function CtaSection() {
         </p>
 
         <div className="mt-8 flex flex-wrap items-center gap-3">
-          <GetStartedButton size="large" />
           <CopyCommand command="npx tracebase-ai setup" />
         </div>
       </div>

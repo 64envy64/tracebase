@@ -1,5 +1,4 @@
 import { CopyCommand } from "@/components/CopyButton";
-import { GetStartedButton } from "@/components/auth/GetStartedButton";
 
 export function HeroWithVideo() {
   return (
@@ -41,7 +40,6 @@ export function HeroWithVideo() {
           </p>
 
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <GetStartedButton size="large" onMedia />
             <CopyCommand command="npx tracebase-ai setup" onMedia />
           </div>
         </div>

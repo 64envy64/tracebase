@@ -3,7 +3,6 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { GetStartedButton } from "@/components/auth/GetStartedButton";
 
 type NavItem = { href: string; label: string; external?: boolean };
 
@@ -134,7 +133,6 @@ export function LandingNav() {
               <DesktopLink key={item.href} {...item} />
             ))}
           </nav>
-          <GetStartedButton />
         </div>
 
         <button
@@ -176,9 +174,6 @@ export function LandingNav() {
                   </li>
                 ))}
               </ul>
-              <div className="border-t border-white/[0.08] px-1 pb-3 pt-4">
-                <GetStartedButton fullWidth />
-              </div>
             </div>
           </nav>
         </div>

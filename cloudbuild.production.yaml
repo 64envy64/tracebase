@@ -1,0 +1,14 @@
+steps:
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        gcloud run deploy tracebase-www \
+          --project="$PROJECT_ID" \
+          --region=europe-west1 \
+          --source=www \
+          --no-invoker-iam-check \
+          --quiet
+options:
+  logging: CLOUD_LOGGING_ONLY
