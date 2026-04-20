@@ -166,11 +166,9 @@ function TabIcon({ kind }: { kind: SetupMethod["icon"] }) {
 function SetupStepPill({ label, active }: { label: string; active: boolean }) {
   return (
     <span
-      className="rounded-full border px-3 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
+      className="inline-flex items-center py-1 text-[11px] font-semibold uppercase tracking-[0.18em]"
       style={{
-        borderColor: active ? "rgba(177,255,109,0.16)" : "rgba(255,255,255,0.08)",
-        background: active ? "rgba(177,255,109,0.06)" : "rgba(255,255,255,0.02)",
-        color: active ? "rgba(177,255,109,0.72)" : "rgba(237,236,236,0.48)",
+        color: active ? "rgba(177,255,109,0.76)" : "rgba(237,236,236,0.42)",
       }}
     >
       {label}
@@ -181,16 +179,16 @@ function SetupStepPill({ label, active }: { label: string; active: boolean }) {
 function SetupInfoCard({ title, desc }: { title: string; desc: string }) {
   return (
     <div
-      className="rounded-[22px] border px-4 py-4 md:px-5 md:py-5"
+      className="rounded-[18px] border px-5 py-5"
       style={{
-        borderColor: "rgba(255,255,255,0.08)",
-        background: "rgba(255,255,255,0.018)",
+        borderColor: "rgba(255,255,255,0.07)",
+        background: "rgba(255,255,255,0.012)",
       }}
     >
-      <p className="text-[11px] font-mono uppercase tracking-[0.16em]" style={{ color: "rgba(237,236,236,0.42)" }}>
+      <p className="text-[15px] font-semibold tracking-tight" style={{ color: "rgba(237,236,236,0.9)" }}>
         {title}
       </p>
-      <p className="mt-2 text-xs font-light leading-relaxed md:text-[13px]" style={{ color: "var(--text-secondary)" }}>
+      <p className="mt-2.5 text-sm font-light leading-relaxed" style={{ color: "var(--text-secondary)" }}>
         {desc}
       </p>
     </div>

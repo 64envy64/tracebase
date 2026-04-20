@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { Metadata } from "next";
+import { GitHubMark } from "@/components/ui/GitHubMark";
 
 export const metadata: Metadata = {
   title: "TraceBase Whitepaper — Reasoning Injection Benchmark Results",
@@ -16,7 +17,7 @@ export default function WhitepaperPage() {
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-2">
             <Image src="/logo.svg" alt="TraceBase" width={20} height={20} className="h-5 w-5" />
-            <span className="text-sm font-semibold tracking-tight">TraceBase</span>
+            <span className="text-base font-semibold tracking-tight">TraceBase</span>
           </Link>
           <div className="flex items-center gap-6 text-sm text-white/50">
             <Link href="/" className="hover:text-white transition-colors">Home</Link>
@@ -26,9 +27,10 @@ export default function WhitepaperPage() {
               href="https://github.com/64envy64/tracebase"
               target="_blank"
               rel="noopener noreferrer"
-              className="hover:text-white transition-colors"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white/50 transition-colors hover:text-white"
+              aria-label="GitHub repository"
             >
-              GitHub
+              <GitHubMark className="h-[18px] w-[18px]" />
             </a>
           </div>
         </div>
@@ -415,7 +417,19 @@ export default function WhitepaperPage() {
 
         {/* Footer */}
         <footer className="border-t border-white/5 py-8 text-center text-xs text-white/30">
-          <p>TraceBase · MIT License · <a href="https://github.com/64envy64/tracebase" className="hover:text-white/60">GitHub</a> · <a href="https://www.npmjs.com/package/tracebase-ai" className="hover:text-white/60">npm</a></p>
+          <div className="flex items-center justify-center gap-4">
+            <span>TraceBase · MIT License</span>
+            <a
+              href="https://github.com/64envy64/tracebase"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-white/40 transition-colors hover:text-white/70"
+              aria-label="GitHub repository"
+            >
+              <GitHubMark className="h-4 w-4" />
+            </a>
+            <a href="https://www.npmjs.com/package/tracebase-ai" className="hover:text-white/60" target="_blank" rel="noopener noreferrer">npm</a>
+          </div>
           <p className="mt-1">© 2026 TraceBase</p>
         </footer>
       </main>
