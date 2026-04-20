@@ -1,14 +1,25 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 export function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    };
+  }, []);
 
   const copy = useCallback(() => {
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
     navigator.clipboard.writeText(text);
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    resetTimerRef.current = setTimeout(() => {
+      resetTimerRef.current = null;
+      setCopied(false);
+    }, 1500);
   }, [text]);
 
   return (
@@ -23,13 +34,24 @@ export function CopyButton({ text }: { text: string }) {
   );
 }
 
-export function CopyCommand({ command }: { command: string }) {
+export function CopyCommand({ command, onMedia }: { command: string; onMedia?: boolean }) {
   const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    };
+  }, []);
 
   const copy = useCallback(() => {
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
     navigator.clipboard.writeText(command);
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    resetTimerRef.current = setTimeout(() => {
+      resetTimerRef.current = null;
+      setCopied(false);
+    }, 1500);
   }, [command]);
 
   return (
@@ -37,9 +59,9 @@ export function CopyCommand({ command }: { command: string }) {
       onClick={copy}
       className="group flex items-center gap-3 px-5 py-3 font-mono text-sm border rounded-md transition-colors duration-150 cursor-pointer"
       style={{
-        borderColor: "var(--border)",
-        color: "var(--text-secondary)",
-        background: "var(--surface)",
+        borderColor: onMedia ? "rgba(255, 255, 255, 0.2)" : "var(--border)",
+        color: onMedia ? "rgba(237, 236, 236, 0.88)" : "var(--text-secondary)",
+        background: onMedia ? "rgba(0, 0, 0, 0.38)" : "var(--surface)",
       }}
     >
       <span style={{ color: "var(--text-tertiary)" }}>$</span>

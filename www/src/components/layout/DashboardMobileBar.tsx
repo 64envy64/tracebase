@@ -1,5 +1,6 @@
 "use client";
 
+import { useUser } from "@clerk/nextjs";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -8,6 +9,8 @@ import { LogoutButton } from "@/components/auth/LogoutButton";
 export function DashboardMobileBar() {
   const pathname = usePathname();
   const onDashboard = pathname.startsWith("/dashboard");
+  const { user } = useUser();
+  const shortName = user?.firstName || "Account";
 
   return (
     <header
@@ -38,6 +41,9 @@ export function DashboardMobileBar() {
         >
           Docs
         </Link>
+        <span className="shrink-0 px-1 text-[11px] font-light uppercase tracking-[0.16em]" style={{ color: "var(--text-tertiary)" }}>
+          {shortName}
+        </span>
         <LogoutButton />
       </nav>
     </header>

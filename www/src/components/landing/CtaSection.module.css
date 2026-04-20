@@ -1,0 +1,139 @@
+.section {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.backdrop {
+  position: absolute;
+  top: 50%;
+  right: -5.5rem;
+  width: min(86vw, 46rem);
+  aspect-ratio: 44 / 20;
+  transform: translateY(-50%);
+  pointer-events: none;
+  opacity: 0.92;
+  z-index: 0;
+}
+
+.field {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--cta-cols), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--cta-rows), minmax(0, 1fr));
+  gap: clamp(3px, 0.38vw, 6px);
+}
+
+.pixel {
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  will-change: opacity;
+}
+
+.visible {
+  opacity: var(--pixel-opacity, 0.78);
+}
+
+.empty {
+  background: transparent;
+}
+
+.accent {
+  background: rgba(37, 214, 167, 0.92);
+}
+
+.muted {
+  background: rgba(110, 152, 140, 0.84);
+}
+
+.ghost {
+  background: rgba(133, 146, 140, 0.62);
+}
+
+.steady {
+  animation-name: cta-pixel-breathe;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.glint {
+  animation-name: cta-pixel-glint;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.flicker {
+  animation-name: cta-pixel-flicker;
+  animation-timing-function: steps(2, end);
+  animation-iteration-count: infinite;
+}
+
+@keyframes cta-pixel-breathe {
+  0%,
+  100% {
+    opacity: calc(var(--pixel-opacity, 0.78) - 0.08);
+  }
+  50% {
+    opacity: var(--pixel-opacity, 0.78);
+  }
+}
+
+@keyframes cta-pixel-glint {
+  0%,
+  100% {
+    opacity: calc(var(--pixel-opacity, 0.78) - 0.12);
+  }
+  45% {
+    opacity: var(--pixel-opacity, 0.78);
+  }
+  70% {
+    opacity: calc(var(--pixel-opacity, 0.78) - 0.06);
+  }
+}
+
+@keyframes cta-pixel-flicker {
+  0%,
+  100% {
+    opacity: calc(var(--pixel-opacity, 0.78) - 0.14);
+  }
+  50% {
+    opacity: calc(var(--pixel-opacity, 0.78) + 0.04);
+  }
+}
+
+@media (max-width: 1024px) {
+  .backdrop {
+    right: -7rem;
+    width: min(104vw, 41rem);
+    opacity: 0.9;
+  }
+}
+
+@media (max-width: 768px) {
+  .backdrop {
+    right: -7rem;
+    top: 58%;
+    width: min(118vw, 36rem);
+    opacity: 0.74;
+  }
+}
+
+@media (max-width: 640px) {
+  .backdrop {
+    top: auto;
+    right: auto;
+    left: 50%;
+    bottom: -1.5rem;
+    width: min(154vw, 34rem);
+    transform: translateX(-18%);
+    opacity: 0.54;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pixel {
+    animation: none !important;
+  }
+}

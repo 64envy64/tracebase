@@ -20,7 +20,7 @@ export default function WhitepaperPage() {
           </Link>
           <div className="flex items-center gap-6 text-sm text-white/50">
             <Link href="/" className="hover:text-white transition-colors">Home</Link>
-            <Link href="/dashboard" className="hover:text-white transition-colors">Dashboard</Link>
+            <Link href="/dashboard" prefetch={false} className="hover:text-white transition-colors">Dashboard</Link>
             <Link href="/whitepaper" className="text-white">Whitepaper</Link>
             <a
               href="https://github.com/64envy64/tracebase"

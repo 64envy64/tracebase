@@ -30,6 +30,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at top, rgba(177, 255, 109, 0.05), transparent 24%),
+    radial-gradient(circle at bottom left, rgba(125, 211, 252, 0.04), transparent 30%);
+  z-index: -1;
+}
+
 ::selection {
   background: rgba(237, 236, 236, 0.12);
 }
@@ -52,4 +63,232 @@ html {
 
 .dash-enter {
   animation: dash-enter 0.42s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.font-hero-serif {
+  font-family: var(--font-hero-serif), ui-serif, Georgia, "Times New Roman", serif;
+}
+
+.hero-glass {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 14, 9, 0.38);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-glass-anim {
+    animation: none !important;
+  }
+}
+
+@keyframes landing-nav-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.landing-nav-enter {
+  animation: landing-nav-enter 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-nav-enter {
+    animation: none;
+  }
+}
+
+@keyframes hero-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero-glass-anim {
+  animation: hero-fade-in 0.65s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@keyframes hero-shimmer {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+  50% {
+    opacity: 0.52;
+  }
+}
+
+.hero-shimmer {
+  animation: hero-shimmer 1.05s ease-in-out infinite;
+}
+
+.hero-reveal {
+  transition:
+    opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-reveal {
+    transition: none;
+  }
+
+  .hero-shimmer {
+    animation: none;
+    opacity: 0.4;
+  }
+}
+
+@keyframes hero-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.hero-toast-in {
+  animation: hero-toast-in 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes setup-tab-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.setup-tab-progress {
+  transform-origin: left center;
+  animation: setup-tab-progress 4.8s linear forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-toast-in {
+    animation: none;
+  }
+
+  .setup-tab-progress {
+    animation: none;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes hero-caret-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.22;
+  }
+}
+
+@keyframes auth-panel-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.auth-panel-enter {
+  animation: auth-panel-enter 0.72s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes auth-visual-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 20px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.auth-visual-enter {
+  animation: auth-visual-enter 0.88s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes auth-glow-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.48;
+  }
+  50% {
+    transform: translate3d(0, -12px, 0);
+    opacity: 0.88;
+  }
+}
+
+.auth-glow-float {
+  animation: auth-glow-float 7.2s ease-in-out infinite;
+}
+
+.cl-userButtonPopoverCard,
+.cl-userPreviewMainIdentifier {
+  color: #edecec;
+}
+
+.cl-userButtonPopoverCard {
+  border: 1px solid rgba(237, 236, 236, 0.08);
+  background: rgba(10, 10, 10, 0.96);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+}
+
+/*
+ * Fallback only: if Clerk's internal input keeps its own styles,
+ * force readable text inside auth fields.
+ */
+.auth-clerk-host
+  form
+  input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not(
+    [type="button"]
+  ) {
+  color: #f4f3ef !important;
+  -webkit-text-fill-color: #f4f3ef !important;
+  caret-color: #f4f3ef;
+  background-color: #141414 !important;
+}
+
+.auth-clerk-host form input::placeholder {
+  color: rgba(244, 243, 239, 0.42) !important;
+  -webkit-text-fill-color: rgba(244, 243, 239, 0.42) !important;
+  opacity: 1;
+}
+
+.auth-clerk-host form input:-webkit-autofill,
+.auth-clerk-host form input:-webkit-autofill:hover,
+.auth-clerk-host form input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #141414 inset !important;
+  -webkit-text-fill-color: #f4f3ef !important;
+  caret-color: #f4f3ef;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-panel-enter,
+  .auth-visual-enter,
+  .auth-glow-float {
+    animation: none;
+  }
 }

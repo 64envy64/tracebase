@@ -1,5 +1,6 @@
 "use client";
 
+import { useUser } from "@clerk/nextjs";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -28,6 +29,10 @@ function navActive(pathname: string, href: string) {
 
 export function DashboardSidebar() {
   const pathname = usePathname();
+  const { isLoaded, user } = useUser();
+  const displayName =
+    user?.fullName || user?.firstName || user?.username || user?.primaryEmailAddress?.emailAddress || "Authenticated user";
+  const secondaryLine = user?.primaryEmailAddress?.emailAddress;
 
   return (
     <aside
@@ -82,16 +87,22 @@ export function DashboardSidebar() {
       </div>
 
       <div className="flex flex-col gap-3 border-t px-4 py-5" style={{ borderColor: "var(--border)" }}>
-        <span
-          className="inline-flex w-fit rounded-sm border px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-[0.18em]"
+        <div
+          className="rounded-[18px] border px-3 py-3"
           style={{
             borderColor: "var(--border)",
             background: "var(--surface)",
-            color: "var(--text-tertiary)",
           }}
         >
-          admin
-        </span>
+          <p className="text-sm font-light leading-tight" style={{ color: "var(--text)" }}>
+            {isLoaded ? displayName : "Loading account"}
+          </p>
+          {secondaryLine ? (
+            <p className="mt-1 text-[11px] font-light leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+              {secondaryLine}
+            </p>
+          ) : null}
+        </div>
         <LogoutButton />
       </div>
     </aside>
