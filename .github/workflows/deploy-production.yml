@@ -59,11 +59,13 @@ jobs:
           DB_INSTANCE="${TRACEBASE_CLOUDSQL_INSTANCE##*:}"
           RUNTIME_SERVICE_ACCOUNT_ID="${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT%@*}"
 
-          gcloud services enable \
+          if ! gcloud services enable \
             sqladmin.googleapis.com \
             iam.googleapis.com \
             run.googleapis.com \
-            --project="${PROJECT_ID}"
+            --project="${PROJECT_ID}"; then
+            echo "::warning::Unable to enable one or more required APIs with ${SERVICE_ACCOUNT}. Continuing under the assumption they are already enabled."
+          fi
 
           if ! gcloud iam service-accounts describe "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
             gcloud iam service-accounts create "${RUNTIME_SERVICE_ACCOUNT_ID}" \
