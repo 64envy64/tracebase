@@ -7,10 +7,11 @@
   --text: #edecec;
   --text-secondary: rgba(237, 236, 236, 0.55);
   --text-tertiary: rgba(237, 236, 236, 0.3);
-  --accent: #25d6a7;
-  --accent-hover: #59e5bf;
-  --accent-ink: #07120d;
-  --accent-soft: rgba(37, 214, 167, 0.12);
+  --accent-rgb: 49 208 178;
+  --accent: #31d0b2;
+  --accent-hover: #5cdcc5;
+  --accent-ink: #050505;
+  --accent-soft: rgb(var(--accent-rgb) / 0.12);
   --signal: #7dd3fc;
   --signal-soft: rgba(125, 211, 252, 0.12);
   --success: #6de7b7;
@@ -38,7 +39,7 @@ body::before {
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at top, rgba(37, 214, 167, 0.05), transparent 24%),
+    radial-gradient(circle at top, rgb(var(--accent-rgb) / 0.05), transparent 24%),
     radial-gradient(circle at bottom left, rgba(125, 211, 252, 0.04), transparent 30%);
   z-index: -1;
 }

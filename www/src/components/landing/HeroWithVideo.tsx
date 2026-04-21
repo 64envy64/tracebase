@@ -1,4 +1,5 @@
 import { CopyCommand } from "@/components/CopyButton";
+import { GetStartedButton } from "@/components/auth/GetStartedButton";
 
 export function HeroWithVideo() {
   return (
@@ -35,11 +36,12 @@ export function HeroWithVideo() {
             className="mx-auto mt-6 max-w-[38rem] text-sm font-normal leading-relaxed sm:text-[15px]"
             style={{ color: "rgba(237, 236, 236, 0.78)" }}
           >
-            Reasoning traces that carry forward: shorter runs, sharper answers on repeat work, and less token spend on
-            work the team has already solved once.
+            If your models handle the same jobs every day, they should arrive with priors instead of restarting from
+            zero. TraceBase adds a self-improving reasoning layer to the LLM pipeline you already run.
           </p>
 
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <GetStartedButton size="large" onMedia />
             <CopyCommand command="npx tracebase-ai init" onMedia />
           </div>
         </div>

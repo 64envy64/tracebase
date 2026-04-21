@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { CopyCommand } from "@/components/CopyButton";
+import { GetStartedButton } from "@/components/auth/GetStartedButton";
 import styles from "./CtaSection.module.css";
 
 const GRID_COLUMNS = 44;
@@ -160,10 +161,11 @@ export function CtaSection() {
           className="mt-4 max-w-[30rem] text-[13px] font-light leading-relaxed sm:text-sm"
           style={{ color: "var(--text-secondary)" }}
         >
-          One install. Agents that get better with every run.
+          One install for self-serve teams, or a custom reasoning layer for higher-volume production traffic.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center gap-3">
+          <GetStartedButton size="large" />
           <CopyCommand command="npx tracebase-ai init" />
         </div>
       </div>

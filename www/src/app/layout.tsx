@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
+import { ClerkProvider } from "@clerk/nextjs";
+import { ui } from "@clerk/ui";
+import clerkUiPackage from "@clerk/ui/package.json";
 import { Geist, Geist_Mono, Newsreader } from "next/font/google";
+import { AppProviders } from "@/components/providers/AppProviders";
+import { clerkAppearance } from "@/lib/clerk";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -25,12 +30,22 @@ export const metadata: Metadata = {
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const clerkProviderProps = {
+    appearance: clerkAppearance,
+    ui,
+    __internal_clerkUIVersion: clerkUiPackage.version,
+  } as unknown as React.ComponentProps<typeof ClerkProvider>;
+
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${heroSerif.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <ClerkProvider {...clerkProviderProps}>
+          <AppProviders>{children}</AppProviders>
+        </ClerkProvider>
+      </body>
     </html>
   );
 }

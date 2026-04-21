@@ -3,13 +3,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { GetStartedButton } from "@/components/auth/GetStartedButton";
 import { GitHubMark } from "@/components/ui/GitHubMark";
 
 type NavItem = { href: string; label: string; external?: boolean };
 
 const NAV_LINKS: NavItem[] = [
   { href: "#overview", label: "Overview" },
-  { href: "#compare", label: "Comparison" },
+  { href: "#evidence", label: "Benchmarks" },
   { href: "/docs", label: "Docs" },
   { href: "#pricing", label: "Pricing" },
   { href: "#faq", label: "FAQ" },
@@ -24,7 +25,6 @@ const mobileRowClass =
 const iconLinkClass =
   "inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-[var(--text-secondary)] transition-colors hover:border-white/18 hover:text-[var(--text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]";
 
-/** Two-bar menu — static SVG, no morph. */
 function IconMenuDouble() {
   return (
     <svg width="20" height="12" viewBox="0 0 20 12" fill="none" aria-hidden className="shrink-0">
@@ -33,7 +33,6 @@ function IconMenuDouble() {
   );
 }
 
-/** Separate close mark — geometrically even. */
 function IconClose() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0">
@@ -152,6 +151,7 @@ export function LandingNav() {
             ))}
           </nav>
           <GitHubIconLink />
+          <GetStartedButton />
         </div>
 
         <button
@@ -196,6 +196,9 @@ export function LandingNav() {
                   <GitHubIconLink className={`${iconLinkClass} h-11 w-11`} />
                 </li>
               </ul>
+              <div className="border-t border-white/[0.08] px-1 pb-3 pt-4">
+                <GetStartedButton fullWidth />
+              </div>
             </div>
           </nav>
         </div>

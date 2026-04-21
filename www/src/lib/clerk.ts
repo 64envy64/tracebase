@@ -6,7 +6,7 @@ export const clerkAppearance = {
     unsafe_disableDevelopmentModeWarnings: true,
   },
   variables: {
-    colorPrimary: "#b1ff6d",
+    colorPrimary: "#31d0b2",
     colorBackground: "#161616",
     colorForeground: "#f4f3ef",
     colorMutedForeground: "rgba(244, 243, 239, 0.68)",
@@ -28,7 +28,7 @@ export const clerkAppearance = {
     headerSubtitle: "hidden",
     footer: "mt-4 rounded-xl border border-white/8 bg-[#2a2a2a] px-1 py-4",
     footerActionText: "!text-white/78",
-    footerActionLink: "font-medium !text-[var(--accent)] hover:!text-[#d4ffaf]",
+    footerActionLink: "font-medium !text-[var(--accent)] hover:!text-[#5cdcc5]",
     footerPageLink: "!text-white/92 hover:!text-white",
     pageScrollBox: "p-0",
   },

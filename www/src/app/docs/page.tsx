@@ -47,15 +47,15 @@ const ARCHITECTURE = [
 const TROUBLESHOOTING_LINKS = [
   {
     label: "Quickstart guide",
-    href: "https://github.com/64envy64/tracebase/blob/production/docs/QUICKSTART.md",
+    href: "https://github.com/64envy64/tracebase/blob/main/docs/QUICKSTART.md",
   },
   {
     label: "Troubleshooting",
-    href: "https://github.com/64envy64/tracebase/blob/production/docs/TROUBLESHOOTING.md",
+    href: "https://github.com/64envy64/tracebase/blob/main/docs/TROUBLESHOOTING.md",
   },
   {
     label: "Design notes",
-    href: "https://github.com/64envy64/tracebase/blob/production/docs/DESIGN_v2.md",
+    href: "https://github.com/64envy64/tracebase/blob/main/docs/DESIGN_v2.md",
   },
 ] as const;
 
@@ -105,7 +105,7 @@ export default function DocsPage() {
               TraceBase Docs
             </p>
             <p className="mt-1 text-sm font-light" style={{ color: "var(--text-secondary)" }}>
-              Setup, rollout, and operating notes for the production landing.
+              Setup, rollout, and operating notes for the simplified landing.
             </p>
           </div>
 
@@ -128,8 +128,8 @@ export default function DocsPage() {
 
       <main className="mx-auto max-w-[1080px] px-6 py-14">
         <div className="max-w-[760px]">
-          <p className="text-[11px] uppercase tracking-[0.2em]" style={{ color: "rgba(177,255,109,0.72)" }}>
-            Production docs
+          <p className="text-[11px] uppercase tracking-[0.2em]" style={{ color: "rgb(var(--accent-rgb) / 0.72)" }}>
+            Docs
           </p>
           <h1 className="mt-4 text-[clamp(2rem,5vw,4rem)] font-light leading-[0.98] tracking-tight">
             The landing stays short.
