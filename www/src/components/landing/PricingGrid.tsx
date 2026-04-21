@@ -39,7 +39,7 @@ const PRICING_PLANS: readonly PricingPlan[] = [
     accent: false,
     ctaLabel: "Start free",
     ctaStyle: "quiet",
-    ctaHref: "#setup",
+    ctaHref: "/docs#quickstart",
   },
   {
     name: "Startup",
