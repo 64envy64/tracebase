@@ -1,0 +1,137 @@
+name: Provision Production Database
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: absolute-bonsai-492615-m7
+  PROJECT_NUMBER: "386065163332"
+  REGION: europe-west1
+  DB_INSTANCE: tracebase-pg
+  DB_NAME: tracebase
+  DB_USER: tracebase_app
+  DB_TIER: db-custom-1-3840
+  RUNTIME_SERVICE_ACCOUNT_ID: tracebase-runtime
+  RUNTIME_SERVICE_ACCOUNT_EMAIL: tracebase-runtime@absolute-bonsai-492615-m7.iam.gserviceaccount.com
+  DEPLOYER_SERVICE_ACCOUNT: github-production-deployer@absolute-bonsai-492615-m7.iam.gserviceaccount.com
+  WORKLOAD_IDENTITY_PROVIDER: projects/386065163332/locations/global/workloadIdentityPools/github-actions/providers/tracebase-production
+  SERVICE_ACCOUNT: github-production-deployer@absolute-bonsai-492615-m7.iam.gserviceaccount.com
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TRACEBASE_DB_PASSWORD: ${{ secrets.TRACEBASE_DB_PASSWORD }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Validate required secrets
+        run: |
+          if [ -z "${TRACEBASE_DB_PASSWORD}" ]; then
+            echo "TRACEBASE_DB_PASSWORD is required." >&2
+            exit 1
+          fi
+
+      - name: Enable required APIs
+        run: |
+          gcloud services enable \
+            sqladmin.googleapis.com \
+            iam.googleapis.com \
+            run.googleapis.com \
+            --project="${PROJECT_ID}"
+
+      - name: Ensure runtime service account
+        run: |
+          if ! gcloud iam service-accounts describe "${RUNTIME_SERVICE_ACCOUNT_EMAIL}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+            gcloud iam service-accounts create "${RUNTIME_SERVICE_ACCOUNT_ID}" \
+              --display-name="TraceBase Cloud Run runtime" \
+              --project="${PROJECT_ID}"
+          fi
+
+      - name: Grant runtime database access
+        run: |
+          gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+            --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT_EMAIL}" \
+            --role="roles/cloudsql.client" \
+            --quiet
+
+          gcloud iam service-accounts add-iam-policy-binding "${RUNTIME_SERVICE_ACCOUNT_EMAIL}" \
+            --member="serviceAccount:${DEPLOYER_SERVICE_ACCOUNT}" \
+            --role="roles/iam.serviceAccountUser" \
+            --project="${PROJECT_ID}" \
+            --quiet
+
+      - name: Ensure Cloud SQL instance
+        run: |
+          if ! gcloud sql instances describe "${DB_INSTANCE}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+            gcloud sql instances create "${DB_INSTANCE}" \
+              --project="${PROJECT_ID}" \
+              --database-version=POSTGRES_16 \
+              --region="${REGION}" \
+              --tier="${DB_TIER}" \
+              --storage-size=10 \
+              --storage-type=SSD \
+              --assign-ip \
+              --connector-enforcement=REQUIRED \
+              --deletion-protection \
+              --server-ca-mode=GOOGLE_MANAGED_INTERNAL_CA \
+              --quiet
+          else
+            gcloud sql instances patch "${DB_INSTANCE}" \
+              --project="${PROJECT_ID}" \
+              --connector-enforcement=REQUIRED \
+              --quiet
+          fi
+
+      - name: Ensure database and user
+        run: |
+          if ! gcloud sql databases describe "${DB_NAME}" --instance="${DB_INSTANCE}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+            gcloud sql databases create "${DB_NAME}" \
+              --instance="${DB_INSTANCE}" \
+              --project="${PROJECT_ID}" \
+              --quiet
+          fi
+
+          if gcloud sql users list --instance="${DB_INSTANCE}" --project="${PROJECT_ID}" --format="value(name)" | grep -qx "${DB_USER}"; then
+            gcloud sql users set-password "${DB_USER}" \
+              --instance="${DB_INSTANCE}" \
+              --project="${PROJECT_ID}" \
+              --password="${TRACEBASE_DB_PASSWORD}" \
+              --quiet
+          else
+            gcloud sql users create "${DB_USER}" \
+              --instance="${DB_INSTANCE}" \
+              --project="${PROJECT_ID}" \
+              --password="${TRACEBASE_DB_PASSWORD}" \
+              --quiet
+          fi
+
+      - name: Publish connection details
+        run: |
+          {
+            echo "## Production database ready"
+            echo ""
+            echo "- Instance: \`${DB_INSTANCE}\`"
+            echo "- Database: \`${DB_NAME}\`"
+            echo "- User: \`${DB_USER}\`"
+            echo "- Cloud SQL connection: \`${PROJECT_ID}:${REGION}:${DB_INSTANCE}\`"
+            echo "- Runtime service account: \`${RUNTIME_SERVICE_ACCOUNT_EMAIL}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"

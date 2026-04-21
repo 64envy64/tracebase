@@ -32,6 +32,11 @@ jobs:
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
       CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
       TRACEBASE_DATABASE_URL: ${{ secrets.TRACEBASE_DATABASE_URL }}
+      TRACEBASE_DB_NAME: ${{ vars.TRACEBASE_DB_NAME }}
+      TRACEBASE_DB_USER: ${{ vars.TRACEBASE_DB_USER }}
+      TRACEBASE_DB_PASSWORD: ${{ secrets.TRACEBASE_DB_PASSWORD }}
+      TRACEBASE_CLOUDSQL_INSTANCE: ${{ vars.TRACEBASE_CLOUDSQL_INSTANCE }}
+      CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT: ${{ vars.CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT }}
 
     steps:
       - name: Check out repository
@@ -84,22 +89,42 @@ jobs:
           CLERK_SECRET_KEY: "${CLERK_SECRET_KEY}"
           EOF
 
-          if [ -n "${TRACEBASE_DATABASE_URL}" ]; then
+          if [ -n "${TRACEBASE_DB_NAME}" ] && [ -n "${TRACEBASE_DB_USER}" ] && [ -n "${TRACEBASE_DB_PASSWORD}" ] && [ -n "${TRACEBASE_CLOUDSQL_INSTANCE}" ]; then
+            cat >> /tmp/tracebase-service-env.yaml <<EOF
+          TRACEBASE_DB_NAME: "${TRACEBASE_DB_NAME}"
+          TRACEBASE_DB_USER: "${TRACEBASE_DB_USER}"
+          TRACEBASE_DB_PASSWORD: "${TRACEBASE_DB_PASSWORD}"
+          TRACEBASE_CLOUDSQL_INSTANCE: "${TRACEBASE_CLOUDSQL_INSTANCE}"
+          TRACEBASE_INSTANCE_UNIX_SOCKET: "/cloudsql/${TRACEBASE_CLOUDSQL_INSTANCE}"
+          EOF
+          elif [ -n "${TRACEBASE_DATABASE_URL}" ]; then
             cat >> /tmp/tracebase-service-env.yaml <<EOF
           TRACEBASE_DATABASE_URL: "${TRACEBASE_DATABASE_URL}"
           DATABASE_URL: "${TRACEBASE_DATABASE_URL}"
           EOF
           else
-            echo "::warning::TRACEBASE_DATABASE_URL is not set. Control-plane state will fall back to ephemeral file storage on Cloud Run."
+            echo "::warning::No database runtime configuration is set. Control-plane state will fall back to ephemeral file storage on Cloud Run."
           fi
 
       - name: Deploy Cloud Run production service
         run: |
+          EXTRA_ARGS=()
+
+          if [ -n "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" ]; then
+            EXTRA_ARGS+=("--service-account=${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}")
+          fi
+
+          if [ -n "${TRACEBASE_CLOUDSQL_INSTANCE}" ] && [ -n "${TRACEBASE_DB_NAME}" ] && [ -n "${TRACEBASE_DB_USER}" ] && [ -n "${TRACEBASE_DB_PASSWORD}" ]; then
+            EXTRA_ARGS+=("--execution-environment=gen2")
+            EXTRA_ARGS+=("--add-cloudsql-instances=${TRACEBASE_CLOUDSQL_INSTANCE}")
+          fi
+
           gcloud run deploy "$SERVICE" \
             --project="$PROJECT_ID" \
             --region="$REGION" \
             --source=./www \
             --build-env-vars-file=/tmp/tracebase-build-env.yaml \
             --env-vars-file=/tmp/tracebase-service-env.yaml \
+            "${EXTRA_ARGS[@]}" \
             --no-invoker-iam-check \
             --quiet

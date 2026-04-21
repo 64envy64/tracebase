@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { Pool } from "pg";
+import { Pool, type PoolConfig } from "pg";
 import { generateApiKeyMaterial, parseApiKey, verifyApiKeySecret } from "@/lib/control-plane/crypto";
 import type {
   ControlPlaneApiKey,
@@ -149,9 +149,9 @@ export function getControlPlaneStore(): Promise<ControlPlaneStore> {
 }
 
 async function createStore(): Promise<ControlPlaneStore> {
-  const dbUrl = process.env.TRACEBASE_DATABASE_URL ?? process.env.DATABASE_URL;
-  if (dbUrl) {
-    const store = new PostgresControlPlaneStore(dbUrl);
+  const postgresConfig = resolvePostgresPoolConfig();
+  if (postgresConfig) {
+    const store = new PostgresControlPlaneStore(postgresConfig);
     await store.init();
     return store;
   }
@@ -167,10 +167,9 @@ async function createStore(): Promise<ControlPlaneStore> {
 class PostgresControlPlaneStore implements ControlPlaneStore {
   private readonly pool: Pool;
 
-  constructor(connectionString: string) {
+  constructor(config: PoolConfig) {
     this.pool = new Pool({
-      connectionString,
-      max: Number(process.env.TRACEBASE_DATABASE_POOL_MAX ?? 5),
+      ...config,
     });
   }
 
@@ -610,6 +609,42 @@ class PostgresControlPlaneStore implements ControlPlaneStore {
       },
     };
   }
+}
+
+function resolvePostgresPoolConfig(): PoolConfig | null {
+  const max = Number(process.env.TRACEBASE_DATABASE_POOL_MAX ?? 5);
+  const connectionString = process.env.TRACEBASE_DATABASE_URL ?? process.env.DATABASE_URL;
+
+  if (connectionString) {
+    return {
+      connectionString,
+      max,
+      application_name: "tracebase-control-plane",
+    };
+  }
+
+  const user = process.env.TRACEBASE_DB_USER ?? process.env.DB_USER;
+  const password = process.env.TRACEBASE_DB_PASSWORD ?? process.env.DB_PASS;
+  const database = process.env.TRACEBASE_DB_NAME ?? process.env.DB_NAME;
+  const socketHost =
+    process.env.TRACEBASE_INSTANCE_UNIX_SOCKET ??
+    process.env.INSTANCE_UNIX_SOCKET ??
+    (process.env.TRACEBASE_CLOUDSQL_INSTANCE
+      ? `/cloudsql/${process.env.TRACEBASE_CLOUDSQL_INSTANCE}`
+      : undefined);
+
+  if (!user || !password || !database || !socketHost) {
+    return null;
+  }
+
+  return {
+    user,
+    password,
+    database,
+    host: socketHost,
+    max,
+    application_name: "tracebase-control-plane",
+  };
 }
 
 class FileControlPlaneStore implements ControlPlaneStore {
