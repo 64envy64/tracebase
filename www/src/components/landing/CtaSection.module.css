@@ -41,7 +41,7 @@
 }
 
 .accent {
-  background: rgba(37, 214, 167, 0.92);
+  background: rgb(var(--accent-rgb) / 0.92);
 }
 
 .muted {

@@ -119,7 +119,7 @@ function SectionLinkCard({
         <p className="max-w-[28rem] text-[13px] font-light leading-relaxed md:text-sm" style={{ color: "var(--text-secondary)" }}>
           {body}
         </p>
-        <p className="mt-5 text-[11px] font-light uppercase tracking-[0.16em]" style={{ color: "rgba(37,214,167,0.72)" }}>
+        <p className="mt-5 text-[11px] font-light uppercase tracking-[0.16em]" style={{ color: "rgb(var(--accent-rgb) / 0.72)" }}>
           Open section
         </p>
       </div>
@@ -204,22 +204,26 @@ export default function Home() {
           </p>
           <SectionGrid columnsClassName="sm:grid-cols-2">
             <SectionCard
-              title="Repeat incidents"
-              body="The next similar case starts with prior context instead of forcing another full exploration loop."
+              title="Document intake"
+              body="Repeated extraction, classification, and review work improves once prior successful paths are surfaced before generation begins."
             />
             <SectionCard
-              title="IDE agents"
-              body="Fits tool-driven agent workflows without forcing teams to replace the editor or agent surface they already trust."
+              title="Claims + casework"
+              body="Models stop treating every claim, form, or exception as a brand new problem when the shape has already shown up before."
             />
             <SectionCard
-              title="Wrapped SDKs"
-              body="Works at the middleware layer when your application already owns model calls and wants control over rollout."
+              title="Support triage"
+              body="Repeated routing and response flows get shorter when grounded priors are injected ahead of another speculative pass."
             />
             <SectionCard
-              title="Local-first control"
-              body="Project-scoped storage stays under your control by default, with docs covering broader deployment patterns."
+              title="Existing LLM pipeline"
+              body="Drop a reasoning layer into the stack you already own instead of rebuilding around brittle checker logic."
             />
           </SectionGrid>
+          <p className="mt-8 max-w-3xl text-[12px] font-light leading-relaxed" style={{ color: "rgba(237,236,236,0.46)" }}>
+            Best fit tends to be repeat-heavy vertical SaaS work: document processing, claims automation, support
+            operations, financial analysis, and other model jobs that recur in familiar shapes.
+          </p>
           <p className="mt-9 max-w-2xl text-[11px] font-light leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
             TraceBase is included in the{" "}
             <a

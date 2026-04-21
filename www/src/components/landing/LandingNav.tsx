@@ -10,7 +10,7 @@ type NavItem = { href: string; label: string; external?: boolean };
 
 const NAV_LINKS: NavItem[] = [
   { href: "#overview", label: "Overview" },
-  { href: "#compare", label: "Comparison" },
+  { href: "#evidence", label: "Benchmarks" },
   { href: "/docs", label: "Docs" },
   { href: "#pricing", label: "Pricing" },
   { href: "#faq", label: "FAQ" },

@@ -128,7 +128,7 @@ export default function DocsPage() {
 
       <main className="mx-auto max-w-[1080px] px-6 py-14">
         <div className="max-w-[760px]">
-          <p className="text-[11px] uppercase tracking-[0.2em]" style={{ color: "rgba(37,214,167,0.72)" }}>
+          <p className="text-[11px] uppercase tracking-[0.2em]" style={{ color: "rgb(var(--accent-rgb) / 0.72)" }}>
             Docs
           </p>
           <h1 className="mt-4 text-[clamp(2rem,5vw,4rem)] font-light leading-[0.98] tracking-tight">

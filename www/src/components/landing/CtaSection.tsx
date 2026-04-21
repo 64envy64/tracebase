@@ -161,7 +161,7 @@ export function CtaSection() {
           className="mt-4 max-w-[30rem] text-[13px] font-light leading-relaxed sm:text-sm"
           style={{ color: "var(--text-secondary)" }}
         >
-          One install. Agents that get better with every run.
+          One install for self-serve teams, or a custom reasoning layer for higher-volume production traffic.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center gap-3">

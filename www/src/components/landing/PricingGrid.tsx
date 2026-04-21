@@ -1,6 +1,7 @@
 "use client";
 
 import { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
+import { AnimatedButtonLabel } from "@/components/ui/AnimatedButtonLabel";
 
 type BillingMode = "monthly" | "annual";
 
@@ -16,6 +17,7 @@ type PricingPlan = {
   accent: boolean;
   ctaLabel: string;
   ctaStyle: "quiet" | "light";
+  ctaArrow?: boolean;
   ctaHref?: string;
 };
 
@@ -37,8 +39,9 @@ const PRICING_PLANS: readonly PricingPlan[] = [
       "Embeddings with your own API key",
     ],
     accent: false,
-    ctaLabel: "Start free",
+    ctaLabel: "Try free",
     ctaStyle: "quiet",
+    ctaArrow: true,
     ctaHref: "/docs#quickstart",
   },
   {
@@ -56,8 +59,9 @@ const PRICING_PLANS: readonly PricingPlan[] = [
       "Hosted traces + analytics",
     ],
     accent: true,
-    ctaLabel: "Talk to us",
+    ctaLabel: "Upgrade",
     ctaStyle: "light",
+    ctaArrow: true,
     ctaHref: CALENDLY_URL,
   },
   {
@@ -77,6 +81,7 @@ const PRICING_PLANS: readonly PricingPlan[] = [
     accent: false,
     ctaLabel: "Talk to us",
     ctaStyle: "light",
+    ctaArrow: false,
     ctaHref: CALENDLY_URL,
   },
 ] as const;
@@ -84,60 +89,67 @@ const PRICING_PLANS: readonly PricingPlan[] = [
 function PricingCtaButton({
   label,
   tone,
+  showArrow = false,
   href,
 }: {
   label: string;
   tone: PricingPlan["ctaStyle"];
+  showArrow?: boolean;
   href?: string;
 }) {
-  const className =
-    "inline-flex min-h-[52px] w-full items-center justify-center rounded-[18px] border px-5 py-4 text-center text-[13px] font-semibold tracking-tight transition-[background-color,color,border-color,box-shadow,filter] duration-200 ease-out hover:brightness-[1.03]";
-
-  const style = {
-    borderColor: "var(--accent)",
-    background: "var(--accent)",
-    color: "var(--accent-ink)",
-    boxShadow: tone === "light" ? "0 16px 34px rgba(0,0,0,0.14)" : "none",
-  };
+  const className = [
+    "group inline-flex min-h-[52px] w-full items-center justify-center rounded-[18px] border px-5 py-4 text-center text-[13px] font-semibold tracking-tight transition-[background-color,color,border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+    tone === "light"
+      ? "border-[var(--accent)] bg-[var(--accent)] text-black shadow-[0_18px_38px_rgba(0,0,0,0.18)] hover:border-[var(--accent-hover)] hover:bg-[var(--accent-hover)]"
+      : "border-white/[0.08] bg-white/[0.03] text-[var(--text)] hover:border-white/[0.14] hover:bg-white/[0.05]",
+  ].join(" ");
 
   if (href) {
     return (
-      <a href={href} className={className} style={style} target={href.startsWith("http") ? "_blank" : undefined} rel={href.startsWith("http") ? "noopener noreferrer" : undefined}>
-        {label}
+      <a
+        href={href}
+        className={className}
+        target={href.startsWith("http") ? "_blank" : undefined}
+        rel={href.startsWith("http") ? "noopener noreferrer" : undefined}
+      >
+        <AnimatedButtonLabel label={label} showArrow={showArrow} />
       </a>
     );
   }
 
   return (
-    <button type="button" className={className} style={style}>
-      {label}
+    <button type="button" className={className}>
+      <AnimatedButtonLabel label={label} showArrow={showArrow} />
     </button>
   );
 }
 
 function useAnimatedNumber(target: number) {
   const [display, setDisplay] = useState(target);
-  const previousRef = useRef(target);
-  const reducedMotionRef = useRef(false);
+  const [reducedMotion, setReducedMotion] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(prefers-reduced-motion: reduce)").matches : false,
+  );
+  const currentValueRef = useRef(target);
+
+  useEffect(() => {
+    currentValueRef.current = display;
+  }, [display]);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const sync = () => {
-      reducedMotionRef.current = media.matches;
-    };
-    sync();
+    const sync = () => setReducedMotion(media.matches);
+
     media.addEventListener("change", sync);
     return () => media.removeEventListener("change", sync);
   }, []);
 
   useEffect(() => {
-    if (reducedMotionRef.current) {
-      previousRef.current = target;
-      setDisplay(target);
+    if (reducedMotion) {
+      currentValueRef.current = target;
       return;
     }
 
-    const from = previousRef.current;
+    const from = currentValueRef.current;
     if (from === target) return;
 
     const start = performance.now();
@@ -148,6 +160,7 @@ function useAnimatedNumber(target: number) {
       const progress = Math.min((now - start) / duration, 1);
       const eased = 1 - Math.pow(1 - progress, 3);
       const next = from + (target - from) * eased;
+      currentValueRef.current = next;
       setDisplay(next);
 
       if (progress < 1) {
@@ -155,14 +168,14 @@ function useAnimatedNumber(target: number) {
         return;
       }
 
-      previousRef.current = target;
+      currentValueRef.current = target;
     };
 
     frame = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(frame);
-  }, [target]);
+  }, [target, reducedMotion]);
 
-  return display;
+  return reducedMotion ? target : display;
 }
 
 function AnimatedPriceValue({
@@ -206,7 +219,21 @@ function PricingCard({
       style={{ background: "var(--bg)" }}
     >
       <header className="grid min-h-[132px] content-start gap-5">
-        <h3 className="font-mono text-[clamp(1.9rem,3vw,2.5rem)] font-medium leading-[0.94] tracking-tight">{plan.name}</h3>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h3 className="font-mono text-[clamp(1.9rem,3vw,2.5rem)] font-medium leading-[0.94] tracking-tight">{plan.name}</h3>
+          {showSavings ? (
+            <span
+              className="rounded-full border px-3 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
+              style={{
+                borderColor: "var(--accent)",
+                background: "rgb(var(--accent-rgb) / 0.14)",
+                color: "var(--accent)",
+              }}
+            >
+              {plan.annualSavings}
+            </span>
+          ) : null}
+        </div>
         <div className="flex flex-wrap items-center gap-2.5">
           <span
             className="rounded-full border px-3 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
@@ -218,18 +245,6 @@ function PricingCard({
           >
             {plan.badge}
           </span>
-          {showSavings ? (
-            <span
-              className="rounded-full border px-3 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
-              style={{
-                borderColor: "var(--accent)",
-                background: "var(--accent)",
-                color: "var(--accent-ink)",
-              }}
-            >
-              {plan.annualSavings}
-            </span>
-          ) : null}
         </div>
       </header>
 
@@ -265,7 +280,7 @@ function PricingCard({
       </ul>
 
       <div className="pt-10">
-        <PricingCtaButton label={plan.ctaLabel} tone={plan.ctaStyle} href={plan.ctaHref} />
+        <PricingCtaButton label={plan.ctaLabel} tone={plan.ctaStyle} showArrow={plan.ctaArrow} href={plan.ctaHref} />
       </div>
     </article>
   );
