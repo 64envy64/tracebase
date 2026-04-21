@@ -57,7 +57,13 @@ jobs:
         if: ${{ env.TRACEBASE_DB_NAME != '' && env.TRACEBASE_DB_USER != '' && env.TRACEBASE_DB_PASSWORD != '' && env.TRACEBASE_CLOUDSQL_INSTANCE != '' && env.CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT != '' }}
         run: |
           DB_INSTANCE="${TRACEBASE_CLOUDSQL_INSTANCE##*:}"
-          RUNTIME_SERVICE_ACCOUNT_ID="${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT%@*}"
+          EFFECTIVE_RUNTIME_SERVICE_ACCOUNT="${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}"
+
+          if [ -z "${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT}" ] || ! gcloud iam service-accounts describe "${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+            EFFECTIVE_RUNTIME_SERVICE_ACCOUNT="${SERVICE_ACCOUNT}"
+          fi
+
+          echo "EFFECTIVE_RUNTIME_SERVICE_ACCOUNT=${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT}" >> "${GITHUB_ENV}"
 
           if ! gcloud services enable \
             sqladmin.googleapis.com \
@@ -67,22 +73,9 @@ jobs:
             echo "::warning::Unable to enable one or more required APIs with ${SERVICE_ACCOUNT}. Continuing under the assumption they are already enabled."
           fi
 
-          if ! gcloud iam service-accounts describe "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
-            gcloud iam service-accounts create "${RUNTIME_SERVICE_ACCOUNT_ID}" \
-              --display-name="TraceBase Cloud Run runtime" \
-              --project="${PROJECT_ID}"
+          if [ "${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT}" != "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" ]; then
+            echo "::warning::Falling back to ${SERVICE_ACCOUNT} as the Cloud Run runtime identity because ${SERVICE_ACCOUNT} cannot create or bind a dedicated runtime service account."
           fi
-
-          gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-            --member="serviceAccount:${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" \
-            --role="roles/cloudsql.client" \
-            --quiet
-
-          gcloud iam service-accounts add-iam-policy-binding "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" \
-            --member="serviceAccount:${SERVICE_ACCOUNT}" \
-            --role="roles/iam.serviceAccountUser" \
-            --project="${PROJECT_ID}" \
-            --quiet
 
           if ! gcloud sql instances describe "${DB_INSTANCE}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
             gcloud sql instances create "${DB_INSTANCE}" \
@@ -182,8 +175,10 @@ jobs:
         run: |
           EXTRA_ARGS=()
 
-          if [ -n "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" ]; then
-            EXTRA_ARGS+=("--service-account=${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}")
+          EFFECTIVE_RUNTIME_SERVICE_ACCOUNT="${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT:-${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}}"
+
+          if [ -n "${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT}" ]; then
+            EXTRA_ARGS+=("--service-account=${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT}")
           fi
 
           if [ -n "${TRACEBASE_CLOUDSQL_INSTANCE}" ] && [ -n "${TRACEBASE_DB_NAME}" ] && [ -n "${TRACEBASE_DB_USER}" ] && [ -n "${TRACEBASE_DB_PASSWORD}" ]; then
