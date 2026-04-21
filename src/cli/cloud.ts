@@ -58,7 +58,7 @@ export function normalizeApiUrl(raw: string): string {
 }
 
 export function resolveCloudApiUrl(explicit?: string): string | null {
-  const raw = explicit ?? process.env.TRACEBASE_API_URL ?? "https://tracebase.com";
+  const raw = explicit ?? process.env.TRACEBASE_API_URL ?? "https://tracebase.ink";
   if (!raw || !raw.trim()) return null;
   return normalizeApiUrl(raw);
 }

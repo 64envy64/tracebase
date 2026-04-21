@@ -26,6 +26,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_APP_URL: ${{ vars.NEXT_PUBLIC_APP_URL }}
+      TRACEBASE_PUBLIC_APP_URL: ${{ vars.TRACEBASE_PUBLIC_APP_URL }}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+      TRACEBASE_DATABASE_URL: ${{ secrets.TRACEBASE_DATABASE_URL }}
 
     steps:
       - name: Check out repository
@@ -42,11 +48,58 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
+      - name: Prepare Cloud Run env files
+        run: |
+          if [ -z "${NEXT_PUBLIC_APP_URL}" ]; then
+            echo "NEXT_PUBLIC_APP_URL is required." >&2
+            exit 1
+          fi
+
+          if [ -z "${TRACEBASE_PUBLIC_APP_URL}" ]; then
+            echo "TRACEBASE_PUBLIC_APP_URL is required." >&2
+            exit 1
+          fi
+
+          if [ -z "${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}" ]; then
+            echo "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is required." >&2
+            exit 1
+          fi
+
+          if [ -z "${CLERK_SECRET_KEY}" ]; then
+            echo "CLERK_SECRET_KEY is required." >&2
+            exit 1
+          fi
+
+          cat > /tmp/tracebase-build-env.yaml <<EOF
+          NEXT_PUBLIC_APP_URL: "${NEXT_PUBLIC_APP_URL}"
+          TRACEBASE_PUBLIC_APP_URL: "${TRACEBASE_PUBLIC_APP_URL}"
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}"
+          EOF
+
+          cat > /tmp/tracebase-service-env.yaml <<EOF
+          NODE_ENV: "production"
+          NEXT_PUBLIC_APP_URL: "${NEXT_PUBLIC_APP_URL}"
+          TRACEBASE_PUBLIC_APP_URL: "${TRACEBASE_PUBLIC_APP_URL}"
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}"
+          CLERK_SECRET_KEY: "${CLERK_SECRET_KEY}"
+          EOF
+
+          if [ -n "${TRACEBASE_DATABASE_URL}" ]; then
+            cat >> /tmp/tracebase-service-env.yaml <<EOF
+          TRACEBASE_DATABASE_URL: "${TRACEBASE_DATABASE_URL}"
+          DATABASE_URL: "${TRACEBASE_DATABASE_URL}"
+          EOF
+          else
+            echo "::warning::TRACEBASE_DATABASE_URL is not set. Control-plane state will fall back to ephemeral file storage on Cloud Run."
+          fi
+
       - name: Deploy Cloud Run production service
         run: |
           gcloud run deploy "$SERVICE" \
             --project="$PROJECT_ID" \
             --region="$REGION" \
             --source=./www \
+            --build-env-vars-file=/tmp/tracebase-build-env.yaml \
+            --env-vars-file=/tmp/tracebase-service-env.yaml \
             --no-invoker-iam-check \
             --quiet
