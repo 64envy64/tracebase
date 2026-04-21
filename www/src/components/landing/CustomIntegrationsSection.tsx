@@ -51,7 +51,7 @@ export function CustomIntegrationsSection() {
                 href="https://calendly.com/a-sarzhigitov07/30min"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex min-h-[56px] items-center justify-center rounded-[18px] border border-[rgba(177,255,109,0.3)] bg-[var(--accent)] px-6 text-sm font-semibold tracking-tight text-[#081106] transition-colors hover:bg-[#cfff9f]"
+                className="inline-flex min-h-[56px] items-center justify-center rounded-[18px] border border-[var(--accent)] bg-[var(--accent)] px-6 text-sm font-semibold tracking-tight text-[var(--accent-ink)] transition-colors hover:bg-[var(--accent-hover)]"
               >
                 Talk to us
               </a>
