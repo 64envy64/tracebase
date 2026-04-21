@@ -81,10 +81,12 @@ jobs:
             echo "::warning::Unable to enable one or more required APIs with ${SERVICE_ACCOUNT}. Continuing under the assumption they are already enabled."
           fi
 
-          gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+          if ! gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
             --member="serviceAccount:${CLOUDSQL_CLIENT_SERVICE_ACCOUNT}" \
             --role="roles/cloudsql.client" \
-            --quiet
+            --quiet; then
+            echo "::warning::Unable to grant roles/cloudsql.client to ${CLOUDSQL_CLIENT_SERVICE_ACCOUNT} with ${SERVICE_ACCOUNT}. If the hosted install API returns 500, grant that role once using an owner-level identity."
+          fi
 
           if ! gcloud sql instances describe "${DB_INSTANCE}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
             gcloud sql instances create "${DB_INSTANCE}" \
