@@ -57,17 +57,21 @@ jobs:
         if: ${{ env.TRACEBASE_DB_NAME != '' && env.TRACEBASE_DB_USER != '' && env.TRACEBASE_DB_PASSWORD != '' && env.TRACEBASE_CLOUDSQL_INSTANCE != '' }}
         run: |
           DB_INSTANCE="${TRACEBASE_CLOUDSQL_INSTANCE##*:}"
+          DEFAULT_RUNTIME_SERVICE_ACCOUNT="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
           EFFECTIVE_RUNTIME_SERVICE_ACCOUNT=""
+          CLOUDSQL_CLIENT_SERVICE_ACCOUNT="${DEFAULT_RUNTIME_SERVICE_ACCOUNT}"
 
           if [ -n "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" ]; then
             if gcloud iam service-accounts describe "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
               EFFECTIVE_RUNTIME_SERVICE_ACCOUNT="${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}"
+              CLOUDSQL_CLIENT_SERVICE_ACCOUNT="${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}"
             else
               echo "::warning::CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT is set but the service account does not exist. Continuing without an explicit Cloud Run runtime identity."
             fi
           fi
 
           echo "EFFECTIVE_RUNTIME_SERVICE_ACCOUNT=${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT}" >> "${GITHUB_ENV}"
+          echo "CLOUDSQL_CLIENT_SERVICE_ACCOUNT=${CLOUDSQL_CLIENT_SERVICE_ACCOUNT}" >> "${GITHUB_ENV}"
 
           if ! gcloud services enable \
             sqladmin.googleapis.com \
@@ -76,6 +80,11 @@ jobs:
             --project="${PROJECT_ID}"; then
             echo "::warning::Unable to enable one or more required APIs with ${SERVICE_ACCOUNT}. Continuing under the assumption they are already enabled."
           fi
+
+          gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+            --member="serviceAccount:${CLOUDSQL_CLIENT_SERVICE_ACCOUNT}" \
+            --role="roles/cloudsql.client" \
+            --quiet
 
           if ! gcloud sql instances describe "${DB_INSTANCE}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
             gcloud sql instances create "${DB_INSTANCE}" \
