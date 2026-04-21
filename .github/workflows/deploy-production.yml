@@ -54,7 +54,7 @@ jobs:
           project_id: ${{ env.PROJECT_ID }}
 
       - name: Provision Cloud SQL and runtime identity
-        if: ${{ env.TRACEBASE_DB_NAME != '' && env.TRACEBASE_DB_USER != '' && env.TRACEBASE_DB_PASSWORD != '' && env.TRACEBASE_CLOUDSQL_INSTANCE != '' && env.CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT != '' }}
+        if: ${{ env.TRACEBASE_DB_NAME != '' && env.TRACEBASE_DB_USER != '' && env.TRACEBASE_DB_PASSWORD != '' && env.TRACEBASE_CLOUDSQL_INSTANCE != '' }}
         run: |
           DB_INSTANCE="${TRACEBASE_CLOUDSQL_INSTANCE##*:}"
           EFFECTIVE_RUNTIME_SERVICE_ACCOUNT="${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}"
@@ -73,7 +73,7 @@ jobs:
             echo "::warning::Unable to enable one or more required APIs with ${SERVICE_ACCOUNT}. Continuing under the assumption they are already enabled."
           fi
 
-          if [ "${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT}" != "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" ]; then
+          if [ -n "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" ] && [ "${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT}" != "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" ]; then
             echo "::warning::Falling back to ${SERVICE_ACCOUNT} as the Cloud Run runtime identity because ${SERVICE_ACCOUNT} cannot create or bind a dedicated runtime service account."
           fi
 
