@@ -57,10 +57,14 @@ jobs:
         if: ${{ env.TRACEBASE_DB_NAME != '' && env.TRACEBASE_DB_USER != '' && env.TRACEBASE_DB_PASSWORD != '' && env.TRACEBASE_CLOUDSQL_INSTANCE != '' }}
         run: |
           DB_INSTANCE="${TRACEBASE_CLOUDSQL_INSTANCE##*:}"
-          EFFECTIVE_RUNTIME_SERVICE_ACCOUNT="${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}"
+          EFFECTIVE_RUNTIME_SERVICE_ACCOUNT=""
 
-          if [ -z "${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT}" ] || ! gcloud iam service-accounts describe "${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
-            EFFECTIVE_RUNTIME_SERVICE_ACCOUNT="${SERVICE_ACCOUNT}"
+          if [ -n "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" ]; then
+            if gcloud iam service-accounts describe "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+              EFFECTIVE_RUNTIME_SERVICE_ACCOUNT="${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}"
+            else
+              echo "::warning::CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT is set but the service account does not exist. Continuing without an explicit Cloud Run runtime identity."
+            fi
           fi
 
           echo "EFFECTIVE_RUNTIME_SERVICE_ACCOUNT=${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT}" >> "${GITHUB_ENV}"
@@ -71,10 +75,6 @@ jobs:
             run.googleapis.com \
             --project="${PROJECT_ID}"; then
             echo "::warning::Unable to enable one or more required APIs with ${SERVICE_ACCOUNT}. Continuing under the assumption they are already enabled."
-          fi
-
-          if [ -n "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" ] && [ "${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT}" != "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" ]; then
-            echo "::warning::Falling back to ${SERVICE_ACCOUNT} as the Cloud Run runtime identity because ${SERVICE_ACCOUNT} cannot create or bind a dedicated runtime service account."
           fi
 
           if ! gcloud sql instances describe "${DB_INSTANCE}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
@@ -176,7 +176,7 @@ jobs:
         run: |
           EXTRA_ARGS=()
 
-          EFFECTIVE_RUNTIME_SERVICE_ACCOUNT="${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT:-${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}}"
+          EFFECTIVE_RUNTIME_SERVICE_ACCOUNT="${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT:-${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT:-}}"
 
           if [ -n "${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT}" ]; then
             EXTRA_ARGS+=("--service-account=${EFFECTIVE_RUNTIME_SERVICE_ACCOUNT}")
