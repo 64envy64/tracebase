@@ -81,6 +81,7 @@ jobs:
             gcloud sql instances create "${DB_INSTANCE}" \
               --project="${PROJECT_ID}" \
               --database-version=POSTGRES_16 \
+              --edition=ENTERPRISE \
               --region="${REGION}" \
               --tier="db-custom-1-3840" \
               --storage-size=10 \
