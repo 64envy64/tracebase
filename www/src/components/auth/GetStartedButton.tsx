@@ -34,8 +34,8 @@ export function GetStartedButton({
   const sizeClassName =
     size === "large" ? "h-12 px-6 text-sm sm:h-[52px] sm:px-7" : "h-10 px-5 text-[13px]";
   const themeClassName = onMedia
-    ? "border border-[rgba(177,255,109,0.35)] bg-[rgba(177,255,109,0.96)] text-[#081106] hover:bg-[#d3ffab]"
-    : "border border-[rgba(177,255,109,0.35)] bg-[var(--accent)] text-[#081106] hover:bg-[#c9ff98]";
+    ? "border border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-ink)] hover:bg-[var(--accent-hover)]"
+    : "border border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-ink)] hover:bg-[var(--accent-hover)]";
 
   function handleClick() {
     if (pathname === target) {

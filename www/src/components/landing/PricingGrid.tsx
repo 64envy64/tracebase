@@ -91,21 +91,14 @@ function PricingCtaButton({
   href?: string;
 }) {
   const className =
-    "inline-flex min-h-[56px] w-full items-center justify-center rounded-[18px] border px-5 py-4 text-center text-sm font-semibold tracking-tight transition-[background-color,color,border-color,box-shadow] duration-200 ease-out";
+    "inline-flex min-h-[52px] w-full items-center justify-center rounded-[18px] border px-5 py-4 text-center text-[13px] font-semibold tracking-tight transition-[background-color,color,border-color,box-shadow,filter] duration-200 ease-out hover:brightness-[1.03]";
 
-  const style =
-    tone === "light"
-      ? {
-          borderColor: "rgba(237,236,236,0.94)",
-          background: "rgba(237,236,236,0.98)",
-          color: "var(--bg)",
-          boxShadow: "0 16px 34px rgba(0,0,0,0.14)",
-        }
-      : {
-          borderColor: "rgba(255,255,255,0.12)",
-          background: "rgba(255,255,255,0.02)",
-          color: "rgba(237,236,236,0.82)",
-        };
+  const style = {
+    borderColor: "var(--accent)",
+    background: "var(--accent)",
+    color: "var(--accent-ink)",
+    boxShadow: tone === "light" ? "0 16px 34px rgba(0,0,0,0.14)" : "none",
+  };
 
   if (href) {
     return (
@@ -218,9 +211,9 @@ function PricingCard({
           <span
             className="rounded-full border px-3 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
             style={{
-              borderColor: plan.accent ? "rgba(177,255,109,0.18)" : "rgba(255,255,255,0.08)",
-              background: plan.accent ? "rgba(177,255,109,0.07)" : "rgba(255,255,255,0.03)",
-              color: plan.accent ? "rgba(177,255,109,0.72)" : "rgba(237,236,236,0.52)",
+              borderColor: plan.accent ? "var(--accent)" : "#2e2f28",
+              background: plan.accent ? "var(--accent)" : "#1a1b17",
+              color: plan.accent ? "var(--accent-ink)" : "var(--text)",
             }}
           >
             {plan.badge}
@@ -229,9 +222,9 @@ function PricingCard({
             <span
               className="rounded-full border px-3 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
               style={{
-                borderColor: "rgba(177,255,109,0.18)",
-                background: "rgba(177,255,109,0.05)",
-                color: "rgba(177,255,109,0.72)",
+                borderColor: "var(--accent)",
+                background: "var(--accent)",
+                color: "var(--accent-ink)",
               }}
             >
               {plan.annualSavings}
@@ -306,18 +299,17 @@ export function PricingGrid() {
           </div>
 
           <div
-            className="relative inline-grid grid-cols-2 rounded-full border p-1"
-            style={{ borderColor: "rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.02)" }}
+            className="relative inline-grid h-12 min-w-[258px] grid-cols-2 rounded-full border p-[3px]"
+            style={{ borderColor: "#2e2f28", background: "#171711" }}
             role="tablist"
             aria-label="Billing cadence"
           >
             <span
-              className="absolute bottom-1 top-1 rounded-full border bg-white/[0.05] transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+              className="absolute left-[3px] top-[3px] h-[calc(100%-6px)] w-[calc(50%-3px)] rounded-full border transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
               style={{
-                width: "calc(50% - 4px)",
-                transform: billing === "monthly" ? "translateX(0)" : "translateX(calc(100% + 0px))",
-                borderColor: billing === "annual" ? "rgba(177,255,109,0.18)" : "rgba(255,255,255,0.08)",
-                background: billing === "annual" ? "rgba(177,255,109,0.08)" : "rgba(255,255,255,0.04)",
+                transform: billing === "monthly" ? "translateX(0)" : "translateX(100%)",
+                borderColor: "var(--accent)",
+                background: "var(--accent)",
               }}
               aria-hidden
             />
@@ -328,9 +320,9 @@ export function PricingGrid() {
                 role="tab"
                 aria-selected={billing === mode}
                 onClick={() => setMode(mode)}
-                className="relative z-10 min-w-[118px] rounded-full px-5 py-2.5 text-sm font-semibold tracking-tight transition-colors"
+                className="relative z-10 flex h-10 items-center justify-center rounded-full px-6 text-sm font-semibold tracking-tight transition-colors"
                 style={{
-                  color: billing === mode ? "var(--text)" : "var(--text-secondary)",
+                  color: billing === mode ? "var(--accent-ink)" : "var(--text-secondary)",
                 }}
               >
                 {mode === "monthly" ? "Monthly" : "Annual"}
