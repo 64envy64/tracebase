@@ -36,11 +36,11 @@ export function HeroWithVideo() {
             style={{ color: "rgba(237, 236, 236, 0.78)" }}
           >
             Reasoning traces that carry forward: shorter runs, sharper answers on repeat work, and less token spend on
-            solved paths through recall, inject, and store.
+            work the team has already solved once.
           </p>
 
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <CopyCommand command="npx tracebase-ai setup" onMedia />
+            <CopyCommand command="npx tracebase-ai init" onMedia />
           </div>
         </div>
       </div>

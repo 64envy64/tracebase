@@ -1,0 +1,52 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - production
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: true
+
+env:
+  PROJECT_ID: absolute-bonsai-492615-m7
+  PROJECT_NUMBER: "386065163332"
+  REGION: europe-west1
+  SERVICE: tracebase-www
+  WORKLOAD_IDENTITY_PROVIDER: projects/386065163332/locations/global/workloadIdentityPools/github-actions/providers/tracebase-production
+  SERVICE_ACCOUNT: github-production-deployer@absolute-bonsai-492615-m7.iam.gserviceaccount.com
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Deploy Cloud Run production service
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --project="$PROJECT_ID" \
+            --region="$REGION" \
+            --source=./www \
+            --no-invoker-iam-check \
+            --quiet

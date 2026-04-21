@@ -39,7 +39,7 @@ const PRICING_PLANS: readonly PricingPlan[] = [
     accent: false,
     ctaLabel: "Start free",
     ctaStyle: "quiet",
-    ctaHref: "#setup",
+    ctaHref: "/docs#quickstart",
   },
   {
     name: "Startup",
@@ -91,7 +91,7 @@ function PricingCtaButton({
   href?: string;
 }) {
   const className =
-    "inline-flex min-h-[56px] w-full items-center justify-center rounded-[18px] border px-5 py-4 text-center text-sm font-semibold tracking-tight transition-[background-color,color,border-color,box-shadow] duration-200 ease-out";
+    "inline-flex min-h-[52px] w-full items-center justify-center rounded-[18px] border px-5 py-4 text-center text-[13px] font-semibold tracking-tight transition-[background-color,color,border-color,box-shadow] duration-200 ease-out";
 
   const style =
     tone === "light"
@@ -183,12 +183,12 @@ function AnimatedPriceValue({
   const rounded = Math.round(animated);
 
   if (amount === null) {
-    return <span className="font-mono text-[clamp(2.65rem,5vw,4.35rem)] leading-[0.88] tracking-[-0.04em]">Custom</span>;
+    return <span className="font-mono text-[clamp(2.35rem,4.6vw,3.8rem)] leading-[0.88] tracking-[-0.04em]">Custom</span>;
   }
 
   return (
     <span className="flex items-end gap-2">
-      <span className="font-mono text-[clamp(2.65rem,5vw,4.35rem)] leading-[0.88] tracking-[-0.04em] tabular-nums">${rounded}</span>
+      <span className="font-mono text-[clamp(2.35rem,4.6vw,3.8rem)] leading-[0.88] tracking-[-0.04em] tabular-nums">${rounded}</span>
       <span className="pb-2 text-sm font-light" style={{ color: "var(--text-secondary)" }}>
         {suffix}
       </span>
@@ -209,11 +209,11 @@ function PricingCard({
 
   return (
     <article
-      className="grid min-h-[640px] grid-rows-[minmax(132px,auto)_minmax(208px,auto)_1fr_auto] p-8 md:p-10"
+      className="grid min-h-[620px] grid-rows-[minmax(124px,auto)_minmax(192px,auto)_1fr_auto] p-7 md:p-9"
       style={{ background: "var(--bg)" }}
     >
       <header className="grid min-h-[132px] content-start gap-5">
-        <h3 className="font-mono text-[clamp(1.9rem,3vw,2.5rem)] font-medium leading-[0.94] tracking-tight">{plan.name}</h3>
+        <h3 className="font-mono text-[clamp(1.72rem,2.7vw,2.2rem)] font-medium leading-[0.94] tracking-tight">{plan.name}</h3>
         <div className="flex flex-wrap items-center gap-2.5">
           <span
             className="rounded-full border px-3 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
@@ -240,12 +240,12 @@ function PricingCard({
         </div>
       </header>
 
-      <div className="grid min-h-[208px] grid-rows-[minmax(96px,auto)_minmax(96px,auto)] content-start">
+      <div className="grid min-h-[192px] grid-rows-[minmax(88px,auto)_minmax(92px,auto)] content-start">
         <div className="flex items-start">
           <AnimatedPriceValue amount={amount} suffix={billing === "annual" ? "/mo billed yearly" : "/mo"} />
         </div>
         <div className="mt-7 space-y-2">
-          <p className="max-w-[18rem] text-sm font-light leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+          <p className="max-w-[18rem] text-[13px] font-light leading-relaxed md:text-sm" style={{ color: "var(--text-secondary)" }}>
             {subtitle}
           </p>
           {billing === "annual" && plan.annualMonthlyPrice !== null && plan.monthlyPrice !== null && plan.annualMonthlyPrice !== plan.monthlyPrice ? (

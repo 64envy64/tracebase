@@ -149,22 +149,22 @@ function PixelBlobBackdrop() {
 
 export function CtaSection() {
   return (
-    <section className={`${styles.section} py-24 md:py-28`}>
+    <section className={`${styles.section} py-[5.5rem] md:py-[6.5rem]`}>
       <PixelBlobBackdrop />
 
       <div className="relative z-10 max-w-[40rem]">
-        <h2 className="max-w-[32rem] text-[clamp(1.9rem,3.2vw,3.15rem)] font-light leading-[1.05] tracking-tight">
+        <h2 className="max-w-[32rem] text-[clamp(1.72rem,3vw,2.75rem)] font-light leading-[1.05] tracking-tight">
           Stop paying for the same reasoning twice.
         </h2>
         <p
-          className="mt-4 max-w-[30rem] text-sm font-light leading-relaxed sm:text-[15px]"
+          className="mt-4 max-w-[30rem] text-[13px] font-light leading-relaxed sm:text-sm"
           style={{ color: "var(--text-secondary)" }}
         >
           One install. Agents that get better with every run.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center gap-3">
-          <CopyCommand command="npx tracebase-ai setup" />
+          <CopyCommand command="npx tracebase-ai init" />
         </div>
       </div>
     </section>

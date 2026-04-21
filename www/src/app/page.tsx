@@ -1,13 +1,11 @@
 import Image from "next/image";
+import Link from "next/link";
 import { type ReactNode } from "react";
-import { CustomIntegrationsSection } from "@/components/landing/CustomIntegrationsSection";
 import { CtaSection } from "@/components/landing/CtaSection";
 import { HeroWithVideo } from "@/components/landing/HeroWithVideo";
-import { IntegrationsGrid } from "@/components/landing/IntegrationsGrid";
 import { LandingNav } from "@/components/landing/LandingNav";
 import { PricingGrid } from "@/components/landing/PricingGrid";
 import { RunComparisonSection } from "@/components/landing/RunComparisonSection";
-import { SetupTabs } from "@/components/landing/SetupTabs";
 import { GitHubMark } from "@/components/ui/GitHubMark";
 
 function SectionHeading({
@@ -22,21 +20,21 @@ function SectionHeading({
   body?: string;
 }) {
   return (
-    <div className="mb-12 md:mb-14">
-      <p className="mb-6 text-xs font-light tracking-[0.22em] uppercase" style={{ color: "var(--text-tertiary)" }}>
+    <div className="mb-10 md:mb-12">
+      <p className="mb-5 text-[11px] font-light tracking-[0.2em] uppercase" style={{ color: "var(--text-tertiary)" }}>
         {eyebrow}
       </p>
       <div className="max-w-[920px]">
         <p
-          className="text-[clamp(2rem,4.8vw,4.25rem)] font-light leading-[0.98] tracking-tight"
+          className="text-[clamp(1.7rem,4vw,3.2rem)] font-light leading-[0.98] tracking-tight"
           style={{ color: "rgba(237,236,236,0.52)" }}
         >
           {muted}
         </p>
-        <h2 className="mt-1 text-[clamp(2rem,4.8vw,4.25rem)] font-light leading-[0.98] tracking-tight">{title}</h2>
+        <h2 className="mt-1 text-[clamp(1.7rem,4vw,3.2rem)] font-light leading-[0.98] tracking-tight">{title}</h2>
       </div>
       {body ? (
-        <p className="mt-6 max-w-xl text-sm font-light leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+        <p className="mt-5 max-w-xl text-[13px] font-light leading-relaxed md:text-sm" style={{ color: "var(--text-secondary)" }}>
           {body}
         </p>
       ) : null}
@@ -85,14 +83,105 @@ function SectionCard({
             {eyebrow}
           </p>
         ) : null}
-        <h3 className="text-[1.1rem] font-normal tracking-tight md:text-[1.2rem]">{title}</h3>
+        <h3 className="text-[1.03rem] font-normal tracking-tight md:text-[1.12rem]">{title}</h3>
       </div>
-      <p className="mt-5 max-w-[28rem] text-sm font-light leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+      <p className="mt-5 max-w-[28rem] text-[13px] font-light leading-relaxed md:text-sm" style={{ color: "var(--text-secondary)" }}>
         {body}
       </p>
     </article>
   );
 }
+
+function SectionLinkCard({
+  title,
+  body,
+  href,
+}: {
+  title: string;
+  body: string;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="group flex min-h-[196px] flex-col justify-between p-6 transition-colors md:min-h-[208px] md:p-7"
+      style={{ background: "var(--bg)" }}
+    >
+      <div>
+        <p className="mb-5 text-[10px] font-mono uppercase tracking-[0.18em]" style={{ color: "var(--text-tertiary)" }}>
+          Docs
+        </p>
+        <h3 className="text-[1.03rem] font-normal tracking-tight transition-colors group-hover:text-[var(--accent)] md:text-[1.12rem]">
+          {title}
+        </h3>
+      </div>
+      <div>
+        <p className="max-w-[28rem] text-[13px] font-light leading-relaxed md:text-sm" style={{ color: "var(--text-secondary)" }}>
+          {body}
+        </p>
+        <p className="mt-5 text-[11px] font-light uppercase tracking-[0.16em]" style={{ color: "rgba(177,255,109,0.72)" }}>
+          Open section
+        </p>
+      </div>
+    </Link>
+  );
+}
+
+const DOCS_LINKS = [
+  {
+    title: "Quickstart",
+    body: "Install, initialize a project-local store, and verify the agent surface in a few commands.",
+    href: "/docs#quickstart",
+  },
+  {
+    title: "Integrations",
+    body: "How to fit TraceBase into IDE agents, wrapped SDK clients, and custom internal runtimes.",
+    href: "/docs#integrations",
+  },
+  {
+    title: "Architecture",
+    body: "A high-level map of capture, retrieval, and serving without turning the landing into an implementation dump.",
+    href: "/docs#architecture",
+  },
+  {
+    title: "Troubleshooting",
+    body: "The first checks to run when tooling, retrieval, or the local store look wrong in a live workspace.",
+    href: "/docs#troubleshooting",
+  },
+] as const;
+
+const FAQ_ITEMS = [
+  {
+    question: "What problem is TraceBase actually solving?",
+    answer:
+      "It reduces repeated re-discovery. When similar engineering or operations work comes back, the next run starts from prior wins instead of starting cold again.",
+  },
+  {
+    question: "Do we have to move to a hosted platform?",
+    answer:
+      "No. The default path stays local-first and self-hosted, with project-scoped storage and integration points that fit the tools teams already run.",
+  },
+  {
+    question: "Does this expose private reasoning or internal chain-of-thought?",
+    answer:
+      "No. The product is positioned around reusable traces and operator-facing signals, not around dumping raw internal deliberation into a public UI.",
+  },
+  {
+    question: "Where does it fit in the stack?",
+    answer:
+      "Use it at the agent edge that already exists for your team: MCP for tool-driven agents, middleware for wrapped SDK calls, or a service boundary for custom runtimes.",
+  },
+  {
+    question: "When does it help the most?",
+    answer:
+      "Repeat incidents, debugging loops, migrations, and any workflow where the second or fifth run should benefit from the first one having already paid the exploration cost.",
+  },
+  {
+    question: "Why move setup and implementation detail into docs?",
+    answer:
+      "Because buyers need the promise quickly, while operators need the mechanics in a place they can return to. Landing and docs should do different jobs.",
+  },
+] as const;
 
 export default function Home() {
   return (
@@ -102,36 +191,36 @@ export default function Home() {
       <HeroWithVideo />
 
       <main className="mx-auto max-w-[1080px] bg-[var(--bg)] px-6" style={{ color: "var(--text)" }}>
-        <section className="scroll-mt-20 py-20 md:py-24" id="overview" aria-labelledby="overview-heading">
-          <p className="mb-3 text-xs font-light tracking-widest uppercase" style={{ color: "var(--text-tertiary)" }}>
+        <section className="scroll-mt-20 py-[4.5rem] md:py-20" id="overview" aria-labelledby="overview-heading">
+          <p className="mb-3 text-[11px] font-light tracking-[0.2em] uppercase" style={{ color: "var(--text-tertiary)" }}>
             Overview
           </p>
-          <h2 id="overview-heading" className="mb-6 text-[26px] font-light tracking-tight sm:text-[28px]">
-            What you get
+          <h2 id="overview-heading" className="mb-5 text-[24px] font-light tracking-tight sm:text-[26px]">
+            What changes once repeat work stops starting cold
           </h2>
-          <p className="mb-10 max-w-2xl text-sm font-light leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+          <p className="mb-9 max-w-2xl text-[13px] font-light leading-relaxed md:text-sm" style={{ color: "var(--text-secondary)" }}>
             TraceBase captures every solved problem as a reasoning trace and feeds it back into future runs. Your
             agents don&apos;t just execute — they accumulate expertise. Every run is built on every run before it.
           </p>
           <SectionGrid columnsClassName="sm:grid-cols-2">
             <SectionCard
-              title="IDEs"
-              body="MCP tools for recall before a task and store after, without changing the flow teams already use."
+              title="Repeat incidents"
+              body="The next similar case starts with prior context instead of forcing another full exploration loop."
             />
             <SectionCard
-              title="SDK"
-              body="Wrap OpenAI or Anthropic clients once; middleware runs recall, then your completion, then store."
+              title="IDE agents"
+              body="Fits tool-driven agent workflows without forcing teams to replace the editor or agent surface they already trust."
             />
             <SectionCard
-              title="Repeated work"
-              body="Similar incidents surface prior traces instead of forcing the model to reason from zero each time."
+              title="Wrapped SDKs"
+              body="Works at the middleware layer when your application already owns model calls and wants control over rollout."
             />
             <SectionCard
-              title="Storage"
-              body="Local SQLite by default, with optional embeddings when you want broader semantic retrieval."
+              title="Local-first control"
+              body="Project-scoped storage stays under your control by default, with docs covering broader deployment patterns."
             />
           </SectionGrid>
-          <p className="mt-10 max-w-2xl text-[11px] font-light leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+          <p className="mt-9 max-w-2xl text-[11px] font-light leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
             TraceBase is included in the{" "}
             <a
               href="https://www.daytona.io/startups"
@@ -151,84 +240,24 @@ export default function Home() {
 
         <div className="border-t" style={{ borderColor: "var(--border)" }} />
 
-        {/* How it works */}
-        <section className="scroll-mt-20 py-24" id="how">
+        <section className="scroll-mt-20 py-20 md:py-[5.5rem]" id="docs-preview">
           <SectionHeading
-            eyebrow="How it works"
-            muted="Recall before the call."
-            title="Store after the fix."
-            body="The middleware sits between your code and the LLM. Before each call it checks memory. After each call it stores the result. No manual work."
+            eyebrow="Docs"
+            muted="Keep the landing short."
+            title="Put setup and implementation detail where teams expect it."
+            body="Quickstart, rollout options, architecture notes, and recovery paths now live in docs so the landing can stay focused on the product promise."
           />
 
           <SectionGrid columnsClassName="sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              { n: "01", title: "Recall", desc: "Check memory for similar problems solved before." },
-              { n: "02", title: "Inject", desc: "Add prior solution to system prompt as a hint." },
-              { n: "03", title: "Call", desc: "LLM solves faster with context. Fewer tokens." },
-              { n: "04", title: "Store", desc: "New trace captured. Memory grows automatically." },
-            ].map((s) => (
-              <SectionCard key={s.n} eyebrow={s.n} title={s.title} body={s.desc} minHeightClassName="min-h-[210px] md:min-h-[228px]" />
+            {DOCS_LINKS.map((item) => (
+              <SectionLinkCard key={item.title} {...item} />
             ))}
           </SectionGrid>
         </section>
 
         <div className="border-t" style={{ borderColor: "var(--border)" }} />
 
-        {/* Integrations */}
-        <section className="scroll-mt-20 py-24" id="integrations">
-          <SectionHeading
-            eyebrow="Integrations"
-            muted="Works with any agent."
-            title="Fits the tools teams already use."
-            body="MCP for IDE-native agents, middleware for wrapped SDKs, and a clean path for custom runtimes when retrieval needs to stay under your control."
-          />
-
-          <IntegrationsGrid />
-        </section>
-
-        <div className="border-t" style={{ borderColor: "var(--border)" }} />
-
-        {/* Features */}
-        <section className="py-24">
-          <p className="mb-8 text-xs font-light tracking-widest uppercase" style={{ color: "var(--text-tertiary)" }}>
-            Under the hood
-          </p>
-          <SectionGrid columnsClassName="sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              { title: "Multi-signal ranking", desc: "Fingerprint, BM25, Jaccard, structural, cosine. Two-stage retrieval." },
-              { title: "Adaptive weights", desc: "Thompson Sampling learns optimal signal weights from your feedback." },
-              { title: "Recall-before-call", desc: "Middleware recalls and injects prior solutions automatically." },
-              { title: "Streaming", desc: "Full stream:true support. Traces captured after stream completes." },
-              { title: "Local-first", desc: "SQLite with WAL. Sub-millisecond recall. Data stays on your machine." },
-              { title: "Embeddings", desc: "Optional cosine similarity via OpenAI text-embedding-3-small." },
-            ].map((f) => (
-              <SectionCard key={f.title} title={f.title} body={f.desc} minHeightClassName="min-h-[188px] md:min-h-[204px]" />
-            ))}
-          </SectionGrid>
-        </section>
-
-        <div className="border-t" style={{ borderColor: "var(--border)" }} />
-
-        {/* Setup */}
-        <section className="scroll-mt-20 py-24" id="setup">
-          <SectionHeading
-            eyebrow="Setup"
-            muted="Three ways."
-            title="To use TraceBase."
-            body="Pick the layer that fits your stack: wrapped SDKs, one-command IDE rollout, or direct control inside custom agents."
-          />
-
-          <SetupTabs />
-        </section>
-
-        <div className="border-t" style={{ borderColor: "var(--border)" }} />
-
-        <CustomIntegrationsSection />
-
-        <div className="border-t" style={{ borderColor: "var(--border)" }} />
-
-        {/* Pricing */}
-        <section className="scroll-mt-20 py-24" id="pricing">
+        <section className="scroll-mt-20 py-20 md:py-[5.5rem]" id="pricing">
           <SectionHeading
             eyebrow="Pricing"
             muted="Open source now."
@@ -241,7 +270,28 @@ export default function Home() {
 
         <div className="border-t" style={{ borderColor: "var(--border)" }} />
 
-        {/* CTA */}
+        <section className="scroll-mt-20 py-20 md:py-[5.5rem]" id="faq" aria-labelledby="faq-heading">
+          <SectionHeading
+            eyebrow="FAQ"
+            muted="Questions that come up fast."
+            title="Answers for buyers, operators, and engineers."
+            body="This is the public-facing pass: enough to evaluate the product, without turning the landing into a long technical brief."
+          />
+
+          <SectionGrid columnsClassName="lg:grid-cols-2">
+            {FAQ_ITEMS.map((item) => (
+              <SectionCard
+                key={item.question}
+                title={item.question}
+                body={item.answer}
+                minHeightClassName="min-h-[214px] md:min-h-[226px]"
+              />
+            ))}
+          </SectionGrid>
+        </section>
+
+        <div className="border-t" style={{ borderColor: "var(--border)" }} />
+
         <CtaSection />
 
         <footer
@@ -293,13 +343,9 @@ export default function Home() {
             >
               <GitHubMark className="h-[18px] w-[18px]" />
             </a>
-            <a
-              href="/whitepaper"
-              className="text-xs font-light"
-              style={{ color: "var(--text-tertiary)" }}
-            >
-              Whitepaper
-            </a>
+            <Link href="/docs" className="text-xs font-light" style={{ color: "var(--text-tertiary)" }}>
+              Docs
+            </Link>
             <a
               href="https://www.npmjs.com/package/tracebase-ai"
               className="text-xs font-light"

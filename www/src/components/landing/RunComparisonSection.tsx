@@ -11,10 +11,10 @@ const COLD_STEPS = [
 ] as const;
 
 const WARM_STEPS = [
-  "Recall pulls ranked traces before tokens hit the model",
-  "Top match is injected as a compact, grounded hint",
-  "Completion path shortens—fewer speculative tokens",
-  "storeTrace writes the win back for the next incident",
+  "Strong prior work is surfaced before the model starts",
+  "The run begins from a grounded hint instead of a blank slate",
+  "Completion path shortens with fewer speculative detours",
+  "Successful fixes become reusable context for the next incident",
 ] as const;
 
 function StepNotifications({
@@ -123,7 +123,7 @@ function ComparisonTop({
 }) {
   return (
     <div
-      className={`flex min-h-0 flex-col p-6 md:p-8 ${gridClass}`}
+      className={`flex min-h-0 flex-col p-5 md:p-7 ${gridClass}`}
       style={{ background: "var(--bg)" }}
     >
       <p className="text-[10px] font-mono uppercase tracking-[0.18em]" style={{ color: accent ? "rgba(177,255,109,0.58)" : "var(--text-tertiary)" }}>
@@ -146,12 +146,12 @@ function ComparisonBottom({
   gridClass: string;
 }) {
   return (
-    <div className={`border-t px-6 py-6 md:px-8 md:py-7 ${gridClass}`} style={{ background: "var(--bg)", borderColor: "var(--border)" }}>
-      <h3 className="text-[1.45rem] font-light tracking-tight md:text-[1.7rem]">{title}</h3>
-      <p className="mt-3 max-w-[34rem] text-sm font-light leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+    <div className={`border-t px-5 py-5 md:px-7 md:py-6 ${gridClass}`} style={{ background: "var(--bg)", borderColor: "var(--border)" }}>
+      <h3 className="text-[1.28rem] font-light tracking-tight md:text-[1.5rem]">{title}</h3>
+      <p className="mt-3 max-w-[34rem] text-[13px] font-light leading-relaxed md:text-sm" style={{ color: "var(--text-secondary)" }}>
         {body}
       </p>
-      <div className="mt-5 text-xs font-light leading-relaxed" style={{ color: "rgba(237,236,236,0.46)" }}>
+      <div className="mt-5 text-[11px] font-light leading-relaxed" style={{ color: "rgba(237,236,236,0.46)" }}>
         {footer}
       </div>
     </div>
@@ -199,12 +199,12 @@ export function RunComparisonSection() {
         <p className="mb-5 text-xs font-light tracking-[0.22em] uppercase" style={{ color: "var(--text-tertiary)" }}>
           Before / After
         </p>
-        <h2 className="text-[clamp(1.85rem,4vw,3.15rem)] font-light leading-[1.02] tracking-tight">
+        <h2 className="text-[clamp(1.72rem,3.6vw,2.8rem)] font-light leading-[1.02] tracking-tight">
           Same model.
           <br />
           Different run profile.
         </h2>
-        <p className="mt-5 max-w-2xl text-sm font-light leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+        <p className="mt-5 max-w-2xl text-[13px] font-light leading-relaxed md:text-sm" style={{ color: "var(--text-secondary)" }}>
           TraceBase does not change the model choice. It changes what the model starts with and what the next run gets
           back after a fix has already shipped.
         </p>
@@ -232,8 +232,8 @@ export function RunComparisonSection() {
           <ComparisonBottom
             gridClass="lg:col-start-1 lg:row-start-2"
             title="Cold path every time"
-            body="No recall path means every repeat case still pays for fresh exploration. The model can solve it, but it does not start from what already worked."
-            footer="No prior context is injected before the call."
+            body="Without reusable context, every repeat case still pays for fresh exploration. The model can solve it, but it does not start from what already worked."
+            footer="The run begins without grounded prior work."
           />
 
           <ComparisonTop eyebrow="With TraceBase" accent gridClass="lg:col-start-2 lg:row-start-1">
@@ -250,12 +250,12 @@ export function RunComparisonSection() {
           <ComparisonBottom
             gridClass="lg:col-start-2 lg:row-start-2"
             title="Priors before the answer"
-            body="Recall surfaces strong matches before tokens hit the model, then successful runs are written back so the next repeat case starts grounded instead of blank."
+            body="Strong matches appear before generation begins, then successful runs feed future ones so the next repeat case starts grounded instead of blank."
             footer={
               <>
-                Benchmarks and methodology in the{" "}
-                <Link href="/whitepaper" className="underline decoration-white/20 underline-offset-2 transition-colors hover:text-[var(--text)]">
-                  whitepaper
+                Integration notes, rollout patterns, and architecture details now live in{" "}
+                <Link href="/docs" className="underline decoration-white/20 underline-offset-2 transition-colors hover:text-[var(--text)]">
+                  docs
                 </Link>
                 .
               </>
