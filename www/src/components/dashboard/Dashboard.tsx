@@ -1,12 +1,6 @@
-"use client";
-
 import { DashboardView } from "@/components/dashboard/DashboardView";
-import { DashboardStateProvider } from "@/components/dashboard/state/DashboardStateContext";
+import type { DashboardBootstrap } from "@/lib/control-plane/types";
 
-export function Dashboard() {
-  return (
-    <DashboardStateProvider>
-      <DashboardView />
-    </DashboardStateProvider>
-  );
+export function Dashboard({ bootstrap }: { bootstrap?: DashboardBootstrap }) {
+  return <DashboardView bootstrap={bootstrap} />;
 }

@@ -11,7 +11,6 @@ const QUICKSTART_COMMANDS = [
   "npx tracebase-ai init",
   "npx tracebase-ai doctor",
   "npx tracebase-ai status",
-  "npx tracebase-ai serve --mcp",
 ] as const;
 
 const INTEGRATIONS = [
@@ -105,7 +104,7 @@ export default function DocsPage() {
               TraceBase Docs
             </p>
             <p className="mt-1 text-sm font-light" style={{ color: "var(--text-secondary)" }}>
-              Setup, rollout, and operating notes for the simplified landing.
+              Setup, rollout, and operating notes for the hosted + local install path.
             </p>
           </div>
 
@@ -145,8 +144,8 @@ export default function DocsPage() {
         <Section
           id="quickstart"
           eyebrow="Quickstart"
-          title="Bring TraceBase into a project in a few commands."
-          body="The default path is local-first and project-scoped. Initialize the workspace, confirm health, and then verify that your agent surface can see the integration."
+          title="Bring TraceBase into a project with one command."
+          body="The default path stays lightweight: run init in the project root, approve in the browser if prompted, then verify health. Local memory remains project-scoped; the hosted dashboard layers on top for visibility and control."
         >
           <div className="grid gap-px overflow-hidden border md:grid-cols-[1.1fr_0.9fr]" style={{ borderColor: "var(--border)", background: "var(--border)" }}>
             <div className="p-6 md:p-7" style={{ background: "var(--bg)" }}>
@@ -162,9 +161,9 @@ export default function DocsPage() {
             <div className="p-6 md:p-7" style={{ background: "var(--bg)" }}>
               <h3 className="text-[1.02rem] font-normal tracking-tight md:text-[1.12rem]">What to expect</h3>
               <ul className="mt-5 space-y-4 text-[13px] font-light leading-relaxed md:text-sm" style={{ color: "var(--text-secondary)" }}>
-                <li>Initialize a project-local store and config rather than a shared global memory.</li>
-                <li>Run health checks before rollout so broken MCP or config wiring is visible immediately.</li>
-                <li>Use `status` after real runs to verify that the memory layer is actually seeing activity.</li>
+                <li>`init` configures the local store and Claude Code entry automatically.</li>
+                <li>If you are signed into TraceBase, the CLI opens a browser approval page and links the project into the hosted dashboard.</li>
+                <li>`doctor` and `status` remain the first checks when wiring or retrieval looks wrong.</li>
               </ul>
             </div>
           </div>

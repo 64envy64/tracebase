@@ -15,80 +15,83 @@ export interface DashboardSeries {
   tone: "baseline" | "optimized";
 }
 
-export interface ScopeRow {
+export interface ImpactSnapshot {
   label: string;
-  traces: string;
-  coverage: number;
-  helpfulRate: string;
+  value: string;
+  note: string;
 }
 
-export interface FunnelRow {
+export interface AttributionStage {
   label: string;
   value: string;
   width: number;
   note: string;
 }
 
-export interface TraceRow {
-  pattern: string;
-  scope: string;
-  reuse: string;
-  quality: string;
-  lastApplied: string;
-  status: "promoted" | "watching" | "draft";
-}
-
-export interface ActivityRow {
-  title: string;
-  description: string;
-  time: string;
-  scope: string;
-}
-
-export interface ControlRow {
+export interface AuditNote {
   label: string;
   value: string;
   note: string;
 }
 
+export interface PatternRow {
+  pattern: string;
+  scope: string;
+  reuse: string;
+  helpfulRate: string;
+  lift: string;
+  lastApplied: string;
+  status: "promoted" | "watching" | "draft";
+}
+
+export interface AuditTrailRow {
+  task: string;
+  pattern: string;
+  traceId: string;
+  outcome: string;
+  tokensSaved: string;
+  time: string;
+  status: "verified" | "watching" | "flagged";
+}
+
 export const dashboardData = {
   toolbar: {
-    organization: "tracebase organization",
+    organization: "tracebase workspace",
     workspace: "production workspace",
     environment: "Production",
     lastUpdated: "Updated 5m ago",
   },
   metrics: [
     {
-      label: "Org recall rate",
+      label: "Recall rate",
       value: "38%",
       delta: "+9.4pp",
-      note: "eligible runs matched a prior trace before first completion",
+      note: "eligible runs matched a prior reasoning block before first completion",
       trend: [18, 21, 24, 26, 29, 31, 35, 38],
       tone: "accent",
-    },
-    {
-      label: "Avg token delta",
-      value: "-31%",
-      delta: "-7.2pp",
-      note: "median reduction versus cold-start baseline across repeated tasks",
-      trend: [10, 12, 15, 18, 22, 25, 29, 31],
-      tone: "signal",
     },
     {
       label: "Helpful reuse",
       value: "81%",
       delta: "+11%",
-      note: "injected traces later confirmed as helpful by feedback or outcome match",
+      note: "injected traces later confirmed useful by explicit usage or outcome overlap",
       trend: [55, 59, 63, 66, 71, 75, 78, 81],
       tone: "success",
     },
     {
-      label: "Needs review",
-      value: "46",
-      delta: "-12",
-      note: "draft traces below org quality threshold or missing a promoted owner",
-      trend: [74, 72, 70, 68, 62, 57, 51, 46],
+      label: "Avg token delta",
+      value: "-31%",
+      delta: "-7.2pp",
+      note: "median reduction versus cold-start baseline on repeated task families",
+      trend: [10, 12, 15, 18, 22, 25, 29, 31],
+      tone: "signal",
+    },
+    {
+      label: "Trace attribution",
+      value: "94%",
+      delta: "+6pp",
+      note: "recalled runs with query → injection → outcome linkage preserved end to end",
+      trend: [71, 74, 77, 81, 84, 88, 91, 94],
       tone: "warning",
     },
   ] satisfies DashboardMetric[],
@@ -101,87 +104,79 @@ export const dashboardData = {
         tone: "baseline",
       },
       {
-        label: "with reasoning layer",
+        label: "with tracebase",
         values: [86, 74, 67, 60, 54, 49, 45],
         tone: "optimized",
       },
     ] satisfies DashboardSeries[],
   },
-  scopes: [
+  impactSnapshots: [
     {
-      label: "Personal",
-      traces: "1.8k traces",
-      coverage: 24,
-      helpfulRate: "74%",
+      label: "Patterns injected",
+      value: "3.4k",
+      note: "strong-match runs where a prior block actually entered prompt context",
     },
     {
-      label: "Project",
-      traces: "4.2k traces",
-      coverage: 59,
-      helpfulRate: "79%",
+      label: "Est. tokens saved",
+      value: "18.7M",
+      note: "aggregate model spend avoided over the current 30-day window",
     },
     {
-      label: "Org",
-      traces: "12.6k traces",
-      coverage: 86,
-      helpfulRate: "84%",
+      label: "Est. cost saved",
+      value: "$3.2k",
+      note: "based on the current model mix and observed delta versus cold runs",
     },
+  ] satisfies ImpactSnapshot[],
+  attributionStages: [
     {
-      label: "Global",
-      traces: "62k traces",
-      coverage: 41,
-      helpfulRate: "68%",
-    },
-  ] satisfies ScopeRow[],
-  controls: [
-    {
-      label: "Promotion rules",
-      value: "auto + reviewer",
-      note: "High-confidence traces auto-promote after two confirmed successful reuses.",
-    },
-    {
-      label: "Retention",
-      value: "90d active",
-      note: "Low-signal drafts age into archive unless reactivated by a fresh match.",
-    },
-    {
-      label: "Namespaces",
-      value: "repo / team / org",
-      note: "Teams can pin private schemas and block noisy global matches per workspace.",
-    },
-  ] satisfies ControlRow[],
-  funnel: [
-    {
-      label: "captured runs",
+      label: "Captured",
       value: "12.4k",
       width: 100,
-      note: "all successful task completions",
+      note: "successful runs written into the memory substrate",
     },
     {
-      label: "recalled candidates",
+      label: "Recalled",
       value: "5.1k",
-      width: 71,
-      note: "returned above the min-score threshold",
+      width: 72,
+      note: "runs that found an above-threshold candidate before generation",
     },
     {
-      label: "injected traces",
+      label: "Injected",
       value: "3.4k",
-      width: 53,
-      note: "actually surfaced into the model context",
+      width: 56,
+      note: "only prompt-rendered traces; payload and analytics stay one-to-one",
     },
     {
-      label: "confirmed helpful",
+      label: "Verified helpful",
       value: "2.8k",
-      width: 44,
-      note: "feedback or outcome overlap marked the trace useful",
+      width: 46,
+      note: "closed-loop runs where the assist was actually used and helped",
     },
-  ] satisfies FunnelRow[],
+  ] satisfies AttributionStage[],
+  auditNotes: [
+    {
+      label: "Query IDs",
+      value: "100%",
+      note: "every recall request gets a stable handle that follows the run through outcome recording",
+    },
+    {
+      label: "Payload parity",
+      value: "strict",
+      note: "if a block or fact is rendered into the prompt, the matching injection event exists, and vice versa",
+    },
+    {
+      label: "Self-correction",
+      value: "on",
+      note: "disproved blocks demote out of serving automatically instead of poisoning future runs",
+    },
+  ] satisfies AuditNote[],
   patterns: [
     {
       pattern: "swebench.astropy-path-normalization",
       scope: "org",
       reuse: "184x",
-      quality: "0.93",
+      helpfulRate: "92%",
+      lift: "-42%",
       lastApplied: "12m ago",
       status: "promoted",
     },
@@ -189,7 +184,8 @@ export const dashboardData = {
       pattern: "support.triage-water-damage-routing",
       scope: "project",
       reuse: "109x",
-      quality: "0.88",
+      helpfulRate: "88%",
+      lift: "-34%",
       lastApplied: "27m ago",
       status: "promoted",
     },
@@ -197,7 +193,8 @@ export const dashboardData = {
       pattern: "claims.policy-overlap-secondary-cause",
       scope: "org",
       reuse: "86x",
-      quality: "0.82",
+      helpfulRate: "81%",
+      lift: "-29%",
       lastApplied: "1h ago",
       status: "watching",
     },
@@ -205,37 +202,48 @@ export const dashboardData = {
       pattern: "docs.oauth-token-refresh-expiry",
       scope: "personal",
       reuse: "39x",
-      quality: "0.79",
+      helpfulRate: "73%",
+      lift: "-18%",
       lastApplied: "2h ago",
       status: "draft",
     },
+  ] satisfies PatternRow[],
+  auditRows: [
     {
-      pattern: "global.react-undefined-first-render",
-      scope: "global",
-      reuse: "244x",
-      quality: "0.91",
-      lastApplied: "5m ago",
-      status: "promoted",
-    },
-  ] satisfies TraceRow[],
-  activity: [
-    {
-      title: "Promoted a new org pattern",
-      description: "TypeScript fixture traces reached the reuse threshold and moved into the org scope.",
+      task: "Astropy path normalization failure",
+      pattern: "swebench.astropy-path-normalization",
+      traceId: "q_01JY1T3K",
+      outcome: "resolved with assist",
+      tokensSaved: "-44%",
       time: "8m ago",
-      scope: "org",
+      status: "verified",
     },
     {
-      title: "Scoped out a noisy global match",
-      description: "The onboarding repo now blocks generic React hydration patterns from overriding local conventions.",
-      time: "41m ago",
-      scope: "project",
+      task: "Water damage support triage",
+      pattern: "support.triage-water-damage-routing",
+      traceId: "q_01JY1PXA",
+      outcome: "resolved after recall",
+      tokensSaved: "-31%",
+      time: "21m ago",
+      status: "verified",
     },
     {
-      title: "Backfilled missing owners",
-      description: "42 draft traces were assigned to the platform team for review and promotion.",
+      task: "Claims secondary-cause routing",
+      pattern: "claims.policy-overlap-secondary-cause",
+      traceId: "q_01JY1MD8",
+      outcome: "watching for confirmation",
+      tokensSaved: "-17%",
+      time: "47m ago",
+      status: "watching",
+    },
+    {
+      task: "OAuth token refresh expiry bug",
+      pattern: "docs.oauth-token-refresh-expiry",
+      traceId: "q_01JY1H2N",
+      outcome: "flagged for review",
+      tokensSaved: "+3%",
       time: "2h ago",
-      scope: "ops",
+      status: "flagged",
     },
-  ] satisfies ActivityRow[],
-};
+  ] satisfies AuditTrailRow[],
+} as const;

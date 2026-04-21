@@ -2,8 +2,9 @@
 
 Get TraceBase running with your agent in under 2 minutes.
 
-TraceBase is local-first: everything in this guide runs against a
-project-local SQLite store. No cloud account, no API key, no network.
+TraceBase keeps local memory project-scoped, but the install path can
+also link the project into the hosted dashboard automatically. For a
+normal developer install, you still start with one command.
 
 ---
 
@@ -19,10 +20,13 @@ npx tracebase-ai init
    `.tracebase/config.json`, adds TraceBase to `.claude/settings.json`
    (project-local), and writes a managed instruction block into
    `CLAUDE.md`.
-2. Restart Claude Code.
-3. Run `/tools` in Claude Code and confirm `get_reasoning_patterns`
+2. If you are already signed into TraceBase in the browser, `init`
+   can open a short approval page and finish the hosted link
+   automatically. If you ignore it, local install still completes.
+3. Restart Claude Code.
+4. Run `/tools` in Claude Code and confirm `get_reasoning_patterns`
    is listed.
-4. Verify install health:
+5. Verify install health:
    ```
    npx tracebase-ai doctor
    ```
@@ -37,7 +41,7 @@ npx tracebase-ai init
 
 | File | Purpose |
 |---|---|
-| `.tracebase/config.json` | Storage path + stable `workspaceId` (UUID) |
+| `.tracebase/config.json` | Storage path + stable `workspaceId` (UUID) + optional hosted workspace link |
 | `.tracebase/memory.db` | SQLite event/block/fact store (created on first write) |
 | `.claude/settings.json` | Adds `mcpServers.tracebase` entry (merge-safe) |
 | `CLAUDE.md` | Managed `tracebase:begin … :end` section with usage instructions |

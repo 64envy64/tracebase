@@ -14,9 +14,19 @@
  */
 import { Command } from "commander";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import pc from "picocolors";
 import { initConfig, isInitialized } from "../../core/config.js";
+import {
+  bestEffortOpenUrl,
+  loadCloudCredential,
+  pollCloudDeviceSession,
+  registerCloudInstallation,
+  resolveCloudApiUrl,
+  saveCloudCredential,
+  startCloudDeviceSession,
+  validateCloudApiKey,
+} from "../cloud.js";
 
 // ---------------------------------------------------------------------------
 // MCP entry we install into .claude/settings.json
@@ -58,18 +68,47 @@ Additional tools available: \`recall\`, \`store\`, \`search\`, \`explain\`, \`st
 export const initCommand = new Command("init")
   .description("Initialize TraceBase in this project — configures Claude Code and creates CLAUDE.md")
   .option("-p, --path <path>", "project root", process.cwd())
+  .option("--api-url <url>", "TraceBase hosted control-plane origin (or use TRACEBASE_API_URL)")
+  .option("--api-key <key>", "TraceBase workspace API key (or use TRACEBASE_API_KEY)")
   .option("--force", "overwrite an existing tracebase MCP entry with a different shape")
   .option("--skip-claude-settings", "do not touch .claude/settings.json")
   .option("--skip-claude-md", "do not touch CLAUDE.md")
-  .action((opts: {
+  .action(async (opts: {
     path: string;
+    cloud?: boolean;
+    apiUrl?: string;
+    apiKey?: string;
     force?: boolean;
     skipClaudeSettings?: boolean;
     skipClaudeMd?: boolean;
   }) => {
     const basePath = opts.path;
+    const cloudApiUrl = resolveCloudApiUrl(opts.apiUrl);
+    const cloudApiKey = opts.apiKey?.trim() || process.env.TRACEBASE_API_KEY?.trim() || "";
+    const cloudLink = cloudApiKey
+      ? await resolveCloudLink({
+          apiUrl: cloudApiUrl,
+          apiKey: cloudApiKey,
+        })
+      : null;
+
     const wasInit = isInitialized(basePath);
-    const config = initConfig(basePath);
+    let config = initConfig(
+      basePath,
+      cloudLink
+        ? {
+            cloud: {
+              apiUrl: cloudLink.apiBaseUrl,
+              workspaceId: cloudLink.workspace.id,
+              workspaceSlug: cloudLink.workspace.slug,
+            },
+          }
+        : undefined,
+    );
+    const existingCloudCredential =
+      config.cloud
+        ? loadCloudCredential(config.cloud.apiUrl, config.cloud.workspaceId)
+        : null;
 
     console.log();
     const wsTag = config.workspaceId
@@ -93,6 +132,54 @@ export const initCommand = new Command("init")
     if (!opts.skipClaudeMd) {
       const res = writeClaudeMarkdown(basePath);
       renderStepResult("CLAUDE.md", res);
+    }
+
+    if (cloudLink && cloudApiKey) {
+      saveCloudCredential({
+        apiUrl: cloudLink.apiBaseUrl,
+        workspaceId: cloudLink.workspace.id,
+        apiKey: cloudApiKey,
+      });
+
+      renderStep(pc.green("  +"), "cloud workspace", `${cloudLink.workspace.displayName} (${cloudLink.workspace.slug})`);
+
+      const installation = await registerCloudInstallation(cloudLink.apiBaseUrl, cloudApiKey, {
+        localWorkspaceId: config.workspaceId ?? "unknown",
+        projectName: basename(basePath),
+        agent: "claude-code",
+      });
+
+      config = initConfig(basePath, {
+        cloud: {
+          apiUrl: cloudLink.apiBaseUrl,
+          workspaceId: cloudLink.workspace.id,
+          workspaceSlug: cloudLink.workspace.slug,
+          installationId: installation.id,
+        },
+      });
+
+      renderStep(pc.cyan("  ~"), "cloud install", `${installation.projectName} linked`);
+    } else if (!existingCloudCredential && cloudApiUrl && process.stdin.isTTY && process.stdout.isTTY) {
+      const linked = await tryInteractiveCloudLink(basePath, config, cloudApiUrl);
+      if (linked) {
+        config = initConfig(basePath, {
+          cloud: {
+            apiUrl: linked.apiBaseUrl,
+            workspaceId: linked.workspace.id,
+            workspaceSlug: linked.workspace.slug,
+            installationId: linked.installation.id,
+          },
+        });
+
+        saveCloudCredential({
+          apiUrl: linked.apiBaseUrl,
+          workspaceId: linked.workspace.id,
+          apiKey: linked.apiKey,
+        });
+
+        renderStep(pc.green("  +"), "cloud workspace", `${linked.workspace.displayName} (${linked.workspace.slug})`);
+        renderStep(pc.cyan("  ~"), "cloud install", `${linked.installation.projectName} linked`);
+      }
     }
 
     console.log();
@@ -232,4 +319,86 @@ function deepEqual(a: unknown, b: unknown): boolean {
   // Sufficient for our small config objects; same semantics as JSON
   // ser/deser. We don't deal with cyclic structures here.
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+async function resolveCloudLink(input: {
+  apiUrl: string | null;
+  apiKey: string;
+}) {
+  if (!input.apiUrl) {
+    console.error(pc.red("Cloud init requires an API URL."));
+    console.error("Set " + pc.cyan("--api-url") + " or " + pc.cyan("TRACEBASE_API_URL") + ".");
+    process.exit(1);
+  }
+
+  if (!input.apiKey) {
+    console.error(pc.red("Cloud init requires a workspace API key."));
+    console.error("Set " + pc.cyan("--api-key") + " or " + pc.cyan("TRACEBASE_API_KEY") + ".");
+    process.exit(1);
+  }
+
+  try {
+    return await validateCloudApiKey(input.apiUrl, input.apiKey);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "unknown cloud validation error";
+    console.error(pc.red("Cloud install failed: ") + msg);
+    process.exit(1);
+  }
+}
+
+async function tryInteractiveCloudLink(
+  basePath: string,
+  config: ReturnType<typeof initConfig>,
+  apiUrl: string,
+) {
+  try {
+    const device = await startCloudDeviceSession(apiUrl, {
+      localWorkspaceId: config.workspaceId ?? "unknown",
+      projectName: basename(basePath),
+      agent: "claude-code",
+    });
+
+    const opened = await bestEffortOpenUrl(device.verificationUrl);
+    renderStep(
+      pc.cyan("  ~"),
+      "cloud auth",
+      opened ? "browser opened for approval" : device.verificationUrl,
+    );
+    renderStep(pc.dim("    "), "code", device.userCode, true);
+
+    const waitUntil = Math.min(
+      new Date(device.expiresAt).getTime(),
+      Date.now() + 45_000,
+    );
+
+    while (Date.now() < waitUntil) {
+      const polled = await pollCloudDeviceSession(apiUrl, device.deviceCode);
+      if (polled.status === "approved") {
+        return {
+          apiBaseUrl: apiUrl,
+          workspace: polled.workspace,
+          apiKey: polled.apiKey,
+          installation: polled.installation,
+        };
+      }
+
+      if (polled.status === "expired") {
+        renderStep(pc.yellow("  !"), "cloud auth", "approval expired — local init kept");
+        return null;
+      }
+
+      await sleep(device.pollIntervalMs);
+    }
+
+    renderStep(pc.yellow("  !"), "cloud auth", "not approved yet — local init kept");
+    return null;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "cloud handshake failed";
+    renderStep(pc.yellow("  !"), "cloud auth", `${msg} — local init kept`);
+    return null;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

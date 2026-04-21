@@ -111,6 +111,7 @@ export function initConfig(
 
   const config: TraceBaseConfig = {
     ...defaultConfig(basePath),
+    ...existing,
     workspaceId: preservedWorkspaceId ?? overrides?.workspaceId ?? randomUUID(),
     ...overrides,
   };
@@ -132,6 +133,15 @@ export function initConfig(
       provider: config.embeddings.provider,
       model: config.embeddings.model,
       dimensions: config.embeddings.dimensions,
+    };
+  }
+
+  if (config.cloud) {
+    serializable["cloud"] = {
+      apiUrl: config.cloud.apiUrl,
+      workspaceId: config.cloud.workspaceId,
+      ...(config.cloud.workspaceSlug ? { workspaceSlug: config.cloud.workspaceSlug } : {}),
+      ...(config.cloud.installationId ? { installationId: config.cloud.installationId } : {}),
     };
   }
 

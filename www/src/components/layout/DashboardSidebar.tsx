@@ -4,6 +4,7 @@ import { useUser } from "@clerk/nextjs";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 
 type NavItem =
@@ -11,28 +12,44 @@ type NavItem =
   | { href: string; label: string; external: true };
 
 const PRIMARY_NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/whitepaper", label: "Whitepaper" },
-  { href: "/", label: "Home" },
+  { href: "/dashboard#overview", label: "Overview" },
+  { href: "/dashboard#quickstart", label: "Quickstart" },
+  { href: "/dashboard#audit", label: "Audit Trail" },
+  { href: "/dashboard#patterns", label: "Patterns" },
 ];
 
 const SECONDARY_NAV: NavItem[] = [
+  { href: "/whitepaper", label: "Whitepaper" },
+  { href: "/", label: "Home" },
   { href: "https://github.com/64envy64/tracebase", label: "GitHub", external: true },
 ];
 
-function navActive(pathname: string, href: string) {
-  if (href === "/dashboard") {
-    return pathname === "/dashboard" || pathname.startsWith("/dashboard/");
+function navActive(pathname: string, hash: string, href: string) {
+  const [path, anchor] = href.split("#");
+
+  if (anchor) {
+    if (pathname !== path) return false;
+    if (!hash) return anchor === "overview";
+    return hash === `#${anchor}`;
   }
-  return pathname === href;
+
+  return pathname === path;
 }
 
 export function DashboardSidebar() {
   const pathname = usePathname();
+  const [activeHash, setActiveHash] = useState("");
   const { isLoaded, user } = useUser();
   const displayName =
     user?.fullName || user?.firstName || user?.username || user?.primaryEmailAddress?.emailAddress || "Authenticated user";
   const secondaryLine = user?.primaryEmailAddress?.emailAddress;
+
+  useEffect(() => {
+    const syncHash = () => setActiveHash(window.location.hash);
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
+  }, [pathname]);
 
   return (
     <aside
@@ -50,7 +67,7 @@ export function DashboardSidebar() {
 
         <nav className="flex flex-col gap-1" aria-label="Workspace">
           {PRIMARY_NAV.map((item) => {
-            const active = navActive(pathname, item.href);
+            const active = navActive(pathname, activeHash, item.href);
             return (
               <Link
                 key={item.href}
@@ -72,23 +89,33 @@ export function DashboardSidebar() {
         <div className="min-h-4 flex-1" aria-hidden />
 
         <nav className="flex flex-col gap-1 border-t pt-6" style={{ borderColor: "var(--border)" }} aria-label="External">
-          {SECONDARY_NAV.map((item) => (
-            <a
-              key={item.href}
-              href={item.href}
-              className="rounded-sm px-3 py-2 text-sm font-light transition-[color] [color:var(--text-secondary)] hover:[color:var(--text)]"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {item.label}
-            </a>
-          ))}
+          {SECONDARY_NAV.map((item) =>
+            item.external ? (
+              <a
+                key={item.href}
+                href={item.href}
+                className="rounded-sm px-3 py-2 text-sm font-light transition-[color] [color:var(--text-secondary)] hover:[color:var(--text)]"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {item.label}
+              </a>
+            ) : (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="rounded-sm px-3 py-2 text-sm font-light transition-[color] [color:var(--text-secondary)] hover:[color:var(--text)]"
+              >
+                {item.label}
+              </Link>
+            ),
+          )}
         </nav>
       </div>
 
       <div className="flex flex-col gap-3 border-t px-4 py-5" style={{ borderColor: "var(--border)" }}>
         <div
-          className="rounded-[18px] border px-3 py-3"
+          className="rounded-sm border px-3 py-3"
           style={{
             borderColor: "var(--border)",
             background: "var(--surface)",

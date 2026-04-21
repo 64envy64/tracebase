@@ -1,13 +1,13 @@
 "use client";
 
-import type { FunnelRow } from "@/components/dashboard/dashboardData";
+import type { AttributionStage } from "@/components/dashboard/dashboardData";
 
 export function InteractiveFunnelChart({
   rows,
   selectedIndex,
   onSelect,
 }: {
-  rows: readonly FunnelRow[];
+  rows: readonly AttributionStage[];
   selectedIndex: number | null;
   onSelect: (index: number | null) => void;
 }) {

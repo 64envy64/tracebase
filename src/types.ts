@@ -220,6 +220,25 @@ export interface TraceBaseConfig {
    * Default: 0.3
    */
   autoFeedbackThreshold?: number;
+  /**
+   * Optional hosted control-plane linkage.
+   *
+   * This augments the local-first store with a remote workspace identity for
+   * dashboard install visibility, API-key-scoped enrollment, and future cloud
+   * sync. Core recall/store logic remains usable without it.
+   */
+  cloud?: CloudLinkConfig;
+}
+
+export interface CloudLinkConfig {
+  /** Hosted TraceBase control-plane origin, e.g. https://tracebase.app */
+  apiUrl: string;
+  /** Remote hosted workspace UUID. Separate from local project workspaceId. */
+  workspaceId: string;
+  /** Human-readable hosted workspace slug for UX / install status. */
+  workspaceSlug?: string;
+  /** Last known hosted installation UUID for this local project, if linked. */
+  installationId?: string;
 }
 
 export interface EmbeddingConfig {
