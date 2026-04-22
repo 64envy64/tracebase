@@ -449,3 +449,157 @@ describe("parseUsageMetrics — schema gate for ingest + dashboard read", () => 
     expect(parseUsageMetrics(payload)).toBeNull();
   });
 });
+
+describe("parseUsageMetrics — Phase 3.3 causal field", () => {
+  const VALID_CAUSAL = {
+    assisted: { n: 100, resolved: 70, resolvedRate: 0.7 },
+    holdout:  { n: 100, resolved: 55, resolvedRate: 0.55 },
+    resolvedLift: 0.15,
+    tokensLift: { value: 400, sampleSize: 100, formula: "f1" },
+    latencyLift: { value: 1200, sampleSize: 100, formula: "f2" },
+    minCohortSize: 30,
+  };
+
+  function withCausal(causal: unknown): Record<string, unknown> {
+    return {
+      ...(bucket({ eligibleRuns: 1 }) as unknown as Record<string, unknown>),
+      causal,
+    };
+  }
+
+  it("preserves a valid causal block end-to-end on the dashboard read path", () => {
+    // Regression: before 3.3.1 the parser silently dropped `causal`.
+    // A valid Phase 3.3 payload would round-trip through the
+    // dashboard with its causal data gone, breaking the whole
+    // point of the assisted-vs-holdout comparison.
+    const parsed = parseUsageMetrics(withCausal(VALID_CAUSAL));
+    expect(parsed).not.toBeNull();
+    expect(parsed?.causal).toEqual(VALID_CAUSAL);
+  });
+
+  it("accepts a payload without `causal` (Phase 1 / 2 clients stay valid)", () => {
+    // Back-compat guarantee: the old client doesn't know about
+    // causal. Its payload must parse cleanly and produce a
+    // UsageMetrics with `causal` undefined.
+    const parsed = parseUsageMetrics(bucket({ eligibleRuns: 1 }) as unknown as Record<string, unknown>);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.causal).toBeUndefined();
+  });
+
+  it("rejects a payload whose causal.assisted is missing required fields", () => {
+    const broken = {
+      ...VALID_CAUSAL,
+      assisted: { n: 100 /* no resolved, no resolvedRate */ },
+    };
+    expect(parseUsageMetrics(withCausal(broken))).toBeNull();
+  });
+
+  it("rejects a payload whose causal.holdout has a non-numeric resolvedRate (not null)", () => {
+    const broken = {
+      ...VALID_CAUSAL,
+      holdout: { n: 100, resolved: 55, resolvedRate: "high" },
+    };
+    expect(parseUsageMetrics(withCausal(broken))).toBeNull();
+  });
+
+  it("rejects a payload whose causal.tokensLift is malformed", () => {
+    // tokensLift must be a UsageEstimate: { value, sampleSize,
+    // formula }. Providing a plain number here is the most common
+    // drift shape; parser must reject it.
+    const broken = {
+      ...VALID_CAUSAL,
+      tokensLift: 400,
+    };
+    expect(parseUsageMetrics(withCausal(broken))).toBeNull();
+  });
+
+  it("rejects a payload whose causal.tokensLift.sampleSize is missing", () => {
+    const broken = {
+      ...VALID_CAUSAL,
+      tokensLift: { value: 400, formula: "f" },
+    };
+    expect(parseUsageMetrics(withCausal(broken))).toBeNull();
+  });
+
+  it("rejects a payload whose causal.resolvedLift is a string", () => {
+    const broken = { ...VALID_CAUSAL, resolvedLift: "0.15" };
+    expect(parseUsageMetrics(withCausal(broken))).toBeNull();
+  });
+
+  it("accepts a valid causal block with null lift fields (below-cohort state)", () => {
+    const smallCohort = {
+      assisted: { n: 3, resolved: 3, resolvedRate: 1 },
+      holdout:  { n: 2, resolved: 1, resolvedRate: 0.5 },
+      resolvedLift: null,
+      tokensLift:  { value: null, sampleSize: 2, formula: "pending" },
+      latencyLift: { value: null, sampleSize: 2, formula: "pending" },
+      minCohortSize: 30,
+    };
+    const parsed = parseUsageMetrics(withCausal(smallCohort));
+    expect(parsed?.causal).toEqual(smallCohort);
+  });
+
+  it("rejects a payload where causal itself is not an object", () => {
+    expect(parseUsageMetrics(withCausal("yes"))).toBeNull();
+    expect(parseUsageMetrics(withCausal(null))).toBeNull();
+  });
+
+  it("rejects a malformed causal block even when observed/estimated are well-formed", () => {
+    // Drift shape the reviewer explicitly named: a caller submits
+    // good observed data wrapped around garbage causal data. The
+    // ingest gate must reject the whole payload so the server
+    // never stores something the dashboard would choke on later.
+    const obviouslyGood = bucket({ eligibleRuns: 50, injectedRuns: 40, helpfulRuns: 25 });
+    const garbage: Record<string, unknown> = {
+      ...(obviouslyGood as unknown as Record<string, unknown>),
+      causal: { this: "is", not: "a", cohort: true },
+    };
+    expect(parseUsageMetrics(garbage)).toBeNull();
+  });
+});
+
+describe("validateSamples — causal field round-trip", () => {
+  it("preserves the causal block on the ValidatedSample.metrics once the parser accepts it", () => {
+    const metricsWithCausal = {
+      ...(bucket({ eligibleRuns: 1 })),
+      causal: {
+        assisted: { n: 40, resolved: 28, resolvedRate: 0.7 },
+        holdout:  { n: 40, resolved: 20, resolvedRate: 0.5 },
+        resolvedLift: 0.2,
+        tokensLift:  { value: 800, sampleSize: 40, formula: "f1" },
+        latencyLift: { value: 2400, sampleSize: 40, formula: "f2" },
+        minCohortSize: 30,
+      },
+    };
+    const sample: ControlPlaneUsageSample = {
+      id: "s-causal",
+      workspaceId: "ws-1",
+      installationId: "inst-a",
+      windowStart: "2026-04-20T00:00:00.000Z",
+      windowEnd: "2026-04-21T00:00:00.000Z",
+      metrics: metricsWithCausal as unknown as Record<string, unknown>,
+      receivedAt: "2026-04-20T00:00:00.000Z",
+    };
+    const validated = validateSamples([sample]);
+    expect(validated).toHaveLength(1);
+    expect(validated[0]?.metrics.causal?.assisted.n).toBe(40);
+    expect(validated[0]?.metrics.causal?.resolvedLift).toBeCloseTo(0.2);
+  });
+
+  it("drops the whole sample (not just the causal) when causal fails validation", () => {
+    const sample: ControlPlaneUsageSample = {
+      id: "s-broken",
+      workspaceId: "ws-1",
+      installationId: "inst-a",
+      windowStart: "2026-04-20T00:00:00.000Z",
+      windowEnd: "2026-04-21T00:00:00.000Z",
+      metrics: {
+        ...(bucket({ eligibleRuns: 1 })),
+        causal: { assisted: "no" },
+      } as unknown as Record<string, unknown>,
+      receivedAt: "2026-04-20T00:00:00.000Z",
+    };
+    const validated = validateSamples([sample]);
+    expect(validated).toHaveLength(0);
+  });
+});

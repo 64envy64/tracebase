@@ -18,7 +18,13 @@
  * fold. Per-agent rollups (Phase 2) will be rendered on a separate
  * surface; this module does not mix granularities.
  */
-import type { UsageMetrics, UsageScope } from "@/lib/usage/types";
+import type {
+  UsageCausal,
+  UsageCohort,
+  UsageEstimate,
+  UsageMetrics,
+  UsageScope,
+} from "@/lib/usage/types";
 import type { ControlPlaneInstallation, ControlPlaneUsageSample } from "./types";
 
 /**
@@ -321,6 +327,20 @@ function parseUsageMetricsRecord(raw: Record<string, unknown>): UsageMetrics | n
   const est = pickEstimated(estimated);
   const itg = pickIntegrity(integrity);
   if (!obs || !est || !itg) return null;
+
+  // Phase 3.3 — optional causal block. When absent, Phase 1/2
+  // clients pass through unchanged. When present, every field
+  // must validate; a malformed causal block rejects the whole
+  // payload so the ingest gate cannot be bypassed by a caller
+  // that submits good observed data wrapped around garbage
+  // causal data.
+  let causal: UsageCausal | undefined;
+  if (raw.causal !== undefined) {
+    const parsed = pickCausal(raw.causal);
+    if (!parsed) return null;
+    causal = parsed;
+  }
+
   return {
     scope,
     window: {
@@ -329,6 +349,7 @@ function parseUsageMetricsRecord(raw: Record<string, unknown>): UsageMetrics | n
     },
     observed: obs,
     estimated: est,
+    ...(causal ? { causal } : {}),
     integrity: itg,
   };
 }
@@ -353,24 +374,10 @@ function pickObserved(raw: Record<string, unknown>): UsageMetrics["observed"] | 
 }
 
 function pickEstimated(raw: Record<string, unknown>): UsageMetrics["estimated"] | null {
-  const a = raw.tokensSaved as Record<string, unknown> | undefined;
-  const b = raw.latencySavedMs as Record<string, unknown> | undefined;
-  if (!a || !b) return null;
-  const pick = (x: Record<string, unknown>): UsageMetrics["estimated"]["tokensSaved"] | null => {
-    const value = x.value;
-    const sampleSize = x.sampleSize;
-    const formula = x.formula;
-    if (
-      !(value === null || typeof value === "number") ||
-      typeof sampleSize !== "number" ||
-      typeof formula !== "string"
-    ) {
-      return null;
-    }
-    return { value, sampleSize, formula };
-  };
-  const tokens = pick(a);
-  const latency = pick(b);
+  const a = raw.tokensSaved;
+  const b = raw.latencySavedMs;
+  const tokens = pickEstimateField(a);
+  const latency = pickEstimateField(b);
   if (!tokens || !latency) return null;
   return { tokensSaved: tokens, latencySavedMs: latency };
 }
@@ -380,4 +387,66 @@ function pickIntegrity(raw: Record<string, unknown>): UsageMetrics["integrity"] 
   const o = raw.outcomesWithoutRetrieval;
   if (typeof s !== "number" || typeof o !== "number") return null;
   return { shadowControlMismatches: s, outcomesWithoutRetrieval: o };
+}
+
+/**
+ * Validate a `UsageEstimate`-shaped field. Shared between Phase 1
+ * `estimated.tokensSaved` / `latencySavedMs` and Phase 3 causal
+ * `tokensLift` / `latencyLift` — the two spots use identical
+ * validation, so a single pick keeps them locked together.
+ */
+function pickEstimateField(raw: unknown): UsageEstimate | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const { value, sampleSize, formula } = r;
+  if (!(value === null || typeof value === "number")) return null;
+  if (typeof sampleSize !== "number") return null;
+  if (typeof formula !== "string") return null;
+  return { value, sampleSize, formula };
+}
+
+/**
+ * Validate the Phase 3.3 causal block. Every sub-field must be
+ * the right shape; one bad field rejects the entire causal block
+ * (and by extension the entire sample payload). This is the
+ * authoritative source of truth for "does this causal block match
+ * the contract" — the dashboard read path and the ingest gate
+ * both consume it via `parseUsageMetrics`.
+ */
+function pickCausal(raw: unknown): UsageCausal | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const assisted = pickCohort(r.assisted);
+  const holdout = pickCohort(r.holdout);
+  if (!assisted || !holdout) return null;
+
+  const resolvedLift = r.resolvedLift;
+  if (!(resolvedLift === null || typeof resolvedLift === "number")) return null;
+
+  const tokensLift = pickEstimateField(r.tokensLift);
+  const latencyLift = pickEstimateField(r.latencyLift);
+  if (!tokensLift || !latencyLift) return null;
+
+  const minCohortSize = r.minCohortSize;
+  if (typeof minCohortSize !== "number") return null;
+
+  return {
+    assisted,
+    holdout,
+    resolvedLift,
+    tokensLift,
+    latencyLift,
+    minCohortSize,
+  };
+}
+
+function pickCohort(raw: unknown): UsageCohort | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const { n, resolved } = r;
+  if (typeof n !== "number") return null;
+  if (typeof resolved !== "number") return null;
+  const rate = r.resolvedRate;
+  if (!(rate === null || typeof rate === "number")) return null;
+  return { n, resolved, resolvedRate: rate };
 }
