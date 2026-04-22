@@ -69,7 +69,7 @@ export function ImpactView({
   };
 
   return (
-    <section className="space-y-6" aria-label="Impact — project activity">
+    <section className="space-y-6" aria-label="Impact — workspace activity">
       <header className="flex flex-col gap-3">
         <p
           className="text-[10px] font-mono uppercase tracking-[0.22em]"

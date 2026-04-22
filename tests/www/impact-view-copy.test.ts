@@ -41,6 +41,16 @@ describe("ImpactView copy", () => {
     expect(impactView).not.toMatch(/wired\s+adapters?/i);
   });
 
+  it("root section aria-label matches the workspace-scoped heading (a11y consistency)", () => {
+    // The visible heading became "Workspace activity" in 1E.1;
+    // the root landmark's aria-label lagged behind and still said
+    // "project activity", so screen readers announced one scope
+    // while sighted users saw another. Lock both to the same
+    // source of truth.
+    expect(impactView).toContain('aria-label="Impact — workspace activity"');
+    expect(impactView).not.toMatch(/aria-label="Impact — project activity"/);
+  });
+
   it("describes its counts as contributors-in-window, not as workspace-wide inventory", () => {
     // The view must not say "linked to this workspace" — that was
     // the mistaken framing when counts were workspace totals. It
