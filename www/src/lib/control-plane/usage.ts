@@ -18,7 +18,7 @@
  * fold. Per-agent rollups (Phase 2) will be rendered on a separate
  * surface; this module does not mix granularities.
  */
-import type { UsageMetrics } from "../../../../src/analytics/usage-metrics";
+import type { UsageMetrics } from "@/lib/usage/types";
 import type { ControlPlaneUsageSample } from "./types";
 
 export type DailyBucket = {

@@ -7,7 +7,11 @@
  * dashboard cannot silently drift away from the CLI-side numbers.
  */
 import { describe, it, expect } from "vitest";
-import type { UsageMetrics } from "../../src/analytics/usage-metrics.js";
+// The dashboard side keeps its own UsageMetrics mirror because Cloud
+// Build only uploads `www/`. This test imports the mirror used at
+// runtime so we lock the exact shape the dashboard ships against,
+// separately from the CLI shape covered in tests/core/usage-metrics.
+import type { UsageMetrics } from "../../www/src/lib/usage/types.ts";
 import {
   extractWorkspaceSamples,
   foldImpactWindow,
@@ -64,6 +68,22 @@ function sample(dateIso: string, metrics: UsageMetrics): ControlPlaneUsageSample
     receivedAt: dateIso,
   };
 }
+
+// Drift guard: the www mirror must stay assignable both ways to the
+// canonical CLI type. If either side grows a field the other hasn't,
+// TypeScript fails this file at compile time and the PR can't land.
+import type { UsageMetrics as CliUsageMetrics } from "../../src/analytics/usage-metrics.js";
+
+describe("www UsageMetrics mirror stays structurally compatible with the CLI surface", () => {
+  it("is bidirectionally assignable to src/analytics/usage-metrics.UsageMetrics", () => {
+    type _DashboardFitsCli = UsageMetrics extends CliUsageMetrics ? true : false;
+    type _CliFitsDashboard = CliUsageMetrics extends UsageMetrics ? true : false;
+    const fwd: _DashboardFitsCli = true;
+    const back: _CliFitsDashboard = true;
+    expect(fwd).toBe(true);
+    expect(back).toBe(true);
+  });
+});
 
 describe("extractWorkspaceSamples", () => {
   it("drops non-workspace samples and sorts ascending by date", () => {
