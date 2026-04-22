@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import pc from "picocolors";
-import { loadConfig } from "../../core/config.js";
+import { findProjectRoot, loadConfig } from "../../core/config.js";
 
 export const serveCommand = new Command("serve")
   .description("Start the TraceBase server (HTTP or MCP)")
@@ -9,12 +9,17 @@ export const serveCommand = new Command("serve")
   .option("--host <host>", "bind address", "127.0.0.1")
   .action(async (opts: { port: string; mcp?: boolean; host: string }) => {
     const config = loadConfig();
+    // Resolve the project root the same way every other CLI command
+    // does — walk up from cwd looking for `.tracebase/`. Pass it
+    // through explicitly so MCP runtime reads (e.g. holdout config)
+    // never have to reverse-engineer it from `storagePath`.
+    const basePath = findProjectRoot(process.cwd()) ?? process.cwd();
 
     if (opts.mcp) {
       // Dynamic import to avoid loading MCP SDK when not needed
       try {
         const { startMcpServer } = await import("../../server/mcp.js");
-        await startMcpServer(config);
+        await startMcpServer(config, { basePath });
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND") {
           console.error(

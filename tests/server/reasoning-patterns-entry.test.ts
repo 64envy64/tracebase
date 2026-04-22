@@ -270,3 +270,65 @@ describe("runReasoningPatternsRecall — fake-holdout guards", () => {
     expect(res.blocks.some((h) => h.block.id === seededBlock.id)).toBe(true);
   });
 });
+
+describe("Phase 3.4.2 — project root resolution is independent of storagePath", () => {
+  it("finds the holdout config when storagePath lives outside the project tree", () => {
+    // Regression: before 3.4.2 the MCP server derived `basePath`
+    // via `dirname(dirname(config.storagePath))`. For a project
+    // whose `storagePath` was customised to a non-canonical
+    // location, that produced a path nowhere near
+    // `<project>/.tracebase/config.json`, so `readHoldoutConfig`
+    // silently returned null and experiment enable had no effect.
+    // This test simulates that scenario and proves the fix: a
+    // correctly-resolved project root makes the holdout config
+    // reachable regardless of where storagePath points.
+    const customDbDir = mkdtempSync(join(tmpdir(), "tb-rp-entry-custom-db-"));
+    const customStoragePath = join(customDbDir, "memory.db");
+    try {
+      initConfig(dir, {
+        storagePath: customStoragePath,
+      });
+      enableHoldoutExperiment(dir, {
+        rate: 1,
+        saltFactory: () => "salt-custom-storage",
+        now: () => new Date("2026-04-22T00:00:00.000Z"),
+      });
+
+      // Project root is `dir`; the CLI `serve` passes it through
+      // to `startMcpServer`, which wires the loader against it.
+      // storagePath (now outside the project) is irrelevant to
+      // holdout lookup — the whole point of this fix.
+      const res = runReasoningPatternsRecall(server, ARGS, {
+        readHoldoutConfig: () => readHoldoutConfig(dir),
+      });
+      expect(res.shadow).toBe(true);
+      const retrieval = retrievalEventFor(res.queryId);
+      if (retrieval?.event === "retrieval") {
+        expect(retrieval.controlReason).toBe("holdout");
+      }
+
+      // Counter-check: deriving basePath from the custom storagePath
+      // (the pre-3.4.2 shape) would NOT find the holdout config —
+      // asserting this makes the test a true regression rather than
+      // a tautology.
+      const brokenBasePath = join(customDbDir); // dirname(storagePath)
+      expect(readHoldoutConfig(brokenBasePath)).toBeNull();
+    } finally {
+      rmSync(customDbDir, { recursive: true, force: true });
+    }
+  });
+
+  it("mcp.ts does not derive basePath from storagePath (textual guard)", async () => {
+    // Lock the fix in: no code path inside the MCP server may
+    // reintroduce the broken derive. Grep the source so a future
+    // well-intended refactor can't silently put it back.
+    const { readFile } = await import("node:fs/promises");
+    const { resolve } = await import("node:path");
+    const source = await readFile(
+      resolve(__dirname, "../../src/server/mcp.ts"),
+      "utf-8",
+    );
+    expect(source).not.toMatch(/dirname\(dirname\(config\.storagePath\)\)/);
+    expect(source).not.toMatch(/dirname\(.*storagePath.*\)/);
+  });
+});

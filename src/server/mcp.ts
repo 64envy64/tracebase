@@ -1,14 +1,30 @@
 import type { HoldoutConfig, TraceBaseConfig } from "../types.js";
 import { ReasoningLayer } from "../core/engine.js";
 import Database from "better-sqlite3";
-import { dirname } from "node:path";
 import { BlockStore } from "../core/block-store.js";
 import { BlockServer, formatInjection } from "../core/block-serving.js";
 import { EventEmitter, emitAgentUsed, emitFactAgentUsed, emitOutcome } from "../core/analytics.js";
 import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
 import { collectInjectedFromQuery, resolveUsedItems } from "./mcp-v2-helpers.js";
-import { readHoldoutConfig } from "../core/config.js";
+import { findProjectRoot, readHoldoutConfig } from "../core/config.js";
 import { runReasoningPatternsRecall } from "./reasoning-patterns-entry.js";
+
+/**
+ * Options bag for `startMcpServer`. Keeps the signature open for
+ * future server-level knobs without breaking existing callers.
+ */
+export interface StartMcpServerOptions {
+  /**
+   * Project root used to resolve `.tracebase/config.json` for
+   * runtime reads (e.g. the holdout experiment state). When
+   * omitted, `startMcpServer` walks up from `process.cwd()` via
+   * `findProjectRoot`. Callers that already know the project root
+   * (the CLI `serve` command, tests) should pass it explicitly —
+   * deriving it from `config.storagePath` is wrong because
+   * `storagePath` can live outside the project root.
+   */
+  basePath?: string;
+}
 
 /**
  * Start TraceBase as an MCP (Model Context Protocol) server.
@@ -17,7 +33,10 @@ import { runReasoningPatternsRecall } from "./reasoning-patterns-entry.js";
  * This enables Claude Code and other MCP-compatible agents to
  * directly query and store reasoning traces.
  */
-export async function startMcpServer(config: TraceBaseConfig): Promise<void> {
+export async function startMcpServer(
+  config: TraceBaseConfig,
+  opts: StartMcpServerOptions = {},
+): Promise<void> {
   // Dynamic import — @modelcontextprotocol/sdk is an optional peer dependency
   const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
   const { StdioServerTransport } = await import(
@@ -41,15 +60,21 @@ export async function startMcpServer(config: TraceBaseConfig): Promise<void> {
   });
   const eventEmitter = new EventEmitter(blockStore);
 
-  // Phase 3.4.1 — project base for reading the holdout experiment
-  // config fresh on every `get_reasoning_patterns` call. Fresh reads
-  // mean `tracebase experiment enable|disable` in a terminal takes
-  // effect without restarting the MCP server. The default
-  // `storagePath` is `<basePath>/.tracebase/memory.db`, so two
-  // dirname() calls get us to the project root; if the path has a
-  // non-canonical layout the read simply fails and we fall back to
-  // default-off, which is the safe behaviour.
-  const projectBasePath = dirname(dirname(config.storagePath));
+  // Phase 3.4.2 — project base for reading the holdout experiment
+  // config fresh on every `get_reasoning_patterns` call. Fresh
+  // reads mean `tracebase experiment enable|disable` in a terminal
+  // takes effect without restarting the MCP server.
+  //
+  // IMPORTANT: project root is NOT derived from `config.storagePath`.
+  // `storagePath` can legitimately point outside the project
+  // directory (custom DB location), and reverse-engineering the
+  // project root from it silently falls back to default-off when
+  // the layout isn't canonical. Callers pass `basePath` explicitly;
+  // otherwise we walk up from `process.cwd()` via
+  // `findProjectRoot`, which is the same resolver every other CLI
+  // command uses.
+  const projectBasePath =
+    opts.basePath ?? findProjectRoot(process.cwd()) ?? process.cwd();
   const holdoutConfigLoader: () => HoldoutConfig | null = () =>
     readHoldoutConfig(projectBasePath);
 
