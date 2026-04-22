@@ -13,7 +13,13 @@
 import { Command } from "commander";
 import { basename } from "node:path";
 import pc from "picocolors";
-import { initConfig, isInitialized, loadConfig, resolveProjectBase } from "../../core/config.js";
+import {
+  initConfig,
+  isInitialized,
+  loadConfig,
+  normalizeInstallAgents,
+  resolveProjectBase,
+} from "../../core/config.js";
 import {
   bestEffortOpenUrl,
   loadCloudCredential,
@@ -73,12 +79,13 @@ export const initCommand = new Command("init")
     }
 
     const existingConfig = isInitialized(basePath) ? loadConfig(basePath) : undefined;
+    const storedAgents = normalizeInstallAgents(existingConfig?.install);
     const selectedAgents = await pickAgents({
       explicit: opts.agent,
       all: opts.all,
       yes: opts.yes,
       basePath,
-      stored: existingConfig?.install?.agent,
+      stored: storedAgents,
     });
 
     if (selectedAgents.length === 0) {
@@ -87,9 +94,11 @@ export const initCommand = new Command("init")
       console.log();
       return;
     }
-    // `install.agent` tracks the primary adapter for doctor/status. When
-    // multiple agents are configured, the primary is the first selected.
-    // The `selectedAgents.length === 0` guard above narrows the type.
+    // The first selected adapter is treated as "primary" for surfaces
+    // that are intrinsically single-valued (e.g. the cloud workspace
+    // link picks one canonical agent label). All agents still get
+    // their own MCP + instruction files written and, when cloud is
+    // linked, their own installation record registered.
     const primaryAgent: InstallAgent = selectedAgents[0]!;
     const cloudApiUrl = resolveCloudApiUrl(opts.apiUrl);
     const cloudApiKey = opts.apiKey?.trim() || process.env.TRACEBASE_API_KEY?.trim() || "";
@@ -111,12 +120,12 @@ export const initCommand = new Command("init")
               workspaceSlug: cloudLink.workspace.slug,
             },
             install: {
-              agent: primaryAgent,
+              agents: [...selectedAgents],
             },
           }
         : {
             install: {
-              agent: primaryAgent,
+              agents: [...selectedAgents],
             },
           },
     );
@@ -169,28 +178,49 @@ export const initCommand = new Command("init")
 
       renderStep(pc.green("  +"), "cloud workspace", `${cloudLink.workspace.displayName} (${cloudLink.workspace.slug})`);
 
-      const installation = await registerCloudInstallation(cloudLink.apiBaseUrl, cloudApiKey, {
-        localWorkspaceId: config.workspaceId ?? "unknown",
-        projectName: basename(basePath),
-        agent: getAgentTargetMeta(primaryAgent).cloudAgent,
-      });
+      // Register one installation per adapter so the hosted dashboard
+      // shows each wiring separately instead of collapsing everything
+      // onto the primary agent.
+      let primaryInstallationId: string | undefined;
+      for (const agent of selectedAgents) {
+        const installation = await registerCloudInstallation(cloudLink.apiBaseUrl, cloudApiKey, {
+          localWorkspaceId: config.workspaceId ?? "unknown",
+          projectName: basename(basePath),
+          agent: getAgentTargetMeta(agent).cloudAgent,
+        });
+        if (agent === primaryAgent) primaryInstallationId = installation.id;
+        renderStep(pc.cyan("  ~"), "cloud install", `${getAgentTargetMeta(agent).displayName} → ${installation.projectName}`);
+      }
 
       config = initConfig(basePath, {
         cloud: {
           apiUrl: cloudLink.apiBaseUrl,
           workspaceId: cloudLink.workspace.id,
           workspaceSlug: cloudLink.workspace.slug,
-          installationId: installation.id,
+          installationId: primaryInstallationId,
         },
         install: {
-          agent: primaryAgent,
+          agents: [...selectedAgents],
         },
       });
-
-      renderStep(pc.cyan("  ~"), "cloud install", `${installation.projectName} linked`);
     } else if (!existingCloudCredential && cloudApiUrl && process.stdin.isTTY && process.stdout.isTTY) {
       const linked = await tryInteractiveCloudLink(basePath, config, cloudApiUrl, primaryAgent);
       if (linked) {
+        const secondaryAgents = selectedAgents.filter((a) => a !== primaryAgent);
+        for (const agent of secondaryAgents) {
+          try {
+            const extra = await registerCloudInstallation(linked.apiBaseUrl, linked.apiKey, {
+              localWorkspaceId: config.workspaceId ?? "unknown",
+              projectName: basename(basePath),
+              agent: getAgentTargetMeta(agent).cloudAgent,
+            });
+            renderStep(pc.cyan("  ~"), "cloud install", `${getAgentTargetMeta(agent).displayName} → ${extra.projectName}`);
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : "registration failed";
+            renderStep(pc.yellow("  !"), "cloud install", `${getAgentTargetMeta(agent).displayName} — ${msg}`);
+          }
+        }
+
         config = initConfig(basePath, {
           cloud: {
             apiUrl: linked.apiBaseUrl,
@@ -199,7 +229,7 @@ export const initCommand = new Command("init")
             installationId: linked.installation.id,
           },
           install: {
-            agent: primaryAgent,
+            agents: [...selectedAgents],
           },
         });
 
@@ -210,7 +240,7 @@ export const initCommand = new Command("init")
         });
 
         renderStep(pc.green("  +"), "cloud workspace", `${linked.workspace.displayName} (${linked.workspace.slug})`);
-        renderStep(pc.cyan("  ~"), "cloud install", `${linked.installation.projectName} linked`);
+        renderStep(pc.cyan("  ~"), "cloud install", `${getAgentTargetMeta(primaryAgent).displayName} → ${linked.installation.projectName}`);
       }
     }
 
@@ -243,15 +273,21 @@ async function pickAgents(input: {
   all?: boolean;
   yes?: boolean;
   basePath: string;
-  stored?: string | null;
+  stored: InstallAgent[];
 }): Promise<InstallAgent[]> {
   const explicit = normalizeInstallAgent(input.explicit);
   if (explicit) return [explicit];
   if (input.all) return [...ALL_AGENTS];
 
   const detected = detectAvailableAgents(input.basePath);
-  const stored = normalizeInstallAgent(input.stored);
-  const defaults = stored && !detected.includes(stored) ? [stored, ...detected] : detected;
+  // If the project was previously configured for agents we no longer
+  // auto-detect (e.g. user uninstalled the Codex CLI), keep them so
+  // the picker can still uncheck them intentionally instead of
+  // silently dropping the surface.
+  const defaults =
+    input.stored.length > 0
+      ? Array.from(new Set([...input.stored, ...detected]))
+      : detected;
 
   // Non-interactive environments (CI, piped input) or -y short-circuit
   // the prompt and use the detected/stored defaults.

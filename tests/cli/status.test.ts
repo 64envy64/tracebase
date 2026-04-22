@@ -118,7 +118,7 @@ describe("buildStatusReport — cursor adapter", () => {
     const home = mkdtempSync(join(tmpdir(), "tb-status-home-"));
     process.env.HOME = home;
     try {
-      initConfig(dir, { install: { agent: "cursor" } });
+      initConfig(dir, { install: { agents: ["cursor"] } });
       writeAgentMcpConfig(dir, "cursor", false);
       writeAgentInstructionFile(dir, "cursor");
 
@@ -130,6 +130,34 @@ describe("buildStatusReport — cursor adapter", () => {
       expect(r.instructionFile).toBe("AGENTS.md");
       expect(r.claudeSettingsPresent).toBe(false);
       expect(r.claudeMdPresent).toBe(false);
+      // Multi-agent list shape — even single-agent installs surface here.
+      expect(r.agents.map((a) => a.agent)).toEqual(["cursor"]);
+    } finally {
+      process.env.HOME = originalHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("lists every wired-up adapter when init configured more than one", () => {
+    const originalHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "tb-status-multi-home-"));
+    process.env.HOME = home;
+    try {
+      initConfig(dir, { install: { agents: ["cursor", "claude-code"] } });
+      writeAgentMcpConfig(dir, "cursor", false);
+      writeAgentInstructionFile(dir, "cursor");
+      writeClaudeSettings(dir, false);
+      writeClaudeMarkdown(dir);
+
+      const r = buildStatusReport(dir);
+      // Primary (first configured) agent still drives the legacy fields.
+      expect(r.agent).toBe("cursor");
+      expect(r.agents.map((a) => a.agent)).toEqual(["cursor", "claude-code"]);
+      expect(r.agents.every((a) => a.mcpConfigured && a.instructionsPresent)).toBe(true);
+      // Claude-specific back-compat flags still work because the agent
+      // is wired, just not primary.
+      expect(r.claudeSettingsPresent).toBe(true);
+      expect(r.claudeMdPresent).toBe(true);
     } finally {
       process.env.HOME = originalHome;
       rmSync(home, { recursive: true, force: true });

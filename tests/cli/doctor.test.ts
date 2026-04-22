@@ -48,8 +48,8 @@ describe("runDoctor — fresh init (no Claude files, empty store)", () => {
     expect(byName(r.checks, "tracebase-config")!.level).toBe("pass");
     // Storage file doesn't exist until first write — warn.
     expect(byName(r.checks, "storage")!.level).toBe("warn");
-    expect(byName(r.checks, "claude-settings")!.level).toBe("warn");
-    expect(byName(r.checks, "claude-md")!.level).toBe("warn");
+    expect(byName(r.checks, "claude-code-mcp")!.level).toBe("warn");
+    expect(byName(r.checks, "claude-code-instructions")!.level).toBe("warn");
     // store-content check only runs when the storage file exists.
     expect(byName(r.checks, "store-content")).toBeUndefined();
     // No FAIL at this point.
@@ -86,8 +86,8 @@ describe("runDoctor — full init + populated store", () => {
     const r = runDoctor(dir);
     expect(byName(r.checks, "tracebase-config")!.level).toBe("pass");
     expect(byName(r.checks, "storage")!.level).toBe("pass");
-    expect(byName(r.checks, "claude-settings")!.level).toBe("pass");
-    expect(byName(r.checks, "claude-md")!.level).toBe("pass");
+    expect(byName(r.checks, "claude-code-mcp")!.level).toBe("pass");
+    expect(byName(r.checks, "claude-code-instructions")!.level).toBe("pass");
     expect(byName(r.checks, "store-content")!.level).toBe("pass");
     expect(r.summary.fail).toBe(0);
   });
@@ -100,7 +100,7 @@ describe("runDoctor — specific broken configurations", () => {
     mkdirSync(join(dir, ".claude"), { recursive: true });
     writeFileSync(file, "{ not valid json");
     const r = runDoctor(dir);
-    const c = byName(r.checks, "claude-settings")!;
+    const c = byName(r.checks, "claude-code-mcp")!;
     expect(c.level).toBe("fail");
     expect(c.message).toMatch(/not valid JSON/i);
     expect(r.summary.fail).toBeGreaterThan(0);
@@ -112,7 +112,7 @@ describe("runDoctor — specific broken configurations", () => {
     mkdirSync(join(dir, ".claude"), { recursive: true });
     writeFileSync(file, JSON.stringify({ mcpServers: { other: { command: "x", args: [] } } }));
     const r = runDoctor(dir);
-    const c = byName(r.checks, "claude-settings")!;
+    const c = byName(r.checks, "claude-code-mcp")!;
     expect(c.level).toBe("fail");
     expect(c.message).toMatch(/no tracebase entry/i);
   });
@@ -130,7 +130,7 @@ describe("runDoctor — specific broken configurations", () => {
       }),
     );
     const r = runDoctor(dir);
-    const c = byName(r.checks, "claude-settings")!;
+    const c = byName(r.checks, "claude-code-mcp")!;
     expect(c.level).toBe("warn");
     expect(c.fix).toMatch(/--force/);
   });
@@ -139,7 +139,7 @@ describe("runDoctor — specific broken configurations", () => {
     initConfig(dir);
     writeFileSync(join(dir, "CLAUDE.md"), "# Project\n\nPlain notes.\n");
     const r = runDoctor(dir);
-    const c = byName(r.checks, "claude-md")!;
+    const c = byName(r.checks, "claude-code-instructions")!;
     expect(c.level).toBe("warn");
     expect(c.fix).toMatch(/tracebase init/);
   });
@@ -187,8 +187,8 @@ describe("runDoctor — regressions", () => {
 
     const r = runDoctor(nested);
     expect(byName(r.checks, "tracebase-config")!.level).toBe("pass");
-    expect(byName(r.checks, "claude-settings")!.level).toBe("pass");
-    expect(byName(r.checks, "claude-md")!.level).toBe("pass");
+    expect(byName(r.checks, "claude-code-mcp")!.level).toBe("pass");
+    expect(byName(r.checks, "claude-code-instructions")!.level).toBe("pass");
     expect(r.projectPath).toBe(dir);
   });
 
@@ -222,9 +222,9 @@ describe("runDoctor — cursor adapter", () => {
 
       const r = runDoctor(dir);
       expect(byName(r.checks, "cursor-mcp")!.level).toBe("pass");
-      expect(byName(r.checks, "agents-md")!.level).toBe("pass");
-      expect(byName(r.checks, "claude-settings")).toBeUndefined();
-      expect(byName(r.checks, "claude-md")).toBeUndefined();
+      expect(byName(r.checks, "cursor-instructions")!.level).toBe("pass");
+      expect(byName(r.checks, "claude-code-mcp")).toBeUndefined();
+      expect(byName(r.checks, "claude-code-instructions")).toBeUndefined();
     } finally {
       process.env.HOME = originalHome;
       rmSync(home, { recursive: true, force: true });

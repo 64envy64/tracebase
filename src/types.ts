@@ -235,7 +235,19 @@ export interface TraceBaseConfig {
 export type InstallAgent = "claude-code" | "cursor" | "codex";
 
 export interface InstallConfig {
-  agent: InstallAgent;
+  /**
+   * All adapters wired up by `tracebase init`. A project can have more
+   * than one active integration (e.g. Claude Code + Cursor on the same
+   * machine). Always non-empty when `install` is present.
+   */
+  agents: InstallAgent[];
+  /**
+   * Back-compat: earlier versions stored a single `agent` field. New
+   * code should read `agents` instead; this is preserved only so older
+   * configs continue to load without migration.
+   * @deprecated Use `agents` instead.
+   */
+  agent?: InstallAgent;
 }
 
 export interface CloudLinkConfig {

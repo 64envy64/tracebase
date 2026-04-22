@@ -180,9 +180,15 @@ export function initConfig(
   }
 
   if (config.install) {
-    serializable["install"] = {
-      agent: config.install.agent,
-    };
+    const normalizedAgents = normalizeInstallAgents(config.install);
+    if (normalizedAgents.length > 0) {
+      serializable["install"] = {
+        agents: normalizedAgents,
+        // Mirror the primary agent into the singular `agent` field so
+        // older CLIs that only know about `install.agent` still work.
+        agent: normalizedAgents[0],
+      };
+    }
   }
 
   writeFileSync(configFile, JSON.stringify(serializable, null, 2) + "\n");
@@ -221,4 +227,29 @@ function findProjectBoundary(startPath: string): string | null {
 
 function hasProjectMarker(dir: string): boolean {
   return PROJECT_MARKERS.some((marker) => existsSync(join(dir, marker)));
+}
+
+/**
+ * Return the list of adapters a project has wired up, normalizing across
+ * the legacy single-agent schema (`install.agent`) and the current
+ * multi-agent schema (`install.agents`). Duplicates removed, order
+ * preserved.
+ */
+export function normalizeInstallAgents(
+  install: { agents?: unknown; agent?: unknown } | undefined,
+): Array<"claude-code" | "cursor" | "codex"> {
+  if (!install) return [];
+  const collected: Array<"claude-code" | "cursor" | "codex"> = [];
+  const add = (raw: unknown) => {
+    if (typeof raw !== "string") return;
+    const trimmed = raw.trim();
+    if (trimmed === "claude-code" || trimmed === "cursor" || trimmed === "codex") {
+      if (!collected.includes(trimmed)) collected.push(trimmed);
+    }
+  };
+  if (Array.isArray(install.agents)) {
+    for (const item of install.agents) add(item);
+  }
+  add(install.agent);
+  return collected;
 }

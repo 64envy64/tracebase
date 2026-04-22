@@ -14,7 +14,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import pc from "picocolors";
 import Database from "better-sqlite3";
-import { findProjectRoot, loadConfig } from "../../core/config.js";
+import { findProjectRoot, loadConfig, normalizeInstallAgents } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
 import type { TraceBaseConfig } from "../../types.js";
 import {
@@ -138,12 +138,17 @@ export function runDoctor(invocationPath: string): DoctorReport {
   }
   cfg = resolvedCfg;
 
-  const agent = resolveInstallAgent({
-    basePath: projectRoot,
-    stored: cfg.install?.agent,
-    preferEnvironment: false,
-  });
-  const agentMeta = getAgentTargetMeta(agent);
+  const configuredAgents = normalizeInstallAgents(cfg.install);
+  const agents: InstallAgent[] =
+    configuredAgents.length > 0
+      ? configuredAgents
+      : [
+          resolveInstallAgent({
+            basePath: projectRoot,
+            stored: cfg.install?.agent,
+            preferEnvironment: false,
+          }),
+        ];
 
   // --- storage
   if (!existsSync(cfg.storagePath)) {
@@ -191,7 +196,10 @@ export function runDoctor(invocationPath: string): DoctorReport {
     }
   }
 
-  appendAgentIntegrationChecks(checks, projectRoot, agent, agentMeta.displayName);
+  for (const a of agents) {
+    const meta = getAgentTargetMeta(a);
+    appendAgentIntegrationChecks(checks, projectRoot, a, meta.displayName);
+  }
 
   // --- MCP SDK availability (optional peer dep)
   let mcpSdkAvailable = false;
@@ -255,10 +263,12 @@ function appendAgentIntegrationChecks(
   const mcp = inspectAgentMcpConfig(projectRoot, agent);
   const instruction = inspectAgentInstructionFile(projectRoot, agent);
   const instructionFile = getAgentTargetMeta(agent).instructionFile;
-  const initCommand =
-    agent === "claude-code" ? "npx tracebase init" : `npx tracebase init --agent ${agent === "cursor" ? "cursor" : "codex"}`;
-  const mcpCheckName = agent === "claude-code" ? "claude-settings" : `${agent}-mcp`;
-  const instructionCheckName = agent === "claude-code" ? "claude-md" : "agents-md";
+  const initCommand = "npx tracebase init";
+  // Check names are prefixed by agent so multi-agent installs don't
+  // collide. Legacy aliases "claude-settings" / "claude-md" /
+  // "agents-md" are kept inside the renderer for back-compat output.
+  const mcpCheckName = `${agent}-mcp`;
+  const instructionCheckName = `${agent}-instructions`;
 
   if (mcp.parseError) {
     checks.push({

@@ -43,6 +43,35 @@ describe("runRemove", () => {
     expect(existsSync(join(dir, ".tracebase"))).toBe(false);
   });
 
+  it("cleans every adapter listed in install.agents, not just the primary", () => {
+    const originalHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "tb-remove-multi-home-"));
+    process.env.HOME = home;
+    try {
+      initConfig(dir, { install: { agents: ["claude-code", "cursor"] } });
+      writeClaudeSettings(dir, false);
+      writeClaudeMarkdown(dir);
+      writeAgentMcpConfig(dir, "cursor", false);
+      writeAgentInstructionFile(dir, "cursor");
+
+      const report = runRemove({ path: dir });
+      expect(report.failed).toBe(false);
+      expect(report.agents).toEqual(["claude-code", "cursor"]);
+      // Claude artifacts removed.
+      expect(existsSync(join(dir, ".claude", "settings.json"))).toBe(false);
+      expect(existsSync(join(dir, "CLAUDE.md"))).toBe(false);
+      // Cursor artifacts removed — this is the regression the
+      // single-primary remove used to leak on multi-agent installs.
+      expect(existsSync(join(home, ".cursor", "mcp.json"))).toBe(false);
+      expect(existsSync(join(dir, "AGENTS.md"))).toBe(false);
+      // Local store gone.
+      expect(existsSync(join(dir, ".tracebase"))).toBe(false);
+    } finally {
+      process.env.HOME = originalHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it("uses the stored cursor target and preserves user content around AGENTS.md", () => {
     const originalHome = process.env.HOME;
     const home = mkdtempSync(join(tmpdir(), "tb-remove-home-"));

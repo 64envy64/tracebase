@@ -16,7 +16,7 @@ import { existsSync } from "node:fs";
 import { statSync } from "node:fs";
 import pc from "picocolors";
 import Database from "better-sqlite3";
-import { findProjectRoot, loadConfig } from "../../core/config.js";
+import { findProjectRoot, loadConfig, normalizeInstallAgents } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
 import {
   getAgentTargetMeta,
@@ -26,16 +26,30 @@ import {
   type InstallAgent,
 } from "../install-targets.js";
 
+export interface AgentInstallReport {
+  agent: InstallAgent;
+  agentDisplayName: string;
+  mcpLocation: string;
+  instructionFile: string;
+  mcpConfigured: boolean;
+  instructionsPresent: boolean;
+}
+
 interface StatusReport {
   initialized: boolean;
   projectPath: string | null;
   workspaceId: string | null;
   storagePath: string | null;
   storageBytes: number | null;
+  /** Primary adapter (first in the configured list). Kept for back-compat. */
   agent: InstallAgent | null;
   agentDisplayName: string | null;
+  /** Primary MCP surface location. Kept for back-compat. */
   mcpLocation: string | null;
+  /** Primary instruction-file name. Kept for back-compat. */
   instructionFile: string | null;
+  /** Full list of agents wired up by `init`, with per-agent integrity. */
+  agents: AgentInstallReport[];
   mcpConfigured: boolean;
   instructionsPresent: boolean;
   claudeSettingsPresent: boolean;
@@ -57,6 +71,9 @@ interface StatusReport {
     outcome: number;
   };
   lastActivityTs: number | null;
+  cloudLinked: boolean;
+  cloudApiUrl: string | null;
+  cloudWorkspaceSlug: string | null;
 }
 
 export const statusCommand = new Command("status")
@@ -91,6 +108,7 @@ export function buildStatusReport(invocationPath: string): StatusReport {
       agentDisplayName: null,
       mcpLocation: null,
       instructionFile: null,
+      agents: [],
       mcpConfigured: false,
       instructionsPresent: false,
       claudeSettingsPresent: false,
@@ -99,21 +117,46 @@ export function buildStatusReport(invocationPath: string): StatusReport {
       factsActive: 0,
       events: { total: 0, retrieval: 0, injection: 0, factInjection: 0, agentUsed: 0, outcome: 0 },
       lastActivityTs: null,
+      cloudLinked: false,
+      cloudApiUrl: null,
+      cloudWorkspaceSlug: null,
     };
   }
 
   const cfg = loadConfig(invocationPath);
   const storageBytes = existsSync(cfg.storagePath) ? statSync(cfg.storagePath).size : null;
-  const agent = resolveInstallAgent({
-    basePath: projectRoot,
-    stored: cfg.install?.agent,
-    preferEnvironment: false,
+  const configuredAgents = normalizeInstallAgents(cfg.install);
+  // Fall back to the legacy single-agent resolver if the config has no
+  // list yet (e.g. a project initialised by a prior release).
+  const agents: InstallAgent[] =
+    configuredAgents.length > 0
+      ? configuredAgents
+      : [
+          resolveInstallAgent({
+            basePath: projectRoot,
+            stored: cfg.install?.agent,
+            preferEnvironment: false,
+          }),
+        ];
+  const primaryAgent = agents[0]!;
+  const meta = getAgentTargetMeta(primaryAgent);
+  const agentReports: AgentInstallReport[] = agents.map((a) => {
+    const m = getAgentTargetMeta(a);
+    const mcp = inspectAgentMcpConfig(projectRoot, a);
+    const instr = inspectAgentInstructionFile(projectRoot, a);
+    return {
+      agent: a,
+      agentDisplayName: m.displayName,
+      mcpLocation: m.mcpLocationLabel,
+      instructionFile: m.instructionFile,
+      mcpConfigured: mcp.present && mcp.canonical,
+      instructionsPresent: instr.present && instr.managed,
+    };
   });
-  const meta = getAgentTargetMeta(agent);
-  const mcpInspection = inspectAgentMcpConfig(projectRoot, agent);
-  const instructionInspection = inspectAgentInstructionFile(projectRoot, agent);
-  const claudeSettingsPresent = agent === "claude-code" ? mcpInspection.present : false;
-  const claudeMdPresent = agent === "claude-code" ? instructionInspection.present : false;
+  const primaryReport = agentReports[0]!;
+  const claudeReport = agentReports.find((r) => r.agent === "claude-code");
+  const claudeSettingsPresent = claudeReport ? claudeReport.mcpConfigured : false;
+  const claudeMdPresent = claudeReport ? claudeReport.instructionsPresent : false;
 
   const blocks = { active: 0, candidate: 0, demoted: 0, merged: 0, retired: 0 };
   let factsActive = 0;
@@ -155,18 +198,22 @@ export function buildStatusReport(invocationPath: string): StatusReport {
     workspaceId: cfg.workspaceId ?? null,
     storagePath: cfg.storagePath,
     storageBytes,
-    agent,
+    agent: primaryAgent,
     agentDisplayName: meta.displayName,
     mcpLocation: meta.mcpLocationLabel,
     instructionFile: meta.instructionFile,
-    mcpConfigured: mcpInspection.present && mcpInspection.canonical,
-    instructionsPresent: instructionInspection.present && instructionInspection.managed,
+    agents: agentReports,
+    mcpConfigured: primaryReport.mcpConfigured,
+    instructionsPresent: primaryReport.instructionsPresent,
     claudeSettingsPresent,
     claudeMdPresent,
     blocks,
     factsActive,
     events,
     lastActivityTs,
+    cloudLinked: Boolean(cfg.cloud?.workspaceId),
+    cloudApiUrl: cfg.cloud?.apiUrl ?? null,
+    cloudWorkspaceSlug: cfg.cloud?.workspaceSlug ?? null,
   };
 }
 
@@ -188,16 +235,38 @@ function renderStatus(r: StatusReport): void {
   console.log(pc.bold("TraceBase") + wsTag);
   console.log();
   console.log(pc.dim("  project:  ") + r.projectPath);
-  console.log(pc.dim("  storage:  ") + r.storagePath + (r.storageBytes !== null ? pc.dim(`  (${formatBytes(r.storageBytes)})`) : pc.yellow("  (missing)")));
-  console.log(pc.dim("  agent:    ") + (r.agentDisplayName ?? "unknown"));
   console.log(
-    pc.dim("  install:  ") +
-    (r.mcpConfigured ? pc.green(r.mcpLocation ?? "mcp") : pc.yellow(`${r.mcpLocation ?? "mcp"} missing`)) +
-    "  " +
-    (r.instructionsPresent
-      ? pc.green(r.instructionFile ?? "instructions")
-      : pc.yellow(`${r.instructionFile ?? "instructions"} missing`)),
+    pc.dim("  storage:  ") +
+      r.storagePath +
+      (r.storageBytes !== null
+        ? pc.dim(`  (${formatBytes(r.storageBytes)})`)
+        : pc.dim("  (created on first agent turn — reasoning blocks stay local for latency)")),
   );
+  if (r.cloudLinked) {
+    console.log(
+      pc.dim("  cloud:    ") +
+        (r.cloudWorkspaceSlug ?? "linked") +
+        (r.cloudApiUrl ? pc.dim(`  (${r.cloudApiUrl})`) : ""),
+    );
+  }
+  console.log();
+
+  console.log(pc.bold("Agents ") + pc.dim(`(${r.agents.length} wired up)`) + ":");
+  for (const a of r.agents) {
+    const mcpBadge = a.mcpConfigured ? pc.green("ok") : pc.yellow("missing");
+    const instrBadge = a.instructionsPresent ? pc.green("ok") : pc.yellow("missing");
+    console.log(
+      "  " +
+        pc.bold(a.agentDisplayName.padEnd(12)) +
+        pc.dim(a.mcpLocation) +
+        " " +
+        mcpBadge +
+        pc.dim(" · ") +
+        pc.dim(a.instructionFile) +
+        " " +
+        instrBadge,
+    );
+  }
   console.log();
   console.log(pc.bold("Blocks ") + pc.dim("(active / candidate / demoted / merged / retired):"));
   console.log("  " +
@@ -226,10 +295,11 @@ function renderStatus(r: StatusReport): void {
   }
   console.log();
 
-  // Guidance if something's clearly missing.
-  if (!r.mcpConfigured || !r.instructionsPresent) {
-    const target = r.agentDisplayName ?? "agent";
-    console.log(pc.yellow("  Heads up: ") + `${target} config is incomplete.`);
+  // Guidance if any configured agent is missing a surface.
+  const broken = r.agents.filter((a) => !a.mcpConfigured || !a.instructionsPresent);
+  if (broken.length > 0) {
+    const names = broken.map((a) => a.agentDisplayName).join(", ");
+    console.log(pc.yellow("  Heads up: ") + `${names} config is incomplete.`);
     console.log("  Re-run " + pc.cyan("npx tracebase init") + " to refresh.");
     console.log();
   }

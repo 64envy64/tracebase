@@ -2,7 +2,12 @@ import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Command } from "commander";
 import pc from "picocolors";
-import { findProjectRoot, loadConfig, resolveProjectBase } from "../../core/config.js";
+import {
+  findProjectRoot,
+  loadConfig,
+  normalizeInstallAgents,
+  resolveProjectBase,
+} from "../../core/config.js";
 import {
   getAgentTargetMeta,
   normalizeInstallAgent,
@@ -15,7 +20,10 @@ import {
 
 export interface RemoveReport {
   projectPath: string;
+  /** Primary adapter (first cleaned). Kept for back-compat reporting. */
   agent: InstallAgent;
+  /** Every adapter the CLI removed during this run. */
+  agents: InstallAgent[];
   steps: Array<{
     label: string;
     result: CleanupResult;
@@ -65,27 +73,41 @@ export function runRemove(input: {
 }): RemoveReport {
   const projectPath = findProjectRoot(input.path) ?? resolveProjectBase(input.path);
   const existingConfig = findProjectRoot(input.path) ? loadConfig(projectPath) : undefined;
-  const agent = resolveInstallAgent({
-    explicit: input.agent,
-    basePath: projectPath,
-    stored: existingConfig?.install?.agent,
-    preferEnvironment: false,
-  });
-  const agentMeta = getAgentTargetMeta(agent);
-  const steps: RemoveReport["steps"] = [];
+  const explicit = normalizeInstallAgent(input.agent);
+  const configuredAgents = normalizeInstallAgents(existingConfig?.install);
 
-  if (!input.keepMcpConfig) {
-    steps.push({
-      label: agentMeta.mcpLocationLabel,
-      result: removeAgentMcpConfig(projectPath, agent),
-    });
+  let agentsToClean: InstallAgent[];
+  if (explicit) {
+    agentsToClean = [explicit];
+  } else if (configuredAgents.length > 0) {
+    agentsToClean = configuredAgents;
+  } else {
+    // Legacy config or no install — fall back to the single-agent
+    // resolver so we still clean the one adapter that was wired up.
+    agentsToClean = [
+      resolveInstallAgent({
+        basePath: projectPath,
+        stored: existingConfig?.install?.agent,
+        preferEnvironment: false,
+      }),
+    ];
   }
 
-  if (!input.keepAgentInstructions) {
-    steps.push({
-      label: agentMeta.instructionFile,
-      result: removeAgentInstructionFile(projectPath, agent),
-    });
+  const steps: RemoveReport["steps"] = [];
+  for (const agent of agentsToClean) {
+    const meta = getAgentTargetMeta(agent);
+    if (!input.keepMcpConfig) {
+      steps.push({
+        label: `${meta.displayName} · ${meta.mcpLocationLabel}`,
+        result: removeAgentMcpConfig(projectPath, agent),
+      });
+    }
+    if (!input.keepAgentInstructions) {
+      steps.push({
+        label: `${meta.displayName} · ${meta.instructionFile}`,
+        result: removeAgentInstructionFile(projectPath, agent),
+      });
+    }
   }
 
   if (!input.keepStore) {
@@ -97,18 +119,19 @@ export function runRemove(input: {
 
   return {
     projectPath,
-    agent,
+    agent: agentsToClean[0]!,
+    agents: agentsToClean,
     steps,
     failed: steps.some((step) => !step.result.ok),
   };
 }
 
 function renderRemove(report: RemoveReport): void {
-  const agentMeta = getAgentTargetMeta(report.agent);
+  const names = report.agents.map((a) => getAgentTargetMeta(a).displayName).join(", ");
   console.log();
   console.log(pc.bold("TraceBase removed"));
   console.log(pc.dim(`  project ${report.projectPath}`));
-  console.log(pc.dim(`  target ${agentMeta.displayName}`));
+  console.log(pc.dim(`  targets ${names}`));
   console.log();
 
   for (const step of report.steps) {
