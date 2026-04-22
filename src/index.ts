@@ -195,12 +195,27 @@ export type {
   RetrievalSplit,
   OutcomeSplit,
   AggregateRates,
+  AggregateFunnel,
   PerBlockStats,
   PerFactStats,
   AggregateIntegrity,
   EventAggregates,
   AggregateOptions,
 } from "./core/analytics.js";
+
+// Phase 1 — UsageMetrics (event-log-derived, dashboard-consumable).
+export {
+  computeUsageMetrics,
+  USAGE_ESTIMATE_TAG,
+} from "./analytics/usage-metrics.js";
+export type {
+  UsageMetrics,
+  UsageObserved,
+  UsageEstimated,
+  UsageEstimate,
+  UsageIntegrity,
+  UsageWindow,
+} from "./analytics/usage-metrics.js";
 
 // Types — re-export everything
 export type {

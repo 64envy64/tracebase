@@ -238,7 +238,11 @@ export interface InstallConfig {
   /**
    * All adapters wired up by `tracebase init`. A project can have more
    * than one active integration (e.g. Claude Code + Cursor on the same
-   * machine). Always non-empty when `install` is present.
+   * machine). May be an empty array as a deliberate "detached"
+   * sentinel after `tracebase remove --keep-store` clears every
+   * adapter — this distinguishes an intentional detach from a legacy
+   * config (where `install` itself is absent) and lets `status` /
+   * `doctor` avoid reinventing a phantom default agent.
    */
   agents: InstallAgent[];
   /**
@@ -933,6 +937,13 @@ export interface OutcomeEvent extends EventBase {
   regressed?: boolean;
   tokens?: number;
   steps?: number;
+  /**
+   * Wall-clock time the run took, in milliseconds. Optional because
+   * older telemetry never carried it; Phase 1 usage analytics uses
+   * it to derive an estimated `latencySavedMs` when both a treatment
+   * and shadow arm are populated.
+   */
+  durationMs?: number;
   /** True if this query was a shadow control (no injection was shown). */
   control: boolean;
 }

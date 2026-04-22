@@ -24,6 +24,7 @@ import Database from "better-sqlite3";
 import { findConfigDir, loadConfig } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
 import { computeAggregates, type EventAggregates } from "../../core/analytics.js";
+import { computeUsageMetrics, type UsageMetrics } from "../../analytics/usage-metrics.js";
 import { parseSince } from "./events.js";
 
 export const reportCommand = new Command("report")
@@ -91,7 +92,12 @@ export const reportCommand = new Command("report")
         perBlock: agg.perBlock.slice(0, topN),
         perFact: agg.perFact.slice(0, topN),
       };
-      process.stdout.write(JSON.stringify(trimmed, null, 2) + "\n");
+      // Include the derived UsageMetrics surface so scripts and the
+      // dashboard never recompute the funnel/estimates themselves.
+      const usageMetrics: UsageMetrics = computeUsageMetrics(agg);
+      process.stdout.write(
+        JSON.stringify({ ...trimmed, usageMetrics }, null, 2) + "\n",
+      );
       return;
     }
 
@@ -120,6 +126,11 @@ function renderReport(
 
   console.log(pc.bold("Retrieval split"));
   console.log(`  total ${agg.retrieval.total} (treatment ${agg.retrieval.treatment} · shadow ${agg.retrieval.shadow})`);
+  console.log();
+
+  console.log(pc.bold("Funnel ") + pc.dim("(distinct queryIds per stage)"));
+  const f = agg.funnel;
+  console.log(`  eligible ${f.eligibleRuns} → recalled ${f.recalledRuns} → injected ${f.injectedRuns} → used ${f.usedRuns} → helpful ${f.helpfulRuns}`);
   console.log();
 
   console.log(pc.bold("Rates"));

@@ -407,6 +407,32 @@ export interface OutcomeSplit {
   /** Raw token usage per outcome, if tokens were recorded. */
   tokensTreatment: number[];
   tokensShadow: number[];
+  /** Raw wall-clock duration per outcome, if `durationMs` was recorded. */
+  durationsTreatment: number[];
+  durationsShadow: number[];
+}
+
+/**
+ * Funnel-stage counts, each defined as a *distinct queryId* count so
+ * that `eligible ≥ recalled ≥ injected ≥ used ≥ helpful` holds
+ * monotonically over any window. This is the single event-log-derived
+ * surface the UI consumes — the dashboard never re-derives these.
+ */
+export interface AggregateFunnel {
+  /** Distinct queryIds that produced any retrieval event (treatment + shadow). */
+  eligibleRuns: number;
+  /** Subset of eligibleRuns where retrieval returned at least one candidate. */
+  recalledRuns: number;
+  /** Distinct queryIds with at least one injection (block or fact). */
+  injectedRuns: number;
+  /** Distinct queryIds with at least one agent_used or fact_agent_used event. */
+  usedRuns: number;
+  /**
+   * Distinct queryIds satisfying the §L6 helpfulness definition:
+   * injection ∧ agent_used ∧ outcome.resolved. At least one
+   * (injected block or fact, used, resolved) triple per query.
+   */
+  helpfulRuns: number;
 }
 
 export interface AggregateRates {
@@ -483,6 +509,8 @@ export interface EventAggregates {
   retrieval: RetrievalSplit;
   outcome: OutcomeSplit;
   rates: AggregateRates;
+  /** Funnel-stage counts, queryId-deduplicated. See AggregateFunnel. */
+  funnel: AggregateFunnel;
   perBlock: PerBlockStats[];
   /** Per-fact stats; parallel structure to perBlock. */
   perFact: PerFactStats[];
@@ -541,6 +569,10 @@ export function computeAggregates(
   // Fact-side indexes — parallel to the block-side ones.
   const factInjectionsByQuery = new Map<string, Set<string>>();
   const factAgentUsedByQuery = new Map<string, Set<string>>();
+  // Funnel bookkeeping. Each Set tracks distinct queryIds at that stage
+  // so the final funnel counts are monotonic and dedupe-safe.
+  const eligibleQueries = new Set<string>();
+  const recalledQueries = new Set<string>();
 
   for (const ev of events) {
     switch (ev.event) {
@@ -549,6 +581,10 @@ export function computeAggregates(
         shadowByQuery.set(ev.queryId, ev.shadow);
         if (ev.shadow) retrievalShadow.add(ev.queryId);
         else retrievalTreatment.add(ev.queryId);
+        eligibleQueries.add(ev.queryId);
+        const anyCandidates =
+          ev.candidates.length > 0 || (ev.factCandidates?.length ?? 0) > 0;
+        if (anyCandidates) recalledQueries.add(ev.queryId);
         break;
       }
       case "injection": {
@@ -667,6 +703,8 @@ export function computeAggregates(
     resolvedShadow: 0,
     tokensTreatment: [],
     tokensShadow: [],
+    durationsTreatment: [],
+    durationsShadow: [],
   };
   let shadowControlMismatches = 0;
   let outcomesWithoutRetrieval = 0;
@@ -684,10 +722,12 @@ export function computeAggregates(
       outcomeSplit.totalShadow++;
       if (outcome.resolved) outcomeSplit.resolvedShadow++;
       if (typeof outcome.tokens === "number") outcomeSplit.tokensShadow.push(outcome.tokens);
+      if (typeof outcome.durationMs === "number") outcomeSplit.durationsShadow.push(outcome.durationMs);
     } else {
       outcomeSplit.totalTreatment++;
       if (outcome.resolved) outcomeSplit.resolvedTreatment++;
       if (typeof outcome.tokens === "number") outcomeSplit.tokensTreatment.push(outcome.tokens);
+      if (typeof outcome.durationMs === "number") outcomeSplit.durationsTreatment.push(outcome.durationMs);
     }
   }
 
@@ -747,6 +787,33 @@ export function computeAggregates(
       mean(outcomeSplit.tokensTreatment) - mean(outcomeSplit.tokensShadow);
   }
 
+  // Funnel — queryId-deduplicated and derived from the indexes built
+  // above. Each stage is a *subset* of the previous by definition
+  // (injection implies retrieval ran; helpful implies injection + used
+  // + resolved), so the numbers are monotonically non-increasing.
+  const injectedQueries = new Set<string>();
+  for (const qid of injectionsByQuery.keys()) injectedQueries.add(qid);
+  for (const qid of factInjectionsByQuery.keys()) injectedQueries.add(qid);
+
+  const usedQueries = new Set<string>();
+  for (const qid of agentUsedByQuery.keys()) usedQueries.add(qid);
+  for (const qid of factAgentUsedByQuery.keys()) usedQueries.add(qid);
+
+  const helpfulQueries = new Set<string>();
+  for (const qid of injectedQueries) {
+    if (!usedQueries.has(qid)) continue;
+    const outcome = outcomeByQuery.get(qid);
+    if (outcome?.resolved) helpfulQueries.add(qid);
+  }
+
+  const funnel: AggregateFunnel = {
+    eligibleRuns: eligibleQueries.size,
+    recalledRuns: recalledQueries.size,
+    injectedRuns: injectedQueries.size,
+    usedRuns: usedQueries.size,
+    helpfulRuns: helpfulQueries.size,
+  };
+
   return {
     counts,
     retrieval: {
@@ -756,6 +823,7 @@ export function computeAggregates(
     },
     outcome: outcomeSplit,
     rates,
+    funnel,
     perBlock: [...perBlockMap.values()].sort((a, b) => b.helpful - a.helpful),
     perFact: [...perFactMap.values()].sort((a, b) => b.helpful - a.helpful),
     integrity: {
