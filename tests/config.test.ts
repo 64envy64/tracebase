@@ -105,4 +105,24 @@ describe("Config", () => {
     expect(config.storagePath).toBe(join(repo, ".tracebase", "memory.db"));
     expect(config.maxTraces).toBe(100_000);
   });
+
+  it("persists cloud.installationIds so multi-agent installs can attribute per-agent", () => {
+    initConfig(basePath, {
+      cloud: {
+        apiUrl: "https://tracebase.ink",
+        workspaceId: "ws-1",
+        workspaceSlug: "ws",
+        installationId: "inst-claude",
+        installationIds: {
+          "claude-code": "inst-claude",
+          cursor: "inst-cursor",
+        },
+      },
+      install: { agents: ["claude-code", "cursor"] },
+    });
+    const loaded = loadConfig(basePath);
+    expect(loaded.cloud?.installationId).toBe("inst-claude");
+    expect(loaded.cloud?.installationIds?.["claude-code"]).toBe("inst-claude");
+    expect(loaded.cloud?.installationIds?.cursor).toBe("inst-cursor");
+  });
 });

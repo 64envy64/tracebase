@@ -179,15 +179,17 @@ export const initCommand = new Command("init")
       renderStep(pc.green("  +"), "cloud workspace", `${cloudLink.workspace.displayName} (${cloudLink.workspace.slug})`);
 
       // Register one installation per adapter so the hosted dashboard
-      // shows each wiring separately instead of collapsing everything
-      // onto the primary agent.
+      // can attribute usage samples per-agent. The schema enforces
+      // uniqueness on (workspace, localWorkspaceId, agent).
       let primaryInstallationId: string | undefined;
+      const installationIds: Partial<Record<InstallAgent, string>> = {};
       for (const agent of selectedAgents) {
         const installation = await registerCloudInstallation(cloudLink.apiBaseUrl, cloudApiKey, {
           localWorkspaceId: config.workspaceId ?? "unknown",
           projectName: basename(basePath),
           agent: getAgentTargetMeta(agent).cloudAgent,
         });
+        installationIds[agent] = installation.id;
         if (agent === primaryAgent) primaryInstallationId = installation.id;
         renderStep(pc.cyan("  ~"), "cloud install", `${getAgentTargetMeta(agent).displayName} → ${installation.projectName}`);
       }
@@ -198,6 +200,7 @@ export const initCommand = new Command("init")
           workspaceId: cloudLink.workspace.id,
           workspaceSlug: cloudLink.workspace.slug,
           installationId: primaryInstallationId,
+          installationIds,
         },
         install: {
           agents: [...selectedAgents],
@@ -206,6 +209,8 @@ export const initCommand = new Command("init")
     } else if (!existingCloudCredential && cloudApiUrl && process.stdin.isTTY && process.stdout.isTTY) {
       const linked = await tryInteractiveCloudLink(basePath, config, cloudApiUrl, primaryAgent);
       if (linked) {
+        const installationIds: Partial<Record<InstallAgent, string>> = {};
+        installationIds[primaryAgent] = linked.installation.id;
         const secondaryAgents = selectedAgents.filter((a) => a !== primaryAgent);
         for (const agent of secondaryAgents) {
           try {
@@ -214,6 +219,7 @@ export const initCommand = new Command("init")
               projectName: basename(basePath),
               agent: getAgentTargetMeta(agent).cloudAgent,
             });
+            installationIds[agent] = extra.id;
             renderStep(pc.cyan("  ~"), "cloud install", `${getAgentTargetMeta(agent).displayName} → ${extra.projectName}`);
           } catch (error) {
             const msg = error instanceof Error ? error.message : "registration failed";
@@ -227,6 +233,7 @@ export const initCommand = new Command("init")
             workspaceId: linked.workspace.id,
             workspaceSlug: linked.workspace.slug,
             installationId: linked.installation.id,
+            installationIds,
           },
           install: {
             agents: [...selectedAgents],

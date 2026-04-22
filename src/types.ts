@@ -261,8 +261,20 @@ export interface CloudLinkConfig {
   workspaceId: string;
   /** Human-readable hosted workspace slug for UX / install status. */
   workspaceSlug?: string;
-  /** Last known hosted installation UUID for this local project, if linked. */
+  /**
+   * Hosted installation UUID of the primary adapter.
+   * @deprecated Use `installationIds` for multi-agent attribution. This
+   *   field is still populated with the primary agent's id so older
+   *   CLI releases keep working; new code should read `installationIds`.
+   */
   installationId?: string;
+  /**
+   * Hosted installation UUID per local adapter. Each agent in
+   * `install.agents` gets its own cloud installation row so usage
+   * samples and the dashboard can attribute per-agent.
+   * Keys are `InstallAgent` strings; values are cloud UUIDs.
+   */
+  installationIds?: Partial<Record<InstallAgent, string>>;
 }
 
 export interface EmbeddingConfig {

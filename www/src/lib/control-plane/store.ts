@@ -7,6 +7,7 @@ import type {
   ControlPlaneApiKey,
   ControlPlaneDeviceSession,
   ControlPlaneInstallation,
+  ControlPlaneUsageSample,
   ControlPlaneWorkspace,
   CreatedApiKey,
   DevicePollApprovedPayload,
@@ -109,6 +110,17 @@ CREATE TABLE IF NOT EXISTS tracebase_installations (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (workspace_id, local_workspace_id)
 );
+
+-- Per-agent identity: a single project can wire up multiple adapters
+-- (Claude Code + Cursor + Codex) and each needs its own installation
+-- row so usage samples and the dashboard attribute correctly.
+-- The legacy 2-tuple UNIQUE above is dropped below after this index
+-- is guaranteed to exist.
+CREATE UNIQUE INDEX IF NOT EXISTS tracebase_installations_per_agent_idx
+  ON tracebase_installations (workspace_id, local_workspace_id, agent);
+
+ALTER TABLE tracebase_installations
+  DROP CONSTRAINT IF EXISTS tracebase_installations_workspace_id_local_workspace_id_key;
 
 CREATE TABLE IF NOT EXISTS tracebase_device_sessions (
   id UUID PRIMARY KEY,
@@ -321,14 +333,18 @@ class PostgresControlPlaneStore implements ControlPlaneStore {
     agent: string;
     cliVersion?: string;
   }): Promise<ControlPlaneInstallation> {
+    // Per-agent identity: match the 3-tuple so each adapter in a
+    // multi-agent project gets its own row. A pre-migration row that
+    // still matches only the 2-tuple is re-keyed to the current agent
+    // on first touch, then additional agents insert fresh rows.
     const existing = await this.pool.query(
       `
       SELECT *
       FROM tracebase_installations
-      WHERE workspace_id = $1 AND local_workspace_id = $2
+      WHERE workspace_id = $1 AND local_workspace_id = $2 AND agent = $3
       LIMIT 1
       `,
-      [input.workspaceId, input.localWorkspaceId],
+      [input.workspaceId, input.localWorkspaceId, input.agent],
     );
 
     if (existing.rowCount) {
@@ -336,17 +352,15 @@ class PostgresControlPlaneStore implements ControlPlaneStore {
         `
         UPDATE tracebase_installations
         SET project_name = $3,
-            agent = $4,
-            cli_version = $5,
+            cli_version = $4,
             updated_at = NOW()
-        WHERE workspace_id = $1 AND local_workspace_id = $2
+        WHERE id = $1 AND workspace_id = $2
         RETURNING *
         `,
         [
+          existing.rows[0].id,
           input.workspaceId,
-          input.localWorkspaceId,
           input.projectName,
-          input.agent,
           input.cliVersion ?? null,
         ],
       );
@@ -753,9 +767,23 @@ class FileControlPlaneStore implements ControlPlaneStore {
     cliVersion?: string;
   }): Promise<ControlPlaneInstallation> {
     const db = await this.readDb();
-    const existing = db.installations.find(
-      (row) => row.workspaceId === input.workspaceId && row.localWorkspaceId === input.localWorkspaceId,
-    );
+    // Per-agent identity: match on the (workspace, local, agent)
+    // triple so each adapter in a multi-agent project gets its own
+    // row. Pre-migration file stores with no `agent` on some rows
+    // fall back to the 2-tuple once for migration convenience.
+    const existing =
+      db.installations.find(
+        (row) =>
+          row.workspaceId === input.workspaceId &&
+          row.localWorkspaceId === input.localWorkspaceId &&
+          row.agent === input.agent,
+      ) ??
+      db.installations.find(
+        (row) =>
+          row.workspaceId === input.workspaceId &&
+          row.localWorkspaceId === input.localWorkspaceId &&
+          !row.agent,
+      );
     if (existing) {
       existing.projectName = input.projectName;
       existing.agent = input.agent;

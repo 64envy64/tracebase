@@ -44,6 +44,32 @@ export interface DashboardBootstrap {
   installations: ControlPlaneInstallation[];
 }
 
+/**
+ * A rolled-up usage-metrics sample pushed by the CLI for a given
+ * installation and time window. The cloud never recomputes §L6
+ * helpfulness or the funnel — it accepts the aggregate the local
+ * CLI computed with `computeUsageMetrics` and stores it verbatim.
+ *
+ * Idempotent on (installationId, windowStart, windowEnd). Re-pushing
+ * the same window overwrites the previous sample — safer than
+ * double-counting when a daemon retries.
+ */
+export interface ControlPlaneUsageSample {
+  id: string;
+  workspaceId: string;
+  installationId: string;
+  windowStart: string;
+  windowEnd: string;
+  /**
+   * Serialized UsageMetrics from the shared `src/analytics/usage-metrics.ts`
+   * module. Treated as an opaque JSONB payload here; typed consumers
+   * read it through the CLI SDK.
+   */
+  metrics: Record<string, unknown>;
+  cliVersion?: string;
+  receivedAt: string;
+}
+
 export interface ControlPlaneDeviceSession {
   id: string;
   deviceCode: string;

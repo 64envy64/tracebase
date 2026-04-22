@@ -176,6 +176,9 @@ export function initConfig(
       workspaceId: config.cloud.workspaceId,
       ...(config.cloud.workspaceSlug ? { workspaceSlug: config.cloud.workspaceSlug } : {}),
       ...(config.cloud.installationId ? { installationId: config.cloud.installationId } : {}),
+      ...(config.cloud.installationIds && Object.keys(config.cloud.installationIds).length > 0
+        ? { installationIds: config.cloud.installationIds }
+        : {}),
     };
   }
 
