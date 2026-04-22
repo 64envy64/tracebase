@@ -4,21 +4,24 @@ import { useUser } from "@clerk/nextjs";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
 import { LogoutButton } from "@/components/auth/LogoutButton";
+
+const MOBILE_NAV = [
+  { href: "/dashboard", label: "Overview" },
+  { href: "/dashboard/quickstart", label: "Install" },
+  { href: "/dashboard/installations", label: "Linked" },
+  { href: "/dashboard/api-keys", label: "Keys" },
+] as const;
+
+function isActive(pathname: string, href: string): boolean {
+  if (href === "/dashboard") return pathname === "/dashboard";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 export function DashboardMobileBar() {
   const pathname = usePathname();
-  const [activeHash, setActiveHash] = useState("");
   const { user } = useUser();
   const shortName = user?.firstName || "Account";
-
-  useEffect(() => {
-    const syncHash = () => setActiveHash(window.location.hash);
-    syncHash();
-    window.addEventListener("hashchange", syncHash);
-    return () => window.removeEventListener("hashchange", syncHash);
-  }, [pathname]);
 
   return (
     <header
@@ -33,36 +36,23 @@ export function DashboardMobileBar() {
       </Link>
 
       <nav className="flex min-w-0 flex-1 items-center justify-end gap-1 overflow-x-auto" aria-label="Quick links">
-        <Link
-          href="/dashboard#overview"
-          className="shrink-0 rounded-sm px-2.5 py-1.5 text-xs font-light"
-          style={{
-            background: !activeHash || activeHash === "#overview" ? "var(--surface)" : "transparent",
-            color: !activeHash || activeHash === "#overview" ? "var(--text)" : "var(--text-secondary)",
-          }}
-        >
-          Overview
-        </Link>
-        <Link
-          href="/dashboard#quickstart"
-          className="shrink-0 rounded-sm px-2.5 py-1.5 text-xs font-light"
-          style={{
-            background: activeHash === "#quickstart" ? "var(--surface)" : "transparent",
-            color: activeHash === "#quickstart" ? "var(--text)" : "var(--text-secondary)",
-          }}
-        >
-          Install
-        </Link>
-        <Link
-          href="/dashboard#audit"
-          className="shrink-0 rounded-sm px-2.5 py-1.5 text-xs font-light"
-          style={{
-            background: activeHash === "#audit" ? "var(--surface)" : "transparent",
-            color: activeHash === "#audit" ? "var(--text)" : "var(--text-secondary)",
-          }}
-        >
-          Audit
-        </Link>
+        {MOBILE_NAV.map((item) => {
+          const active = isActive(pathname, item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="shrink-0 rounded-sm px-2.5 py-1.5 text-xs font-light"
+              style={{
+                background: active ? "var(--surface)" : "transparent",
+                color: active ? "var(--text)" : "var(--text-secondary)",
+              }}
+              aria-current={active ? "page" : undefined}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
         <span className="shrink-0 px-1 text-[11px] font-light uppercase tracking-[0.16em]" style={{ color: "var(--text-tertiary)" }}>
           {shortName}
         </span>

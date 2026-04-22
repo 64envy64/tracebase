@@ -4,7 +4,6 @@ import { useUser } from "@clerk/nextjs";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 
 type NavItem =
@@ -12,11 +11,10 @@ type NavItem =
   | { href: string; label: string; external: true };
 
 const PRIMARY_NAV: NavItem[] = [
-  { href: "/dashboard#overview", label: "Overview" },
-  { href: "/dashboard#quickstart", label: "Quickstart" },
-  { href: "/dashboard#architecture", label: "Architecture" },
-  { href: "/dashboard#installs", label: "Installations" },
-  { href: "/dashboard#audit", label: "Audit Trail" },
+  { href: "/dashboard", label: "Overview" },
+  { href: "/dashboard/quickstart", label: "Quickstart" },
+  { href: "/dashboard/installations", label: "Installations" },
+  { href: "/dashboard/api-keys", label: "API keys" },
 ];
 
 const SECONDARY_NAV: NavItem[] = [
@@ -25,32 +23,17 @@ const SECONDARY_NAV: NavItem[] = [
   { href: "https://github.com/64envy64/tracebase", label: "GitHub", external: true },
 ];
 
-function navActive(pathname: string, hash: string, href: string) {
-  const [path, anchor] = href.split("#");
-
-  if (anchor) {
-    if (pathname !== path) return false;
-    if (!hash) return anchor === "overview";
-    return hash === `#${anchor}`;
-  }
-
-  return pathname === path;
+function isActive(pathname: string, href: string): boolean {
+  if (href === "/dashboard") return pathname === "/dashboard";
+  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 export function DashboardSidebar() {
   const pathname = usePathname();
-  const [activeHash, setActiveHash] = useState("");
   const { isLoaded, user } = useUser();
   const displayName =
     user?.fullName || user?.firstName || user?.username || user?.primaryEmailAddress?.emailAddress || "Authenticated user";
   const secondaryLine = user?.primaryEmailAddress?.emailAddress;
-
-  useEffect(() => {
-    const syncHash = () => setActiveHash(window.location.hash);
-    syncHash();
-    window.addEventListener("hashchange", syncHash);
-    return () => window.removeEventListener("hashchange", syncHash);
-  }, [pathname]);
 
   return (
     <aside
@@ -68,7 +51,7 @@ export function DashboardSidebar() {
 
         <nav className="flex flex-col gap-1" aria-label="Workspace">
           {PRIMARY_NAV.map((item) => {
-            const active = navActive(pathname, activeHash, item.href);
+            const active = isActive(pathname, item.href);
             return (
               <Link
                 key={item.href}
