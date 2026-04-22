@@ -20,6 +20,7 @@ import { doctorCommand } from "../src/cli/commands/doctor.js";
 import { eventsCommand } from "../src/cli/commands/events.js";
 import { reportCommand } from "../src/cli/commands/report.js";
 import { usageCommand } from "../src/cli/commands/usage.js";
+import { experimentCommand } from "../src/cli/commands/experiment.js";
 import { isInitialized } from "../src/core/config.js";
 
 // Read version from package.json at runtime
@@ -56,6 +57,7 @@ program.addCommand(doctorCommand);
 program.addCommand(eventsCommand);
 program.addCommand(reportCommand);
 program.addCommand(usageCommand);
+program.addCommand(experimentCommand);
 
 // No args → guided quickstart instead of generic help
 if (process.argv.length <= 2) {

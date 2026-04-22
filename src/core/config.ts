@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { join, dirname } from "node:path";
-import type { TraceBaseConfig } from "../types.js";
+import type { ExperimentConfig, HoldoutConfig, TraceBaseConfig } from "../types.js";
 
 const CONFIG_DIR = ".tracebase";
 const CONFIG_FILE = "config.json";
@@ -194,6 +194,13 @@ export function initConfig(
     }
   }
 
+  if (config.experiment) {
+    const serialized = serializeExperimentConfig(config.experiment);
+    if (Object.keys(serialized).length > 0) {
+      serializable["experiment"] = serialized;
+    }
+  }
+
   writeFileSync(configFile, JSON.stringify(serializable, null, 2) + "\n");
   return config;
 }
@@ -307,4 +314,169 @@ export function detachInstallAgents(
 
   writeFileSync(configFile, JSON.stringify(raw, null, 2) + "\n");
   return remaining;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3.4 — experiment configuration helpers
+// ---------------------------------------------------------------------------
+
+/** Default holdout rate used when `enable` is called with no --rate flag. */
+export const DEFAULT_HOLDOUT_RATE = 0.1;
+
+export interface EnableHoldoutInput {
+  /** Holdout rate; must be in (0, 1]. Defaults to `DEFAULT_HOLDOUT_RATE`. */
+  rate?: number;
+  /** Injection point for tests. Produces the salt on first enable. */
+  saltFactory?: () => string;
+  /** Injection point for tests. */
+  now?: () => Date;
+}
+
+/**
+ * Enable the holdout experiment on this project.
+ *
+ * Idempotent and field-preserving:
+ *   - If no config file exists yet, returns null and does NOT create
+ *     one — `tracebase init` must run first.
+ *   - If a prior holdout config exists, its `salt` and `createdAt`
+ *     are preserved; `rate`, `enabled`, and `updatedAt` are
+ *     refreshed. Repeat enables with the same rate are no-ops
+ *     except for `updatedAt`.
+ *   - Every other config field (workspaceId, cloud, install, …) is
+ *     left exactly as-is. This is a targeted rewrite, not a
+ *     full-config regeneration.
+ */
+export function enableHoldoutExperiment(
+  basePath: string,
+  input: EnableHoldoutInput = {},
+): HoldoutConfig | null {
+  const rate = input.rate ?? DEFAULT_HOLDOUT_RATE;
+  if (!Number.isFinite(rate) || rate <= 0 || rate > 1) {
+    throw new Error(`holdout rate must be in (0, 1]; got ${rate}`);
+  }
+  const nowIso = (input.now ?? (() => new Date()))().toISOString();
+  const raw = readConfigFileRaw(basePath);
+  if (raw === null) return null;
+
+  const existing = extractHoldoutConfig(raw);
+  const saltFactory = input.saltFactory ?? generateHoldoutSalt;
+  const next: HoldoutConfig = {
+    enabled: true,
+    rate,
+    salt: existing?.salt ?? saltFactory(),
+    createdAt: existing?.createdAt ?? nowIso,
+    updatedAt: nowIso,
+  };
+  writeExperimentField(basePath, raw, { holdout: next });
+  return next;
+}
+
+/**
+ * Disable the holdout experiment on this project, preserving the
+ * salt and `createdAt` for future re-enables. Idempotent:
+ *   - No config → returns null.
+ *   - No experiment field → returns null.
+ *   - Already disabled → refreshes `updatedAt`, returns the config.
+ *   - Enabled → flips to disabled.
+ */
+export function disableHoldoutExperiment(
+  basePath: string,
+  input: { now?: () => Date } = {},
+): HoldoutConfig | null {
+  const raw = readConfigFileRaw(basePath);
+  if (raw === null) return null;
+  const existing = extractHoldoutConfig(raw);
+  if (!existing) return null;
+  const nowIso = (input.now ?? (() => new Date()))().toISOString();
+  const next: HoldoutConfig = {
+    ...existing,
+    enabled: false,
+    updatedAt: nowIso,
+  };
+  writeExperimentField(basePath, raw, { holdout: next });
+  return next;
+}
+
+/**
+ * Read the current holdout config from disk, or `null` if the
+ * project has never configured one (or the stored payload is
+ * malformed). This helper is the authoritative "is holdout
+ * configured here?" query for the CLI and for serving integration
+ * via `buildHoldoutInput`.
+ */
+export function readHoldoutConfig(basePath: string): HoldoutConfig | null {
+  const raw = readConfigFileRaw(basePath);
+  if (raw === null) return null;
+  return extractHoldoutConfig(raw);
+}
+
+function readConfigFileRaw(basePath: string): Record<string, unknown> | null {
+  const configFile = join(basePath, CONFIG_DIR, CONFIG_FILE);
+  if (!existsSync(configFile)) return null;
+  try {
+    return JSON.parse(readFileSync(configFile, "utf-8")) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function writeExperimentField(
+  basePath: string,
+  raw: Record<string, unknown>,
+  experiment: ExperimentConfig,
+): void {
+  const serialized = serializeExperimentConfig(experiment);
+  if (Object.keys(serialized).length === 0) {
+    delete raw.experiment;
+  } else {
+    raw.experiment = serialized;
+  }
+  const configFile = join(basePath, CONFIG_DIR, CONFIG_FILE);
+  writeFileSync(configFile, JSON.stringify(raw, null, 2) + "\n");
+}
+
+function serializeExperimentConfig(exp: ExperimentConfig): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (exp.holdout) {
+    out.holdout = {
+      enabled: exp.holdout.enabled,
+      rate: exp.holdout.rate,
+      salt: exp.holdout.salt,
+      createdAt: exp.holdout.createdAt,
+      updatedAt: exp.holdout.updatedAt,
+    };
+  }
+  return out;
+}
+
+function extractHoldoutConfig(raw: Record<string, unknown>): HoldoutConfig | null {
+  const exp = raw.experiment;
+  if (!exp || typeof exp !== "object") return null;
+  const holdout = (exp as Record<string, unknown>).holdout;
+  if (!holdout || typeof holdout !== "object") return null;
+  const h = holdout as Record<string, unknown>;
+  if (
+    typeof h.enabled !== "boolean" ||
+    typeof h.rate !== "number" ||
+    typeof h.salt !== "string" ||
+    typeof h.createdAt !== "string" ||
+    typeof h.updatedAt !== "string"
+  ) {
+    return null;
+  }
+  return {
+    enabled: h.enabled,
+    rate: h.rate,
+    salt: h.salt,
+    createdAt: h.createdAt,
+    updatedAt: h.updatedAt,
+  };
+}
+
+function generateHoldoutSalt(): string {
+  // 16 random bytes = 128 bits of entropy; hex-encoded for
+  // config-file readability. The salt's only job is to make
+  // `shouldHoldOut` unpredictable per-workspace; no cryptographic
+  // strength requirement beyond "not guessable across workspaces".
+  return randomBytes(16).toString("hex");
 }

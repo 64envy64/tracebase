@@ -230,6 +230,49 @@ export interface TraceBaseConfig {
   cloud?: CloudLinkConfig;
   /** Agent-specific local install target selected by `tracebase init`. */
   install?: InstallConfig;
+  /**
+   * Experimental-holdout configuration. Optional, default off: a
+   * config without this field leaves serving byte-identical to
+   * pre-Phase-3 behaviour. See `HoldoutConfig` for the exact
+   * semantics and `src/experiments/serving.ts` for how consumers
+   * turn it into an `ExperimentInput` for `BlockServer.recall`.
+   */
+  experiment?: ExperimentConfig;
+}
+
+/**
+ * Container for per-experiment configuration. Phase 3 only ships
+ * `holdout` — the deterministic withhold-from-injection experiment
+ * that feeds the causal layer. Future experiments plug in here
+ * alongside.
+ */
+export interface ExperimentConfig {
+  holdout?: HoldoutConfig;
+}
+
+/**
+ * State of the holdout experiment on this local project.
+ *
+ * The salt is generated once on first enable and preserved across
+ * disable → re-enable cycles. Rotating it would re-assign cohorts
+ * for every fingerprint, corrupting any causal inference that
+ * spans the toggle.
+ */
+export interface HoldoutConfig {
+  /** When false, no query is assigned to the holdout cohort. */
+  enabled: boolean;
+  /** Holdout rate in (0, 1]. Ignored by serving when `enabled === false`. */
+  rate: number;
+  /**
+   * Deterministic assignment salt, stable for the lifetime of this
+   * local project. Generated on first enable and preserved across
+   * disable / re-enable.
+   */
+  salt: string;
+  /** ISO timestamp of first-ever enable. Preserved on later re-enables. */
+  createdAt: string;
+  /** ISO timestamp of the last enable / disable state change. */
+  updatedAt: string;
 }
 
 export type InstallAgent = "claude-code" | "cursor" | "codex";

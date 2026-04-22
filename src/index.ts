@@ -220,6 +220,15 @@ export {
   CONTROL_REASON_HOLDOUT,
   CONTROL_REASON_SHADOW,
 } from "./experiments/holdout.js";
+
+// Phase 3.4 — config-backed serving wiring.
+export { buildHoldoutInput } from "./experiments/serving.js";
+export {
+  enableHoldoutExperiment,
+  disableHoldoutExperiment,
+  readHoldoutConfig,
+  DEFAULT_HOLDOUT_RATE,
+} from "./core/config.js";
 export type {
   UsageMetrics,
   UsageObserved,
@@ -248,6 +257,8 @@ export type {
   TraceBaseConfig,
   InstallAgent,
   InstallConfig,
+  ExperimentConfig,
+  HoldoutConfig,
   EmbeddingConfig,
   EmbeddingProvider,
   TraceBaseEvent,
