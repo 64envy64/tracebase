@@ -84,6 +84,7 @@ export type {
   Calibrator,
   BlockServerOptions,
   InjectionFormatOptions,
+  ExperimentInput,
 } from "./core/block-serving.js";
 
 // v2 lifecycle repair (Phase 5 — see docs/DESIGN_v2.md §L6)

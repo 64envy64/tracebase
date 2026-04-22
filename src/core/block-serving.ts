@@ -29,6 +29,7 @@
 import { randomUUID } from "node:crypto";
 import type { BlockStore } from "./block-store.js";
 import { EventEmitter, type SideSink } from "./analytics.js";
+import { shouldHoldOut } from "../experiments/holdout.js";
 import type {
   ReasoningBlock,
   BlockCaseRef,
@@ -67,6 +68,42 @@ export interface BlockRecallQuery {
   queryId?: string;
   /** Optional run id for grouping events in analytics. */
   runId?: string;
+  /**
+   * Optional experimental-holdout input. When provided *and* the
+   * query is eligible (at least one candidate retrieved) *and* the
+   * deterministic assignment lands the query in the holdout cohort,
+   * `recall` suppresses injection for the run and marks the
+   * retrieval event with `controlReason: "holdout"`.
+   *
+   * Default off: when `experiment` is omitted, behaviour is 100%
+   * identical to pre-Phase-3 serving — no holdout, no new event
+   * fields, no side effects. A caller that supplies `experiment`
+   * without a `fingerprint` is a silent no-op: deterministic
+   * assignment requires the fingerprint, and we would rather skip
+   * the experiment for that run than fabricate a cohort.
+   */
+  experiment?: ExperimentInput;
+}
+
+/**
+ * Deterministic holdout-assignment input for one retrieval call.
+ * See `src/experiments/holdout.ts` for the assignment semantics.
+ */
+export interface ExperimentInput {
+  /** Holdout rate on [0, 1]. 0 disables, 1 always holds out. */
+  rate: number;
+  /**
+   * Workspace-scoped salt — must be stable per workspace and
+   * isolated across workspaces. Supplied by the caller.
+   */
+  salt: string;
+  /**
+   * Stable query fingerprint. Same problem shape → same cohort.
+   * When missing, the experiment is silently skipped for this run
+   * (safe no-op) rather than falling back to a non-deterministic
+   * decision.
+   */
+  fingerprint?: string;
 }
 
 export interface BlockHit {
@@ -192,13 +229,49 @@ export class BlockServer {
    */
   recall(query: BlockRecallQuery): RecallV2Result {
     const queryId = query.queryId ?? randomUUID();
-    const shadow = query.shadow ?? false;
+    const manualShadow = query.shadow ?? false;
     const limit = query.limit ?? 5;
     const factLimit = query.factLimit ?? 5;
     const refLimit = query.refLimit ?? 3;
 
     const blocks = this.searchBlocks(query.text, query.invariants, limit);
     const rawFacts = this.searchFacts(query.text, query.invariants, query.scope, factLimit);
+
+    // Phase 3.2 — experimental holdout.
+    //
+    // Only applies when:
+    //   1. the caller did not already set a manual shadow (manual
+    //      shadow stays exactly as it was; it keeps an undefined
+    //      `controlReason` for back-compat so analytics still treats
+    //      it as diagnostic-only);
+    //   2. the query is eligible — at least one block or fact
+    //      candidate was returned. A no-candidate query cannot have
+    //      been "held out" in any meaningful sense, so it never
+    //      becomes a fake holdout event;
+    //   3. the experiment input is complete — `rate`, `salt`, and a
+    //      `fingerprint` all present. A missing fingerprint is a
+    //      silent no-op: without it assignment cannot be
+    //      deterministic, and we would rather skip the experiment
+    //      than fabricate a cohort.
+    //   4. the deterministic `shouldHoldOut` decision lands this
+    //      fingerprint in the holdout.
+    //
+    // When all four conditions hold, the run is treated as shadow
+    // (no injection events, passesGate = false everywhere,
+    // shouldInject = false, formatInjection renders empty) and the
+    // retrieval event carries `controlReason: "holdout"`.
+    const eligible = blocks.length > 0 || rawFacts.length > 0;
+    const holdoutApplied =
+      !manualShadow &&
+      eligible &&
+      !!query.experiment?.fingerprint &&
+      shouldHoldOut(
+        query.experiment.fingerprint,
+        query.experiment.rate,
+        query.experiment.salt,
+      );
+    const shadow = manualShadow || holdoutApplied;
+    const controlReason: "shadow" | "holdout" | undefined = holdoutApplied ? "holdout" : undefined;
 
     // Apply calibrator, stamp the single-source-of-truth gate decision
     // on each hit, and attach refs. passesGate is the contract that
@@ -236,7 +309,7 @@ export class BlockServer {
     // Emit events. One injection event per hit with passesGate=true —
     // one-to-one correspondence with what the formatter will render.
     if (this.emitEvents) {
-      this.emitRetrieval(queryId, blockHits, factHits, shadow, query.runId);
+      this.emitRetrieval(queryId, blockHits, factHits, shadow, controlReason, query.runId);
       for (const h of blockHits) {
         if (h.passesGate) this.emitInjection(queryId, h, query.runId);
       }
@@ -392,6 +465,7 @@ export class BlockServer {
     blockHits: BlockHit[],
     factHits: FactHit[],
     shadow: boolean,
+    controlReason: "shadow" | "holdout" | undefined,
     runId?: string,
   ): void {
     const ev: RetrievalEvent = {
@@ -400,6 +474,10 @@ export class BlockServer {
       event: "retrieval",
       candidates: blockHits.map((h) => ({ blockId: h.block.id, score: h.score })),
       shadow,
+      // Only write `controlReason` when we have one. Manual shadow
+      // keeps an undefined tag so back-compat readers classify it
+      // as diagnostic. Only experimental holdout carries "holdout".
+      ...(controlReason ? { controlReason } : {}),
       ...(factHits.length > 0
         ? { factCandidates: factHits.map((h) => ({ factId: h.fact.id, score: h.score })) }
         : {}),
