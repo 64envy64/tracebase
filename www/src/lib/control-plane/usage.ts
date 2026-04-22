@@ -18,6 +18,11 @@
  * fold. Per-agent rollups (Phase 2) will be rendered on a separate
  * surface; this module does not mix granularities.
  */
+// Runtime import uses a relative path so Vitest (which runs from
+// the root package and doesn't see the Next.js `@/` alias) can
+// resolve the constant alongside TypeScript's compile-time
+// resolution via tsconfig paths.
+import { DEFAULT_MIN_CAUSAL_COHORT } from "../usage/types";
 import type {
   UsageCausal,
   UsageCohort,
@@ -167,8 +172,16 @@ export function foldImpactWindow(input: {
   afterTs: string;
   beforeTs: string;
   buckets: DailyBucket[];
+  /**
+   * Minimum per-arm size required for window-level causal lift
+   * fields to resolve to numbers. Below the threshold the lifts
+   * stay `null` so the UI renders an honest waiting state instead
+   * of a fabricated number. Default: `DEFAULT_MIN_CAUSAL_COHORT`.
+   */
+  minCausalCohort?: number;
 }): ImpactWindow {
   const { afterTs, beforeTs, buckets } = input;
+  const minCausalCohort = input.minCausalCohort ?? DEFAULT_MIN_CAUSAL_COHORT;
   if (buckets.length === 0) {
     return {
       afterTs,
@@ -228,6 +241,8 @@ export function foldImpactWindow(input: {
   const resolvedRateWithMemory =
     injectedRuns > 0 ? helpfulRuns / injectedRuns : null;
 
+  const causal = foldCausalAcrossBuckets(buckets, minCausalCohort);
+
   const totals: UsageMetrics = {
     scope: "workspace",
     window: {
@@ -256,6 +271,11 @@ export function foldImpactWindow(input: {
           "(Σ mean(shadow.durationMs) − mean(treatment.durationMs)) × injectedRuns, per bucket",
       },
     },
+    // Causal goes on top of `estimated`, never replacing it — the
+    // Phase 1 diagnostic signal and the Phase 3 causal signal live
+    // on different data (all shadow vs holdout-only) and must be
+    // presented separately.
+    ...(causal ? { causal } : {}),
     integrity: {
       shadowControlMismatches,
       outcomesWithoutRetrieval,
@@ -270,6 +290,107 @@ export function foldImpactWindow(input: {
   void latencyWeight;
 
   return { afterTs, beforeTs, totals, buckets };
+}
+
+/**
+ * Aggregate per-bucket `causal` blocks into a single window-level
+ * `UsageCausal`. Returns `undefined` when no bucket carried any
+ * holdout outcome — the same "experiment not running / no data
+ * yet" signal the CLI emits by omitting the field.
+ *
+ * Rules:
+ *   - assisted / holdout cohorts: raw sum of `n` + `resolved`;
+ *     `resolvedRate` recomputed from totals (null iff `n === 0`).
+ *   - `resolvedLift`: window-level — null unless BOTH arms reach
+ *     `minCohortSize`; never fabricated on small samples.
+ *   - `tokensLift.value` / `latencyLift.value`: sum of per-bucket
+ *     totals (which already carry per-bucket gating from the CLI).
+ *     Forced to null at the window level when either arm is below
+ *     `minCohortSize` — the guardrail the user flagged as a hard
+ *     invariant.
+ *   - `sampleSize` stays additive across buckets so the UI can
+ *     show "across N paired outcomes" without lying about
+ *     coverage.
+ */
+function foldCausalAcrossBuckets(
+  buckets: readonly DailyBucket[],
+  minCohortSize: number,
+): UsageCausal | undefined {
+  const has = buckets.some((b) => b.metrics.causal);
+  if (!has) return undefined;
+
+  let aN = 0;
+  let aResolved = 0;
+  let hN = 0;
+  let hResolved = 0;
+
+  let tokensSum = 0;
+  let tokensSampleSize = 0;
+  let tokensHadAny = false;
+
+  let latencySum = 0;
+  let latencySampleSize = 0;
+  let latencyHadAny = false;
+
+  for (const bucket of buckets) {
+    const c = bucket.metrics.causal;
+    if (!c) continue;
+    aN += c.assisted.n;
+    aResolved += c.assisted.resolved;
+    hN += c.holdout.n;
+    hResolved += c.holdout.resolved;
+
+    if (c.tokensLift.value !== null) {
+      tokensHadAny = true;
+      tokensSum += c.tokensLift.value;
+    }
+    tokensSampleSize += c.tokensLift.sampleSize;
+
+    if (c.latencyLift.value !== null) {
+      latencyHadAny = true;
+      latencySum += c.latencyLift.value;
+    }
+    latencySampleSize += c.latencyLift.sampleSize;
+  }
+
+  const assisted: UsageCohort = {
+    n: aN,
+    resolved: aResolved,
+    resolvedRate: aN > 0 ? aResolved / aN : null,
+  };
+  const holdout: UsageCohort = {
+    n: hN,
+    resolved: hResolved,
+    resolvedRate: hN > 0 ? hResolved / hN : null,
+  };
+
+  const cohortReady = aN >= minCohortSize && hN >= minCohortSize;
+  const resolvedLift =
+    cohortReady && assisted.resolvedRate !== null && holdout.resolvedRate !== null
+      ? assisted.resolvedRate - holdout.resolvedRate
+      : null;
+
+  const tokensLift: UsageEstimate = {
+    value: cohortReady && tokensHadAny ? tokensSum : null,
+    sampleSize: tokensSampleSize,
+    formula:
+      "Σ (mean(holdout.tokens) − mean(assisted.tokens)) × assisted.n per bucket — needs ≥ minCohortSize per arm",
+  };
+  const latencyLift: UsageEstimate = {
+    value: cohortReady && latencyHadAny ? latencySum : null,
+    sampleSize: latencySampleSize,
+    formula:
+      "Σ (mean(holdout.durationMs) − mean(assisted.durationMs)) × assisted.n per bucket — needs ≥ minCohortSize per arm",
+  };
+
+  return {
+    assisted,
+    holdout,
+    resolvedLift,
+    tokensLift,
+    latencyLift,
+    minCohortSize,
+  };
 }
 
 function emptyMetrics(afterTs: string, beforeTs: string): UsageMetrics {

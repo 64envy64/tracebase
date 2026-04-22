@@ -4,6 +4,7 @@ import { MetricTile } from "@/components/dashboard/charts/MetricTile";
 import { Timeseries } from "@/components/dashboard/charts/Timeseries";
 import { EmptyState } from "@/components/dashboard/charts/EmptyState";
 import type { ImpactWindow } from "@/lib/control-plane/usage";
+import type { UsageCausal, UsageCohort } from "@/lib/usage/types";
 
 const ACCENT_POSITIVE = "rgba(177, 255, 109, 0.85)";
 const ACCENT_INJECTED = "rgba(125, 211, 252, 0.85)";
@@ -215,42 +216,62 @@ export function ImpactView({
             />
           </section>
 
-          <section
-            className="grid gap-2.5 sm:grid-cols-2"
-            aria-label="Estimated savings"
-          >
-            <MetricTile
-              label="Tokens saved"
-              value={
-                estimated.tokensSaved.value === null
-                  ? null
-                  : formatInt(Math.round(estimated.tokensSaved.value))
-              }
-              note={
-                estimated.tokensSaved.value === null
-                  ? "waiting for a shadow arm"
-                  : `over ${estimated.tokensSaved.sampleSize} paired runs`
-              }
-              estimate
-              formula={estimated.tokensSaved.formula}
-              sampleSize={estimated.tokensSaved.sampleSize}
-            />
-            <MetricTile
-              label="Latency saved"
-              value={
-                estimated.latencySavedMs.value === null
-                  ? null
-                  : formatMs(estimated.latencySavedMs.value)
-              }
-              note={
-                estimated.latencySavedMs.value === null
-                  ? "waiting for a shadow arm"
-                  : `over ${estimated.latencySavedMs.sampleSize} paired runs`
-              }
-              estimate
-              formula={estimated.latencySavedMs.formula}
-              sampleSize={estimated.latencySavedMs.sampleSize}
-            />
+          <CausalSection causal={totals.causal} />
+
+          <section aria-label="Diagnostic estimate (shadow-based)">
+            <header className="mb-3 flex flex-col gap-1">
+              <p
+                className="text-[10px] font-mono uppercase tracking-[0.22em]"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                Diagnostic
+              </p>
+              <h2 className="text-[0.98rem] font-medium tracking-tight">
+                Shadow-based estimate
+              </h2>
+              <p
+                className="max-w-[44rem] text-[12px] font-light leading-relaxed"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                Signal from manual / legacy shadow runs. Not a causal comparison — see the
+                assisted-vs-held-out block above for the causal number. Kept here for back-compat
+                and for workspaces that have not enabled the holdout experiment.
+              </p>
+            </header>
+            <div className="grid gap-2.5 sm:grid-cols-2">
+              <MetricTile
+                label="Tokens saved"
+                value={
+                  estimated.tokensSaved.value === null
+                    ? null
+                    : formatInt(Math.round(estimated.tokensSaved.value))
+                }
+                note={
+                  estimated.tokensSaved.value === null
+                    ? "waiting for a shadow arm"
+                    : `over ${estimated.tokensSaved.sampleSize} paired runs`
+                }
+                estimate
+                formula={estimated.tokensSaved.formula}
+                sampleSize={estimated.tokensSaved.sampleSize}
+              />
+              <MetricTile
+                label="Latency saved"
+                value={
+                  estimated.latencySavedMs.value === null
+                    ? null
+                    : formatMs(estimated.latencySavedMs.value)
+                }
+                note={
+                  estimated.latencySavedMs.value === null
+                    ? "waiting for a shadow arm"
+                    : `over ${estimated.latencySavedMs.sampleSize} paired runs`
+                }
+                estimate
+                formula={estimated.latencySavedMs.formula}
+                sampleSize={estimated.latencySavedMs.sampleSize}
+              />
+            </div>
           </section>
 
           {buckets.length >= 2 ? (
@@ -315,6 +336,203 @@ export function ImpactView({
       )}
     </section>
   );
+}
+
+/**
+ * Assisted-vs-held-out causal comparison. The only surface on
+ * `/dashboard/impact` that may report a causal lift. Renders
+ * strictly from `metrics.causal`; never infers from `estimated`,
+ * never blends.
+ *
+ * Three states, matching the Phase 3.3 contract:
+ *   - absent        → `metrics.causal` undefined → "no causal data
+ *                     yet" card.
+ *   - under threshold → cohort sizes visible, lift fields null,
+ *                       explicit waiting copy.
+ *   - above threshold → cohort cards + lift tiles with formulas
+ *                       and sample sizes. Lifts are observed
+ *                       comparisons, not estimates — no `≈` badge.
+ */
+function CausalSection({ causal }: { causal?: UsageCausal }) {
+  if (!causal) {
+    return (
+      <section aria-label="Causal: assisted vs held-out" className="space-y-3">
+        <CausalHeader />
+        <EmptyState
+          title="No causal data yet"
+          body="Enable the deterministic holdout on a linked project with `npx tracebase experiment enable`. Once held-out runs record outcomes, this block renders assisted vs held-out lift."
+          hint={
+            <>
+              See <span className="font-mono">npx tracebase experiment status</span> to inspect the
+              current state.
+            </>
+          }
+        />
+      </section>
+    );
+  }
+
+  const cohortReady =
+    causal.assisted.n >= causal.minCohortSize && causal.holdout.n >= causal.minCohortSize;
+
+  return (
+    <section aria-label="Causal: assisted vs held-out" className="space-y-3">
+      <CausalHeader cohortReady={cohortReady} minCohortSize={causal.minCohortSize} />
+
+      <div className="grid gap-2.5 sm:grid-cols-2">
+        <CohortCard label="Assisted (treatment)" cohort={causal.assisted} tone="positive" />
+        <CohortCard label="Held-out (control)" cohort={causal.holdout} tone="neutral" />
+      </div>
+
+      {cohortReady ? (
+        <div className="grid gap-2.5 sm:grid-cols-3">
+          <MetricTile
+            label="Resolved rate lift"
+            value={
+              causal.resolvedLift === null
+                ? null
+                : formatRateLift(causal.resolvedLift)
+            }
+            note="assisted.resolvedRate − holdout.resolvedRate"
+            tone="positive"
+          />
+          <MetricTile
+            label="Tokens saved"
+            value={
+              causal.tokensLift.value === null
+                ? null
+                : formatInt(Math.round(causal.tokensLift.value))
+            }
+            note={
+              causal.tokensLift.value === null
+                ? "waiting for paired runs"
+                : `over ${causal.tokensLift.sampleSize} paired outcomes`
+            }
+            formula={causal.tokensLift.formula}
+            sampleSize={causal.tokensLift.sampleSize}
+          />
+          <MetricTile
+            label="Latency saved"
+            value={
+              causal.latencyLift.value === null
+                ? null
+                : formatMs(causal.latencyLift.value)
+            }
+            note={
+              causal.latencyLift.value === null
+                ? "waiting for paired runs"
+                : `over ${causal.latencyLift.sampleSize} paired outcomes`
+            }
+            formula={causal.latencyLift.formula}
+            sampleSize={causal.latencyLift.sampleSize}
+          />
+        </div>
+      ) : (
+        <div
+          className="rounded-sm border px-4 py-4"
+          style={{ borderColor: "var(--border)", background: "rgba(255,255,255,0.02)" }}
+        >
+          <p
+            className="text-[12px] font-light leading-relaxed"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Waiting for each cohort to reach{" "}
+            <span className="font-mono" style={{ color: "var(--text)" }}>
+              n = {causal.minCohortSize}
+            </span>
+            . Lift is only computed once both arms meet the threshold — earlier numbers would be
+            too noisy to report honestly.
+          </p>
+          <p
+            className="mt-2 text-[11px] font-light"
+            style={{ color: "var(--text-tertiary)" }}
+          >
+            Remaining: assisted {Math.max(0, causal.minCohortSize - causal.assisted.n)} · held-out{" "}
+            {Math.max(0, causal.minCohortSize - causal.holdout.n)}
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function CausalHeader({
+  cohortReady,
+  minCohortSize,
+}: {
+  cohortReady?: boolean;
+  minCohortSize?: number;
+} = {}) {
+  const subtitle =
+    cohortReady === undefined
+      ? "Deterministic holdout comparison. Only retrieval events with controlReason=\"holdout\" enter the control arm; manual shadow stays diagnostic below."
+      : cohortReady
+        ? "Both arms cleared the minimum cohort size — lift below is a workspace-wide observed comparison, not an estimate."
+        : `Holdout is live. Lift stays hidden until both arms reach n = ${minCohortSize}.`;
+  return (
+    <header className="flex flex-col gap-1">
+      <p
+        className="text-[10px] font-mono uppercase tracking-[0.22em]"
+        style={{ color: "var(--text-tertiary)" }}
+      >
+        Causal
+      </p>
+      <h2 className="text-[0.98rem] font-medium tracking-tight">Assisted vs held-out</h2>
+      <p
+        className="max-w-[44rem] text-[12px] font-light leading-relaxed"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        {subtitle}
+      </p>
+    </header>
+  );
+}
+
+function CohortCard({
+  label,
+  cohort,
+  tone,
+}: {
+  label: string;
+  cohort: UsageCohort;
+  tone: "positive" | "neutral";
+}) {
+  const rate =
+    cohort.resolvedRate === null ? "—" : `${(cohort.resolvedRate * 100).toFixed(1)}%`;
+  const valueColor = tone === "positive" ? "var(--accent)" : "var(--text)";
+  return (
+    <article
+      className="flex min-h-[140px] flex-col justify-between rounded-sm border p-4"
+      style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+    >
+      <p
+        className="text-[10px] font-mono uppercase tracking-[0.22em]"
+        style={{ color: "var(--text-tertiary)" }}
+      >
+        {label}
+      </p>
+      <div>
+        <p className="text-[1.7rem] font-light tracking-[-0.03em]" style={{ color: valueColor }}>
+          {rate}
+        </p>
+        <p
+          className="mt-2 text-[12px] font-light leading-relaxed"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          {cohort.resolved.toLocaleString()} resolved of {cohort.n.toLocaleString()} outcome
+          {cohort.n === 1 ? "" : "s"}
+        </p>
+      </div>
+    </article>
+  );
+}
+
+function formatRateLift(value: number): string {
+  // Percentage points, not percent. "+4.2 pp" reads as a rate
+  // difference rather than a relative change.
+  const pp = value * 100;
+  const sign = pp >= 0 ? "+" : "";
+  return `${sign}${pp.toFixed(1)} pp`;
 }
 
 export function windowKeyToRange(

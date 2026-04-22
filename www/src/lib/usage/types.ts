@@ -71,3 +71,12 @@ export interface UsageCausal {
   latencyLift: UsageEstimate;
   minCohortSize: number;
 }
+
+/**
+ * Mirror of the CLI-side `DEFAULT_MIN_CAUSAL_COHORT`. Kept here so
+ * the dashboard-side window fold uses the same default threshold as
+ * the CLI — a manual copy that stays honest via the Phase 1E.5
+ * compile-time drift guard (both sides' UsageMetrics must be
+ * bidirectionally assignable).
+ */
+export const DEFAULT_MIN_CAUSAL_COHORT = 30;
