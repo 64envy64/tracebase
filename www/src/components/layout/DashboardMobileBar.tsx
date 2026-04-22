@@ -9,6 +9,7 @@ import { LogoutButton } from "@/components/auth/LogoutButton";
 const MOBILE_NAV = [
   { href: "/dashboard", label: "Overview" },
   { href: "/dashboard/quickstart", label: "Install" },
+  { href: "/dashboard/impact", label: "Impact" },
   { href: "/dashboard/installations", label: "Linked" },
   { href: "/dashboard/api-keys", label: "Keys" },
 ] as const;
