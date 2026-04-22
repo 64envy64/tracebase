@@ -83,7 +83,7 @@ export function ImpactView({
           className="max-w-[44rem] text-[13px] font-light leading-relaxed"
           style={{ color: "var(--text-secondary)" }}
         >
-          Totals rolled up across{" "}
+          Totals rolled up from{" "}
           <span style={{ color: "var(--text)" }}>
             {projectsCount} {projectsLabel}
           </span>
@@ -91,7 +91,7 @@ export function ImpactView({
           <span style={{ color: "var(--text)" }}>
             {installationsCount} {installsLabel}
           </span>{" "}
-          linked to this workspace. The numbers below are workspace-wide — per-project and
+          that pushed samples in this window. The numbers below are workspace-wide — per-project and
           per-adapter breakdowns ship in Phase 2, once the local event stream carries an agent tag.
         </p>
 

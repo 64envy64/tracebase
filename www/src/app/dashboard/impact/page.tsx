@@ -7,6 +7,7 @@ import {
 } from "@/components/dashboard/ImpactView";
 import { getControlPlaneStore } from "@/lib/control-plane/store";
 import {
+  countContributorsInWindow,
   extractWorkspaceSamples,
   foldImpactWindow,
 } from "@/lib/control-plane/usage";
@@ -53,18 +54,18 @@ export default async function DashboardImpactPage({
     buckets,
   });
 
-  // Each installation row is (localWorkspaceId × agent); counting
-  // distinct localWorkspaceIds is the honest "how many projects"
-  // number. The raw installations count is (project × agent) and
-  // shouldn't be labelled as "adapters".
-  const distinctProjects = new Set(installations.map((i) => i.localWorkspaceId));
+  // Counts must describe *contributors to this window*, not every
+  // installation the workspace has ever wired. An idle installation
+  // that pushed nothing in the selected window is not part of the
+  // numbers rendered below.
+  const contributors = countContributorsInWindow(rawSamples, installations);
 
   return (
     <ImpactView
       window={window}
       windowKey={windowKey}
-      projectsCount={distinctProjects.size}
-      installationsCount={installations.length}
+      projectsCount={contributors.projects}
+      installationsCount={contributors.installations}
     />
   );
 }

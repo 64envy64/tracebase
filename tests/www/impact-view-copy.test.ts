@@ -41,6 +41,14 @@ describe("ImpactView copy", () => {
     expect(impactView).not.toMatch(/wired\s+adapters?/i);
   });
 
+  it("describes its counts as contributors-in-window, not as workspace-wide inventory", () => {
+    // The view must not say "linked to this workspace" — that was
+    // the mistaken framing when counts were workspace totals. It
+    // must instead reference the pushed-in-window source.
+    expect(impactView).toContain("pushed samples in this window");
+    expect(impactView).not.toMatch(/linked to this workspace/i);
+  });
+
   it("renders a projectsCount prop distinct from installationsCount", () => {
     // Props must be split so the view cannot quietly conflate one
     // as the other — a recurring mistake the rename guards against.
@@ -52,10 +60,17 @@ describe("ImpactView copy", () => {
 });
 
 describe("Impact page wiring", () => {
-  it("computes distinct projects from localWorkspaceId and passes it in", () => {
-    // The page must actually pass projectsCount to the view.
-    expect(impactPage).toContain("localWorkspaceId");
-    expect(impactPage).toContain("projectsCount=");
+  it("routes both counts through countContributorsInWindow, not workspace-wide inventory", () => {
+    // Regression: page used to compute projectsCount from
+    // `installations.map(...localWorkspaceId)` — i.e. every
+    // installation in the workspace, regardless of whether it
+    // pushed a sample in the window. The fix routes it through
+    // `countContributorsInWindow(samples, installations)`, which
+    // returns only the window's actual contributors.
+    expect(impactPage).toContain("countContributorsInWindow");
+    // The stale "all linked installations" derivation must be gone.
+    expect(impactPage).not.toMatch(/installationsCount=\{installations\.length\}/);
+    expect(impactPage).not.toMatch(/new Set\(installations\.map\(\(i\) => i\.localWorkspaceId\)\)/);
   });
 
   it("metadata description labels the route workspace-level, not project-level", () => {

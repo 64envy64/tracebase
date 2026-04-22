@@ -13,10 +13,14 @@ import { describe, it, expect } from "vitest";
 // separately from the CLI shape covered in tests/core/usage-metrics.
 import type { UsageMetrics } from "../../www/src/lib/usage/types.ts";
 import {
+  countContributorsInWindow,
   extractWorkspaceSamples,
   foldImpactWindow,
 } from "../../www/src/lib/control-plane/usage.ts";
-import type { ControlPlaneUsageSample } from "../../www/src/lib/control-plane/types.ts";
+import type {
+  ControlPlaneInstallation,
+  ControlPlaneUsageSample,
+} from "../../www/src/lib/control-plane/types.ts";
 
 function bucket(overrides: Partial<UsageMetrics["observed"]> & {
   tokensSaved?: number | null;
@@ -166,5 +170,82 @@ describe("foldImpactWindow", () => {
     expect(window.totals.estimated.tokensSaved.value).toBeNull();
     expect(window.totals.estimated.latencySavedMs.value).toBeNull();
     expect(window.totals.observed.eligibleRuns).toBe(7);
+  });
+});
+
+function inst(id: string, localWorkspaceId: string): ControlPlaneInstallation {
+  return {
+    id,
+    workspaceId: "ws-1",
+    localWorkspaceId,
+    projectName: `proj-${localWorkspaceId}`,
+    agent: "claude-code",
+    createdAt: "2026-04-20T00:00:00.000Z",
+    updatedAt: "2026-04-20T00:00:00.000Z",
+  };
+}
+
+function sampleFor(
+  installationId: string,
+  dateIso = "2026-04-20T00:00:00.000Z",
+): ControlPlaneUsageSample {
+  return {
+    id: `s-${installationId}`,
+    workspaceId: "ws-1",
+    installationId,
+    windowStart: dateIso,
+    windowEnd: dateIso,
+    metrics: {} as Record<string, unknown>,
+    receivedAt: dateIso,
+  };
+}
+
+describe("countContributorsInWindow", () => {
+  it("returns zeros when the window has no samples, regardless of workspace inventory", () => {
+    // Regression: Phase 1E.2 used listInstallations(workspace) for
+    // the project/installation counts on Impact. That over-counted
+    // an idle workspace — a user with 3 wired installations saw
+    // "3 projects · 3 installations" even when nothing pushed a
+    // sample in the selected window.
+    const installations = [
+      inst("inst-a", "proj-A"),
+      inst("inst-b", "proj-B"),
+      inst("inst-c", "proj-C"),
+    ];
+    const result = countContributorsInWindow([], installations);
+    expect(result).toEqual({ projects: 0, installations: 0 });
+  });
+
+  it("counts only installations that actually contributed samples in the window", () => {
+    const installations = [
+      inst("inst-a", "proj-A"),
+      inst("inst-b", "proj-B"),
+      inst("inst-c", "proj-C"),
+    ];
+    const samples = [sampleFor("inst-a"), sampleFor("inst-b")];
+    const result = countContributorsInWindow(samples, installations);
+    expect(result).toEqual({ projects: 2, installations: 2 });
+  });
+
+  it("deduplicates samples from the same installation, and multiple installations on one project count as one project", () => {
+    // Same project, two adapters (e.g. Claude Code + Cursor) both
+    // pushed samples → 1 project, 2 installations.
+    const installations = [
+      inst("inst-a", "proj-A"),
+      inst("inst-b", "proj-A"),
+    ];
+    const samples = [sampleFor("inst-a"), sampleFor("inst-a"), sampleFor("inst-b")];
+    const result = countContributorsInWindow(samples, installations);
+    expect(result).toEqual({ projects: 1, installations: 2 });
+  });
+
+  it("includes unresolved installation ids in the installation count without fabricating a project membership", () => {
+    const installations = [inst("inst-a", "proj-A")];
+    // An orphaned installationId (e.g. install was removed) still
+    // counts toward contributors — refusing to forget the sample is
+    // honest — but we will not invent a project for it.
+    const samples = [sampleFor("inst-a"), sampleFor("inst-gone")];
+    const result = countContributorsInWindow(samples, installations);
+    expect(result).toEqual({ projects: 1, installations: 2 });
   });
 });

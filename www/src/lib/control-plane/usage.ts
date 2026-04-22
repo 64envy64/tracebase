@@ -19,7 +19,38 @@
  * surface; this module does not mix granularities.
  */
 import type { UsageMetrics } from "@/lib/usage/types";
-import type { ControlPlaneUsageSample } from "./types";
+import type { ControlPlaneInstallation, ControlPlaneUsageSample } from "./types";
+
+/**
+ * Count of projects and installations that actually pushed samples
+ * into the selected window. Different from the workspace's total
+ * installation list — an installation that sits idle in the window
+ * does not count as a contributor to the numbers rendered on the
+ * Impact page.
+ *
+ * Samples whose `installationId` is not in the provided lookup get
+ * counted toward the installation total but not the project total;
+ * this keeps the installation count lossless while refusing to
+ * fabricate a project association for an unresolved row.
+ */
+export function countContributorsInWindow(
+  samples: readonly ControlPlaneUsageSample[],
+  installations: readonly ControlPlaneInstallation[],
+): { projects: number; installations: number } {
+  const contributorIds = new Set<string>();
+  for (const s of samples) contributorIds.add(s.installationId);
+
+  const byId = new Map<string, ControlPlaneInstallation>();
+  for (const i of installations) byId.set(i.id, i);
+
+  const projects = new Set<string>();
+  for (const id of contributorIds) {
+    const inst = byId.get(id);
+    if (inst) projects.add(inst.localWorkspaceId);
+  }
+
+  return { projects: projects.size, installations: contributorIds.size };
+}
 
 export type DailyBucket = {
   /** ISO date string (UTC midnight) — used as X axis label. */
