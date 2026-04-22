@@ -1,11 +1,14 @@
-import type { TraceBaseConfig } from "../types.js";
+import type { HoldoutConfig, TraceBaseConfig } from "../types.js";
 import { ReasoningLayer } from "../core/engine.js";
 import Database from "better-sqlite3";
+import { dirname } from "node:path";
 import { BlockStore } from "../core/block-store.js";
 import { BlockServer, formatInjection } from "../core/block-serving.js";
 import { EventEmitter, emitAgentUsed, emitFactAgentUsed, emitOutcome } from "../core/analytics.js";
 import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
 import { collectInjectedFromQuery, resolveUsedItems } from "./mcp-v2-helpers.js";
+import { readHoldoutConfig } from "../core/config.js";
+import { runReasoningPatternsRecall } from "./reasoning-patterns-entry.js";
 
 /**
  * Start TraceBase as an MCP (Model Context Protocol) server.
@@ -37,6 +40,18 @@ export async function startMcpServer(config: TraceBaseConfig): Promise<void> {
     gateThreshold: 0, // can be tuned via config later
   });
   const eventEmitter = new EventEmitter(blockStore);
+
+  // Phase 3.4.1 — project base for reading the holdout experiment
+  // config fresh on every `get_reasoning_patterns` call. Fresh reads
+  // mean `tracebase experiment enable|disable` in a terminal takes
+  // effect without restarting the MCP server. The default
+  // `storagePath` is `<basePath>/.tracebase/memory.db`, so two
+  // dirname() calls get us to the project root; if the path has a
+  // non-canonical layout the read simply fails and we fall back to
+  // default-off, which is the safe behaviour.
+  const projectBasePath = dirname(dirname(config.storagePath));
+  const holdoutConfigLoader: () => HoldoutConfig | null = () =>
+    readHoldoutConfig(projectBasePath);
 
   const server = new McpServer({
     name: "tracebase",
@@ -313,20 +328,12 @@ export async function startMcpServer(config: TraceBaseConfig): Promise<void> {
       factLimit: z.number().optional().describe("Max facts to return (default 5)"),
     },
     async (args) => {
-      const invariants: Record<string, unknown> = {};
-      if (args.language) invariants.language = args.language;
-      if (args.framework) invariants.framework = args.framework;
-      if (args.errorType) invariants.errorType = args.errorType;
-      if (args.apiSurface) invariants.apiSurface = args.apiSurface;
-
-      const result = blockServer.recall({
-        text: args.problem,
-        invariants: invariants as Parameters<typeof blockServer.recall>[0]["invariants"],
-        ...(args.scope ? { scope: args.scope } : {}),
-        ...(args.runId ? { runId: args.runId } : {}),
-        ...(args.limit !== undefined ? { limit: args.limit } : {}),
-        ...(args.factLimit !== undefined ? { factLimit: args.factLimit } : {}),
-        shadow: args.shadow ?? false,
+      // Delegate to the shared entry helper; see
+      // `src/server/reasoning-patterns-entry.ts` for the wiring
+      // contract (fingerprint → buildHoldoutInput → recall) and
+      // for the unit-test suite that proves it.
+      const result = runReasoningPatternsRecall(blockServer, args, {
+        readHoldoutConfig: holdoutConfigLoader,
       });
 
       const formatted = formatInjection(result, {
