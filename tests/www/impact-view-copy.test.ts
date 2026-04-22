@@ -77,4 +77,28 @@ describe("Impact page wiring", () => {
     expect(impactPage).toMatch(/Workspace-level/);
     expect(impactPage).not.toMatch(/Project-level/);
   });
+
+  it("metadata does not claim rollup across every linked project/adapter", () => {
+    // Phase 1E.3 scoped counts to contributors-in-window, but the
+    // metadata description still claimed "rolled up across every
+    // linked project and adapter" — a different shape of the same
+    // drift. Metadata must match the route's actual semantics.
+    expect(impactPage).not.toMatch(/every linked project and adapter/i);
+    expect(impactPage).toMatch(/contributors in the selected window/i);
+  });
+
+  it("fold and contributor counts key off the same scope-filtered sample set", () => {
+    // Phase 2 will start emitting scope="agent" samples alongside
+    // the workspace-scoped ones. The numbers and the counts must
+    // not drift — both have to feed from the same pre-filtered
+    // `workspaceSamples`, not from `rawSamples` at large.
+    expect(impactPage).toContain("filterSamplesByScope");
+    expect(impactPage).toContain("workspaceSamples");
+    // Neither consumer must accept the unfiltered rawSamples.
+    expect(impactPage).not.toMatch(/toDailyBuckets\(rawSamples\)/);
+    expect(impactPage).not.toMatch(/countContributorsInWindow\(rawSamples\b/);
+    // Explicit shape: both receive the same filtered set.
+    expect(impactPage).toMatch(/toDailyBuckets\(workspaceSamples\)/);
+    expect(impactPage).toMatch(/countContributorsInWindow\(workspaceSamples\b/);
+  });
 });

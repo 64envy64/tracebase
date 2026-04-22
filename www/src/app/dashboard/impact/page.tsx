@@ -8,14 +8,15 @@ import {
 import { getControlPlaneStore } from "@/lib/control-plane/store";
 import {
   countContributorsInWindow,
-  extractWorkspaceSamples,
+  filterSamplesByScope,
   foldImpactWindow,
+  toDailyBuckets,
 } from "@/lib/control-plane/usage";
 
 export const metadata: Metadata = {
   title: "Impact — TraceBase",
   description:
-    "Workspace-level reasoning-reuse metrics, rolled up across every linked project and adapter. Per-project and per-adapter breakdowns land in Phase 2.",
+    "Workspace-level reasoning-reuse metrics, rolled up from the contributors in the selected window. Per-project and per-adapter breakdowns land in Phase 2.",
 };
 
 export default async function DashboardImpactPage({
@@ -47,18 +48,22 @@ export default async function DashboardImpactPage({
     store.listInstallations(workspace.id),
   ]);
 
-  const buckets = extractWorkspaceSamples(rawSamples);
+  // Single filter, two consumers. `workspaceSamples` is the source
+  // for both the fold (→ totals rendered on the page) and the
+  // contributor count (→ "N projects · M installs" in the header).
+  // When Phase 2 starts emitting scope="agent" samples, this filter
+  // is the only place that needs to change — the numbers and the
+  // counts cannot drift apart because they both key off the same
+  // filtered set.
+  const workspaceSamples = filterSamplesByScope(rawSamples, "workspace");
+  const buckets = toDailyBuckets(workspaceSamples);
   const window = foldImpactWindow({
     afterTs: range.afterTs,
     beforeTs: range.beforeTs,
     buckets,
   });
 
-  // Counts must describe *contributors to this window*, not every
-  // installation the workspace has ever wired. An idle installation
-  // that pushed nothing in the selected window is not part of the
-  // numbers rendered below.
-  const contributors = countContributorsInWindow(rawSamples, installations);
+  const contributors = countContributorsInWindow(workspaceSamples, installations);
 
   return (
     <ImpactView

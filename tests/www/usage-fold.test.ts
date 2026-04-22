@@ -15,7 +15,9 @@ import type { UsageMetrics } from "../../www/src/lib/usage/types.ts";
 import {
   countContributorsInWindow,
   extractWorkspaceSamples,
+  filterSamplesByScope,
   foldImpactWindow,
+  toDailyBuckets,
 } from "../../www/src/lib/control-plane/usage.ts";
 import type {
   ControlPlaneInstallation,
@@ -247,5 +249,68 @@ describe("countContributorsInWindow", () => {
     const samples = [sampleFor("inst-a"), sampleFor("inst-gone")];
     const result = countContributorsInWindow(samples, installations);
     expect(result).toEqual({ projects: 1, installations: 2 });
+  });
+});
+
+describe("filterSamplesByScope guardrail", () => {
+  it("keeps the scope tag authoritative — scope=agent rows do not leak into a workspace-scope fold", () => {
+    // Phase 2 introduces scope="agent" samples alongside the
+    // workspace-scope ones. The Impact route must key off the
+    // filtered set; a downstream consumer that forgets to filter
+    // must not silently include the agent rows in workspace totals.
+    const workspaceSample: ControlPlaneUsageSample = {
+      id: "s1",
+      workspaceId: "ws-1",
+      installationId: "inst-a",
+      windowStart: "2026-04-20T00:00:00.000Z",
+      windowEnd: "2026-04-21T00:00:00.000Z",
+      metrics: bucket({ eligibleRuns: 3 }) as unknown as Record<string, unknown>,
+      receivedAt: "2026-04-20T00:00:00.000Z",
+    };
+    const agentSample: ControlPlaneUsageSample = {
+      id: "s2",
+      workspaceId: "ws-1",
+      installationId: "inst-b",
+      windowStart: "2026-04-20T00:00:00.000Z",
+      windowEnd: "2026-04-21T00:00:00.000Z",
+      metrics: {
+        ...bucket({ eligibleRuns: 99 }),
+        scope: "agent",
+      } as unknown as Record<string, unknown>,
+      receivedAt: "2026-04-20T00:00:00.000Z",
+    };
+    const all = [workspaceSample, agentSample];
+
+    const workspaceOnly = filterSamplesByScope(all, "workspace");
+    expect(workspaceOnly).toHaveLength(1);
+    expect(workspaceOnly[0]?.id).toBe("s1");
+
+    // Both page consumers must feed from the filtered set. Buckets
+    // should only see the workspace sample; contributor count must
+    // reflect a single contributing installation — not two.
+    const buckets = toDailyBuckets(workspaceOnly);
+    expect(buckets).toHaveLength(1);
+    expect(buckets[0]?.metrics.observed.eligibleRuns).toBe(3);
+
+    const installations = [inst("inst-a", "proj-A"), inst("inst-b", "proj-B")];
+    const contributors = countContributorsInWindow(workspaceOnly, installations);
+    expect(contributors).toEqual({ projects: 1, installations: 1 });
+  });
+
+  it("extractWorkspaceSamples stays equivalent to filter + bucket for back-compat", () => {
+    const samples: ControlPlaneUsageSample[] = [
+      {
+        id: "s1",
+        workspaceId: "ws",
+        installationId: "inst-a",
+        windowStart: "2026-04-20T00:00:00.000Z",
+        windowEnd: "2026-04-21T00:00:00.000Z",
+        metrics: bucket({ eligibleRuns: 2 }) as unknown as Record<string, unknown>,
+        receivedAt: "2026-04-20T00:00:00.000Z",
+      },
+    ];
+    const legacy = extractWorkspaceSamples(samples);
+    const split = toDailyBuckets(filterSamplesByScope(samples, "workspace"));
+    expect(legacy).toEqual(split);
   });
 });

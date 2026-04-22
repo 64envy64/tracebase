@@ -18,7 +18,7 @@
  * fold. Per-agent rollups (Phase 2) will be rendered on a separate
  * surface; this module does not mix granularities.
  */
-import type { UsageMetrics } from "@/lib/usage/types";
+import type { UsageMetrics, UsageScope } from "@/lib/usage/types";
 import type { ControlPlaneInstallation, ControlPlaneUsageSample } from "./types";
 
 /**
@@ -65,22 +65,63 @@ export type ImpactWindow = {
   buckets: DailyBucket[];
 };
 
-export function extractWorkspaceSamples(
+/**
+ * Drop samples that aren't tagged with the expected scope, preserving
+ * the order of the input. Pure filter — no parsing / bucketing.
+ *
+ * Phase 1 only ever emits `scope: "workspace"`; Phase 2 introduces
+ * `scope: "agent"`. Keeping this helper explicit lets a caller split
+ * once and feed the same filtered sample set to both the fold and
+ * the contributor counter, guaranteeing the numbers and the counts
+ * come from the same source.
+ */
+export function filterSamplesByScope(
+  samples: readonly ControlPlaneUsageSample[],
+  scope: UsageScope,
+): ControlPlaneUsageSample[] {
+  const out: ControlPlaneUsageSample[] = [];
+  for (const sample of samples) {
+    const s = (sample.metrics as { scope?: unknown }).scope;
+    if (s === scope) out.push(sample);
+  }
+  return out;
+}
+
+/**
+ * Parse per-sample `UsageMetrics` payloads into dated `DailyBucket`s,
+ * dropping any that fail validation. Ascending by `windowStart` so a
+ * timeseries renders left-to-right without a second sort.
+ *
+ * Pure — requires callers to have pre-filtered by scope. That split
+ * matters once Phase 2 starts emitting `scope: "agent"` samples
+ * alongside the workspace-scope ones.
+ */
+export function toDailyBuckets(
   samples: readonly ControlPlaneUsageSample[],
 ): DailyBucket[] {
   const out: DailyBucket[] = [];
   for (const sample of samples) {
     const parsed = parseUsageMetrics(sample.metrics);
     if (!parsed) continue;
-    if (parsed.scope !== "workspace") continue;
     out.push({
       date: sample.windowStart.slice(0, 10), // YYYY-MM-DD
       metrics: parsed,
     });
   }
-  // Ascending by window_start so timeseries renders left-to-right.
   out.sort((a, b) => a.date.localeCompare(b.date));
   return out;
+}
+
+/**
+ * Back-compat convenience: filter workspace-scoped samples and bucket
+ * them in one call. New code should prefer `filterSamplesByScope`
+ * followed by `toDailyBuckets` so the filtered sample set can be
+ * reused for e.g. contributor counting without a second parse.
+ */
+export function extractWorkspaceSamples(
+  samples: readonly ControlPlaneUsageSample[],
+): DailyBucket[] {
+  return toDailyBuckets(filterSamplesByScope(samples, "workspace"));
 }
 
 export function foldImpactWindow(input: {
