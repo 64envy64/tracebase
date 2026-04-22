@@ -34,6 +34,34 @@ export interface ControlPlaneStore {
     cliVersion?: string;
   }): Promise<ControlPlaneInstallation>;
   listInstallations(workspaceId: string): Promise<ControlPlaneInstallation[]>;
+  getInstallationById(input: {
+    workspaceId: string;
+    installationId: string;
+  }): Promise<ControlPlaneInstallation | null>;
+  /**
+   * Upsert a rolled-up usage sample for one installation in one time
+   * window. Idempotent on (installationId, windowStart, windowEnd).
+   * Re-pushing the same window overwrites the previous sample; a CLI
+   * that retries a failed push therefore cannot double-count.
+   */
+  upsertUsageSample(input: {
+    workspaceId: string;
+    installationId: string;
+    windowStart: string;
+    windowEnd: string;
+    metrics: Record<string, unknown>;
+    cliVersion?: string;
+  }): Promise<ControlPlaneUsageSample>;
+  /**
+   * List samples for a workspace, optionally bounded by a time
+   * window. Ordered by (windowStart DESC, installationId) so the
+   * dashboard can render a timeseries without re-sorting.
+   */
+  listUsageSamples(input: {
+    workspaceId: string;
+    afterTs?: string;
+    beforeTs?: string;
+  }): Promise<ControlPlaneUsageSample[]>;
   startDeviceSession(input: {
     localWorkspaceId: string;
     projectName: string;
@@ -61,6 +89,7 @@ type FileDb = {
   apiKeys: StoredApiKey[];
   installations: ControlPlaneInstallation[];
   deviceSessions: ControlPlaneDeviceSession[];
+  usageSamples?: ControlPlaneUsageSample[];
 };
 
 type StoredWorkspace = ControlPlaneWorkspace;
@@ -121,6 +150,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS tracebase_installations_per_agent_idx
 
 ALTER TABLE tracebase_installations
   DROP CONSTRAINT IF EXISTS tracebase_installations_workspace_id_local_workspace_id_key;
+
+CREATE TABLE IF NOT EXISTS tracebase_usage_samples (
+  id UUID PRIMARY KEY,
+  workspace_id UUID NOT NULL REFERENCES tracebase_workspaces(id) ON DELETE CASCADE,
+  installation_id UUID NOT NULL REFERENCES tracebase_installations(id) ON DELETE CASCADE,
+  window_start TIMESTAMPTZ NOT NULL,
+  window_end TIMESTAMPTZ NOT NULL,
+  metrics JSONB NOT NULL,
+  cli_version TEXT,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (installation_id, window_start, window_end)
+);
+
+CREATE INDEX IF NOT EXISTS tracebase_usage_samples_workspace_window_idx
+  ON tracebase_usage_samples (workspace_id, window_start DESC);
 
 CREATE TABLE IF NOT EXISTS tracebase_device_sessions (
   id UUID PRIMARY KEY,
@@ -399,6 +443,83 @@ class PostgresControlPlaneStore implements ControlPlaneStore {
     return res.rows.map(mapInstallationRow);
   }
 
+  async getInstallationById(input: {
+    workspaceId: string;
+    installationId: string;
+  }): Promise<ControlPlaneInstallation | null> {
+    const res = await this.pool.query(
+      `
+      SELECT *
+      FROM tracebase_installations
+      WHERE workspace_id = $1 AND id = $2
+      LIMIT 1
+      `,
+      [input.workspaceId, input.installationId],
+    );
+    if (!res.rowCount) return null;
+    return mapInstallationRow(res.rows[0]);
+  }
+
+  async upsertUsageSample(input: {
+    workspaceId: string;
+    installationId: string;
+    windowStart: string;
+    windowEnd: string;
+    metrics: Record<string, unknown>;
+    cliVersion?: string;
+  }): Promise<ControlPlaneUsageSample> {
+    const res = await this.pool.query(
+      `
+      INSERT INTO tracebase_usage_samples (
+        id, workspace_id, installation_id, window_start, window_end, metrics, cli_version
+      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+      ON CONFLICT (installation_id, window_start, window_end)
+      DO UPDATE SET
+        metrics = EXCLUDED.metrics,
+        cli_version = EXCLUDED.cli_version,
+        received_at = NOW()
+      RETURNING *
+      `,
+      [
+        randomUUID(),
+        input.workspaceId,
+        input.installationId,
+        input.windowStart,
+        input.windowEnd,
+        JSON.stringify(input.metrics),
+        input.cliVersion ?? null,
+      ],
+    );
+    return mapUsageSampleRow(res.rows[0]);
+  }
+
+  async listUsageSamples(input: {
+    workspaceId: string;
+    afterTs?: string;
+    beforeTs?: string;
+  }): Promise<ControlPlaneUsageSample[]> {
+    const params: unknown[] = [input.workspaceId];
+    const clauses: string[] = ["workspace_id = $1"];
+    if (input.afterTs) {
+      params.push(input.afterTs);
+      clauses.push(`window_end > $${params.length}`);
+    }
+    if (input.beforeTs) {
+      params.push(input.beforeTs);
+      clauses.push(`window_start < $${params.length}`);
+    }
+    const res = await this.pool.query(
+      `
+      SELECT *
+      FROM tracebase_usage_samples
+      WHERE ${clauses.join(" AND ")}
+      ORDER BY window_start DESC, installation_id
+      `,
+      params,
+    );
+    return res.rows.map(mapUsageSampleRow);
+  }
+
   async startDeviceSession(input: {
     localWorkspaceId: string;
     projectName: string;
@@ -675,6 +796,7 @@ class FileControlPlaneStore implements ControlPlaneStore {
         apiKeys: [],
         installations: [],
         deviceSessions: [],
+        usageSamples: [],
       });
     }
   }
@@ -813,6 +935,73 @@ class FileControlPlaneStore implements ControlPlaneStore {
     return db.installations
       .filter((row) => row.workspaceId === workspaceId)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async getInstallationById(input: {
+    workspaceId: string;
+    installationId: string;
+  }): Promise<ControlPlaneInstallation | null> {
+    const db = await this.readDb();
+    const found = db.installations.find(
+      (row) => row.workspaceId === input.workspaceId && row.id === input.installationId,
+    );
+    return found ?? null;
+  }
+
+  async upsertUsageSample(input: {
+    workspaceId: string;
+    installationId: string;
+    windowStart: string;
+    windowEnd: string;
+    metrics: Record<string, unknown>;
+    cliVersion?: string;
+  }): Promise<ControlPlaneUsageSample> {
+    const db = await this.readDb();
+    const samples = db.usageSamples ?? [];
+    const key = (s: ControlPlaneUsageSample) =>
+      s.installationId === input.installationId &&
+      s.windowStart === input.windowStart &&
+      s.windowEnd === input.windowEnd;
+    const existing = samples.find(key);
+    const now = nowIso();
+    const row: ControlPlaneUsageSample = existing
+      ? {
+          ...existing,
+          metrics: input.metrics,
+          ...(input.cliVersion ? { cliVersion: input.cliVersion } : {}),
+          receivedAt: now,
+        }
+      : {
+          id: randomUUID(),
+          workspaceId: input.workspaceId,
+          installationId: input.installationId,
+          windowStart: input.windowStart,
+          windowEnd: input.windowEnd,
+          metrics: input.metrics,
+          ...(input.cliVersion ? { cliVersion: input.cliVersion } : {}),
+          receivedAt: now,
+        };
+    const next = existing ? samples.map((s) => (key(s) ? row : s)) : [row, ...samples];
+    db.usageSamples = next;
+    await this.writeDb(db);
+    return row;
+  }
+
+  async listUsageSamples(input: {
+    workspaceId: string;
+    afterTs?: string;
+    beforeTs?: string;
+  }): Promise<ControlPlaneUsageSample[]> {
+    const db = await this.readDb();
+    const samples = db.usageSamples ?? [];
+    return samples
+      .filter((s) => s.workspaceId === input.workspaceId)
+      .filter((s) => (input.afterTs ? s.windowEnd > input.afterTs : true))
+      .filter((s) => (input.beforeTs ? s.windowStart < input.beforeTs : true))
+      .sort((a, b) => {
+        if (a.windowStart !== b.windowStart) return b.windowStart.localeCompare(a.windowStart);
+        return a.installationId.localeCompare(b.installationId);
+      });
   }
 
   async startDeviceSession(input: {
@@ -1033,6 +1222,34 @@ function mapInstallationRow(row: Record<string, unknown>): ControlPlaneInstallat
     ...(row.cli_version ? { cliVersion: String(row.cli_version) } : {}),
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
+  };
+}
+
+function mapUsageSampleRow(row: Record<string, unknown>): ControlPlaneUsageSample {
+  // metrics column is JSONB. pg returns parsed JSON objects directly; if
+  // the driver ever returns a raw string we parse it defensively.
+  let metrics: Record<string, unknown>;
+  const raw = row.metrics;
+  if (raw && typeof raw === "object") {
+    metrics = raw as Record<string, unknown>;
+  } else if (typeof raw === "string") {
+    try {
+      metrics = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      metrics = {};
+    }
+  } else {
+    metrics = {};
+  }
+  return {
+    id: String(row.id),
+    workspaceId: String(row.workspace_id),
+    installationId: String(row.installation_id),
+    windowStart: toIso(row.window_start),
+    windowEnd: toIso(row.window_end),
+    metrics,
+    ...(row.cli_version ? { cliVersion: String(row.cli_version) } : {}),
+    receivedAt: toIso(row.received_at),
   };
 }
 
