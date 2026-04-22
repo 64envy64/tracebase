@@ -137,8 +137,72 @@ export interface UsageMetrics {
   window: UsageWindow;
   observed: UsageObserved;
   estimated: UsageEstimated;
+  /**
+   * Phase 3 causal comparison — assisted vs deterministic holdout.
+   * Optional: present only when at least one `holdout` outcome has
+   * been recorded, signalling that the experiment is live. The
+   * absence of this field is the honest answer for any workspace
+   * that has not enabled holdout; the UI renders it as "no causal
+   * data yet" instead of a fabricated number.
+   *
+   * Strictly separate from `estimated` — `estimated` is the Phase 1
+   * shadow-based diagnostic (kept as-is for back-compat and coarse
+   * signal); `causal` only uses retrieval events tagged
+   * `controlReason === "holdout"`. Manual / legacy shadow never
+   * enters the causal numbers.
+   */
+  causal?: UsageCausal;
   integrity: UsageIntegrity;
 }
+
+export interface UsageCohort {
+  /** Distinct queryIds in this arm that produced an outcome. */
+  n: number;
+  /** Absolute count of `outcome.resolved === true` outcomes. */
+  resolved: number;
+  /** `resolved / n`; null when `n === 0`. */
+  resolvedRate: number | null;
+}
+
+export interface UsageCausal {
+  /**
+   * Assisted cohort — retrieval event with `shadow === false` AND
+   * at least one injection (block or fact) event for the queryId.
+   * Runs where the gate filtered every candidate are excluded:
+   * they never received memory, so including them would dilute the
+   * treatment arm with "never assisted" runs.
+   */
+  assisted: UsageCohort;
+  /**
+   * Holdout cohort — retrieval event with `shadow === true` AND
+   * `controlReason === "holdout"`. By construction these are
+   * gate-eligible runs (Phase 3.2.1) that the deterministic
+   * experiment withheld from injection.
+   */
+  holdout: UsageCohort;
+  /**
+   * `assisted.resolvedRate − holdout.resolvedRate`. Positive = assist
+   * improved resolve rate. Null when either arm has fewer than
+   * `minCohortSize` outcomes — refusing to fabricate lift on small
+   * cohorts is the whole point of the threshold.
+   */
+  resolvedLift: number | null;
+  /**
+   * Total tokens saved across the window, attributable to the
+   * assist: `(mean(holdout.tokens) − mean(assisted.tokens)) ×
+   * assisted.n`. Positive = savings. Null with its `value` below
+   * when either arm has fewer than `minCohortSize` token-carrying
+   * outcomes.
+   */
+  tokensLift: UsageEstimate;
+  /** Same shape as `tokensLift`, over outcome.durationMs. */
+  latencyLift: UsageEstimate;
+  /** Threshold the computation applied to decide null vs numeric lift. */
+  minCohortSize: number;
+}
+
+/** Default minimum cohort size for causal-lift reporting. */
+export const DEFAULT_MIN_CAUSAL_COHORT = 30;
 
 /** Convenience tag the UI uses to render the estimate label. */
 export const USAGE_ESTIMATE_TAG = "estimate" as const;
@@ -151,6 +215,14 @@ export interface ComputeUsageMetricsOptions {
    * already been filtered to one agent (Phase 2+).
    */
   scope?: UsageScope;
+  /**
+   * Minimum per-arm size required before `causal.resolvedLift` /
+   * `tokensLift.value` / `latencyLift.value` resolve to numbers.
+   * Below the threshold they stay `null` so the UI cannot render a
+   * fabricated "assisted helps by X" on 2 samples. Default:
+   * `DEFAULT_MIN_CAUSAL_COHORT` (30).
+   */
+  minCausalCohort?: number;
 }
 
 /**
@@ -165,12 +237,15 @@ export function computeUsageMetrics(
 ): UsageMetrics {
   const { funnel, outcome, integrity, window } = agg;
   const scope: UsageScope = opts.scope ?? "workspace";
+  const minCausalCohort = opts.minCausalCohort ?? DEFAULT_MIN_CAUSAL_COHORT;
 
   const resolvedRateWithMemory =
     funnel.injectedRuns > 0 ? funnel.helpfulRuns / funnel.injectedRuns : null;
 
   const tokenDelta = perRunDelta(outcome.tokensShadow, outcome.tokensTreatment);
   const durationDelta = perRunDelta(outcome.durationsShadow, outcome.durationsTreatment);
+
+  const causal = computeCausal(agg, minCausalCohort);
 
   return {
     scope,
@@ -187,10 +262,92 @@ export function computeUsageMetrics(
       tokensSaved: scaleEstimate(tokenDelta, funnel.injectedRuns, "tokens"),
       latencySavedMs: scaleEstimate(durationDelta, funnel.injectedRuns, "ms"),
     },
+    // Optional: present only when the holdout arm has at least one
+    // outcome on record. Absence is the honest "experiment not
+    // running / no data yet" signal.
+    ...(causal ? { causal } : {}),
     integrity: {
       shadowControlMismatches: integrity.shadowControlMismatches,
       outcomesWithoutRetrieval: integrity.outcomesWithoutRetrieval,
     },
+  };
+}
+
+/**
+ * Causal numbers. Lift fields resolve to null until each arm has at
+ * least `minCohortSize` outcomes on record; this refuses to render
+ * "+42% resolve rate on n=3" as if it were proof.
+ *
+ * The arms themselves (`assisted`, `holdout`) are reported as
+ * observed counts regardless of size so a user can see "waiting for
+ * the cohort to grow to 30" instead of a blank screen.
+ */
+function computeCausal(
+  agg: EventAggregates,
+  minCohortSize: number,
+): UsageCausal | null {
+  const { assisted, holdout } = agg.causal;
+  if (holdout.n === 0) {
+    // No experiment data yet — omit the block entirely so UIs don't
+    // render an empty shell.
+    return null;
+  }
+  const arms: UsageCausal = {
+    assisted: toCohort(assisted),
+    holdout: toCohort(holdout),
+    resolvedLift: null,
+    tokensLift: {
+      value: null,
+      sampleSize: Math.min(holdout.tokens.length, assisted.tokens.length),
+      formula:
+        "(mean(holdout.tokens) − mean(assisted.tokens)) × assisted.n — needs ≥ minCohortSize per arm",
+    },
+    latencyLift: {
+      value: null,
+      sampleSize: Math.min(holdout.durations.length, assisted.durations.length),
+      formula:
+        "(mean(holdout.durationMs) − mean(assisted.durationMs)) × assisted.n — needs ≥ minCohortSize per arm",
+    },
+    minCohortSize,
+  };
+
+  const cohortReady = assisted.n >= minCohortSize && holdout.n >= minCohortSize;
+  if (cohortReady) {
+    if (arms.assisted.resolvedRate !== null && arms.holdout.resolvedRate !== null) {
+      arms.resolvedLift = arms.assisted.resolvedRate - arms.holdout.resolvedRate;
+    }
+  }
+
+  const tokensReady =
+    holdout.tokens.length >= minCohortSize && assisted.tokens.length >= minCohortSize;
+  if (tokensReady) {
+    const perRunDelta = mean(holdout.tokens) - mean(assisted.tokens);
+    arms.tokensLift = {
+      value: perRunDelta * assisted.n,
+      sampleSize: Math.min(holdout.tokens.length, assisted.tokens.length),
+      formula: "(mean(holdout.tokens) − mean(assisted.tokens)) × assisted.n",
+    };
+  }
+
+  const latencyReady =
+    holdout.durations.length >= minCohortSize && assisted.durations.length >= minCohortSize;
+  if (latencyReady) {
+    const perRunDelta = mean(holdout.durations) - mean(assisted.durations);
+    arms.latencyLift = {
+      value: perRunDelta * assisted.n,
+      sampleSize: Math.min(holdout.durations.length, assisted.durations.length),
+      formula: "(mean(holdout.durationMs) − mean(assisted.durationMs)) × assisted.n",
+    };
+  }
+
+  return arms;
+}
+
+function toCohort(c: { n: number; resolved: number }): UsageCohort {
+  return {
+    n: c.n,
+    resolved: c.resolved,
+    resolvedRate: c.n > 0 ? c.resolved / c.n : null,
   };
 }
 

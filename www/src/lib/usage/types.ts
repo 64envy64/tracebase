@@ -47,5 +47,27 @@ export interface UsageMetrics {
   window: UsageWindow;
   observed: UsageObserved;
   estimated: UsageEstimated;
+  /**
+   * Phase 3.3 — assisted vs deterministic-holdout causal block.
+   * Present only when the holdout arm has at least one outcome on
+   * record. Absence is the honest "experiment not running / no
+   * data yet" signal.
+   */
+  causal?: UsageCausal;
   integrity: UsageIntegrity;
+}
+
+export interface UsageCohort {
+  n: number;
+  resolved: number;
+  resolvedRate: number | null;
+}
+
+export interface UsageCausal {
+  assisted: UsageCohort;
+  holdout: UsageCohort;
+  resolvedLift: number | null;
+  tokensLift: UsageEstimate;
+  latencyLift: UsageEstimate;
+  minCohortSize: number;
 }

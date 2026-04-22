@@ -413,6 +413,58 @@ export interface OutcomeSplit {
 }
 
 /**
+ * One arm of the Phase 3 causal split — either the assisted arm
+ * (shadow === false AND at least one injection event fired for the
+ * queryId) or the experimental holdout arm (retrieval event with
+ * shadow === true AND controlReason === "holdout").
+ *
+ * `resolved` counts outcomes with `resolved === true`. `tokens` and
+ * `durations` are raw per-outcome arrays (only populated when the
+ * outcome event carried them) so downstream math can decide whether
+ * to compute per-run means, totals, or confidence intervals without
+ * being forced through an intermediate aggregate.
+ */
+export interface CausalCohort {
+  /** Distinct queryIds in this arm that have an outcome event. */
+  n: number;
+  /** Absolute count of `outcome.resolved === true` in this arm. */
+  resolved: number;
+  /** Raw outcome.tokens values for the arm, if present. */
+  tokens: number[];
+  /** Raw outcome.durationMs values for the arm, if present. */
+  durations: number[];
+}
+
+/**
+ * Causal comparison split.
+ *
+ * Classification is strictly by `retrieval.controlReason`:
+ *
+ *   - `assisted`        — retrieval event with shadow === false AND
+ *                          at least one injection (block or fact)
+ *                          event for the queryId. A shadow === false
+ *                          run with zero injection events never
+ *                          reached the agent with memory; the
+ *                          treatment arm for causal purposes is only
+ *                          the runs that were actually assisted.
+ *   - `holdout`         — retrieval event with shadow === true AND
+ *                          controlReason === "holdout". These are
+ *                          gate-eligible runs withheld from
+ *                          injection by the deterministic
+ *                          experimental assignment in Phase 3.2.
+ *   - manual / legacy   — shadow === true with any other
+ *                          controlReason (undefined or "shadow")
+ *                          NEVER enters either arm. The existing
+ *                          diagnostic `OutcomeSplit` still covers
+ *                          those events; Phase 1's `estimated`
+ *                          metrics still consume them.
+ */
+export interface CausalSplit {
+  assisted: CausalCohort;
+  holdout: CausalCohort;
+}
+
+/**
  * Funnel-stage counts, each defined as a *distinct queryId* count so
  * that `eligible ≥ recalled ≥ injected ≥ used ≥ helpful` holds
  * monotonically over any window. This is the single event-log-derived
@@ -511,6 +563,14 @@ export interface EventAggregates {
   rates: AggregateRates;
   /** Funnel-stage counts, queryId-deduplicated. See AggregateFunnel. */
   funnel: AggregateFunnel;
+  /**
+   * Phase 3 causal split, keyed strictly on `retrieval.controlReason`.
+   * See `CausalSplit` for the exact cohort rules. Zero-filled when no
+   * assisted / holdout data is present — consumers distinguish "no
+   * experiment running" from "experiment running but no outcomes yet"
+   * by checking cohort.n.
+   */
+  causal: CausalSplit;
   perBlock: PerBlockStats[];
   /** Per-fact stats; parallel structure to perBlock. */
   perFact: PerFactStats[];
@@ -573,12 +633,20 @@ export function computeAggregates(
   // so the final funnel counts are monotonic and dedupe-safe.
   const eligibleQueries = new Set<string>();
   const recalledQueries = new Set<string>();
+  // Phase 3 — per-queryId cohort classification. `controlReason` is
+  // recorded verbatim from the retrieval event so "undefined on a
+  // shadow: true event" (legacy/manual diagnostic) is distinguishable
+  // from an explicit "holdout" tag. Only the explicit "holdout" tag
+  // enters the causal numbers; everything else is either assisted,
+  // manual shadow (diagnostic only), or ineligible.
+  const controlReasonByQuery = new Map<string, "shadow" | "holdout" | undefined>();
 
   for (const ev of events) {
     switch (ev.event) {
       case "retrieval": {
         counts.retrieval++;
         shadowByQuery.set(ev.queryId, ev.shadow);
+        controlReasonByQuery.set(ev.queryId, ev.controlReason);
         if (ev.shadow) retrievalShadow.add(ev.queryId);
         else retrievalTreatment.add(ev.queryId);
         eligibleQueries.add(ev.queryId);
@@ -814,6 +882,34 @@ export function computeAggregates(
     helpfulRuns: helpfulQueries.size,
   };
 
+  // Phase 3 causal split — classify each queryId with an outcome
+  // strictly by retrieval.controlReason. Legacy / manual shadow
+  // (controlReason undefined or "shadow") never enters either arm.
+  const causal: CausalSplit = {
+    assisted: { n: 0, resolved: 0, tokens: [], durations: [] },
+    holdout: { n: 0, resolved: 0, tokens: [], durations: [] },
+  };
+  for (const [queryId, outcome] of outcomeByQuery) {
+    const wasShadow = shadowByQuery.get(queryId) ?? outcome.control;
+    const reason = controlReasonByQuery.get(queryId);
+    let arm: "assisted" | "holdout" | null = null;
+    if (wasShadow && reason === "holdout") {
+      arm = "holdout";
+    } else if (!wasShadow && injectedQueries.has(queryId)) {
+      // Assisted arm: non-shadow runs that actually received an
+      // injection. A shadow=false run whose gate filtered every
+      // candidate did not reach the agent with memory and therefore
+      // does not belong in the causal comparison.
+      arm = "assisted";
+    }
+    if (!arm) continue;
+    const bucket = causal[arm];
+    bucket.n++;
+    if (outcome.resolved) bucket.resolved++;
+    if (typeof outcome.tokens === "number") bucket.tokens.push(outcome.tokens);
+    if (typeof outcome.durationMs === "number") bucket.durations.push(outcome.durationMs);
+  }
+
   return {
     counts,
     retrieval: {
@@ -824,6 +920,7 @@ export function computeAggregates(
     outcome: outcomeSplit,
     rates,
     funnel,
+    causal,
     perBlock: [...perBlockMap.values()].sort((a, b) => b.helpful - a.helpful),
     perFact: [...perFactMap.values()].sort((a, b) => b.helpful - a.helpful),
     integrity: {

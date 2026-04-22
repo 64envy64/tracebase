@@ -197,6 +197,8 @@ export type {
   OutcomeSplit,
   AggregateRates,
   AggregateFunnel,
+  CausalSplit,
+  CausalCohort,
   PerBlockStats,
   PerFactStats,
   AggregateIntegrity,
@@ -205,9 +207,11 @@ export type {
 } from "./core/analytics.js";
 
 // Phase 1 — UsageMetrics (event-log-derived, dashboard-consumable).
+// Phase 3.3 adds the optional UsageCausal / UsageCohort block.
 export {
   computeUsageMetrics,
   USAGE_ESTIMATE_TAG,
+  DEFAULT_MIN_CAUSAL_COHORT,
 } from "./analytics/usage-metrics.js";
 
 // Phase 3 — deterministic experimental holdout assignment.
@@ -224,6 +228,8 @@ export type {
   UsageIntegrity,
   UsageWindow,
   UsageScope,
+  UsageCausal,
+  UsageCohort,
   ComputeUsageMetricsOptions,
 } from "./analytics/usage-metrics.js";
 
