@@ -237,6 +237,23 @@ export class BlockServer {
     const blocks = this.searchBlocks(query.text, query.invariants, limit);
     const rawFacts = this.searchFacts(query.text, query.invariants, query.scope, factLimit);
 
+    // Pre-compute calibrated probabilities once. Both the holdout
+    // eligibility decision and the final BlockHit / FactHit
+    // construction below key off the exact same calibrated value,
+    // so a query cannot be "eligible for holdout" but then fail to
+    // produce an injection in treatment, nor vice-versa.
+    const blockCalibrated = blocks.map(({ block, score }) => ({
+      block,
+      score,
+      calibratedProb: clamp01(this.calibrator(score, block)),
+      refs: this.store.listCaseRefs(block.id).slice(0, refLimit),
+    }));
+    const factCalibrated = rawFacts.map(({ fact, score }) => ({
+      fact,
+      score,
+      calibratedProb: clamp01(fact.confidence),
+    }));
+
     // Phase 3.2 — experimental holdout.
     //
     // Only applies when:
@@ -244,15 +261,18 @@ export class BlockServer {
     //      shadow stays exactly as it was; it keeps an undefined
     //      `controlReason` for back-compat so analytics still treats
     //      it as diagnostic-only);
-    //   2. the query is eligible — at least one block or fact
-    //      candidate was returned. A no-candidate query cannot have
-    //      been "held out" in any meaningful sense, so it never
-    //      becomes a fake holdout event;
+    //   2. the query is gate-eligible — at least one block or fact
+    //      candidate would pass the calibrator + gateThreshold
+    //      *absent* the holdout. A run whose candidates all fall
+    //      below the gate would not emit any injection event in
+    //      treatment either, so marking such a run as holdout would
+    //      contaminate the control cohort with "nothing-to-compare"
+    //      queries and understate the causal lift;
     //   3. the experiment input is complete — `rate`, `salt`, and a
     //      `fingerprint` all present. A missing fingerprint is a
     //      silent no-op: without it assignment cannot be
     //      deterministic, and we would rather skip the experiment
-    //      than fabricate a cohort.
+    //      than fabricate a cohort;
     //   4. the deterministic `shouldHoldOut` decision lands this
     //      fingerprint in the holdout.
     //
@@ -260,10 +280,12 @@ export class BlockServer {
     // (no injection events, passesGate = false everywhere,
     // shouldInject = false, formatInjection renders empty) and the
     // retrieval event carries `controlReason: "holdout"`.
-    const eligible = blocks.length > 0 || rawFacts.length > 0;
+    const wouldInjectAbsentShadow =
+      blockCalibrated.some((h) => h.calibratedProb >= this.gateThreshold) ||
+      factCalibrated.some((h) => h.calibratedProb >= this.gateThreshold);
     const holdoutApplied =
       !manualShadow &&
-      eligible &&
+      wouldInjectAbsentShadow &&
       !!query.experiment?.fingerprint &&
       shouldHoldOut(
         query.experiment.fingerprint,
@@ -273,33 +295,27 @@ export class BlockServer {
     const shadow = manualShadow || holdoutApplied;
     const controlReason: "shadow" | "holdout" | undefined = holdoutApplied ? "holdout" : undefined;
 
-    // Apply calibrator, stamp the single-source-of-truth gate decision
-    // on each hit, and attach refs. passesGate is the contract that
-    // the injection formatter and analytics emission both key off.
-    const blockHits: BlockHit[] = blocks.map(({ block, score }) => {
-      const calibratedProb = clamp01(this.calibrator(score, block));
-      return {
-        block,
-        score,
-        calibratedProb,
-        passesGate: !shadow && calibratedProb >= this.gateThreshold,
-        refs: this.store.listCaseRefs(block.id).slice(0, refLimit),
-      };
-    });
+    // Finalise hits. `passesGate` is the single-source-of-truth the
+    // injection formatter and analytics emission both key off, and
+    // it reuses the calibrator output computed above so holdout
+    // eligibility and downstream gate decision cannot drift.
+    const blockHits: BlockHit[] = blockCalibrated.map((h) => ({
+      block: h.block,
+      score: h.score,
+      calibratedProb: h.calibratedProb,
+      passesGate: !shadow && h.calibratedProb >= this.gateThreshold,
+      refs: h.refs,
+    }));
 
-    // Facts: no calibrator slot yet (Phase 5). Use confidence as the
-    // gated probability. Same gate threshold as blocks; per-item-type
-    // thresholds can be introduced later without changing the event
-    // schema.
-    const factHits: FactHit[] = rawFacts.map(({ fact, score }) => {
-      const calibratedProb = clamp01(fact.confidence);
-      return {
-        fact,
-        score,
-        calibratedProb,
-        passesGate: !shadow && calibratedProb >= this.gateThreshold,
-      };
-    });
+    // Facts: no calibrator slot yet (Phase 5). Same gate threshold
+    // as blocks; per-item-type thresholds can be introduced later
+    // without changing the event schema.
+    const factHits: FactHit[] = factCalibrated.map((h) => ({
+      fact: h.fact,
+      score: h.score,
+      calibratedProb: h.calibratedProb,
+      passesGate: !shadow && h.calibratedProb >= this.gateThreshold,
+    }));
 
     // shouldInject: true iff any hit passes the gate. passesGate
     // already encodes "not shadow", so this is a simple disjunction.

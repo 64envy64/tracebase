@@ -253,6 +253,32 @@ describe("Phase 3.2 — BlockServer experimental-holdout hookup", () => {
     expect(res.shouldInject).toBe(true);
   });
 
+  it("explicit positive: at least one hit above gate + rate=1 → holdout fires", () => {
+    // Baseline confirmation for the semantics change in Phase 3.2.1:
+    // when the calibrated probability genuinely clears the gate, a
+    // rate=1 experiment still lands this run in the holdout cohort.
+    // The two below-gate tests following this one assert the
+    // converse — and only their co-presence lets the causal layer
+    // trust the cohort.
+    const highGateServer = new BlockServer(store, { gateThreshold: 0.1 });
+    const queryId = "qid-positive-above-gate";
+    const res = highGateServer.recall({
+      text: "tokenizer drops zero-width joiner",
+      queryId,
+      experiment: {
+        rate: 1,
+        salt: "ws-unit",
+        fingerprint: "fp:positive",
+      },
+    });
+    expect(res.shadow).toBe(true);
+    expect(res.shouldInject).toBe(false);
+    const retrieval = retrievalEventFor(store, queryId);
+    if (retrieval?.event === "retrieval") {
+      expect(retrieval.controlReason).toBe("holdout");
+    }
+  });
+
   it("prompt payload remains empty and no injection rows appear on a held-out eligible run", () => {
     const queryId = "qid-payload-empty";
     const res = server.recall({
@@ -275,5 +301,115 @@ describe("Phase 3.2 — BlockServer experimental-holdout hookup", () => {
         (e) => e.event !== "injection" && e.event !== "fact_injection",
       ),
     ).toBe(true);
+  });
+});
+
+describe("Phase 3.2.1 — holdout eligibility is gate-gated, not retrieval-gated", () => {
+  it("retrieved block whose calibrated probability is below gateThreshold is NOT held out", () => {
+    // P1 the reviewer flagged: pre-3.2.1 eligibility was just
+    // "at least one candidate returned", ignoring the calibrator
+    // and gateThreshold. A query whose hits all fall below the
+    // gate would not produce an injection in treatment either,
+    // so marking it holdout contaminates the control cohort with
+    // "nothing-to-compare" queries and biases the causal lift
+    // downward. Eligibility must therefore check *would-pass-gate
+    // absent shadow*.
+    const store = makeStore();
+    seedActive(store, SAMPLE_BLOCK);
+    // Calibrator floors every hit at 0.1, gateThreshold at 0.5 —
+    // the block will be retrieved but never pass the gate.
+    const server = new BlockServer(store, {
+      calibrator: () => 0.1,
+      gateThreshold: 0.5,
+    });
+    const queryId = "qid-block-below-gate";
+    const res = server.recall({
+      text: "tokenizer drops zero-width joiner",
+      queryId,
+      experiment: {
+        rate: 1, // would hold out if eligibility were raw-retrieval
+        salt: "ws-unit",
+        fingerprint: "fp:below-gate",
+      },
+    });
+    // Sanity: the block *is* retrieved (raw retrieval succeeded)
+    // but it never passed the gate, so shouldInject=false in
+    // treatment. Therefore shadow must stay false and the event
+    // must not carry controlReason="holdout" — the run simply
+    // never was eligible to compare against.
+    expect(res.blocks.length).toBeGreaterThan(0);
+    expect(res.blocks.every((h) => !h.passesGate)).toBe(true);
+    expect(res.shadow).toBe(false);
+    expect(res.shouldInject).toBe(false);
+    const retrieval = retrievalEventFor(store, queryId);
+    if (retrieval?.event === "retrieval") {
+      expect(retrieval.shadow).toBe(false);
+      expect(retrieval.controlReason).toBeUndefined();
+    }
+  });
+
+  it("retrieved fact whose confidence is below gateThreshold is NOT held out", () => {
+    // Parallel regression on the fact side. `FactHit.calibratedProb`
+    // is clamped from `fact.confidence`; a low-confidence fact
+    // retrieved by FTS still must not count as "gate-eligible" at
+    // a higher threshold.
+    const store = makeStore();
+    store.storeFact({
+      scope: "global",
+      factType: "convention",
+      statement: "docstrings must follow the google docstring style",
+      invariants: {},
+      source: { origin: "declared", author: "ci" },
+      confidence: 0.3, // below the gateThreshold we pick below
+    });
+    const server = new BlockServer(store, { gateThreshold: 0.7 });
+    const queryId = "qid-fact-below-gate";
+    const res = server.recall({
+      text: "docstrings google style",
+      queryId,
+      experiment: {
+        rate: 1,
+        salt: "ws-unit",
+        fingerprint: "fp:fact-below-gate",
+      },
+    });
+    // Fact retrieved, but its calibrated probability (0.3) is
+    // below the gateThreshold (0.7). No holdout.
+    expect(res.facts.length).toBeGreaterThan(0);
+    expect(res.facts.every((h) => !h.passesGate)).toBe(true);
+    expect(res.shadow).toBe(false);
+    expect(res.shouldInject).toBe(false);
+    const retrieval = retrievalEventFor(store, queryId);
+    if (retrieval?.event === "retrieval") {
+      expect(retrieval.shadow).toBe(false);
+      expect(retrieval.controlReason).toBeUndefined();
+    }
+  });
+
+  it("at least one hit above gate → holdout still applies (positive case is unaffected)", () => {
+    // Converse of the two regressions above — makes the trio
+    // exhaustive for the eligibility predicate.
+    const store = makeStore();
+    seedActive(store, SAMPLE_BLOCK);
+    const server = new BlockServer(store, {
+      calibrator: () => 0.9, // well above default threshold
+      gateThreshold: 0.1,
+    });
+    const queryId = "qid-above-gate-held";
+    const res = server.recall({
+      text: "tokenizer drops zero-width joiner",
+      queryId,
+      experiment: {
+        rate: 1,
+        salt: "ws-unit",
+        fingerprint: "fp:above-gate-held",
+      },
+    });
+    expect(res.shadow).toBe(true);
+    expect(res.shouldInject).toBe(false);
+    const retrieval = retrievalEventFor(store, queryId);
+    if (retrieval?.event === "retrieval") {
+      expect(retrieval.controlReason).toBe("holdout");
+    }
   });
 });
