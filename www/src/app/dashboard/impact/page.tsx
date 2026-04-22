@@ -14,7 +14,7 @@ import {
 export const metadata: Metadata = {
   title: "Impact — TraceBase",
   description:
-    "Project-level reasoning-reuse metrics across every adapter in the workspace. Rolled-up observations with explicit estimate labels; no per-adapter attribution until Phase 2.",
+    "Workspace-level reasoning-reuse metrics, rolled up across every linked project and adapter. Per-project and per-adapter breakdowns land in Phase 2.",
 };
 
 export default async function DashboardImpactPage({
@@ -53,10 +53,17 @@ export default async function DashboardImpactPage({
     buckets,
   });
 
+  // Each installation row is (localWorkspaceId × agent); counting
+  // distinct localWorkspaceIds is the honest "how many projects"
+  // number. The raw installations count is (project × agent) and
+  // shouldn't be labelled as "adapters".
+  const distinctProjects = new Set(installations.map((i) => i.localWorkspaceId));
+
   return (
     <ImpactView
       window={window}
       windowKey={windowKey}
+      projectsCount={distinctProjects.size}
       installationsCount={installations.length}
     />
   );

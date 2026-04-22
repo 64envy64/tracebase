@@ -21,13 +21,13 @@
  * is an estimate and must never be rendered without the estimate tag.
  *
  * ---------------------------------------------------------------------
- * Phase 1C.1 note — scope semantics
+ * Phase 1C.1 note — scope semantics (and a naming caveat)
  *
  * In Phase 1 the local event log (retrieval / injection / agent_used /
  * outcome) does **not** carry an agent dimension. All adapters in a
  * multi-agent project share the same event stream, so a UsageMetrics
- * computed from that stream is a *project / workspace* aggregate, not
- * a per-adapter impact snapshot.
+ * computed from that stream is a *project × all-agents* aggregate,
+ * not a per-adapter impact snapshot.
  *
  * The cloud schema *does* carry per-adapter identity on
  * `tracebase_installations` — each adapter gets its own row. We keep
@@ -36,12 +36,23 @@
  * to pretend it can split an un-tagged event log after the fact.
  *
  * Concretely:
- *   - `scope: "workspace"` — project-level rollup. Samples with this
- *     tag represent the whole project's activity; the dashboard
- *     renders them as "Project activity", not per-adapter.
+ *   - `scope: "workspace"` — per-sample tag meaning "this rollup is
+ *     NOT split by agent; it represents one project's activity for
+ *     one time window, all adapters combined." Emitted by
+ *     `tracebase usage sync` today.
  *   - `scope: "agent"` — per-adapter rollup. Only emitted once events
- *     carry an agent field (Phase 2). The dashboard gets its
- *     per-installation breakdown there; Phase 1 does not.
+ *     carry an agent field (Phase 2).
+ *
+ * Naming caveat: the word "workspace" is overloaded. Here it's a
+ * sample-scope tag — "no agent split". The control plane also has a
+ * concept called "workspace" which is a Clerk-authenticated user /
+ * org account that can contain **many** projects. The dashboard
+ * therefore folds N `scope: "workspace"` samples — each from a
+ * different project — into a *control-plane-workspace-wide* total.
+ * That is why the Impact view is labelled "Workspace activity" and
+ * not "Project activity": the summed output is no longer a single
+ * project. Per-project breakdown arrives alongside per-agent in
+ * Phase 2.
  */
 import type { EventAggregates } from "../core/analytics.js";
 

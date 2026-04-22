@@ -35,16 +35,20 @@ function formatRate(value: number | null): string {
 export function ImpactView({
   window,
   windowKey,
+  projectsCount,
   installationsCount,
 }: {
   window: ImpactWindow;
   windowKey: ImpactWindowKey;
+  projectsCount: number;
   installationsCount: number;
 }) {
   const { totals, buckets } = window;
   const { observed, estimated, integrity } = totals;
 
   const hasActivity = observed.eligibleRuns > 0;
+  const projectsLabel = projectsCount === 1 ? "project" : "projects";
+  const installsLabel = installationsCount === 1 ? "installation" : "installations";
 
   const labels = buckets.map((b) => b.date);
   const helpfulSeries = {
@@ -73,17 +77,22 @@ export function ImpactView({
           Impact
         </p>
         <h1 className="text-[1.5rem] font-light tracking-[-0.02em] md:text-[1.7rem]">
-          Project activity
+          Workspace activity
         </h1>
         <p
           className="max-w-[44rem] text-[13px] font-light leading-relaxed"
           style={{ color: "var(--text-secondary)" }}
         >
-          Workspace-scoped rollup across{" "}
-          <span style={{ color: "var(--text)" }}>{installationsCount}</span> wired{" "}
-          {installationsCount === 1 ? "adapter" : "adapters"}. Per-adapter attribution lands in Phase 2,
-          once the local event stream carries an agent tag. Until then, every number below is a
-          project total.
+          Totals rolled up across{" "}
+          <span style={{ color: "var(--text)" }}>
+            {projectsCount} {projectsLabel}
+          </span>
+          {" · "}
+          <span style={{ color: "var(--text)" }}>
+            {installationsCount} {installsLabel}
+          </span>{" "}
+          linked to this workspace. The numbers below are workspace-wide — per-project and
+          per-adapter breakdowns ship in Phase 2, once the local event stream carries an agent tag.
         </p>
 
         <nav
