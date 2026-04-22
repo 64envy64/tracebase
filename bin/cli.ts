@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { Command } from "commander";
 import pc from "picocolors";
 import { initCommand } from "../src/cli/commands/init.js";
+import { removeCommand } from "../src/cli/commands/remove.js";
 import { recallCommand } from "../src/cli/commands/recall.js";
 import { searchCommand } from "../src/cli/commands/search.js";
 import { statsCommand } from "../src/cli/commands/stats.js";
@@ -37,6 +38,7 @@ program
 
 program.addCommand(setupCommand);
 program.addCommand(initCommand);
+program.addCommand(removeCommand);
 program.addCommand(storeCommand);
 program.addCommand(recallCommand);
 program.addCommand(searchCommand);
@@ -61,7 +63,7 @@ if (process.argv.length <= 2) {
 
   if (!isInitialized()) {
     console.log(pc.yellow("Not initialized.") + " Run this to get started:\n");
-    console.log(`  ${pc.cyan("npx tracebase setup")}    ${pc.dim("Auto-configure Claude Code, Cursor, Windsurf")}`);
+    console.log(`  ${pc.cyan("npx tracebase init")}    ${pc.dim("Auto-detect your agent (Claude Code / Cursor / Codex) and wire it up")}`);
     console.log();
   } else {
     console.log(pc.green("Initialized.") + " Common commands:\n");

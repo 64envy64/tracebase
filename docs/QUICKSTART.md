@@ -13,7 +13,7 @@ normal developer install, you still start with one command.
 ### Install
 
 ```
-npx tracebase-ai init
+npx tracebase init
 ```
 
 1. Run the command above in your project directory — it creates
@@ -28,7 +28,7 @@ npx tracebase-ai init
    is listed.
 5. Verify install health:
    ```
-   npx tracebase-ai doctor
+   npx tracebase doctor
    ```
 
 > The MCP server entry, CLAUDE.md instruction block, and
@@ -56,7 +56,7 @@ permissions, and rewrites **only** the content between the
 After a Claude Code session that touched a coding task:
 
 ```
-npx tracebase-ai status
+npx tracebase status
 ```
 
 You should see non-zero counts under `retrieval` and (once a pattern
@@ -65,18 +65,21 @@ distillation produces its first one — see below.
 
 ### When do I get my first block?
 
-A block comes from a distilled trace. In Phase 6.0 you can seed one
-manually:
+A block comes from a distilled trace or a manual seed. On a fresh
+project it is normal for `status` to show zero active blocks until the
+first useful run is captured and promoted. If you want a known-good
+seed immediately, add one manually:
 
 ```
-npx tracebase-ai store \
+npx tracebase store \
   -d "TypeError: Cannot read property 'map' of undefined" \
   -s "Added optional chaining on the list prop" \
   -l typescript -f react -e TypeError
 ```
 
-(Full automatic distillation from real Claude Code runs comes in
-Phase 6.1+; for now the manual path is how you seed.)
+Once real runs begin flowing, retrieval, injection, usage, and outcome
+events accumulate in the same local store and feed later reuse
+analytics.
 
 ### Manual setup (if `init` is not available in your environment)
 
@@ -118,48 +121,54 @@ Phase 6.1+; for now the manual path is how you seed.)
 
 ## Cursor
 
-> **Status:** Phase 6.0 ships Claude Code first. Cursor parity is
-> tracked for Phase 6.4+. The MCP server itself works with any
-> MCP-compatible client — the blocker is a polished `init` target
-> for Cursor's `~/.cursor/mcp.json`.
+### Install
 
-Manual install works today:
+```
+npx tracebase init
+```
 
-1. Add to `~/.cursor/mcp.json` under `mcpServers`:
-   ```json
-   {
-     "tracebase": {
-       "command": "npx",
-       "args": ["-y", "tracebase-ai", "serve", "--mcp"]
-     }
-   }
-   ```
-2. Create an `AGENTS.md` in your project root with the same instruction
-   block as the CLAUDE.md "Manual setup" section above.
-3. Restart Cursor. Check Cursor Settings → MCP; `tracebase` should
-   show a green indicator.
+1. Run the command above in your project directory — `init` auto-detects
+   Cursor if it is installed locally and writes `~/.cursor/mcp.json`
+   plus an `AGENTS.md` instruction block in the project.
+2. Restart Cursor.
+3. Open Cursor Settings → MCP and confirm `tracebase` is healthy.
+
+> Cursor uses the same local store and hosted dashboard link as Claude
+> Code. The only difference is the last-mile adapter surface:
+> `~/.cursor/mcp.json` + `AGENTS.md`.
 
 ---
 
 ## Codex
 
-> **Status:** Phase 6.0 ships Claude Code first. Codex parity is
-> tracked for Phase 6.4+.
+### Install
 
-Manual install works today: run `codex mcp add tracebase -- npx -y tracebase-ai serve --mcp`.
-Create an `AGENTS.md` in your project root. Run `codex mcp list` and
-confirm `tracebase` is listed.
+```
+npx tracebase init
+```
+
+1. Run the command above in your project directory — if the `codex`
+   CLI is available on PATH, `init` auto-detects Codex and registers
+   TraceBase via `codex mcp add`, plus writes the managed `AGENTS.md`
+   block in the project.
+2. Run `codex mcp list` and confirm `tracebase` is listed.
+3. Start a fresh Codex session in the project.
+
+> Codex uses the same core path as the other adapters. The only
+> difference is MCP registration happens through the `codex mcp`
+> registry instead of a JSON file.
 
 ---
 
 ## What to do next
 
-- `npx tracebase-ai status` — one-screen install + store snapshot.
-- `npx tracebase-ai doctor` — deep verification with actionable fixes.
-- `npx tracebase-ai events --limit 20` — recent retrieval / injection /
+- `npx tracebase status` — one-screen install + store snapshot.
+- `npx tracebase doctor` — deep verification with actionable fixes.
+- `npx tracebase events --limit 20` — recent retrieval / injection /
   outcome events from real agent runs.
-- `npx tracebase-ai report` — aggregated metrics (coverage, hit rate,
+- `npx tracebase report` — aggregated metrics (coverage, hit rate,
   helpful rate, per-block top list).
+- `npx tracebase remove` — uninstall the local project wiring cleanly.
 
 See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) if something's off.
 

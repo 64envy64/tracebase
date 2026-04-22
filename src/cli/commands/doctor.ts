@@ -17,6 +17,13 @@ import Database from "better-sqlite3";
 import { findProjectRoot, loadConfig } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
 import type { TraceBaseConfig } from "../../types.js";
+import {
+  getAgentTargetMeta,
+  inspectAgentInstructionFile,
+  inspectAgentMcpConfig,
+  resolveInstallAgent,
+  type InstallAgent,
+} from "../install-targets.js";
 
 export type DoctorLevel = "pass" | "warn" | "fail";
 
@@ -131,6 +138,13 @@ export function runDoctor(invocationPath: string): DoctorReport {
   }
   cfg = resolvedCfg;
 
+  const agent = resolveInstallAgent({
+    basePath: projectRoot,
+    stored: cfg.install?.agent,
+    preferEnvironment: false,
+  });
+  const agentMeta = getAgentTargetMeta(agent);
+
   // --- storage
   if (!existsSync(cfg.storagePath)) {
     checks.push({
@@ -177,82 +191,7 @@ export function runDoctor(invocationPath: string): DoctorReport {
     }
   }
 
-  // --- .claude/settings.json (project-root scoped)
-  const settingsFile = join(projectRoot, ".claude", "settings.json");
-  if (!existsSync(settingsFile)) {
-    checks.push({
-      name: "claude-settings",
-      level: "warn",
-      message: ".claude/settings.json is missing",
-      fix: "Run `npx tracebase init` (Claude Code will not see TraceBase until then).",
-    });
-  } else {
-    let parsed: Record<string, unknown> | null = null;
-    try {
-      parsed = JSON.parse(readFileSync(settingsFile, "utf-8")) as Record<string, unknown>;
-    } catch {
-      parsed = null;
-    }
-    if (!parsed) {
-      checks.push({
-        name: "claude-settings",
-        level: "fail",
-        message: ".claude/settings.json is not valid JSON",
-        fix: "Fix the file manually, or re-run `npx tracebase init --force`.",
-      });
-    } else {
-      const servers = (parsed.mcpServers as Record<string, unknown> | undefined) ?? {};
-      const entry = servers.tracebase as Record<string, unknown> | undefined;
-      if (!entry) {
-        checks.push({
-          name: "claude-settings",
-          level: "fail",
-          message: "no tracebase entry under mcpServers",
-          fix: "Run `npx tracebase init` to register the MCP server.",
-        });
-      } else if (entry.command !== "npx" || !Array.isArray(entry.args)) {
-        checks.push({
-          name: "claude-settings",
-          level: "warn",
-          message: "tracebase MCP entry has a non-canonical shape",
-          fix: "Re-run `npx tracebase init --force` to reset to the canonical entry.",
-        });
-      } else {
-        checks.push({
-          name: "claude-settings",
-          level: "pass",
-          message: "tracebase MCP entry installed",
-        });
-      }
-    }
-  }
-
-  // --- CLAUDE.md (project-root scoped)
-  const claudeMd = join(projectRoot, "CLAUDE.md");
-  if (!existsSync(claudeMd)) {
-    checks.push({
-      name: "claude-md",
-      level: "warn",
-      message: "CLAUDE.md is missing",
-      fix: "Run `npx tracebase init` to create the instruction block.",
-    });
-  } else {
-    const content = readFileSync(claudeMd, "utf-8");
-    if (!content.includes("<!-- tracebase:begin") || !content.includes("<!-- tracebase:end -->")) {
-      checks.push({
-        name: "claude-md",
-        level: "warn",
-        message: "CLAUDE.md exists but the managed section is missing",
-        fix: "Re-run `npx tracebase init` to append the managed block.",
-      });
-    } else {
-      checks.push({
-        name: "claude-md",
-        level: "pass",
-        message: "managed section present",
-      });
-    }
-  }
+  appendAgentIntegrationChecks(checks, projectRoot, agent, agentMeta.displayName);
 
   // --- MCP SDK availability (optional peer dep)
   let mcpSdkAvailable = false;
@@ -305,6 +244,89 @@ export function runDoctor(invocationPath: string): DoctorReport {
   }
 
   return finalize(projectRoot, checks);
+}
+
+function appendAgentIntegrationChecks(
+  checks: DoctorCheck[],
+  projectRoot: string,
+  agent: InstallAgent,
+  displayName: string,
+): void {
+  const mcp = inspectAgentMcpConfig(projectRoot, agent);
+  const instruction = inspectAgentInstructionFile(projectRoot, agent);
+  const instructionFile = getAgentTargetMeta(agent).instructionFile;
+  const initCommand =
+    agent === "claude-code" ? "npx tracebase init" : `npx tracebase init --agent ${agent === "cursor" ? "cursor" : "codex"}`;
+  const mcpCheckName = agent === "claude-code" ? "claude-settings" : `${agent}-mcp`;
+  const instructionCheckName = agent === "claude-code" ? "claude-md" : "agents-md";
+
+  if (mcp.parseError) {
+    checks.push({
+      name: mcpCheckName,
+      level: mcp.cliMissing ? "fail" : "fail",
+      message:
+        agent === "codex"
+          ? `codex MCP inspection failed: ${mcp.parseError}`
+          : `${getAgentTargetMeta(agent).mcpLocationLabel} is not valid JSON`,
+      fix:
+        agent === "codex"
+          ? "Ensure the `codex` CLI is installed and re-run `npx tracebase init --agent codex --force`."
+          : `Fix the file manually, or re-run \`${initCommand} --force\`.`,
+    });
+  } else if (!mcp.present) {
+    const missingConfigSurface = agent === "claude-code" && mcp.containerPresent === false;
+    checks.push({
+      name: mcpCheckName,
+      level: missingConfigSurface ? "warn" : "fail",
+      message:
+        missingConfigSurface
+          ? `${getAgentTargetMeta(agent).mcpLocationLabel} is missing`
+        : agent === "codex"
+          ? "tracebase is not registered under codex mcp"
+          : `${getAgentTargetMeta(agent).mcpLocationLabel} is missing or has no tracebase entry`,
+      fix:
+        missingConfigSurface
+          ? `Run \`${initCommand}\` (${displayName} will not see TraceBase until then).`
+          : agent === "claude-code"
+          ? `Run \`${initCommand}\` (${displayName} will not see TraceBase until then).`
+          : `Run \`${initCommand}\` to register the MCP server.`,
+    });
+  } else if (!mcp.canonical) {
+    checks.push({
+      name: mcpCheckName,
+      level: "warn",
+      message: "tracebase MCP entry has a non-canonical shape",
+      fix: `Re-run \`${initCommand} --force\` to reset to the canonical entry.`,
+    });
+  } else {
+    checks.push({
+      name: mcpCheckName,
+      level: "pass",
+      message: "tracebase MCP entry installed",
+    });
+  }
+
+  if (!instruction.present) {
+    checks.push({
+      name: instructionCheckName,
+      level: "warn",
+      message: `${instructionFile} is missing`,
+      fix: `Run \`${initCommand}\` to create the instruction block.`,
+    });
+  } else if (!instruction.managed) {
+    checks.push({
+      name: instructionCheckName,
+      level: "warn",
+      message: `${instructionFile} exists but the managed section is missing`,
+      fix: `Re-run \`${initCommand}\` to append the managed block.`,
+    });
+  } else {
+    checks.push({
+      name: instructionCheckName,
+      level: "pass",
+      message: "managed section present",
+    });
+  }
 }
 
 function finalize(projectPath: string, checks: DoctorCheck[]): DoctorReport {

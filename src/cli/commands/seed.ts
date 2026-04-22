@@ -149,7 +149,7 @@ export const seedCommand = new Command("seed")
       .action(() => {
         const configDir = findConfigDir();
         if (!configDir) {
-          console.log(pc.yellow("TraceBase not initialized. Run: npx tracebase setup"));
+          console.log(pc.yellow("TraceBase not initialized. Run: npx tracebase init"));
           return;
         }
 

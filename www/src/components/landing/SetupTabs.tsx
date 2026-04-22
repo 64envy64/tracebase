@@ -61,10 +61,12 @@ await openai.chat.completions.create(...)`,
     title: "One command",
     desc: "Auto-configure Claude Code, Cursor, Windsurf, and other MCP clients without hand-editing config files.",
     previewLabel: "terminal",
-    preview: `$ npx tracebase-ai setup
-tracebase -> Claude Code
-tracebase -> Cursor
-recall/store -> enabled`,
+    preview: `$ npx tracebase init
+? Which agents should TraceBase wire up?
+  [x] Claude Code    .claude/settings.json
+  [x] Cursor         ~/.cursor/mcp.json
+  [ ] Codex          codex mcp registry
+get_reasoning_patterns -> ready`,
     steps: ["detect", "configure", "recall", "store"],
     highlightedStep: "configure",
     sideKicker: "Fastest rollout",

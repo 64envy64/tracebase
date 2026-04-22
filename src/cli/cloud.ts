@@ -101,7 +101,6 @@ export async function validateCloudApiKey(apiUrl: string, apiKey: string): Promi
     headers: {
       Authorization: `Bearer ${apiKey.trim()}`,
     },
-    cache: "no-store",
   });
 
   const body = await readJsonBody(res);
@@ -126,7 +125,6 @@ export async function startCloudDeviceSession(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(input),
-    cache: "no-store",
   });
 
   const body = await readJsonBody(res);
@@ -150,7 +148,6 @@ export async function pollCloudDeviceSession(apiUrl: string, deviceCode: string)
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ deviceCode }),
-    cache: "no-store",
   });
 
   const body = await readJsonBody(res);
@@ -189,7 +186,6 @@ export async function registerCloudInstallation(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(input),
-    cache: "no-store",
   });
 
   const body = await readJsonBody(res);
@@ -207,14 +203,18 @@ export async function registerCloudInstallation(
 export async function bestEffortOpenUrl(url: string): Promise<boolean> {
   const { spawn } = await import("node:child_process");
   const platform = process.platform;
-  const command =
-    platform === "darwin" ? ["open", url]
-    : platform === "win32" ? ["cmd", "/c", "start", "", url]
-    : ["xdg-open", url];
+  const executable =
+    platform === "darwin" ? "open"
+    : platform === "win32" ? "cmd"
+    : "xdg-open";
+  const args =
+    platform === "darwin" ? [url]
+    : platform === "win32" ? ["/c", "start", "", url]
+    : [url];
 
   return new Promise((resolve) => {
     try {
-      const child = spawn(command[0], command.slice(1), {
+      const child = spawn(executable, args, {
         stdio: "ignore",
         detached: true,
       });
@@ -270,8 +270,9 @@ async function readJsonBody(res: Response): Promise<unknown> {
 }
 
 function readErrorMessage(body: unknown, status: number): string {
-  if (body && typeof body === "object" && typeof (body as Record<string, unknown>).error === "string") {
-    return (body as Record<string, string>).error;
+  if (body && typeof body === "object") {
+    const error = (body as Record<string, unknown>).error;
+    if (typeof error === "string") return error;
   }
   return `cloud API responded with HTTP ${status}`;
 }

@@ -14,7 +14,7 @@ import type {
 import { TraceStore } from "./store.js";
 import { fingerprint } from "./fingerprint.js";
 import { recall as recallSimilar, cosineSimilarity } from "./similarity.js";
-import { loadConfig, findConfigDir, initConfig } from "./config.js";
+import { loadConfig, findConfigDir, initConfig, resolveProjectBase } from "./config.js";
 import {
   loadWeightState,
   computeWeights,
@@ -64,7 +64,7 @@ export class ReasoningLayer {
     // silently create it. Zero friction — first `new ReasoningLayer()`
     // just works without requiring `tracebase init` first.
     if (!config?.storagePath && !findConfigDir()) {
-      initConfig(process.cwd());
+      initConfig(resolveProjectBase(process.cwd()));
     }
 
     const resolved = loadConfig();

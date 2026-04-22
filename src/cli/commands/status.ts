@@ -14,11 +14,17 @@
 import { Command } from "commander";
 import { existsSync } from "node:fs";
 import { statSync } from "node:fs";
-import { join } from "node:path";
 import pc from "picocolors";
 import Database from "better-sqlite3";
 import { findProjectRoot, loadConfig } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
+import {
+  getAgentTargetMeta,
+  inspectAgentInstructionFile,
+  inspectAgentMcpConfig,
+  resolveInstallAgent,
+  type InstallAgent,
+} from "../install-targets.js";
 
 interface StatusReport {
   initialized: boolean;
@@ -26,6 +32,12 @@ interface StatusReport {
   workspaceId: string | null;
   storagePath: string | null;
   storageBytes: number | null;
+  agent: InstallAgent | null;
+  agentDisplayName: string | null;
+  mcpLocation: string | null;
+  instructionFile: string | null;
+  mcpConfigured: boolean;
+  instructionsPresent: boolean;
   claudeSettingsPresent: boolean;
   claudeMdPresent: boolean;
   blocks: {
@@ -75,6 +87,12 @@ export function buildStatusReport(invocationPath: string): StatusReport {
       workspaceId: null,
       storagePath: null,
       storageBytes: null,
+      agent: null,
+      agentDisplayName: null,
+      mcpLocation: null,
+      instructionFile: null,
+      mcpConfigured: false,
+      instructionsPresent: false,
       claudeSettingsPresent: false,
       claudeMdPresent: false,
       blocks: { active: 0, candidate: 0, demoted: 0, merged: 0, retired: 0 },
@@ -86,8 +104,16 @@ export function buildStatusReport(invocationPath: string): StatusReport {
 
   const cfg = loadConfig(invocationPath);
   const storageBytes = existsSync(cfg.storagePath) ? statSync(cfg.storagePath).size : null;
-  const claudeSettingsPresent = existsSync(join(projectRoot, ".claude", "settings.json"));
-  const claudeMdPresent = existsSync(join(projectRoot, "CLAUDE.md"));
+  const agent = resolveInstallAgent({
+    basePath: projectRoot,
+    stored: cfg.install?.agent,
+    preferEnvironment: false,
+  });
+  const meta = getAgentTargetMeta(agent);
+  const mcpInspection = inspectAgentMcpConfig(projectRoot, agent);
+  const instructionInspection = inspectAgentInstructionFile(projectRoot, agent);
+  const claudeSettingsPresent = agent === "claude-code" ? mcpInspection.present : false;
+  const claudeMdPresent = agent === "claude-code" ? instructionInspection.present : false;
 
   const blocks = { active: 0, candidate: 0, demoted: 0, merged: 0, retired: 0 };
   let factsActive = 0;
@@ -129,6 +155,12 @@ export function buildStatusReport(invocationPath: string): StatusReport {
     workspaceId: cfg.workspaceId ?? null,
     storagePath: cfg.storagePath,
     storageBytes,
+    agent,
+    agentDisplayName: meta.displayName,
+    mcpLocation: meta.mcpLocationLabel,
+    instructionFile: meta.instructionFile,
+    mcpConfigured: mcpInspection.present && mcpInspection.canonical,
+    instructionsPresent: instructionInspection.present && instructionInspection.managed,
     claudeSettingsPresent,
     claudeMdPresent,
     blocks,
@@ -157,10 +189,14 @@ function renderStatus(r: StatusReport): void {
   console.log();
   console.log(pc.dim("  project:  ") + r.projectPath);
   console.log(pc.dim("  storage:  ") + r.storagePath + (r.storageBytes !== null ? pc.dim(`  (${formatBytes(r.storageBytes)})`) : pc.yellow("  (missing)")));
-  console.log(pc.dim("  claude:   ") +
-    (r.claudeSettingsPresent ? pc.green(".claude/settings.json") : pc.yellow(".claude/settings.json missing")) +
+  console.log(pc.dim("  agent:    ") + (r.agentDisplayName ?? "unknown"));
+  console.log(
+    pc.dim("  install:  ") +
+    (r.mcpConfigured ? pc.green(r.mcpLocation ?? "mcp") : pc.yellow(`${r.mcpLocation ?? "mcp"} missing`)) +
     "  " +
-    (r.claudeMdPresent ? pc.green("CLAUDE.md") : pc.yellow("CLAUDE.md missing")),
+    (r.instructionsPresent
+      ? pc.green(r.instructionFile ?? "instructions")
+      : pc.yellow(`${r.instructionFile ?? "instructions"} missing`)),
   );
   console.log();
   console.log(pc.bold("Blocks ") + pc.dim("(active / candidate / demoted / merged / retired):"));
@@ -191,8 +227,9 @@ function renderStatus(r: StatusReport): void {
   console.log();
 
   // Guidance if something's clearly missing.
-  if (!r.claudeSettingsPresent || !r.claudeMdPresent) {
-    console.log(pc.yellow("  Heads up: ") + "Claude Code config is incomplete.");
+  if (!r.mcpConfigured || !r.instructionsPresent) {
+    const target = r.agentDisplayName ?? "agent";
+    console.log(pc.yellow("  Heads up: ") + `${target} config is incomplete.`);
     console.log("  Re-run " + pc.cyan("npx tracebase init") + " to refresh.");
     console.log();
   }

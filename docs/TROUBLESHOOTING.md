@@ -4,7 +4,7 @@ Common issues with the Claude Code install path and how to resolve
 them. For a machine-verified health check, run:
 
 ```
-npx tracebase-ai doctor
+npx tracebase doctor
 ```
 
 It reports `PASS / WARN / FAIL` for each integration surface with a
@@ -25,7 +25,7 @@ Typical causes, in order of likelihood:
 3. **`tracebase` entry is under a different key.** The Claude Code
    MCP convention is `mcpServers.tracebase`. If a legacy install
    wrote it elsewhere, `doctor` will surface `FAIL claude-settings
-   "no tracebase entry"`. Re-run `npx tracebase-ai init --force`.
+   "no tracebase entry"`. Re-run `npx tracebase init --force`.
 4. **`npx` can't reach the package.** If your environment blocks
    outbound network or lacks an npm cache, `npx -y tracebase-ai`
    cannot fetch the package at the moment Claude Code spawns the
@@ -76,15 +76,17 @@ Block + fact data is lost in either case. If you have a JSONL export
 
 ## Blocks never reach `active`
 
-Most often this means distillation is not wired up yet. In Phase 6.0
-distillation is available as a manual pipeline (`DistillationPipeline`)
-and the `store` CLI command; automatic distillation from real agent
-traces lands later.
+Most often this means one of two things:
+
+1. The project has not produced enough successful runs yet for a block
+   to be captured, verified, and promoted.
+2. You are testing the store on a clean project and simply need a
+   known-good seed to verify the rest of the surface.
 
 You can seed a block manually:
 
 ```
-npx tracebase-ai store \
+npx tracebase store \
   -d "your problem description" \
   -s "the fix you used" \
   -l python -f astropy -e MissingDocstring
@@ -97,13 +99,21 @@ npx tracebase-ai store \
 ## I want to re-install from scratch
 
 ```
-rm -rf .tracebase/ .claude/settings.json CLAUDE.md
-npx tracebase-ai init
+npx tracebase remove
+npx tracebase init
 ```
 
-> Only delete `.claude/settings.json` if you have no other MCP servers
-> configured. Otherwise open it in an editor and remove the
-> `tracebase` key under `mcpServers`, then re-run `init`.
+`init` auto-detects the current agent (or every agent installed on
+this machine) and wires each surface up — no `--agent` flag needed
+under normal use.
+
+If you want to keep the local SQLite store but refresh the adapter
+surface only, use:
+
+```
+npx tracebase remove --keep-store
+npx tracebase init
+```
 
 ---
 
@@ -117,7 +127,7 @@ cat .tracebase/config.json | grep workspaceId
 
 # Wipe and regenerate
 rm -rf .tracebase/
-npx tracebase-ai init
+npx tracebase init
 ```
 
 Note: rotating `workspaceId` breaks continuity for any cloud-synced
@@ -135,10 +145,10 @@ the project directory itself to live on NFS.
 
 ## When in doubt
 
-- `npx tracebase-ai doctor --json` — structured output suitable for
+- `npx tracebase doctor --json` — structured output suitable for
   copy/paste into an issue.
-- `npx tracebase-ai status --json` — same for status.
-- `npx tracebase-ai events --json --limit 50` — last 50 events with
+- `npx tracebase status --json` — same for status.
+- `npx tracebase events --json --limit 50` — last 50 events with
   full payloads.
 
 The three above capture everything needed to triage an install

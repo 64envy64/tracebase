@@ -14,8 +14,9 @@ type NavItem =
 const PRIMARY_NAV: NavItem[] = [
   { href: "/dashboard#overview", label: "Overview" },
   { href: "/dashboard#quickstart", label: "Quickstart" },
+  { href: "/dashboard#architecture", label: "Architecture" },
+  { href: "/dashboard#installs", label: "Installations" },
   { href: "/dashboard#audit", label: "Audit Trail" },
-  { href: "/dashboard#patterns", label: "Patterns" },
 ];
 
 const SECONDARY_NAV: NavItem[] = [

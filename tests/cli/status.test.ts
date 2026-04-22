@@ -8,6 +8,10 @@ import {
   writeClaudeSettings,
   writeClaudeMarkdown,
 } from "../../src/cli/commands/init.js";
+import {
+  writeAgentInstructionFile,
+  writeAgentMcpConfig,
+} from "../../src/cli/install-targets.js";
 
 let dir: string;
 
@@ -108,6 +112,31 @@ describe("buildStatusReport — populated store", () => {
   });
 });
 
+describe("buildStatusReport — cursor adapter", () => {
+  it("reports Cursor-specific install surfaces when the stored target is cursor", () => {
+    const originalHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "tb-status-home-"));
+    process.env.HOME = home;
+    try {
+      initConfig(dir, { install: { agent: "cursor" } });
+      writeAgentMcpConfig(dir, "cursor", false);
+      writeAgentInstructionFile(dir, "cursor");
+
+      const r = buildStatusReport(dir);
+      expect(r.agent).toBe("cursor");
+      expect(r.agentDisplayName).toBe("Cursor");
+      expect(r.mcpConfigured).toBe(true);
+      expect(r.instructionsPresent).toBe(true);
+      expect(r.instructionFile).toBe("AGENTS.md");
+      expect(r.claudeSettingsPresent).toBe(false);
+      expect(r.claudeMdPresent).toBe(false);
+    } finally {
+      process.env.HOME = originalHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("buildStatusReport — config-dir search from subdir", () => {
   it("walks up from a nested subdirectory to find .tracebase/", () => {
     initConfig(dir);
@@ -148,5 +177,23 @@ describe("buildStatusReport — config-dir search from subdir", () => {
     const r = buildStatusReport(nested);
     expect(r.claudeSettingsPresent).toBe(true);
     expect(r.claudeMdPresent).toBe(true);
+  });
+
+  it("does not bind to an unrelated parent .tracebase above the repository root", () => {
+    const outer = mkdtempSync(join(tmpdir(), "tb-status-outer-"));
+    const repo = join(outer, "workspace", "app");
+    const nested = join(repo, "src", "deep");
+    mkdirSync(nested, { recursive: true });
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    initConfig(outer, { install: { agent: "cursor" } });
+
+    try {
+      const r = buildStatusReport(nested);
+      expect(r.initialized).toBe(false);
+      expect(r.projectPath).toBeNull();
+      expect(r.agent).toBeNull();
+    } finally {
+      rmSync(outer, { recursive: true, force: true });
+    }
   });
 });

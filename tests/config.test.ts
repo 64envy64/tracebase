@@ -9,6 +9,7 @@ import {
   isInitialized,
   defaultConfig,
   findConfigDir,
+  resolveProjectBase,
 } from "../src/core/config.js";
 
 describe("Config", () => {
@@ -80,5 +81,28 @@ describe("Config", () => {
     } finally {
       rmSync(isolated, { recursive: true, force: true });
     }
+  });
+
+  it("resolveProjectBase stops at the repository marker instead of drifting to a parent home install", () => {
+    const repo = join(basePath, "workspace", "app");
+    const nested = join(repo, "src", "deep");
+    mkdirSync(nested, { recursive: true });
+    mkdirSync(join(basePath, ".tracebase"), { recursive: true });
+    mkdirSync(join(repo, ".git"), { recursive: true });
+
+    expect(resolveProjectBase(nested)).toBe(repo);
+    expect(findConfigDir(nested, { stopAt: resolveProjectBase(nested) })).toBeNull();
+  });
+
+  it("loadConfig returns repo-root defaults instead of reading an unrelated parent .tracebase", () => {
+    const repo = join(basePath, "workspace", "app");
+    const nested = join(repo, "src");
+    mkdirSync(nested, { recursive: true });
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    initConfig(basePath, { maxTraces: 17 });
+
+    const config = loadConfig(nested);
+    expect(config.storagePath).toBe(join(repo, ".tracebase", "memory.db"));
+    expect(config.maxTraces).toBe(100_000);
   });
 });

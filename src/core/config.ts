@@ -6,6 +6,18 @@ import type { TraceBaseConfig } from "../types.js";
 const CONFIG_DIR = ".tracebase";
 const CONFIG_FILE = "config.json";
 const DEFAULT_DB = "memory.db";
+const PROJECT_MARKERS = [
+  ".git",
+  "package.json",
+  "pnpm-workspace.yaml",
+  "package-lock.json",
+  "yarn.lock",
+  "bun.lockb",
+  "pyproject.toml",
+  "Cargo.toml",
+  "go.mod",
+  "Gemfile",
+] as const;
 
 /** Default configuration. */
 export function defaultConfig(basePath: string): TraceBaseConfig {
@@ -19,13 +31,18 @@ export function defaultConfig(basePath: string): TraceBaseConfig {
 }
 
 /** Resolve the config directory, searching up from cwd to filesystem root. */
-export function findConfigDir(startPath: string = process.cwd()): string | null {
+export function findConfigDir(
+  startPath: string = process.cwd(),
+  options?: { stopAt?: string | null },
+): string | null {
   let current = startPath;
+  const stopAt = options?.stopAt ?? null;
 
   // Walk up until we reach the filesystem root (dirname(x) === x)
   while (true) {
     const candidate = join(current, CONFIG_DIR);
     if (existsSync(candidate)) return candidate;
+    if (stopAt && current === stopAt) break;
 
     const parent = dirname(current);
     if (parent === current) break; // reached root
@@ -54,12 +71,15 @@ export function findConfigDir(startPath: string = process.cwd()): string | null 
  */
 export function loadConfig(basePath?: string): TraceBaseConfig {
   const searchFrom = basePath ?? process.cwd();
-  const configDir = findConfigDir(searchFrom);
+  const configDir = findConfigDir(searchFrom, {
+    stopAt: findProjectBoundary(searchFrom),
+  });
+  const projectBase = resolveProjectBase(searchFrom);
 
   if (!configDir) {
     // No config found anywhere up the tree — defaults rooted at the
     // caller's basePath (or cwd).
-    return defaultConfig(searchFrom);
+    return defaultConfig(projectBase);
   }
 
   const configFile = join(configDir, CONFIG_FILE);
@@ -86,8 +106,22 @@ export function loadConfig(basePath?: string): TraceBaseConfig {
  * so they work correctly from nested subdirectories.
  */
 export function findProjectRoot(startPath: string = process.cwd()): string | null {
-  const configDir = findConfigDir(startPath);
+  const configDir = findConfigDir(startPath, {
+    stopAt: findProjectBoundary(startPath),
+  });
   return configDir ? dirname(configDir) : null;
+}
+
+/**
+ * Resolve the directory that should be treated as the project base even
+ * before TraceBase is initialized.
+ *
+ * This prevents commands from walking past a real repository / package
+ * boundary and accidentally attaching to an unrelated parent `.tracebase/`
+ * higher up the filesystem (for example `~/.tracebase`).
+ */
+export function resolveProjectBase(startPath: string = process.cwd()): string {
+  return findProjectBoundary(startPath) ?? startPath;
 }
 
 /**
@@ -145,6 +179,12 @@ export function initConfig(
     };
   }
 
+  if (config.install) {
+    serializable["install"] = {
+      agent: config.install.agent,
+    };
+  }
+
   writeFileSync(configFile, JSON.stringify(serializable, null, 2) + "\n");
   return config;
 }
@@ -163,4 +203,22 @@ function readExistingConfig(configDir: string): Partial<TraceBaseConfig> | null 
 /** Check if TraceBase is initialized in the given directory. */
 export function isInitialized(basePath: string = process.cwd()): boolean {
   return existsSync(join(basePath, CONFIG_DIR));
+}
+
+function findProjectBoundary(startPath: string): string | null {
+  let current = startPath;
+
+  while (true) {
+    if (hasProjectMarker(current)) return current;
+
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+
+  return null;
+}
+
+function hasProjectMarker(dir: string): boolean {
+  return PROJECT_MARKERS.some((marker) => existsSync(join(dir, marker)));
 }

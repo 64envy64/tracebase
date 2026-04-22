@@ -228,6 +228,14 @@ export interface TraceBaseConfig {
    * sync. Core recall/store logic remains usable without it.
    */
   cloud?: CloudLinkConfig;
+  /** Agent-specific local install target selected by `tracebase init`. */
+  install?: InstallConfig;
+}
+
+export type InstallAgent = "claude-code" | "cursor" | "codex";
+
+export interface InstallConfig {
+  agent: InstallAgent;
 }
 
 export interface CloudLinkConfig {

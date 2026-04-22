@@ -1,92 +1,11 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Panel } from "@/components/dashboard/Panel";
 import { ToolbarTag } from "@/components/dashboard/ToolbarTag";
-import { InteractiveLineChart } from "@/components/dashboard/charts/InteractiveLineChart";
-import type {
-  AuditNote,
-  AuditTrailRow,
-  AttributionStage,
-  DashboardMetric,
-  MetricTone,
-  PatternRow,
-} from "@/components/dashboard/dashboardData";
-import { dashboardData } from "@/components/dashboard/dashboardData";
-import { buildAreaPath, buildLinePath, buildPoints } from "@/components/dashboard/lib/chartMath";
 import type { DashboardBootstrap } from "@/lib/control-plane/types";
 
-const METRIC_TONES: Record<
-  MetricTone,
-  { line: string; fill: string; badge: string; text: string }
-> = {
-  accent: {
-    line: "var(--accent)",
-    fill: "var(--accent-soft)",
-    badge: "rgba(49, 208, 178, 0.14)",
-    text: "#7ff1dc",
-  },
-  signal: {
-    line: "var(--signal)",
-    fill: "var(--signal-soft)",
-    badge: "rgba(125, 211, 252, 0.14)",
-    text: "#bae6fd",
-  },
-  success: {
-    line: "var(--success)",
-    fill: "var(--success-soft)",
-    badge: "rgba(109, 231, 183, 0.14)",
-    text: "#bbf7d0",
-  },
-  warning: {
-    line: "var(--warning)",
-    fill: "var(--warning-soft)",
-    badge: "rgba(242, 197, 114, 0.14)",
-    text: "#f8deb1",
-  },
-};
-
-const PATTERN_STATUS_STYLES: Record<
-  PatternRow["status"],
-  { label: string; background: string; color: string }
-> = {
-  promoted: {
-    label: "promoted",
-    background: "rgba(49, 208, 178, 0.14)",
-    color: "#7ff1dc",
-  },
-  watching: {
-    label: "watching",
-    background: "rgba(125, 211, 252, 0.14)",
-    color: "#bae6fd",
-  },
-  draft: {
-    label: "draft",
-    background: "rgba(242, 197, 114, 0.14)",
-    color: "#f8deb1",
-  },
-};
-
-const AUDIT_STATUS_STYLES: Record<
-  AuditTrailRow["status"],
-  { label: string; background: string; color: string }
-> = {
-  verified: {
-    label: "verified",
-    background: "rgba(49, 208, 178, 0.14)",
-    color: "#7ff1dc",
-  },
-  watching: {
-    label: "watching",
-    background: "rgba(125, 211, 252, 0.14)",
-    color: "#bae6fd",
-  },
-  flagged: {
-    label: "review",
-    background: "rgba(242, 197, 114, 0.14)",
-    color: "#f8deb1",
-  },
-};
+type InstallationRow = DashboardBootstrap["installations"][number];
+type ApiKeyRow = DashboardBootstrap["apiKeys"][number];
 
 function staggerStyle(i: number) {
   return { animationDelay: `${i * 42}ms` } as const;
@@ -116,32 +35,54 @@ function scopeLabel(scope: DashboardBootstrap["workspace"]["scope"] | undefined)
   }
 }
 
-export function DashboardView({ bootstrap }: { bootstrap?: DashboardBootstrap }) {
-  const { toolbar, metrics, chart, impactSnapshots, attributionStages, auditNotes, patterns, auditRows } =
-    dashboardData;
-  const latestInstall = bootstrap?.installations[0];
+const ARCHITECTURE_SECTIONS = [
+  {
+    eyebrow: "Capture",
+    title: "Successful runs become reusable blocks",
+    body: "TraceBase distills every resolved debugging loop into a trigger + body pair. The trigger is what retrieval matches; the body is the reasoning that earned the match.",
+  },
+  {
+    eyebrow: "Recall",
+    title: "New work starts from prior wins",
+    body: "Before the agent burns tokens, retrieval surfaces the top candidates from procedural and semantic memory. Cold-start exploration gives way to grounded priors.",
+  },
+  {
+    eyebrow: "Inject",
+    title: "Only gated candidates reach the prompt",
+    body: "Every injection is recorded 1:1 with the payload that rendered into context. Dashboard analytics cannot drift from what the agent actually saw.",
+  },
+  {
+    eyebrow: "Measure",
+    title: "Outcome attribution closes the loop",
+    body: "Retrieval → injection → agent_used → outcome stay chained by a single queryId. Disproved blocks demote out of serving automatically.",
+  },
+] as const;
 
-  const title = bootstrap?.workspace.displayName ?? toolbar.workspace;
-  const subtitle = bootstrap
-    ? {
-        organization: scopeLabel(bootstrap.workspace.scope),
-        environment: "Production",
-        lastUpdated: latestInstall
-          ? `linked ${formatRelativeTime(latestInstall.updatedAt)}`
-          : "no installs linked yet",
-      }
-    : toolbar;
+export function DashboardView({ bootstrap }: { bootstrap?: DashboardBootstrap }) {
+  const workspace = bootstrap?.workspace;
+  const installations = bootstrap?.installations ?? [];
+  const apiKeys = bootstrap?.apiKeys ?? [];
+  const latestInstall = installations[0];
+
+  const title = workspace?.displayName ?? "production workspace";
+  const subtitle = {
+    organization: scopeLabel(workspace?.scope),
+    environment: "Production",
+    lastUpdated: latestInstall
+      ? `linked ${formatRelativeTime(latestInstall.updatedAt)}`
+      : "no installs linked yet",
+  };
 
   return (
-    <article className="space-y-5 pb-4" aria-label="Workspace dashboard">
+    <article className="space-y-6 pb-6" aria-label="Workspace dashboard">
       <header
         id="overview"
-        className="dash-enter flex flex-col gap-4 border-b pb-4 lg:flex-row lg:items-end lg:justify-between"
+        className="dash-enter flex flex-col gap-4 border-b pb-5 lg:flex-row lg:items-end lg:justify-between"
         style={{ ...staggerStyle(0), borderColor: "var(--border)" }}
       >
         <div>
           <p
-            className="text-[10px] font-mono uppercase tracking-[0.18em]"
+            className="text-[10px] font-mono uppercase tracking-[0.22em]"
             style={{ color: "var(--text-tertiary)" }}
           >
             Dashboard
@@ -151,8 +92,8 @@ export function DashboardView({ bootstrap }: { bootstrap?: DashboardBootstrap })
             className="mt-2 max-w-3xl text-sm font-light leading-relaxed"
             style={{ color: "var(--text-secondary)" }}
           >
-            Hosted control plane for install, reuse analytics, and trace auditability. The view stays
-            focused on the metrics a buyer and an operator actually need.
+            Hosted control plane for install, reuse analytics, and trace auditability. Real data only —
+            mock patterns and audit rows have been removed so nothing on this surface can lie.
           </p>
           <p
             className="mt-3 text-[11px] font-light uppercase tracking-[0.18em]"
@@ -167,373 +108,309 @@ export function DashboardView({ bootstrap }: { bootstrap?: DashboardBootstrap })
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <ToolbarTag active>{`scope ${bootstrap?.workspace.scope ?? "personal"}`}</ToolbarTag>
-          <ToolbarTag>{`installs ${bootstrap?.installations.length ?? 0}`}</ToolbarTag>
-          <ToolbarTag>{`api keys ${bootstrap?.apiKeys.length ?? 0}`}</ToolbarTag>
-          {bootstrap?.workspace.slug ? <ToolbarTag>{bootstrap.workspace.slug}</ToolbarTag> : null}
+          <ToolbarTag active>{`scope ${workspace?.scope ?? "personal"}`}</ToolbarTag>
+          <ToolbarTag>{`installs ${installations.length}`}</ToolbarTag>
+          <ToolbarTag>{`api keys ${apiKeys.length}`}</ToolbarTag>
+          {workspace?.slug ? <ToolbarTag>{workspace.slug}</ToolbarTag> : null}
         </div>
       </header>
 
       <section
+        id="workspace"
         className="dash-enter grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4"
-        aria-label="Key metrics"
+        aria-label="Workspace snapshot"
         style={staggerStyle(1)}
       >
-        {metrics.map((metric) => (
-          <MetricCard key={metric.label} metric={metric} />
+        <StatTile
+          label="Linked installs"
+          value={installations.length}
+          note={latestInstall ? `${latestInstall.projectName} · ${latestInstall.agent}` : "No linked projects yet"}
+        />
+        <StatTile
+          label="API keys"
+          value={apiKeys.length}
+          note={apiKeys[0] ? `latest · ${apiKeys[0].label}` : "No API keys issued yet"}
+        />
+        <StatTile
+          label="Workspace scope"
+          value={workspace?.scope === "org" ? "org" : "personal"}
+          note={workspace?.slug ?? "awaiting link"}
+          literal
+        />
+        <StatTile
+          label="Control plane"
+          value={bootstrap ? "online" : "offline"}
+          note={bootstrap?.apiBaseUrl ?? "no api base url"}
+          literal
+        />
+      </section>
+
+      <section
+        id="architecture"
+        className="dash-enter grid gap-px overflow-hidden border"
+        style={{
+          ...staggerStyle(2),
+          borderColor: "var(--border)",
+          background: "var(--border)",
+          gridTemplateColumns: "repeat(auto-fit,minmax(16rem,1fr))",
+        }}
+        aria-label="How TraceBase works"
+      >
+        {ARCHITECTURE_SECTIONS.map((section) => (
+          <article
+            key={section.eyebrow}
+            className="flex min-h-[180px] flex-col justify-between p-5 md:p-6"
+            style={{ background: "var(--bg)" }}
+          >
+            <div>
+              <p
+                className="text-[10px] font-mono uppercase tracking-[0.22em]"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                {section.eyebrow}
+              </p>
+              <h3 className="mt-4 text-[0.98rem] font-normal tracking-tight">{section.title}</h3>
+            </div>
+            <p
+              className="mt-5 text-[12px] font-light leading-relaxed"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              {section.body}
+            </p>
+          </article>
         ))}
       </section>
 
       <section
-        className="dash-enter grid gap-4 xl:grid-cols-[minmax(0,1.16fr)_minmax(320px,0.84fr)]"
-        style={staggerStyle(2)}
+        id="installs"
+        className="dash-enter grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]"
+        style={staggerStyle(3)}
       >
-        <Panel
-          id="efficiency"
-          eyebrow="Impact"
-          title="Cold start vs assisted runs"
-          description="Median tokens per repeated workflow. This is the buyer-facing cost story: once recall starts early, the agent burns fewer tokens and avoids re-exploring the same dead ends."
-        >
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.24fr)_minmax(260px,0.76fr)]">
-            <div className="min-w-0">
-              <InteractiveLineChart labels={chart.labels} series={chart.series} />
-            </div>
-
-            <div className="grid gap-2.5">
-              {impactSnapshots.map((snapshot) => (
-                <div
-                  key={snapshot.label}
-                  className="rounded-sm border p-3.5"
-                  style={{ borderColor: "var(--border)", background: "rgba(255,255,255,0.015)" }}
-                >
-                  <p
-                    className="text-[10px] font-mono uppercase tracking-[0.18em]"
-                    style={{ color: "var(--text-tertiary)" }}
-                  >
-                    {snapshot.label}
-                  </p>
-                  <p className="mt-3 text-[1.45rem] font-light tracking-[-0.03em]">{snapshot.value}</p>
-                  <p
-                    className="mt-2 text-[12px] font-light leading-relaxed"
-                    style={{ color: "var(--text-secondary)" }}
-                  >
-                    {snapshot.note}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </Panel>
-
-        <Panel
-          id="audit"
-          eyebrow="Auditability"
-          title="Every assist stays query-to-outcome attributable"
-          description="This is the trust surface behind the product. Retrieval, prompt injection, and outcome logging are kept in one chain so enterprises can inspect what was used and demote bad reasoning automatically."
-        >
-          <div className="grid gap-5">
-            <AttributionFlow rows={attributionStages} />
-            <div className="grid gap-2.5">
-              {auditNotes.map((note) => (
-                <AuditNoteCard key={note.label} note={note} />
-              ))}
-            </div>
-          </div>
-        </Panel>
+        <InstallationsPanel installations={installations} />
+        <ApiKeysPanel apiKeys={apiKeys} />
       </section>
 
       <section
-        className="dash-enter grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]"
-        style={staggerStyle(3)}
+        id="audit"
+        className="dash-enter rounded-sm border p-5"
+        aria-label="Audit trail"
+        style={{
+          ...staggerStyle(4),
+          borderColor: "var(--border)",
+          background: "var(--surface)",
+        }}
       >
-        <Panel
-          id="trail"
-          eyebrow="Audit Trail"
-          title="Recent attributed runs"
-          description="Operators should be able to inspect the last useful recalls without digging through raw logs. This is the thin product layer on top of the event substrate."
-        >
-          <AuditTrailTable rows={auditRows} />
-        </Panel>
-
-        <Panel
-          id="patterns"
-          eyebrow="Reusable Memory"
-          title="Top promoted patterns"
-          description="The blocks currently earning their keep. Show reuse, helpfulness, and token lift together so quality and efficiency are evaluated on the same surface."
-        >
-          <PatternTable rows={patterns} />
-        </Panel>
+        <header className="mb-4 flex flex-col gap-1.5">
+          <p
+            className="text-[10px] font-mono uppercase tracking-[0.22em]"
+            style={{ color: "var(--text-tertiary)" }}
+          >
+            Audit Trail
+          </p>
+          <h2 className="text-[0.98rem] font-medium tracking-tight">Retrieval → injection → outcome stay chained</h2>
+          <p
+            className="max-w-3xl text-[12px] font-light leading-relaxed"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Every assist carries a stable <code className="font-mono">queryId</code> so reuse quality can
+            be measured instead of guessed. The substrate is live — a dedicated query viewer is rolling
+            out with the v2 control plane.
+          </p>
+        </header>
+        <EmptyState
+          title="No recent runs yet"
+          body="Once an agent starts using TraceBase in a linked project, the most recent query → injection → outcome rows will appear here."
+          hint="Install an adapter above, run a session, then refresh this page."
+        />
       </section>
     </article>
   );
 }
 
-function MetricCard({ metric }: { metric: DashboardMetric }) {
-  const colors = METRIC_TONES[metric.tone];
-
+function StatTile({
+  label,
+  value,
+  note,
+  literal = false,
+}: {
+  label: string;
+  value: number | string;
+  note: string;
+  literal?: boolean;
+}) {
   return (
     <article
       className="rounded-sm border p-4"
       style={{ borderColor: "var(--border)", background: "var(--surface)" }}
     >
       <p
-        className="text-[10px] font-mono uppercase tracking-[0.18em]"
+        className="text-[10px] font-mono uppercase tracking-[0.22em]"
         style={{ color: "var(--text-tertiary)" }}
       >
-        {metric.label}
+        {label}
       </p>
-
-      <div className="mt-4 flex items-center justify-between gap-3">
-        <p className="text-[1.7rem] font-light tracking-[-0.04em]">{metric.value}</p>
-        <span
-          className="rounded-sm px-2 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
-          style={{ background: colors.badge, color: colors.text }}
-        >
-          {metric.delta}
-        </span>
-      </div>
-
+      <p className={`mt-4 ${literal ? "text-[1.4rem]" : "text-[1.7rem]"} font-light tracking-[-0.03em]`}>
+        {typeof value === "number" ? value.toLocaleString() : value}
+      </p>
       <p
-        className="mt-3 min-h-[2.75rem] text-[12px] font-light leading-relaxed"
+        className="mt-3 min-h-[2.5rem] text-[12px] font-light leading-relaxed"
         style={{ color: "var(--text-secondary)" }}
       >
-        {metric.note}
+        {note}
       </p>
-
-      <div className="mt-4">
-        <Sparkline values={metric.trend} line={colors.line} fill={colors.fill} />
-      </div>
     </article>
   );
 }
 
-function Sparkline({
-  values,
-  line,
-  fill,
-}: {
-  values: readonly number[];
-  line: string;
-  fill: string;
-}) {
-  const width = 176;
-  const height = 54;
-  const pad = 4;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const points = buildPoints(values, width, height, pad, min, max);
-
+function InstallationsPanel({ installations }: { installations: InstallationRow[] }) {
   return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className="h-12 w-full"
-      role="img"
-      aria-label="Metric trend"
+    <article
+      className="rounded-sm border"
+      style={{ borderColor: "var(--border)", background: "var(--surface)" }}
     >
-      <path d={buildAreaPath(points, height, pad)} fill={fill} />
-      <path
-        d={buildLinePath(points)}
-        fill="none"
-        stroke={line}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function AttributionFlow({ rows }: { rows: readonly AttributionStage[] }) {
-  return (
-    <div className="space-y-3">
-      {rows.map((row) => (
-        <div key={row.label} className="space-y-2">
-          <div className="flex items-baseline justify-between gap-4">
-            <div>
-              <p className="text-sm font-light">{row.label}</p>
-              <p
-                className="mt-1 text-[12px] font-light leading-relaxed"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                {row.note}
-              </p>
-            </div>
-            <span className="shrink-0 text-sm font-light tabular-nums">{row.value}</span>
-          </div>
-
-          <div
-            className="h-2 overflow-hidden rounded-full"
-            style={{ background: "rgba(255,255,255,0.06)" }}
+      <header className="flex items-baseline justify-between gap-3 border-b px-4 py-3 md:px-5" style={{ borderColor: "var(--border)" }}>
+        <div>
+          <p
+            className="text-[10px] font-mono uppercase tracking-[0.22em]"
+            style={{ color: "var(--text-tertiary)" }}
           >
-            <div
-              className="h-full rounded-full"
-              style={{
-                width: `${row.width}%`,
-                background: "var(--accent)",
-              }}
-            />
-          </div>
+            Installations
+          </p>
+          <h2 className="mt-1 text-[0.95rem] font-medium tracking-tight">Projects linked to this workspace</h2>
         </div>
-      ))}
-    </div>
-  );
-}
-
-function AuditNoteCard({ note }: { note: AuditNote }) {
-  return (
-    <div
-      className="rounded-sm border p-3.5"
-      style={{ borderColor: "var(--border)", background: "rgba(255,255,255,0.015)" }}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <p
-          className="text-[10px] font-mono uppercase tracking-[0.18em]"
-          style={{ color: "var(--text-tertiary)" }}
-        >
-          {note.label}
-        </p>
         <span
           className="rounded-sm border px-2 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
-          style={{ borderColor: "var(--border)", color: "var(--text)" }}
+          style={{ borderColor: "var(--border)", color: "var(--text-tertiary)" }}
         >
-          {note.value}
+          {installations.length}
         </span>
-      </div>
+      </header>
+
+      {installations.length === 0 ? (
+        <div className="p-5">
+          <EmptyState
+            title="No linked installs"
+            body="Run the picker above in a project directory to link it here. Cold-start terminals still work — the adapter you pick gets wired; the rest stay untouched."
+          />
+        </div>
+      ) : (
+        <ul>
+          {installations.slice(0, 6).map((install) => (
+            <li
+              key={install.id}
+              className="flex items-start justify-between gap-3 border-b px-4 py-3 last:border-b-0 md:px-5"
+              style={{ borderColor: "var(--border)" }}
+            >
+              <div className="min-w-0">
+                <p className="text-[13px] font-light tracking-tight">{install.projectName}</p>
+                <p
+                  className="mt-1 text-[11px] font-mono uppercase tracking-[0.18em]"
+                  style={{ color: "var(--text-tertiary)" }}
+                >
+                  {install.agent}
+                </p>
+              </div>
+              <span
+                className="shrink-0 text-[11px] font-light"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                {formatRelativeTime(install.updatedAt)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </article>
+  );
+}
+
+function ApiKeysPanel({ apiKeys }: { apiKeys: ApiKeyRow[] }) {
+  return (
+    <article
+      className="rounded-sm border"
+      style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+    >
+      <header className="flex items-baseline justify-between gap-3 border-b px-4 py-3 md:px-5" style={{ borderColor: "var(--border)" }}>
+        <div>
+          <p
+            className="text-[10px] font-mono uppercase tracking-[0.22em]"
+            style={{ color: "var(--text-tertiary)" }}
+          >
+            API keys
+          </p>
+          <h2 className="mt-1 text-[0.95rem] font-medium tracking-tight">Issued for CI / headless installs</h2>
+        </div>
+        <span
+          className="rounded-sm border px-2 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
+          style={{ borderColor: "var(--border)", color: "var(--text-tertiary)" }}
+        >
+          {apiKeys.length}
+        </span>
+      </header>
+
+      {apiKeys.length === 0 ? (
+        <div className="p-5">
+          <EmptyState
+            title="No API keys"
+            body="Human installs do not need one. Create a key in the CI section of the quickstart only when you need a browserless install."
+          />
+        </div>
+      ) : (
+        <ul>
+          {apiKeys.slice(0, 6).map((key) => (
+            <li
+              key={key.id}
+              className="flex items-start justify-between gap-3 border-b px-4 py-3 last:border-b-0 md:px-5"
+              style={{ borderColor: "var(--border)" }}
+            >
+              <div className="min-w-0">
+                <p className="text-[13px] font-light tracking-tight">{key.label}</p>
+                <p className="mt-1 font-mono text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                  {key.prefix}…{key.last4}
+                </p>
+              </div>
+              <span className="shrink-0 text-[11px] font-light" style={{ color: "var(--text-tertiary)" }}>
+                {formatRelativeTime(key.createdAt)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </article>
+  );
+}
+
+function EmptyState({
+  title,
+  body,
+  hint,
+}: {
+  title: string;
+  body: string;
+  hint?: ReactNode;
+}) {
+  return (
+    <div
+      className="rounded-sm border border-dashed px-4 py-6 text-center md:px-6"
+      style={{ borderColor: "var(--border)", background: "rgba(255,255,255,0.01)" }}
+    >
+      <p className="text-[12px] font-mono uppercase tracking-[0.18em]" style={{ color: "var(--text-tertiary)" }}>
+        {title}
+      </p>
       <p
-        className="mt-3 text-[12px] font-light leading-relaxed"
+        className="mt-3 max-w-xl text-[12px] font-light leading-relaxed text-balance mx-auto"
         style={{ color: "var(--text-secondary)" }}
       >
-        {note.note}
+        {body}
       </p>
+      {hint ? (
+        <p
+          className="mt-3 text-[11px] font-light leading-relaxed"
+          style={{ color: "var(--text-tertiary)" }}
+        >
+          {hint}
+        </p>
+      ) : null}
     </div>
-  );
-}
-
-function PatternTable({ rows }: { rows: readonly PatternRow[] }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full border-separate border-spacing-0">
-        <thead>
-          <tr>
-            <TableHead>Pattern</TableHead>
-            <TableHead>Scope</TableHead>
-            <TableHead>Reuse</TableHead>
-            <TableHead>Helpful</TableHead>
-            <TableHead>Lift</TableHead>
-            <TableHead>Status</TableHead>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => {
-            const status = PATTERN_STATUS_STYLES[row.status];
-            return (
-              <tr key={row.pattern}>
-                <TableCell>
-                  <div className="min-w-[240px]">
-                    <p className="text-sm font-light">{row.pattern}</p>
-                    <p
-                      className="mt-1 text-[11px] font-light leading-relaxed"
-                      style={{ color: "var(--text-tertiary)" }}
-                    >
-                      last applied {row.lastApplied}
-                    </p>
-                  </div>
-                </TableCell>
-                <TableCell>{row.scope}</TableCell>
-                <TableCell>{row.reuse}</TableCell>
-                <TableCell>{row.helpfulRate}</TableCell>
-                <TableCell>{row.lift}</TableCell>
-                <TableCell>
-                  <span
-                    className="inline-flex rounded-sm px-2 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
-                    style={{ background: status.background, color: status.color }}
-                  >
-                    {status.label}
-                  </span>
-                </TableCell>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function AuditTrailTable({ rows }: { rows: readonly AuditTrailRow[] }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full border-separate border-spacing-0">
-        <thead>
-          <tr>
-            <TableHead>Task</TableHead>
-            <TableHead>Pattern</TableHead>
-            <TableHead>Query ID</TableHead>
-            <TableHead>Outcome</TableHead>
-            <TableHead>Tokens</TableHead>
-            <TableHead>Status</TableHead>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => {
-            const status = AUDIT_STATUS_STYLES[row.status];
-            return (
-              <tr key={row.traceId}>
-                <TableCell>
-                  <div className="min-w-[220px]">
-                    <p className="text-sm font-light">{row.task}</p>
-                    <p
-                      className="mt-1 text-[11px] font-light leading-relaxed"
-                      style={{ color: "var(--text-tertiary)" }}
-                    >
-                      {row.time}
-                    </p>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <span className="text-[12px] font-light" style={{ color: "var(--text-secondary)" }}>
-                    {row.pattern}
-                  </span>
-                </TableCell>
-                <TableCell>{row.traceId}</TableCell>
-                <TableCell>{row.outcome}</TableCell>
-                <TableCell>{row.tokensSaved}</TableCell>
-                <TableCell>
-                  <span
-                    className="inline-flex rounded-sm px-2 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
-                    style={{ background: status.background, color: status.color }}
-                  >
-                    {status.label}
-                  </span>
-                </TableCell>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function TableHead({ children }: { children: ReactNode }) {
-  return (
-    <th
-      className="border-b px-0 py-2 pr-4 text-left text-[10px] font-mono uppercase tracking-[0.18em]"
-      style={{ borderColor: "var(--border)", color: "var(--text-tertiary)" }}
-      scope="col"
-    >
-      {children}
-    </th>
-  );
-}
-
-function TableCell({ children }: { children: ReactNode }) {
-  return (
-    <td
-      className="border-b px-0 py-3 pr-4 align-top text-sm font-light"
-      style={{ borderColor: "rgba(237, 236, 236, 0.06)", color: "var(--text)" }}
-    >
-      {children}
-    </td>
   );
 }

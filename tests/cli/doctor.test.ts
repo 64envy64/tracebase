@@ -13,6 +13,10 @@ import {
   writeClaudeSettings,
   writeClaudeMarkdown,
 } from "../../src/cli/commands/init.js";
+import {
+  writeAgentInstructionFile,
+  writeAgentMcpConfig,
+} from "../../src/cli/install-targets.js";
 
 let dir: string;
 
@@ -186,5 +190,44 @@ describe("runDoctor — regressions", () => {
     expect(byName(r.checks, "claude-settings")!.level).toBe("pass");
     expect(byName(r.checks, "claude-md")!.level).toBe("pass");
     expect(r.projectPath).toBe(dir);
+  });
+
+  it("does not bind to an unrelated parent .tracebase above the repository root", () => {
+    const outer = mkdtempSync(join(tmpdir(), "tb-doctor-outer-"));
+    const repo = join(outer, "workspace", "app");
+    const nested = join(repo, "src");
+    mkdirSync(nested, { recursive: true });
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    initConfig(outer);
+
+    try {
+      const r = runDoctor(nested);
+      expect(byName(r.checks, "tracebase-config")!.level).toBe("fail");
+      expect(r.projectPath).toBe(nested);
+    } finally {
+      rmSync(outer, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("runDoctor — cursor adapter", () => {
+  it("checks cursor-mcp and AGENTS.md instead of Claude-specific files when target=cursor", () => {
+    const originalHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "tb-doctor-home-"));
+    process.env.HOME = home;
+    try {
+      initConfig(dir, { install: { agent: "cursor" } });
+      writeAgentMcpConfig(dir, "cursor", false);
+      writeAgentInstructionFile(dir, "cursor");
+
+      const r = runDoctor(dir);
+      expect(byName(r.checks, "cursor-mcp")!.level).toBe("pass");
+      expect(byName(r.checks, "agents-md")!.level).toBe("pass");
+      expect(byName(r.checks, "claude-settings")).toBeUndefined();
+      expect(byName(r.checks, "claude-md")).toBeUndefined();
+    } finally {
+      process.env.HOME = originalHome;
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

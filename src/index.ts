@@ -215,6 +215,8 @@ export type {
   RecallContext,
   RecallResult,
   TraceBaseConfig,
+  InstallAgent,
+  InstallConfig,
   EmbeddingConfig,
   EmbeddingProvider,
   TraceBaseEvent,

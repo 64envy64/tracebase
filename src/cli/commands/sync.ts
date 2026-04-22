@@ -1,11 +1,10 @@
 import { Command } from "commander";
 import pc from "picocolors";
-import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { ReasoningLayer } from "../../core/engine.js";
-import { loadConfig, findConfigDir } from "../../core/config.js";
+import { loadConfig } from "../../core/config.js";
 import { writeJsonl, readJsonl } from "../../kb/jsonl.js";
-import type { ReasoningTrace } from "../../types.js";
 
 /**
  * Sync command — Institutional Knowledge Base.
