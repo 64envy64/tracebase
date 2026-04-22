@@ -68,6 +68,11 @@ describe("`tracebase usage sync`", () => {
     // Today bucket fires; other six days are silent.
     expect(res.stdout).toMatch(/eligible=1 injected=1 helpful=1/);
     expect(res.stdout).toMatch(/Dry run 1 bucket/);
+    // Phase 1C.1 contract: sync always declares the scope up-front
+    // so users reading the output cannot miss that samples are
+    // project-level, not per-adapter.
+    expect(res.stdout).toMatch(/scope\s+workspace/);
+    expect(res.stdout).toMatch(/Per-adapter attribution ships in Phase 2/);
   });
 
   it("refuses to push when there is no API key and not in dry-run", () => {

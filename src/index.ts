@@ -215,6 +215,8 @@ export type {
   UsageEstimate,
   UsageIntegrity,
   UsageWindow,
+  UsageScope,
+  ComputeUsageMetricsOptions,
 } from "./analytics/usage-metrics.js";
 
 // Types — re-export everything

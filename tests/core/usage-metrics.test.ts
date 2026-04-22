@@ -106,4 +106,19 @@ describe("computeUsageMetrics — funnel invariants", () => {
     const usage = computeUsageMetrics(computeAggregates(store));
     expect(usage.integrity.outcomesWithoutRetrieval).toBe(1);
   });
+
+  it('defaults scope to "workspace" — Phase 1 refuses to split an un-tagged event log', () => {
+    const store = makeStore();
+    store.appendEvent({ ts: 1, queryId: "q1", event: "retrieval", candidates: [{ blockId: "b1", score: 0.9 }], shadow: false });
+    const usage = computeUsageMetrics(computeAggregates(store));
+    // scope must be workspace: local events carry no agent dimension.
+    expect(usage.scope).toBe("workspace");
+  });
+
+  it('accepts scope override, preparing for Phase 2 per-agent samples', () => {
+    const store = makeStore();
+    store.appendEvent({ ts: 1, queryId: "q1", event: "retrieval", candidates: [{ blockId: "b1", score: 0.9 }], shadow: false });
+    const usage = computeUsageMetrics(computeAggregates(store), { scope: "agent" });
+    expect(usage.scope).toBe("agent");
+  });
 });

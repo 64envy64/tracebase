@@ -11,6 +11,21 @@
  *
  * The hot path (recall / injection / local events) stays entirely
  * local — this command is opt-in and never blocks agent traffic.
+ *
+ * ---------------------------------------------------------------------
+ * Phase 1C.1 — scope contract
+ *
+ * Local events do not carry an agent dimension, so the sample we
+ * push represents the whole project's activity. It is tagged
+ * `scope: "workspace"` in the payload so the dashboard can render
+ * it as "Project activity" and never pretend to break it down per
+ * adapter. Per-installation impact rendering waits on Phase 2, when
+ * events themselves carry an agent tag and `scope: "agent"` samples
+ * become meaningful.
+ *
+ * The push is still keyed by the primary adapter's `installationId`
+ * because the server schema requires one; the scope tag in the
+ * payload is the authoritative signal to downstream readers.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { Command } from "commander";
@@ -110,8 +125,9 @@ export const usageCommand = new Command("usage")
         console.log(pc.bold("TraceBase usage sync"));
         console.log(pc.dim(`  project      ${configDir}`));
         console.log(pc.dim(`  api          ${apiUrl}`));
-        console.log(pc.dim(`  installation ${primaryInstallationId}`));
+        console.log(pc.dim(`  installation ${primaryInstallationId} (primary; scope=workspace)`));
         console.log(pc.dim(`  window       ${new Date(afterTs).toISOString()} → ${new Date(nowTs).toISOString()} (${days.length} bucket${days.length === 1 ? "" : "s"})`));
+        console.log(pc.dim(`  scope        workspace — project-level rollup. Per-adapter attribution ships in Phase 2.`));
         console.log();
 
         // No store file yet = no activity yet. Keep the command honest:

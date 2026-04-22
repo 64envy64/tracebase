@@ -4,6 +4,8 @@
  * independent helpfulness or funnel logic lives anywhere else.
  *
  * The shape is deliberately narrow:
+ *   - `scope`    — "workspace" (Phase 1) or "agent" (Phase 2+). See
+ *     the Phase 1C.1 note below.
  *   - `observed` — counts the event log can prove.
  *   - `estimated` — derived quantities (tokens/latency saved) the UI
  *     must render with an explicit estimate indicator. Each field
@@ -17,8 +19,37 @@
  * Phase 3 will introduce `causal` alongside `observed` / `estimated`.
  * Until a deterministic holdout cohort exists, token/latency "saved"
  * is an estimate and must never be rendered without the estimate tag.
+ *
+ * ---------------------------------------------------------------------
+ * Phase 1C.1 note — scope semantics
+ *
+ * In Phase 1 the local event log (retrieval / injection / agent_used /
+ * outcome) does **not** carry an agent dimension. All adapters in a
+ * multi-agent project share the same event stream, so a UsageMetrics
+ * computed from that stream is a *project / workspace* aggregate, not
+ * a per-adapter impact snapshot.
+ *
+ * The cloud schema *does* carry per-adapter identity on
+ * `tracebase_installations` — each adapter gets its own row. We keep
+ * that identity because Pattern Health (Phase 2) and the per-agent
+ * event tagging that comes with it will need it. Phase 1 just refuses
+ * to pretend it can split an un-tagged event log after the fact.
+ *
+ * Concretely:
+ *   - `scope: "workspace"` — project-level rollup. Samples with this
+ *     tag represent the whole project's activity; the dashboard
+ *     renders them as "Project activity", not per-adapter.
+ *   - `scope: "agent"` — per-adapter rollup. Only emitted once events
+ *     carry an agent field (Phase 2). The dashboard gets its
+ *     per-installation breakdown there; Phase 1 does not.
  */
 import type { EventAggregates } from "../core/analytics.js";
+
+/**
+ * Granularity of the aggregated sample. See the module docstring
+ * above — Phase 1 only ever emits `"workspace"`.
+ */
+export type UsageScope = "workspace" | "agent";
 
 export interface UsageWindow {
   /** Epoch ms. `undefined` means open-ended on that side. */
@@ -83,6 +114,15 @@ export interface UsageIntegrity {
 }
 
 export interface UsageMetrics {
+  /**
+   * Granularity tag. Phase 1 emits `"workspace"` exclusively because
+   * local events do not carry an agent dimension — attributing the
+   * same event stream to individual adapters would be fabrication.
+   * Phase 2 flips per-agent samples on once the event log itself is
+   * tagged. Consumers must render workspace-scoped samples as
+   * project-level, never per-adapter.
+   */
+  scope: UsageScope;
   window: UsageWindow;
   observed: UsageObserved;
   estimated: UsageEstimated;
@@ -92,14 +132,28 @@ export interface UsageMetrics {
 /** Convenience tag the UI uses to render the estimate label. */
 export const USAGE_ESTIMATE_TAG = "estimate" as const;
 
+export interface ComputeUsageMetricsOptions {
+  /**
+   * Granularity of the resulting sample. Defaults to `"workspace"`
+   * because Phase 1 cannot honestly split a shared event stream by
+   * agent. Only pass `"agent"` when the event stream itself has
+   * already been filtered to one agent (Phase 2+).
+   */
+  scope?: UsageScope;
+}
+
 /**
  * Derive a `UsageMetrics` snapshot from a computed `EventAggregates`.
  * Pure — same inputs always produce the same outputs. Safe to call
  * both from the CLI (against a local SQLite store) and from the
  * dashboard (against a previously-synced aggregate).
  */
-export function computeUsageMetrics(agg: EventAggregates): UsageMetrics {
+export function computeUsageMetrics(
+  agg: EventAggregates,
+  opts: ComputeUsageMetricsOptions = {},
+): UsageMetrics {
   const { funnel, outcome, integrity, window } = agg;
+  const scope: UsageScope = opts.scope ?? "workspace";
 
   const resolvedRateWithMemory =
     funnel.injectedRuns > 0 ? funnel.helpfulRuns / funnel.injectedRuns : null;
@@ -108,6 +162,7 @@ export function computeUsageMetrics(agg: EventAggregates): UsageMetrics {
   const durationDelta = perRunDelta(outcome.durationsShadow, outcome.durationsTreatment);
 
   return {
+    scope,
     window,
     observed: {
       eligibleRuns: funnel.eligibleRuns,
