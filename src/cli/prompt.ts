@@ -2,10 +2,14 @@
  * Tiny zero-dependency TTY picker.
  *
  * Used by `tracebase init` to ask the user which agents to configure.
- * Arrow keys move, space toggles, enter confirms. Falls back to a
- * textual numeric picker when the terminal doesn't support raw mode.
+ * Arrow keys move, space toggles, enter confirms. When the terminal
+ * is a TTY but does not support raw mode (some pipes, odd CI
+ * shells), `multiSelect` degrades to a numeric-text picker driven by
+ * readline. On fully non-interactive stdin — which the caller should
+ * detect with `isInteractive()` before asking — `multiSelect` returns
+ * `null` so callers can fall back to their own defaults.
  */
-import { emitKeypressEvents } from "node:readline";
+import { createInterface, emitKeypressEvents } from "node:readline";
 
 type Option<T extends string> = {
   value: T;
@@ -25,8 +29,11 @@ export async function multiSelect<T extends string>(input: {
   const { title, options } = input;
   if (options.length === 0) return [];
 
-  if (!isInteractive() || typeof process.stdin.setRawMode !== "function") {
+  if (!isInteractive()) {
     return null;
+  }
+  if (typeof process.stdin.setRawMode !== "function") {
+    return numericFallback(input);
   }
 
   const initialSet = new Set<T>(input.initial ?? []);
@@ -150,4 +157,59 @@ export async function multiSelect<T extends string>(input: {
       }
     });
   });
+}
+
+/**
+ * Readline-backed numeric picker used when the TTY lacks raw-mode
+ * support. Lists the options with indices and a pre-filled default
+ * (detected agents), asks for a comma-separated selection (or `all` /
+ * `none`), and resolves to the chosen values.
+ */
+async function numericFallback<T extends string>(input: {
+  title: string;
+  options: Array<{ value: T; label: string; hint?: string }>;
+  initial?: T[];
+}): Promise<T[] | null> {
+  const { title, options } = input;
+  const initialSet = new Set<T>(input.initial ?? []);
+  const defaultIndexes = options
+    .map((opt, i) => (initialSet.has(opt.value) ? i + 1 : -1))
+    .filter((i) => i > 0);
+  const defaultLabel =
+    defaultIndexes.length === 0
+      ? "none"
+      : defaultIndexes.length === options.length
+        ? "all"
+        : defaultIndexes.join(",");
+
+  console.log();
+  console.log(title);
+  options.forEach((opt, i) => {
+    const marker = initialSet.has(opt.value) ? "*" : " ";
+    const hint = opt.hint ? `  ${opt.hint}` : "";
+    console.log(`  ${marker} ${i + 1}) ${opt.label}${hint}`);
+  });
+  console.log(`  (enter indices comma-separated, "all", or "none" — default: ${defaultLabel})`);
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer: string = await new Promise((resolve) => {
+    rl.question("> ", (value) => resolve(value));
+  });
+  rl.close();
+
+  const trimmed = answer.trim().toLowerCase();
+  if (trimmed === "") {
+    return defaultIndexes.map((i) => options[i - 1]!.value);
+  }
+  if (trimmed === "all") return options.map((o) => o.value);
+  if (trimmed === "none") return [];
+
+  const picked: T[] = [];
+  for (const raw of trimmed.split(",")) {
+    const idx = Number.parseInt(raw.trim(), 10);
+    if (!Number.isFinite(idx) || idx < 1 || idx > options.length) continue;
+    const value = options[idx - 1]!.value;
+    if (!picked.includes(value)) picked.push(value);
+  }
+  return picked;
 }

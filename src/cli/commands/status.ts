@@ -126,20 +126,28 @@ export function buildStatusReport(invocationPath: string): StatusReport {
   const cfg = loadConfig(invocationPath);
   const storageBytes = existsSync(cfg.storagePath) ? statSync(cfg.storagePath).size : null;
   const configuredAgents = normalizeInstallAgents(cfg.install);
-  // Fall back to the legacy single-agent resolver if the config has no
-  // list yet (e.g. a project initialised by a prior release).
+  // Distinguish three states:
+  //   - install field absent entirely (legacy pre-multi-agent config)
+  //     → fall back to the single-agent resolver so old projects keep
+  //       showing their adapter.
+  //   - install.agents empty (deliberately cleared by `remove --keep-store`)
+  //     → respect that; status should say "no adapters wired up".
+  //   - install.agents non-empty → use the list verbatim.
+  const installPresent = cfg.install !== undefined;
   const agents: InstallAgent[] =
     configuredAgents.length > 0
       ? configuredAgents
-      : [
-          resolveInstallAgent({
-            basePath: projectRoot,
-            stored: cfg.install?.agent,
-            preferEnvironment: false,
-          }),
-        ];
-  const primaryAgent = agents[0]!;
-  const meta = getAgentTargetMeta(primaryAgent);
+      : installPresent
+        ? []
+        : [
+            resolveInstallAgent({
+              basePath: projectRoot,
+              stored: cfg.install?.agent,
+              preferEnvironment: false,
+            }),
+          ];
+  const primaryAgent = agents[0] ?? null;
+  const meta = primaryAgent ? getAgentTargetMeta(primaryAgent) : null;
   const agentReports: AgentInstallReport[] = agents.map((a) => {
     const m = getAgentTargetMeta(a);
     const mcp = inspectAgentMcpConfig(projectRoot, a);
@@ -153,7 +161,7 @@ export function buildStatusReport(invocationPath: string): StatusReport {
       instructionsPresent: instr.present && instr.managed,
     };
   });
-  const primaryReport = agentReports[0]!;
+  const primaryReport = agentReports[0];
   const claudeReport = agentReports.find((r) => r.agent === "claude-code");
   const claudeSettingsPresent = claudeReport ? claudeReport.mcpConfigured : false;
   const claudeMdPresent = claudeReport ? claudeReport.instructionsPresent : false;
@@ -199,12 +207,12 @@ export function buildStatusReport(invocationPath: string): StatusReport {
     storagePath: cfg.storagePath,
     storageBytes,
     agent: primaryAgent,
-    agentDisplayName: meta.displayName,
-    mcpLocation: meta.mcpLocationLabel,
-    instructionFile: meta.instructionFile,
+    agentDisplayName: meta?.displayName ?? null,
+    mcpLocation: meta?.mcpLocationLabel ?? null,
+    instructionFile: meta?.instructionFile ?? null,
     agents: agentReports,
-    mcpConfigured: primaryReport.mcpConfigured,
-    instructionsPresent: primaryReport.instructionsPresent,
+    mcpConfigured: primaryReport?.mcpConfigured ?? false,
+    instructionsPresent: primaryReport?.instructionsPresent ?? false,
     claudeSettingsPresent,
     claudeMdPresent,
     blocks,
@@ -251,21 +259,26 @@ function renderStatus(r: StatusReport): void {
   }
   console.log();
 
-  console.log(pc.bold("Agents ") + pc.dim(`(${r.agents.length} wired up)`) + ":");
-  for (const a of r.agents) {
-    const mcpBadge = a.mcpConfigured ? pc.green("ok") : pc.yellow("missing");
-    const instrBadge = a.instructionsPresent ? pc.green("ok") : pc.yellow("missing");
-    console.log(
-      "  " +
-        pc.bold(a.agentDisplayName.padEnd(12)) +
-        pc.dim(a.mcpLocation) +
-        " " +
-        mcpBadge +
-        pc.dim(" · ") +
-        pc.dim(a.instructionFile) +
-        " " +
-        instrBadge,
-    );
+  if (r.agents.length === 0) {
+    console.log(pc.bold("Agents ") + pc.dim("(no adapters wired up)"));
+    console.log(pc.dim("  Run ") + pc.cyan("npx tracebase init") + pc.dim(" to pick adapters again."));
+  } else {
+    console.log(pc.bold("Agents ") + pc.dim(`(${r.agents.length} wired up)`) + ":");
+    for (const a of r.agents) {
+      const mcpBadge = a.mcpConfigured ? pc.green("ok") : pc.yellow("missing");
+      const instrBadge = a.instructionsPresent ? pc.green("ok") : pc.yellow("missing");
+      console.log(
+        "  " +
+          pc.bold(a.agentDisplayName.padEnd(12)) +
+          pc.dim(a.mcpLocation) +
+          " " +
+          mcpBadge +
+          pc.dim(" · ") +
+          pc.dim(a.instructionFile) +
+          " " +
+          instrBadge,
+      );
+    }
   }
   console.log();
   console.log(pc.bold("Blocks ") + pc.dim("(active / candidate / demoted / merged / retired):"));

@@ -253,3 +253,55 @@ export function normalizeInstallAgents(
   add(install.agent);
   return collected;
 }
+
+/**
+ * Rewrite `.tracebase/config.json` to record that `detached` is no
+ * longer installed, without touching any other config fields. Used by
+ * `tracebase remove --keep-store` so `status` and `doctor` stop
+ * claiming a detached adapter is "configured but broken".
+ *
+ * Returns the agents that remain in the config after the detach.
+ * If the config doesn't exist, or the project isn't initialized, this
+ * is a no-op.
+ */
+export function detachInstallAgents(
+  basePath: string,
+  detached: Array<"claude-code" | "cursor" | "codex">,
+): Array<"claude-code" | "cursor" | "codex"> {
+  const configFile = join(basePath, CONFIG_DIR, CONFIG_FILE);
+  if (!existsSync(configFile)) return [];
+
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(readFileSync(configFile, "utf-8")) as Record<string, unknown>;
+  } catch {
+    // Parse error — leave the file alone so `doctor` can report it
+    // accurately instead of hiding the corruption.
+    return [];
+  }
+
+  const current = normalizeInstallAgents(
+    raw.install as { agents?: unknown; agent?: unknown } | undefined,
+  );
+  const detachedSet = new Set(detached);
+  const remaining = current.filter((agent) => !detachedSet.has(agent));
+
+  if (remaining.length === current.length) return remaining;
+
+  if (remaining.length === 0) {
+    // Leave an explicit "detached" sentinel instead of deleting the
+    // field — that way `status` and `doctor` can tell "the user
+    // removed every adapter" apart from "this is a legacy config
+    // written before multi-agent existed", and avoid reinventing a
+    // phantom default agent.
+    raw.install = { agents: [] };
+  } else {
+    raw.install = {
+      agents: remaining,
+      agent: remaining[0],
+    };
+  }
+
+  writeFileSync(configFile, JSON.stringify(raw, null, 2) + "\n");
+  return remaining;
+}

@@ -139,16 +139,23 @@ export function runDoctor(invocationPath: string): DoctorReport {
   cfg = resolvedCfg;
 
   const configuredAgents = normalizeInstallAgents(cfg.install);
+  // Same three-state handling as `status`: distinguish legacy
+  // pre-multi-agent configs (no `install` field) from explicit
+  // detach (`install.agents: []`) so doctor doesn't invent a phantom
+  // default adapter after uninstall.
+  const installPresent = cfg.install !== undefined;
   const agents: InstallAgent[] =
     configuredAgents.length > 0
       ? configuredAgents
-      : [
-          resolveInstallAgent({
-            basePath: projectRoot,
-            stored: cfg.install?.agent,
-            preferEnvironment: false,
-          }),
-        ];
+      : installPresent
+        ? []
+        : [
+            resolveInstallAgent({
+              basePath: projectRoot,
+              stored: cfg.install?.agent,
+              preferEnvironment: false,
+            }),
+          ];
 
   // --- storage
   if (!existsSync(cfg.storagePath)) {
@@ -196,9 +203,18 @@ export function runDoctor(invocationPath: string): DoctorReport {
     }
   }
 
-  for (const a of agents) {
-    const meta = getAgentTargetMeta(a);
-    appendAgentIntegrationChecks(checks, projectRoot, a, meta.displayName);
+  if (agents.length === 0) {
+    checks.push({
+      name: "install",
+      level: "warn",
+      message: "no adapters wired up",
+      fix: "Run `npx tracebase init` to attach Claude Code, Cursor, or Codex.",
+    });
+  } else {
+    for (const a of agents) {
+      const meta = getAgentTargetMeta(a);
+      appendAgentIntegrationChecks(checks, projectRoot, a, meta.displayName);
+    }
   }
 
   // --- MCP SDK availability (optional peer dep)

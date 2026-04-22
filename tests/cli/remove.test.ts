@@ -72,6 +72,74 @@ describe("runRemove", () => {
     }
   });
 
+  it("semantically detaches cleanly-removed agents from config.json when --keep-store", () => {
+    // Regression: `remove --keep-store` used to strip the MCP/instruction
+    // surfaces but leave `install.agents` untouched. Status + doctor kept
+    // reporting the project as "configured for Claude/Cursor/Codex, but
+    // broken", which is a dishonest uninstall report.
+    const originalHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "tb-remove-detach-home-"));
+    process.env.HOME = home;
+    try {
+      initConfig(dir, { install: { agents: ["claude-code", "cursor"] } });
+      writeClaudeSettings(dir, false);
+      writeClaudeMarkdown(dir);
+      writeAgentMcpConfig(dir, "cursor", false);
+      writeAgentInstructionFile(dir, "cursor");
+
+      const report = runRemove({ path: dir, keepStore: true });
+      expect(report.failed).toBe(false);
+
+      // Local store survives.
+      expect(existsSync(join(dir, ".tracebase", "config.json"))).toBe(true);
+
+      // Config records the detach with an empty-agents sentinel so
+      // status / doctor can distinguish "cleared" from "legacy config
+      // with no install field" and stop reinventing a phantom agent.
+      const cfg = JSON.parse(readFileSync(join(dir, ".tracebase", "config.json"), "utf-8")) as {
+        install?: { agents?: string[]; agent?: string };
+        workspaceId?: string;
+      };
+      expect(cfg.install?.agents).toEqual([]);
+      // workspaceId is stable across the detach — uninstall doesn't
+      // rotate the project identity.
+      expect(typeof cfg.workspaceId).toBe("string");
+    } finally {
+      process.env.HOME = originalHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("detaches only the targeted agent when --agent is passed with --keep-store", () => {
+    const originalHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "tb-remove-detach-one-home-"));
+    process.env.HOME = home;
+    try {
+      initConfig(dir, { install: { agents: ["claude-code", "cursor"] } });
+      writeClaudeSettings(dir, false);
+      writeClaudeMarkdown(dir);
+      writeAgentMcpConfig(dir, "cursor", false);
+      writeAgentInstructionFile(dir, "cursor");
+
+      runRemove({ path: dir, agent: "cursor", keepStore: true });
+
+      // Claude artifacts untouched.
+      expect(existsSync(join(dir, ".claude", "settings.json"))).toBe(true);
+      expect(existsSync(join(dir, "CLAUDE.md"))).toBe(true);
+      // Cursor artifacts cleared.
+      expect(existsSync(join(home, ".cursor", "mcp.json"))).toBe(false);
+
+      const cfg = JSON.parse(readFileSync(join(dir, ".tracebase", "config.json"), "utf-8")) as {
+        install?: { agents?: string[]; agent?: string };
+      };
+      expect(cfg.install?.agents).toEqual(["claude-code"]);
+      expect(cfg.install?.agent).toBe("claude-code");
+    } finally {
+      process.env.HOME = originalHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it("uses the stored cursor target and preserves user content around AGENTS.md", () => {
     const originalHome = process.env.HOME;
     const home = mkdtempSync(join(tmpdir(), "tb-remove-home-"));

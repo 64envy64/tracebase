@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { Command } from "commander";
 import pc from "picocolors";
 import {
+  detachInstallAgents,
   findProjectRoot,
   loadConfig,
   normalizeInstallAgents,
@@ -94,20 +95,37 @@ export function runRemove(input: {
   }
 
   const steps: RemoveReport["steps"] = [];
+  // Track which agents got both their surfaces cleaned, so we can
+  // semantically detach them from config.json when the store is kept.
+  // An agent with any skip flag (--keep-mcp-config,
+  // --keep-agent-instructions) is not considered fully detached —
+  // status/doctor should still see the remaining surface.
+  const perAgentCleanlyRemoved = new Map<InstallAgent, boolean>();
   for (const agent of agentsToClean) {
     const meta = getAgentTargetMeta(agent);
+    let mcpOk = true;
+    let instructionsOk = true;
     if (!input.keepMcpConfig) {
+      const res = removeAgentMcpConfig(projectPath, agent);
       steps.push({
         label: `${meta.displayName} · ${meta.mcpLocationLabel}`,
-        result: removeAgentMcpConfig(projectPath, agent),
+        result: res,
       });
+      mcpOk = res.ok;
+    } else {
+      mcpOk = false; // surface intentionally preserved, so not detached
     }
     if (!input.keepAgentInstructions) {
+      const res = removeAgentInstructionFile(projectPath, agent);
       steps.push({
         label: `${meta.displayName} · ${meta.instructionFile}`,
-        result: removeAgentInstructionFile(projectPath, agent),
+        result: res,
       });
+      instructionsOk = res.ok;
+    } else {
+      instructionsOk = false;
     }
+    perAgentCleanlyRemoved.set(agent, mcpOk && instructionsOk);
   }
 
   if (!input.keepStore) {
@@ -115,6 +133,18 @@ export function runRemove(input: {
       label: ".tracebase/",
       result: removeTraceBaseDirectory(projectPath),
     });
+  } else {
+    // Store is staying. Detach every agent that was physically
+    // cleaned so `status` / `doctor` stop reporting them as
+    // "configured but broken" — that was the semantic detach gap in
+    // the previous behaviour.
+    const detachable: InstallAgent[] = [];
+    for (const [agent, cleanly] of perAgentCleanlyRemoved) {
+      if (cleanly) detachable.push(agent);
+    }
+    if (detachable.length > 0 && existsSync(join(projectPath, ".tracebase"))) {
+      detachInstallAgents(projectPath, detachable);
+    }
   }
 
   return {
