@@ -11,6 +11,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getControlPlaneStore } from "@/lib/control-plane/store";
+import { parseUsageMetrics } from "@/lib/control-plane/usage";
 import { checkRateLimit } from "@/lib/server/rate-limit";
 
 export const runtime = "nodejs";
@@ -60,6 +61,19 @@ export async function POST(req: NextRequest) {
   if (body.windowEnd <= body.windowStart) {
     return NextResponse.json(
       { error: "windowEnd must be strictly greater than windowStart" },
+      { status: 400 },
+    );
+  }
+
+  // Reject payloads that fail UsageMetrics schema validation. The
+  // same `parseUsageMetrics` is the authoritative reader on the
+  // dashboard side, so a row that would silently fall out of the
+  // render pipeline later is blocked at ingest now. This closes
+  // the drift where contributor counts (pre-parse) disagreed with
+  // fold totals (post-parse).
+  if (!parseUsageMetrics(body.metrics)) {
+    return NextResponse.json(
+      { error: "metrics payload failed UsageMetrics schema validation" },
       { status: 400 },
     );
   }

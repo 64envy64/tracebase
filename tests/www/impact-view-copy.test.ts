@@ -87,18 +87,22 @@ describe("Impact page wiring", () => {
     expect(impactPage).toMatch(/contributors in the selected window/i);
   });
 
-  it("fold and contributor counts key off the same scope-filtered sample set", () => {
-    // Phase 2 will start emitting scope="agent" samples alongside
-    // the workspace-scoped ones. The numbers and the counts must
-    // not drift — both have to feed from the same pre-filtered
-    // `workspaceSamples`, not from `rawSamples` at large.
+  it("fold and contributor counts key off the same filtered-and-validated sample set", () => {
+    // Phase 1E.4 introduced a single-filter pipeline; 1E.5 added a
+    // schema-validate step so invalid metrics payloads cannot count
+    // as contributors while being dropped from the fold. Both
+    // consumers must feed from `validated`, never from the
+    // unfiltered or unparsed sources.
     expect(impactPage).toContain("filterSamplesByScope");
     expect(impactPage).toContain("workspaceSamples");
-    // Neither consumer must accept the unfiltered rawSamples.
+    expect(impactPage).toContain("validateSamples(workspaceSamples)");
+    // Neither consumer may accept the pre-validation sets.
     expect(impactPage).not.toMatch(/toDailyBuckets\(rawSamples\)/);
     expect(impactPage).not.toMatch(/countContributorsInWindow\(rawSamples\b/);
-    // Explicit shape: both receive the same filtered set.
-    expect(impactPage).toMatch(/toDailyBuckets\(workspaceSamples\)/);
-    expect(impactPage).toMatch(/countContributorsInWindow\(workspaceSamples\b/);
+    expect(impactPage).not.toMatch(/toDailyBuckets\(workspaceSamples\)/);
+    expect(impactPage).not.toMatch(/countContributorsInWindow\(workspaceSamples\b/);
+    // Explicit shape: both receive the validated set.
+    expect(impactPage).toMatch(/toDailyBuckets\(validated\)/);
+    expect(impactPage).toMatch(/countContributorsInWindow\(validated\b/);
   });
 });

@@ -22,11 +22,50 @@ import type { UsageMetrics, UsageScope } from "@/lib/usage/types";
 import type { ControlPlaneInstallation, ControlPlaneUsageSample } from "./types";
 
 /**
- * Count of projects and installations that actually pushed samples
- * into the selected window. Different from the workspace's total
- * installation list — an installation that sits idle in the window
- * does not count as a contributor to the numbers rendered on the
- * Impact page.
+ * A sample whose `metrics` JSONB payload successfully parsed against
+ * the `UsageMetrics` schema. Every downstream consumer on the
+ * dashboard side — fold, contributor count, drill-down — must key
+ * off this type so they cannot drift: a row rejected by the parser
+ * here is rejected everywhere, or accepted everywhere.
+ *
+ * The `source` field preserves the original row for installationId /
+ * windowStart lookups; `metrics` is the typed parse.
+ */
+export interface ValidatedSample {
+  source: ControlPlaneUsageSample;
+  metrics: UsageMetrics;
+}
+
+/**
+ * Parse each sample's JSONB `metrics` against the UsageMetrics
+ * schema, dropping rows that fail validation. Pure — the only
+ * authoritative source of "did this row pass schema" on the
+ * dashboard side. Consumers must consume `ValidatedSample[]`, not
+ * raw `ControlPlaneUsageSample[]`, so invalid payloads cannot cause
+ * contributor counts and fold totals to disagree.
+ */
+export function validateSamples(
+  samples: readonly ControlPlaneUsageSample[],
+): ValidatedSample[] {
+  const out: ValidatedSample[] = [];
+  for (const sample of samples) {
+    const parsed = parseUsageMetrics(sample.metrics);
+    if (!parsed) continue;
+    out.push({ source: sample, metrics: parsed });
+  }
+  return out;
+}
+
+/**
+ * Count of projects and installations that actually pushed valid
+ * samples into the selected window. Different from the workspace's
+ * total installation list — an installation that sits idle in the
+ * window does not count as a contributor to the numbers rendered on
+ * the Impact page.
+ *
+ * Takes `ValidatedSample[]` so invalid-payload rows cannot be
+ * counted as contributors even though their metrics are dropped
+ * from the fold. See `ValidatedSample` for the contract.
  *
  * Samples whose `installationId` is not in the provided lookup get
  * counted toward the installation total but not the project total;
@@ -34,11 +73,11 @@ import type { ControlPlaneInstallation, ControlPlaneUsageSample } from "./types"
  * fabricate a project association for an unresolved row.
  */
 export function countContributorsInWindow(
-  samples: readonly ControlPlaneUsageSample[],
+  samples: readonly ValidatedSample[],
   installations: readonly ControlPlaneInstallation[],
 ): { projects: number; installations: number } {
   const contributorIds = new Set<string>();
-  for (const s of samples) contributorIds.add(s.installationId);
+  for (const s of samples) contributorIds.add(s.source.installationId);
 
   const byId = new Map<string, ControlPlaneInstallation>();
   for (const i of installations) byId.set(i.id, i);
@@ -88,40 +127,34 @@ export function filterSamplesByScope(
 }
 
 /**
- * Parse per-sample `UsageMetrics` payloads into dated `DailyBucket`s,
- * dropping any that fail validation. Ascending by `windowStart` so a
- * timeseries renders left-to-right without a second sort.
- *
- * Pure — requires callers to have pre-filtered by scope. That split
- * matters once Phase 2 starts emitting `scope: "agent"` samples
- * alongside the workspace-scope ones.
+ * Turn a list of pre-validated samples into dated `DailyBucket`s,
+ * ascending by `windowStart` so a timeseries renders left-to-right
+ * without a second sort. Takes `ValidatedSample[]` so validation
+ * cannot silently happen twice — see `ValidatedSample` for the
+ * single-validation contract.
  */
 export function toDailyBuckets(
-  samples: readonly ControlPlaneUsageSample[],
+  samples: readonly ValidatedSample[],
 ): DailyBucket[] {
-  const out: DailyBucket[] = [];
-  for (const sample of samples) {
-    const parsed = parseUsageMetrics(sample.metrics);
-    if (!parsed) continue;
-    out.push({
-      date: sample.windowStart.slice(0, 10), // YYYY-MM-DD
-      metrics: parsed,
-    });
-  }
+  const out: DailyBucket[] = samples.map((s) => ({
+    date: s.source.windowStart.slice(0, 10), // YYYY-MM-DD
+    metrics: s.metrics,
+  }));
   out.sort((a, b) => a.date.localeCompare(b.date));
   return out;
 }
 
 /**
- * Back-compat convenience: filter workspace-scoped samples and bucket
- * them in one call. New code should prefer `filterSamplesByScope`
- * followed by `toDailyBuckets` so the filtered sample set can be
- * reused for e.g. contributor counting without a second parse.
+ * Back-compat convenience: filter workspace-scoped samples, validate
+ * them, and bucket in one call. Existing tests use this shape; new
+ * code should use `filterSamplesByScope` → `validateSamples` →
+ * `toDailyBuckets` so the validated set can be reused for e.g.
+ * contributor counting without re-parsing.
  */
 export function extractWorkspaceSamples(
   samples: readonly ControlPlaneUsageSample[],
 ): DailyBucket[] {
-  return toDailyBuckets(filterSamplesByScope(samples, "workspace"));
+  return toDailyBuckets(validateSamples(filterSamplesByScope(samples, "workspace")));
 }
 
 export function foldImpactWindow(input: {
@@ -264,7 +297,18 @@ function emptyMetrics(afterTs: string, beforeTs: string): UsageMetrics {
   };
 }
 
-function parseUsageMetrics(raw: Record<string, unknown>): UsageMetrics | null {
+/**
+ * Schema-validate a `UsageMetrics` payload. The single source of
+ * truth for what constitutes a valid sample on the dashboard side.
+ * Used both by `validateSamples` on read and by the ingest endpoint
+ * on write, so a row that parses anywhere parses everywhere.
+ */
+export function parseUsageMetrics(raw: unknown): UsageMetrics | null {
+  if (!raw || typeof raw !== "object") return null;
+  return parseUsageMetricsRecord(raw as Record<string, unknown>);
+}
+
+function parseUsageMetricsRecord(raw: Record<string, unknown>): UsageMetrics | null {
   if (!raw || typeof raw !== "object") return null;
   const scope = raw.scope;
   const observed = raw.observed as Record<string, unknown> | undefined;

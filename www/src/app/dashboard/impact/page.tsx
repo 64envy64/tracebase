@@ -11,6 +11,7 @@ import {
   filterSamplesByScope,
   foldImpactWindow,
   toDailyBuckets,
+  validateSamples,
 } from "@/lib/control-plane/usage";
 
 export const metadata: Metadata = {
@@ -48,22 +49,27 @@ export default async function DashboardImpactPage({
     store.listInstallations(workspace.id),
   ]);
 
-  // Single filter, two consumers. `workspaceSamples` is the source
-  // for both the fold (→ totals rendered on the page) and the
-  // contributor count (→ "N projects · M installs" in the header).
-  // When Phase 2 starts emitting scope="agent" samples, this filter
-  // is the only place that needs to change — the numbers and the
-  // counts cannot drift apart because they both key off the same
-  // filtered set.
+  // Filter + validate once, two consumers. `validated` is the
+  // authoritative source for both the fold (→ totals rendered on the
+  // page) and the contributor count (→ "N projects · M installs" in
+  // the header). Any sample that fails `parseUsageMetrics` is
+  // dropped from both at once — a row rejected by the parser cannot
+  // be counted as a contributor while sitting out of the totals.
+  //
+  // When Phase 2 starts emitting scope="agent" samples, the filter
+  // below is the only place that needs to change — the numbers and
+  // the counts cannot drift apart because they both key off the
+  // same filtered-and-validated set.
   const workspaceSamples = filterSamplesByScope(rawSamples, "workspace");
-  const buckets = toDailyBuckets(workspaceSamples);
+  const validated = validateSamples(workspaceSamples);
+  const buckets = toDailyBuckets(validated);
   const window = foldImpactWindow({
     afterTs: range.afterTs,
     beforeTs: range.beforeTs,
     buckets,
   });
 
-  const contributors = countContributorsInWindow(workspaceSamples, installations);
+  const contributors = countContributorsInWindow(validated, installations);
 
   return (
     <ImpactView

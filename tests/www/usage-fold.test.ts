@@ -17,7 +17,10 @@ import {
   extractWorkspaceSamples,
   filterSamplesByScope,
   foldImpactWindow,
+  parseUsageMetrics,
   toDailyBuckets,
+  validateSamples,
+  type ValidatedSample,
 } from "../../www/src/lib/control-plane/usage.ts";
 import type {
   ControlPlaneInstallation,
@@ -187,19 +190,35 @@ function inst(id: string, localWorkspaceId: string): ControlPlaneInstallation {
   };
 }
 
+/**
+ * Construct a schema-valid sample for an installation. The metrics
+ * payload passes `parseUsageMetrics` unchanged so `validateSamples`
+ * accepts it in tests that exercise the full pipeline.
+ */
 function sampleFor(
   installationId: string,
   dateIso = "2026-04-20T00:00:00.000Z",
 ): ControlPlaneUsageSample {
   return {
-    id: `s-${installationId}`,
+    id: `s-${installationId}-${dateIso}`,
     workspaceId: "ws-1",
     installationId,
     windowStart: dateIso,
     windowEnd: dateIso,
-    metrics: {} as Record<string, unknown>,
+    metrics: bucket({}) as unknown as Record<string, unknown>,
     receivedAt: dateIso,
   };
+}
+
+/** Validated-sample convenience for contributor-count tests. */
+function validatedFor(
+  installationId: string,
+  dateIso = "2026-04-20T00:00:00.000Z",
+): ValidatedSample {
+  const source = sampleFor(installationId, dateIso);
+  const metrics = parseUsageMetrics(source.metrics);
+  if (!metrics) throw new Error("test fixture produced an invalid metrics payload");
+  return { source, metrics };
 }
 
 describe("countContributorsInWindow", () => {
@@ -224,7 +243,7 @@ describe("countContributorsInWindow", () => {
       inst("inst-b", "proj-B"),
       inst("inst-c", "proj-C"),
     ];
-    const samples = [sampleFor("inst-a"), sampleFor("inst-b")];
+    const samples = [validatedFor("inst-a"), validatedFor("inst-b")];
     const result = countContributorsInWindow(samples, installations);
     expect(result).toEqual({ projects: 2, installations: 2 });
   });
@@ -236,7 +255,11 @@ describe("countContributorsInWindow", () => {
       inst("inst-a", "proj-A"),
       inst("inst-b", "proj-A"),
     ];
-    const samples = [sampleFor("inst-a"), sampleFor("inst-a"), sampleFor("inst-b")];
+    const samples = [
+      validatedFor("inst-a"),
+      validatedFor("inst-a", "2026-04-21T00:00:00.000Z"),
+      validatedFor("inst-b"),
+    ];
     const result = countContributorsInWindow(samples, installations);
     expect(result).toEqual({ projects: 1, installations: 2 });
   });
@@ -246,7 +269,7 @@ describe("countContributorsInWindow", () => {
     // An orphaned installationId (e.g. install was removed) still
     // counts toward contributors — refusing to forget the sample is
     // honest — but we will not invent a project for it.
-    const samples = [sampleFor("inst-a"), sampleFor("inst-gone")];
+    const samples = [validatedFor("inst-a"), validatedFor("inst-gone")];
     const result = countContributorsInWindow(samples, installations);
     expect(result).toEqual({ projects: 1, installations: 2 });
   });
@@ -285,19 +308,21 @@ describe("filterSamplesByScope guardrail", () => {
     expect(workspaceOnly).toHaveLength(1);
     expect(workspaceOnly[0]?.id).toBe("s1");
 
-    // Both page consumers must feed from the filtered set. Buckets
-    // should only see the workspace sample; contributor count must
-    // reflect a single contributing installation — not two.
-    const buckets = toDailyBuckets(workspaceOnly);
+    // Both page consumers must feed from the same filtered and
+    // validated set. Buckets should only see the workspace sample;
+    // contributor count must reflect a single contributing
+    // installation — not two.
+    const validated = validateSamples(workspaceOnly);
+    const buckets = toDailyBuckets(validated);
     expect(buckets).toHaveLength(1);
     expect(buckets[0]?.metrics.observed.eligibleRuns).toBe(3);
 
     const installations = [inst("inst-a", "proj-A"), inst("inst-b", "proj-B")];
-    const contributors = countContributorsInWindow(workspaceOnly, installations);
+    const contributors = countContributorsInWindow(validated, installations);
     expect(contributors).toEqual({ projects: 1, installations: 1 });
   });
 
-  it("extractWorkspaceSamples stays equivalent to filter + bucket for back-compat", () => {
+  it("extractWorkspaceSamples stays equivalent to filter + validate + bucket for back-compat", () => {
     const samples: ControlPlaneUsageSample[] = [
       {
         id: "s1",
@@ -310,7 +335,117 @@ describe("filterSamplesByScope guardrail", () => {
       },
     ];
     const legacy = extractWorkspaceSamples(samples);
-    const split = toDailyBuckets(filterSamplesByScope(samples, "workspace"));
+    const split = toDailyBuckets(
+      validateSamples(filterSamplesByScope(samples, "workspace")),
+    );
     expect(legacy).toEqual(split);
+  });
+});
+
+describe("validateSamples — schema drift guard", () => {
+  it("drops rows whose metrics fail the UsageMetrics schema", () => {
+    const good: ControlPlaneUsageSample = {
+      id: "good",
+      workspaceId: "ws",
+      installationId: "inst-a",
+      windowStart: "2026-04-20T00:00:00.000Z",
+      windowEnd: "2026-04-21T00:00:00.000Z",
+      metrics: bucket({ eligibleRuns: 4 }) as unknown as Record<string, unknown>,
+      receivedAt: "2026-04-20T00:00:00.000Z",
+    };
+    const bad: ControlPlaneUsageSample = {
+      id: "bad",
+      workspaceId: "ws",
+      installationId: "inst-b",
+      windowStart: "2026-04-20T00:00:00.000Z",
+      windowEnd: "2026-04-21T00:00:00.000Z",
+      // Missing observed/estimated/integrity — parser must reject.
+      metrics: { scope: "workspace", window: {} } as Record<string, unknown>,
+      receivedAt: "2026-04-20T00:00:00.000Z",
+    };
+    const validated = validateSamples([good, bad]);
+    expect(validated).toHaveLength(1);
+    expect(validated[0]?.source.id).toBe("good");
+  });
+
+  it("is the single truth for both fold and contributor count — an invalid row cannot appear in one without the other", () => {
+    // This is the P2 the reviewer flagged: contributor counts used
+    // to key off scope-filtered raw samples while buckets keyed off
+    // parse-filtered rows. Now both consume `validated`, so an
+    // invalid metrics payload drops from both at once.
+    const good: ControlPlaneUsageSample = {
+      id: "good",
+      workspaceId: "ws",
+      installationId: "inst-a",
+      windowStart: "2026-04-20T00:00:00.000Z",
+      windowEnd: "2026-04-21T00:00:00.000Z",
+      metrics: bucket({ eligibleRuns: 2 }) as unknown as Record<string, unknown>,
+      receivedAt: "2026-04-20T00:00:00.000Z",
+    };
+    const badScopeWorkspaceButInvalidPayload: ControlPlaneUsageSample = {
+      id: "bad",
+      workspaceId: "ws",
+      installationId: "inst-b",
+      windowStart: "2026-04-20T00:00:00.000Z",
+      windowEnd: "2026-04-21T00:00:00.000Z",
+      // scope is workspace (so filterSamplesByScope keeps it), but
+      // the rest of the shape is broken.
+      metrics: { scope: "workspace", garbage: true } as Record<string, unknown>,
+      receivedAt: "2026-04-20T00:00:00.000Z",
+    };
+    const all = [good, badScopeWorkspaceButInvalidPayload];
+    const filtered = filterSamplesByScope(all, "workspace");
+    expect(filtered).toHaveLength(2);
+
+    const validated = validateSamples(filtered);
+    expect(validated).toHaveLength(1);
+    expect(validated[0]?.source.id).toBe("good");
+
+    const buckets = toDailyBuckets(validated);
+    const contributors = countContributorsInWindow(validated, [
+      inst("inst-a", "proj-A"),
+      inst("inst-b", "proj-B"),
+    ]);
+    // Both sides agree: one contributing installation, one bucket.
+    // The invalid row is not counted as a contributor even though
+    // it had a matching workspace scope and a resolvable project.
+    expect(buckets).toHaveLength(1);
+    expect(contributors).toEqual({ projects: 1, installations: 1 });
+  });
+});
+
+describe("parseUsageMetrics — schema gate for ingest + dashboard read", () => {
+  const VALID = bucket({ eligibleRuns: 1 });
+
+  it("accepts a well-formed payload", () => {
+    const parsed = parseUsageMetrics(VALID as unknown as Record<string, unknown>);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.scope).toBe("workspace");
+  });
+
+  it("rejects null / non-object / missing branches", () => {
+    expect(parseUsageMetrics(null)).toBeNull();
+    expect(parseUsageMetrics(undefined)).toBeNull();
+    expect(parseUsageMetrics("not-an-object")).toBeNull();
+    expect(parseUsageMetrics({})).toBeNull();
+    expect(
+      parseUsageMetrics({ scope: "workspace", observed: {} } as Record<string, unknown>),
+    ).toBeNull();
+  });
+
+  it("rejects unknown scope values", () => {
+    const payload = {
+      ...VALID,
+      scope: "everyone",
+    } as unknown as Record<string, unknown>;
+    expect(parseUsageMetrics(payload)).toBeNull();
+  });
+
+  it("rejects non-numeric observed fields", () => {
+    const payload = {
+      ...VALID,
+      observed: { ...VALID.observed, eligibleRuns: "many" },
+    } as unknown as Record<string, unknown>;
+    expect(parseUsageMetrics(payload)).toBeNull();
   });
 });
