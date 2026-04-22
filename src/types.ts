@@ -922,8 +922,26 @@ export interface RetrievalEvent extends EventBase {
   candidates: Array<{ blockId: string; score: number }>;
   /** Fact candidates retrieved alongside procedural blocks (may be empty). */
   factCandidates?: Array<{ factId: string; score: number }>;
-  /** Whether this query is in the shadow control group (no injection will fire). */
+  /** Whether this query is in the control arm (no injection will fire). */
   shadow: boolean;
+  /**
+   * When `shadow === true`, why this query is in the control arm.
+   * Phase 3 introduces a second control source alongside the existing
+   * manual / diagnostic shadow:
+   *   - "shadow"  — manual or legacy diagnostic shadow. This is the
+   *                 default for every `shadow: true` event written
+   *                 before Phase 3; analytics treat it as
+   *                 diagnostic-only, never as causal proof.
+   *   - "holdout" — deterministic experimental holdout keyed by the
+   *                 query fingerprint. Only this cohort is eligible
+   *                 for a causal assisted-vs-control comparison.
+   *
+   * Undefined on non-shadow queries and on legacy shadow events that
+   * predate this field. Analytics must treat an undefined
+   * `controlReason` on a `shadow: true` event as `"shadow"` for
+   * back-compat.
+   */
+  controlReason?: "shadow" | "holdout";
 }
 
 export interface InjectionEvent extends EventBase {

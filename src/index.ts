@@ -208,6 +208,13 @@ export {
   computeUsageMetrics,
   USAGE_ESTIMATE_TAG,
 } from "./analytics/usage-metrics.js";
+
+// Phase 3 — deterministic experimental holdout assignment.
+export {
+  shouldHoldOut,
+  CONTROL_REASON_HOLDOUT,
+  CONTROL_REASON_SHADOW,
+} from "./experiments/holdout.js";
 export type {
   UsageMetrics,
   UsageObserved,
