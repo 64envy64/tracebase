@@ -23,6 +23,8 @@ function formatRelativeTime(iso: string): string {
  * stream.
  */
 export function InstallationsView({ installations }: { installations: InstallationRow[] }) {
+  const projectsCount = new Set(installations.map((i) => i.localWorkspaceId)).size;
+  const installationsCount = installations.length;
   return (
     <section className="space-y-5" aria-label="Installations">
       <header className="flex flex-col gap-1.5">
@@ -33,13 +35,14 @@ export function InstallationsView({ installations }: { installations: Installati
           Installations
         </p>
         <h1 className="text-[1.5rem] font-light tracking-[-0.02em] md:text-[1.7rem]">
-          Linked adapters
+          Linked installations
         </h1>
         <p
           className="max-w-[44rem] text-[13px] font-light leading-relaxed"
           style={{ color: "var(--text-secondary)" }}
         >
-          Wiring inventory — each row is one project × adapter that has linked into this workspace.
+          Wiring inventory — each row is one{" "}
+          <span className="font-mono">(project × adapter)</span> pair linked into this workspace.
           Impact numbers live on the dedicated Impact view.
         </p>
       </header>
@@ -52,12 +55,15 @@ export function InstallationsView({ installations }: { installations: Installati
           className="flex items-baseline justify-between gap-3 border-b px-5 py-4"
           style={{ borderColor: "var(--border)" }}
         >
-          <p className="text-[13px] font-light tracking-tight">Active installations</p>
+          <p className="text-[13px] font-light tracking-tight">
+            {projectsCount} project{projectsCount === 1 ? "" : "s"}{" · "}
+            {installationsCount} install{installationsCount === 1 ? "" : "s"}
+          </p>
           <span
             className="rounded-sm border px-2 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
             style={{ borderColor: "var(--border)", color: "var(--text-tertiary)" }}
           >
-            {installations.length}
+            rows {installationsCount}
           </span>
         </header>
 

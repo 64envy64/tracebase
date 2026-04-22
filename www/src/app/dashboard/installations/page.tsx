@@ -4,7 +4,8 @@ import { getAuthenticatedDashboardBootstrap } from "@/lib/control-plane/server";
 
 export const metadata: Metadata = {
   title: "Installations — TraceBase",
-  description: "Linked adapters in this workspace.",
+  description:
+    "Wiring inventory — each row is one (project × adapter) pair linked to this workspace.",
 };
 
 export default async function DashboardInstallationsPage() {

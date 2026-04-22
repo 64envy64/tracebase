@@ -42,6 +42,17 @@ const ARCHITECTURE_SECTIONS = [
 
 export function OverviewView({ bootstrap }: { bootstrap: DashboardBootstrap }) {
   const latestInstall = bootstrap.installations[0];
+  // Distinct local projects (one row per localWorkspaceId) are
+  // different from installation rows ((project × agent) tuples).
+  // Header counts conflated the two before Phase 1E.2; keep them
+  // split from here on.
+  const projectsCount = new Set(bootstrap.installations.map((i) => i.localWorkspaceId)).size;
+  const installationsCount = bootstrap.installations.length;
+  const installsNote =
+    latestInstall
+      ? `latest: ${latestInstall.projectName} · ${installationsCount} install${installationsCount === 1 ? "" : "s"} total`
+      : "No linked projects yet";
+
   return (
     <section className="space-y-6" aria-label="Workspace overview">
       <header
@@ -72,7 +83,8 @@ export function OverviewView({ bootstrap }: { bootstrap: DashboardBootstrap }) {
 
         <div className="flex flex-wrap gap-2">
           <ToolbarTag active>{`scope ${bootstrap.workspace.scope}`}</ToolbarTag>
-          <ToolbarTag>{`installs ${bootstrap.installations.length}`}</ToolbarTag>
+          <ToolbarTag>{`projects ${projectsCount}`}</ToolbarTag>
+          <ToolbarTag>{`installs ${installationsCount}`}</ToolbarTag>
           <ToolbarTag>{`api keys ${bootstrap.apiKeys.length}`}</ToolbarTag>
           {bootstrap.workspace.slug ? <ToolbarTag>{bootstrap.workspace.slug}</ToolbarTag> : null}
         </div>
@@ -83,13 +95,9 @@ export function OverviewView({ bootstrap }: { bootstrap: DashboardBootstrap }) {
         aria-label="Workspace snapshot"
       >
         <StatTile
-          label="Linked installs"
-          value={bootstrap.installations.length}
-          note={
-            latestInstall
-              ? `${latestInstall.projectName} · ${latestInstall.agent}`
-              : "No linked projects yet"
-          }
+          label="Linked projects"
+          value={projectsCount}
+          note={installsNote}
         />
         <StatTile
           label="API keys"
