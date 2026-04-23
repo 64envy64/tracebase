@@ -2,182 +2,198 @@
 
 Get TraceBase running with your agent in under 2 minutes.
 
-TraceBase keeps local memory project-scoped, but the install path can
-also link the project into the hosted dashboard automatically. For a
-normal developer install, you still start with one command.
+One command in your project directory wires up the local store, the
+agent's MCP surface, and the managed instruction block — no manual
+edits required.
+
+```
+npx tracebase init
+```
+
+`init` is interactive by default: an arrow-key picker lets you choose
+Claude Code, Cursor, Codex, or any combination.
+
+To install a specific agent non-interactively:
+
+```
+npx tracebase init --agent claude-code
+npx tracebase init --agent cursor
+npx tracebase init --agent codex
+npx tracebase init --all                      # every adapter at once
+```
+
+Optional — link the project to the hosted dashboard:
+
+```
+npx tracebase init --api-key <your-key>
+# or
+TRACEBASE_API_KEY=<your-key> npx tracebase init
+```
+
+Without an API key, TraceBase runs **local only**. Recall, injection,
+and outcome tracking all work; only the cross-project dashboard is
+disabled until you link.
 
 ---
 
 ## Claude Code
 
-### Install
-
 ```
-npx tracebase init
+npx tracebase init --agent claude-code
 ```
 
-1. Run the command above in your project directory — it creates
-   `.tracebase/config.json`, adds TraceBase to `.claude/settings.json`
-   (project-local), and writes a managed instruction block into
-   `CLAUDE.md`.
-2. If you are already signed into TraceBase in the browser, `init`
-   can open a short approval page and finish the hosted link
-   automatically. If you ignore it, local install still completes.
-3. Restart Claude Code.
-4. Run `/tools` in Claude Code and confirm `get_reasoning_patterns`
-   is listed.
-5. Verify install health:
-   ```
-   npx tracebase doctor
-   ```
+1. Restart Claude Code.
+2. Run `/mcp` and confirm `tracebase` shows up as a connected server.
+3. Run `/tools` and confirm `get_reasoning_patterns` is listed.
+4. Verify: `npx tracebase status` · `npx tracebase doctor`
 
-> The MCP server entry, CLAUDE.md instruction block, and
-> `.tracebase/` store are all **project-local**. Re-run `init` in
-> each project where you want TraceBase active. A project-wide
-> global install is deliberately not supported — TraceBase's
-> correctness guarantees depend on per-project scoping.
+**What changed:** `.tracebase/config.json`, managed block appended to
+`CLAUDE.md`, and a local-scope registration in the `claude mcp` runtime
+registry — `init` invokes `claude mcp add tracebase --scope local -- npx
+-y tracebase-ai@latest serve --mcp` for you, so there's nothing to edit
+by hand. The `@latest` pin forces npx through the npm registry so the
+command works identically from any directory, including inside a
+monorepo that happens to have a local `tracebase-ai` package. (Legacy
+installs that wrote to `.claude/settings.json` are harmless but inert;
+`init` sweeps the stale entry on re-run.)
 
-### What the install changes
-
-| File | Purpose |
-|---|---|
-| `.tracebase/config.json` | Storage path + stable `workspaceId` (UUID) + optional hosted workspace link |
-| `.tracebase/memory.db` | SQLite event/block/fact store (created on first write) |
-| `.claude/settings.json` | Adds `mcpServers.tracebase` entry (merge-safe) |
-| `CLAUDE.md` | Managed `tracebase:begin … :end` section with usage instructions |
-
-All four are idempotent. Re-running `init` preserves your
-`workspaceId`, preserves any other `mcpServers` entries or
-permissions, and rewrites **only** the content between the
-`tracebase:begin` / `:end` markers in `CLAUDE.md`.
-
-### Verify it's working
-
-After a Claude Code session that touched a coding task:
-
-```
-npx tracebase status
-```
-
-You should see non-zero counts under `retrieval` and (once a pattern
-has been distilled) `injection`. Blocks start at 0 until
-distillation produces its first one — see below.
-
-### When do I get my first block?
-
-A block comes from a distilled trace or a manual seed. On a fresh
-project it is normal for `status` to show zero active blocks until the
-first useful run is captured and promoted. If you want a known-good
-seed immediately, add one manually:
-
-```
-npx tracebase store \
-  -d "TypeError: Cannot read property 'map' of undefined" \
-  -s "Added optional chaining on the list prop" \
-  -l typescript -f react -e TypeError
-```
-
-Once real runs begin flowing, retrieval, injection, usage, and outcome
-events accumulate in the same local store and feed later reuse
-analytics.
-
-### Manual setup (if `init` is not available in your environment)
-
-1. Create `.tracebase/config.json`:
-   ```json
-   {
-     "workspaceId": "<uuid>",
-     "storagePath": ".tracebase/memory.db"
-   }
-   ```
-2. Add to `.claude/settings.json` under `mcpServers`:
-   ```json
-   {
-     "tracebase": {
-       "command": "npx",
-       "args": ["-y", "tracebase-ai", "serve", "--mcp"]
-     }
-   }
-   ```
-3. Append to `CLAUDE.md`:
-   ```
-   <!-- tracebase:begin (managed section — do not edit between markers) -->
-   ## TraceBase reasoning layer
-
-   When you start a debugging, bug-fixing, or problem-solving task:
-   1. Call `get_reasoning_patterns` first with a short description.
-   2. The response is a hypothesis — verify, don't apply blindly.
-   3. If no patterns match, proceed normally.
-
-   When you finish:
-   1. Call `record_reasoning_outcome` with the queryId.
-   2. Report `usedPattern` and `resolved`.
-   <!-- tracebase:end -->
-   ```
-4. Restart Claude Code. Confirm `get_reasoning_patterns` appears in
-   `/tools`.
-
----
+If the `claude` CLI isn't on `PATH`, `init` reports an explicit error
+and non-zero exit — it will not silently succeed.
 
 ## Cursor
 
-### Install
-
 ```
-npx tracebase init
+npx tracebase init --agent cursor
 ```
 
-1. Run the command above in your project directory — `init` auto-detects
-   Cursor if it is installed locally and writes `~/.cursor/mcp.json`
-   plus an `AGENTS.md` instruction block in the project.
-2. Restart Cursor.
-3. Open Cursor Settings → MCP and confirm `tracebase` is healthy.
+1. Restart Cursor.
+2. Open Cursor Settings → MCP and confirm `tracebase` is healthy.
+3. Verify: `npx tracebase status` · `npx tracebase doctor`
 
-> Cursor uses the same local store and hosted dashboard link as Claude
-> Code. The only difference is the last-mile adapter surface:
-> `~/.cursor/mcp.json` + `AGENTS.md`.
-
----
+**What changed:** `.tracebase/config.json`, `~/.cursor/mcp.json`
+(merge-safe), managed block appended to `AGENTS.md`.
 
 ## Codex
 
-### Install
-
 ```
-npx tracebase init
+npx tracebase init --agent codex
 ```
 
-1. Run the command above in your project directory — if the `codex`
-   CLI is available on PATH, `init` auto-detects Codex and registers
-   TraceBase via `codex mcp add`, plus writes the managed `AGENTS.md`
-   block in the project.
+1. Start a fresh Codex session in the project.
 2. Run `codex mcp list` and confirm `tracebase` is listed.
-3. Start a fresh Codex session in the project.
+3. Verify: `npx tracebase status` · `npx tracebase doctor`
 
-> Codex uses the same core path as the other adapters. The only
-> difference is MCP registration happens through the `codex mcp`
-> registry instead of a JSON file.
+**What changed:** `.tracebase/config.json`, Codex MCP registry
+entry (via `codex mcp add`), managed block in `AGENTS.md`.
+
+If the `codex` CLI isn't on `PATH`, `init` reports an explicit error
+and non-zero exit — it will not silently succeed.
 
 ---
 
-## What to do next
+## Verify the install
 
-- `npx tracebase status` — one-screen install + store snapshot.
-- `npx tracebase doctor` — deep verification with actionable fixes.
-- `npx tracebase events --limit 20` — recent retrieval / injection /
-  outcome events from real agent runs.
-- `npx tracebase report` — aggregated metrics (coverage, hit rate,
-  helpful rate, per-block top list).
-- `npx tracebase remove` — uninstall the local project wiring cleanly.
+| Command | What it shows |
+|---|---|
+| `npx tracebase status` | One-screen snapshot: workspace id, wired adapters, local storage, events, cloud link state |
+| `npx tracebase doctor` | Deep health check — flags broken config, missing MCP entries, missing instruction blocks, incomplete registrations |
+| `npx tracebase events --limit 20` | Most recent retrieval / injection / outcome events from real agent runs |
+| `npx tracebase report` | Aggregated reuse metrics from the local event log |
+
+After restarting your agent, run a coding task. `status` should start
+showing non-zero `retrieval` counts. Once the agent calls
+`record_reasoning_outcome`, you'll see `outcome` events too.
+
+**Capture is explicit.** The managed instruction block tells the agent
+to call `store_reasoning_pattern` when it resolves a novel case — that
+is how reusable patterns land in the retrieval store and future agents
+start compounding on prior work. Without this call, outcomes are
+recorded but no new patterns appear in `status` → `Blocks`. The
+dashboard's "Patterns" view fills the same way: after a few captured
+solves, not after the first resolved outcome.
+
+---
+
+## Hosted dashboard
+
+With an API key linked, `init` registers one installation per agent.
+Push rolled-up usage samples when you want the dashboard to refresh:
+
+```
+npx tracebase usage sync
+```
+
+Idempotent: re-running the same day produces the same sample on the
+server (keyed by installation + window). The push is opt-in — the hot
+path (retrieval, injection, local events) is always local and never
+blocks agent traffic.
+
+Not linked yet? Status will show `cloud: local only` and doctor will
+report `cloud-link: local only (…sync disabled, local recall still
+works)`. Re-run with `--api-key` when you're ready.
+
+---
+
+## Reset or uninstall
+
+```
+npx tracebase remove              # remove this project's install cleanly
+npx tracebase remove --keep-store # keep .tracebase/, just detach the agent surfaces
+```
+
+Re-install any time with `npx tracebase init`. Re-running `init` on an
+already-initialized project preserves the stable `workspaceId`, never
+duplicates MCP entries or instruction blocks, and does not re-register
+cloud installations.
+
+---
+
+## Advanced
+
+### Manual wiring (if `init` is not available in your environment)
+
+1. Create `.tracebase/config.json`:
+   ```json
+   { "workspaceId": "<uuid>", "storagePath": ".tracebase/memory.db" }
+   ```
+2. Register the MCP server with your agent's runtime registry:
+   - **Claude Code** — from the project root, run:
+     ```
+     claude mcp add tracebase --scope local -- npx -y tracebase-ai@latest serve --mcp
+     ```
+     `.claude/settings.json` is *not* the right place — Claude Code
+     reads MCP servers from the `claude mcp` registry, not that file.
+     The `@latest` pin is intentional: it forces npx through the npm
+     registry so the command works identically from any directory.
+   - **Cursor** — add the `tracebase` server to `~/.cursor/mcp.json` under `mcpServers`:
+     ```json
+     {
+       "tracebase": {
+         "command": "npx",
+         "args": ["-y", "tracebase-ai@latest", "serve", "--mcp"]
+       }
+     }
+     ```
+   - **Codex** — `codex mcp add tracebase -- npx -y tracebase-ai@latest serve --mcp`.
+3. Append to `CLAUDE.md` (or `AGENTS.md`):
+   ```
+   <!-- tracebase:begin (managed section — do not edit between markers) -->
+   ## TraceBase reasoning layer
+   When you start a debugging or problem-solving task:
+     1. Call `get_reasoning_patterns` first with a short description.
+     2. The response is a hypothesis — verify, don't apply blindly.
+     3. If no patterns match, proceed normally.
+   When you finish: call `record_reasoning_outcome` with the queryId.
+   <!-- tracebase:end -->
+   ```
+4. Restart your agent. Confirm `get_reasoning_patterns` appears in
+   `/tools` (Claude Code) or the equivalent.
+
+### Custom integration via the SDK
+
+Building your own agent framework or need a non-MCP surface? The library
+is on npm as `tracebase-ai` — import `ReasoningLayer`, `BlockStore`, and
+`BlockServer` and wire them however you need. The MCP server is one
+reference integration; the SDK works standalone.
 
 See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) if something's off.
-
----
-
-## Custom integration
-
-Building your own agent framework or need a custom setup? The SDK is
-on npm as `tracebase-ai` — import `ReasoningLayer`, `BlockStore`,
-`BlockServer` and wire them however you want. The MCP server in this
-repo is one reference integration; the library is fully usable without
-it.

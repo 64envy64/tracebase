@@ -8,12 +8,17 @@ import { writeClaudeMarkdown, writeClaudeSettings } from "../../src/cli/commands
 import { writeAgentInstructionFile, writeAgentMcpConfig } from "../../src/cli/install-targets.js";
 
 let dir: string;
+const origClaudeRegistry = process.env.TRACEBASE_CLAUDE_REGISTRY_FILE;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "tb-remove-"));
+  // See comment in init.test.ts — same test-seam rationale.
+  process.env.TRACEBASE_CLAUDE_REGISTRY_FILE = join(dir, ".claude", "settings.json");
 });
 
 afterEach(() => {
+  if (origClaudeRegistry === undefined) delete process.env.TRACEBASE_CLAUDE_REGISTRY_FILE;
+  else process.env.TRACEBASE_CLAUDE_REGISTRY_FILE = origClaudeRegistry;
   rmSync(dir, { recursive: true, force: true });
 });
 

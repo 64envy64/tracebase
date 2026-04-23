@@ -14,11 +14,18 @@ import {
 } from "../../src/cli/install-targets.js";
 
 let dir: string;
+const origClaudeRegistry = process.env.TRACEBASE_CLAUDE_REGISTRY_FILE;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "tb-status-"));
+  // Same rationale as init/doctor tests: pin the runtime-registry
+  // inspection to the legacy file path so the shared JSON writer/reader
+  // is exercised without requiring a real `claude` CLI.
+  process.env.TRACEBASE_CLAUDE_REGISTRY_FILE = join(dir, ".claude", "settings.json");
 });
 afterEach(() => {
+  if (origClaudeRegistry === undefined) delete process.env.TRACEBASE_CLAUDE_REGISTRY_FILE;
+  else process.env.TRACEBASE_CLAUDE_REGISTRY_FILE = origClaudeRegistry;
   rmSync(dir, { recursive: true, force: true });
 });
 

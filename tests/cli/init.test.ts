@@ -13,11 +13,20 @@ import { writeClaudeSettings, writeClaudeMarkdown } from "../../src/cli/commands
 import { initConfig, loadConfig, isInitialized } from "../../src/core/config.js";
 
 let dir: string;
+const origClaudeRegistry = process.env.TRACEBASE_CLAUDE_REGISTRY_FILE;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "tb-init-"));
+  // Route Claude Code's runtime registry through the legacy file path
+  // so these tests continue to exercise the shared JSON writer without
+  // needing a real `claude` CLI on PATH. The end-to-end suite in
+  // init-e2e.test.ts covers the real `claude mcp` invocation via a
+  // PATH shim.
+  process.env.TRACEBASE_CLAUDE_REGISTRY_FILE = join(dir, ".claude", "settings.json");
 });
 afterEach(() => {
+  if (origClaudeRegistry === undefined) delete process.env.TRACEBASE_CLAUDE_REGISTRY_FILE;
+  else process.env.TRACEBASE_CLAUDE_REGISTRY_FILE = origClaudeRegistry;
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -76,7 +85,7 @@ describe("writeClaudeSettings", () => {
     expect(servers.tracebase).toBeDefined();
     const entry = servers.tracebase as Record<string, unknown>;
     expect(entry.command).toBe("npx");
-    expect(entry.args).toEqual(["-y", "tracebase-ai", "serve", "--mcp"]);
+    expect(entry.args).toEqual(["-y", "tracebase-ai@latest", "serve", "--mcp"]);
   });
 
   it("merges into an existing settings.json without clobbering other keys", () => {

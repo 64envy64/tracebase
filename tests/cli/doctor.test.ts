@@ -19,11 +19,28 @@ import {
 } from "../../src/cli/install-targets.js";
 
 let dir: string;
+const origClaudeRegistry = process.env.TRACEBASE_CLAUDE_REGISTRY_FILE;
+const origMcpProbe = process.env.TRACEBASE_MCP_PROBE_COMMAND;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "tb-doctor-"));
+  // Route Claude Code's runtime-registry inspection through the legacy
+  // file path. The file-shaped override lets these tests assert on the
+  // same on-disk state they used before the runtime switch. The
+  // init-e2e.test.ts suite covers the real `claude mcp` invocation via
+  // a PATH shim.
+  process.env.TRACEBASE_CLAUDE_REGISTRY_FILE = join(dir, ".claude", "settings.json");
+  // doctor's live MCP boot probe shells out to `npx -y tracebase-ai
+  // serve --mcp --selftest` by default. These in-process unit tests
+  // don't need the real probe — we just assert on doctor's check
+  // logic — so opt out to keep the suite hermetic and fast.
+  process.env.TRACEBASE_MCP_PROBE_COMMAND = "skip";
 });
 afterEach(() => {
+  if (origClaudeRegistry === undefined) delete process.env.TRACEBASE_CLAUDE_REGISTRY_FILE;
+  else process.env.TRACEBASE_CLAUDE_REGISTRY_FILE = origClaudeRegistry;
+  if (origMcpProbe === undefined) delete process.env.TRACEBASE_MCP_PROBE_COMMAND;
+  else process.env.TRACEBASE_MCP_PROBE_COMMAND = origMcpProbe;
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -41,19 +58,23 @@ describe("runDoctor — uninitialized project", () => {
   });
 });
 
-describe("runDoctor — fresh init (no Claude files, empty store)", () => {
-  it("passes tracebase-config, warns about claude-settings / claude-md / store-content", () => {
+describe("runDoctor — fresh init (no Claude runtime registration, empty store)", () => {
+  it("passes tracebase-config, FAILs on missing claude mcp registration, WARNs on CLAUDE.md + store", () => {
     initConfig(dir);
     const r = runDoctor(dir);
     expect(byName(r.checks, "tracebase-config")!.level).toBe("pass");
     // Storage file doesn't exist until first write — warn.
     expect(byName(r.checks, "storage")!.level).toBe("warn");
-    expect(byName(r.checks, "claude-code-mcp")!.level).toBe("warn");
+    // Claude Code can't see TraceBase until it's registered in the
+    // runtime `claude mcp` registry — this is a hard failure, not a
+    // soft warn, so users don't ship with an inert install. (Prev.
+    // regression: settings.json-only path returned a false-positive
+    // PASS and a warn-when-missing → both dishonest.)
+    expect(byName(r.checks, "claude-code-mcp")!.level).toBe("fail");
+    expect(byName(r.checks, "claude-code-mcp")!.fix).toMatch(/claude mcp add|tracebase init/i);
     expect(byName(r.checks, "claude-code-instructions")!.level).toBe("warn");
     // store-content check only runs when the storage file exists.
     expect(byName(r.checks, "store-content")).toBeUndefined();
-    // No FAIL at this point.
-    expect(r.summary.fail).toBe(0);
   });
 });
 
@@ -94,7 +115,10 @@ describe("runDoctor — full init + populated store", () => {
 });
 
 describe("runDoctor — specific broken configurations", () => {
-  it("fails on malformed .claude/settings.json", () => {
+  it("fails when the claude mcp runtime-registry source is malformed JSON", () => {
+    // The test seam (TRACEBASE_CLAUDE_REGISTRY_FILE) points at
+    // `.claude/settings.json`, so corrupting that file simulates a
+    // broken runtime-registry read.
     initConfig(dir);
     const file = join(dir, ".claude", "settings.json");
     mkdirSync(join(dir, ".claude"), { recursive: true });
@@ -102,11 +126,11 @@ describe("runDoctor — specific broken configurations", () => {
     const r = runDoctor(dir);
     const c = byName(r.checks, "claude-code-mcp")!;
     expect(c.level).toBe("fail");
-    expect(c.message).toMatch(/not valid JSON/i);
+    expect(c.message).toMatch(/claude mcp inspection failed/i);
     expect(r.summary.fail).toBeGreaterThan(0);
   });
 
-  it("fails when mcpServers is present but tracebase entry is absent", () => {
+  it("fails when the runtime registry has other servers but no tracebase entry", () => {
     initConfig(dir);
     const file = join(dir, ".claude", "settings.json");
     mkdirSync(join(dir, ".claude"), { recursive: true });
@@ -114,7 +138,7 @@ describe("runDoctor — specific broken configurations", () => {
     const r = runDoctor(dir);
     const c = byName(r.checks, "claude-code-mcp")!;
     expect(c.level).toBe("fail");
-    expect(c.message).toMatch(/no tracebase entry/i);
+    expect(c.message).toMatch(/not registered in the claude mcp runtime registry/i);
   });
 
   it("warns when tracebase MCP entry has a non-canonical shape", () => {

@@ -15,17 +15,23 @@ let homeDir: string;
 const originalHome = process.env.HOME;
 const originalCodexShell = process.env.CODEX_SHELL;
 const originalPath = process.env.PATH;
+const originalClaudeRegistry = process.env.TRACEBASE_CLAUDE_REGISTRY_FILE;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "tb-agent-targets-"));
   homeDir = mkdtempSync(join(tmpdir(), "tb-agent-home-"));
   process.env.HOME = homeDir;
+  // See init.test.ts — route Claude Code's runtime-registry operations
+  // through a file shim for unit tests.
+  process.env.TRACEBASE_CLAUDE_REGISTRY_FILE = join(dir, ".claude", "settings.json");
 });
 
 afterEach(() => {
   process.env.HOME = originalHome;
   process.env.CODEX_SHELL = originalCodexShell;
   process.env.PATH = originalPath;
+  if (originalClaudeRegistry === undefined) delete process.env.TRACEBASE_CLAUDE_REGISTRY_FILE;
+  else process.env.TRACEBASE_CLAUDE_REGISTRY_FILE = originalClaudeRegistry;
   rmSync(dir, { recursive: true, force: true });
   rmSync(homeDir, { recursive: true, force: true });
 });
@@ -84,7 +90,7 @@ describe("removeAgentMcpConfig", () => {
       JSON.stringify(
         {
           mcpServers: {
-            tracebase: { command: "npx", args: ["-y", "tracebase-ai", "serve", "--mcp"] },
+            tracebase: { command: "npx", args: ["-y", "tracebase-ai@latest", "serve", "--mcp"] },
             other: { command: "other", args: [] },
           },
           telemetry: false,

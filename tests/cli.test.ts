@@ -12,7 +12,17 @@ function cli(args: string[], cwd: string): string {
     cwd,
     encoding: "utf-8",
     timeout: 10_000,
-    env: { ...process.env, NO_COLOR: "1" },
+    env: {
+      ...process.env,
+      NO_COLOR: "1",
+      // Route Claude Code's runtime-registry operations through a
+      // file shim so this test doesn't shell out to the real `claude`
+      // CLI (which may be missing in CI or slow under contention).
+      TRACEBASE_CLAUDE_REGISTRY_FILE: join(cwd, ".claude", "settings.json"),
+      // Skip the live MCP boot probe too — this test asserts on CLI
+      // lifecycle, not on MCP server bootability.
+      TRACEBASE_MCP_PROBE_COMMAND: "skip",
+    },
   });
 }
 

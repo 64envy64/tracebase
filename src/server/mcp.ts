@@ -5,7 +5,12 @@ import { BlockStore } from "../core/block-store.js";
 import { BlockServer, formatInjection } from "../core/block-serving.js";
 import { EventEmitter, emitAgentUsed, emitFactAgentUsed, emitOutcome } from "../core/analytics.js";
 import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
-import { collectInjectedFromQuery, resolveUsedItems } from "./mcp-v2-helpers.js";
+import {
+  collectInjectedFromQuery,
+  resolveUsedItems,
+  storeReasoningPattern,
+  StorePatternValidationError,
+} from "./mcp-v2-helpers.js";
 import { findProjectRoot, readHoldoutConfig } from "../core/config.js";
 import { runReasoningPatternsRecall } from "./reasoning-patterns-entry.js";
 
@@ -24,6 +29,17 @@ export interface StartMcpServerOptions {
    * `storagePath` can live outside the project root.
    */
   basePath?: string;
+  /**
+   * Boot the MCP server through its full initialization pipeline
+   * (load SDK, open SQLite, construct BlockStore / BlockServer /
+   * ReasoningLayer, register every tool) but skip binding the stdio
+   * transport — instead print a single "READY\n" line to stdout and
+   * resolve. This is how `tracebase doctor` verifies a live install
+   * actually boots, catching a missing SDK, a corrupted memory.db,
+   * or a tool-registration regression before Claude Code restarts
+   * and shows "✗ Failed to connect".
+   */
+  selftest?: boolean;
 }
 
 /**
@@ -37,7 +53,11 @@ export async function startMcpServer(
   config: TraceBaseConfig,
   opts: StartMcpServerOptions = {},
 ): Promise<void> {
-  // Dynamic import — @modelcontextprotocol/sdk is an optional peer dependency
+  // Dynamic import — kept dynamic so the CLI startup path doesn't
+  // eagerly parse the SDK when the user just runs `tracebase status`.
+  // `@modelcontextprotocol/sdk` is now a hard dependency (see
+  // package.json); `npx -y tracebase-ai@latest serve --mcp` pulls it
+  // in automatically.
   const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
   const { StdioServerTransport } = await import(
     "@modelcontextprotocol/sdk/server/stdio.js"
@@ -463,15 +483,115 @@ export async function startMcpServer(
         ...(args.runId ? { runId: args.runId } : {}),
       });
 
+      // When the task resolved but no prior pattern was credited, the
+      // agent has just learned something that isn't in memory yet.
+      // Without an explicit capture call the next run will re-derive
+      // it from scratch. We surface that fact in the response so the
+      // agent doesn't walk away thinking the loop closed itself.
+      const novelResolvedCase =
+        args.resolved === true &&
+        resolved.usedBlockIds.length === 0 &&
+        resolved.usedFactIds.length === 0;
+      const captureHint = novelResolvedCase
+        ? "\n\nThis looks like a novel resolved case. If the fix is reusable, call " +
+          "store_reasoning_pattern with the situation, mechanism, unlock, and verification " +
+          "so future get_reasoning_patterns calls can surface it as a hypothesis. " +
+          "Without this, the next agent will re-derive the same solution from scratch."
+        : "";
+
       const summary =
         `Recorded outcome for ${args.queryId}:\n` +
         `  resolved=${args.resolved}\n` +
         `  used blocks: ${resolved.usedBlockIds.length}/${injected.blockIds.length}\n` +
-        `  used facts:  ${resolved.usedFactIds.length}/${injected.factIds.length}`;
+        `  used facts:  ${resolved.usedFactIds.length}/${injected.factIds.length}` +
+        captureHint;
 
       return {
         content: [{ type: "text" as const, text: summary }],
       };
+    },
+  );
+
+  // --- Tool: store_reasoning_pattern (v2 capture) ---
+  //
+  // Closes the capture half of the loop. The legacy `store` tool
+  // writes v1 ReasoningTrace rows; those do NOT feed
+  // `get_reasoning_patterns`. This tool writes directly into the v2
+  // reasoning_blocks table, so the next retrieval on a similar
+  // problem can surface the block.
+  //
+  // Framing in the description is load-bearing: we tell the agent
+  // WHY it matters (without this, no compounding), not just WHAT the
+  // tool does. A vague description is the fastest way to get an
+  // agent to skip the call entirely.
+  server.tool(
+    "store_reasoning_pattern",
+    "CALL THIS when you resolved a task from scratch — no prior pattern applied. " +
+    "Writes a reusable reasoning pattern into the retrieval store so future " +
+    "get_reasoning_patterns calls can surface it as a hypothesis. " +
+    "Without this call, institutional memory does not grow: the next agent " +
+    "facing the same problem will re-derive the solution from scratch. " +
+    "Duplicate patterns (same trigger fingerprint) collapse into one block " +
+    "with an additional supporting case ref.",
+    {
+      situation: z.string().describe(
+        "When does this pattern apply? Short trigger statement — e.g. " +
+        "'Pytest collects the wrong package when sys.path has a shadowing module'",
+      ),
+      mechanism: z.string().describe("Why the fix works — the underlying cause"),
+      unlock: z.string().describe("The concrete action or change that resolves it"),
+      verification: z.string().describe(
+        "How to verify the fix worked (tests, logs, manual check)",
+      ),
+      deadEnds: z.array(z.string()).optional().describe(
+        "Approaches that don't work — warn future agents away from them",
+      ),
+      language: z.string().optional(),
+      framework: z.string().optional(),
+      errorType: z.string().optional(),
+      apiSurface: z.array(z.string()).optional().describe(
+        "Public APIs implicated (e.g. ['inspect.isfunction'])",
+      ),
+      queryId: z.string().optional().describe(
+        "queryId from the get_reasoning_patterns call that triggered this " +
+        "capture. Used to trace the block back to the query that produced it.",
+      ),
+    },
+    async (args) => {
+      try {
+        const result = storeReasoningPattern(blockStore, args);
+        const tag = result.isNew
+          ? "stored new reasoning pattern"
+          : "reinforced existing pattern (fingerprint match)";
+        const audit =
+          `id: ${result.blockId}\n` +
+          `  situation: ${result.situation}\n` +
+          `  isNew: ${result.isNew}`;
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `${tag}\n${audit}\n\nFuture get_reasoning_patterns calls with a similar trigger will now return this as a hypothesis.`,
+            },
+          ],
+        };
+      } catch (error) {
+        if (error instanceof StorePatternValidationError) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text:
+                  `store_reasoning_pattern rejected: ${error.message}\n\n` +
+                  "Each of situation / mechanism / unlock / verification must be a short, " +
+                  "concrete sentence. A pattern with empty fields is noise, not memory.",
+              },
+            ],
+            isError: true,
+          };
+        }
+        throw error;
+      }
     },
   );
 
@@ -512,6 +632,22 @@ export async function startMcpServer(
   };
   process.once("SIGINT", cleanup);
   process.once("SIGTERM", cleanup);
+
+  // Selftest: every tool is registered and every dependency (SDK,
+  // SQLite, BlockStore, ReasoningLayer) initialized at this point.
+  // The user-facing contract for `tracebase doctor` is: a clean
+  // READY\n on stdout + exit 0 means "Claude Code will successfully
+  // connect to this MCP server on next restart". Any failure above
+  // this line surfaces as a doctor FAIL with the captured error.
+  if (opts.selftest) {
+    // Close the block-store connection proactively — the real boot
+    // path hands it off to the transport, but selftest exits
+    // immediately, and a dangling SQLite handle would look like a
+    // leak in long-running test runners.
+    blockStore.close();
+    process.stdout.write("READY\n");
+    return;
+  }
 
   // Start stdio transport
   const transport = new StdioServerTransport();

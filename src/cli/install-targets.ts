@@ -29,6 +29,14 @@ export interface MpcInspection {
   containerPresent?: boolean;
   parseError?: string;
   cliMissing?: boolean;
+  /**
+   * Claude Code only: set when a stale `tracebase` entry lingers in the
+   * legacy `.claude/settings.json` file. The runtime registry
+   * (`claude mcp`) is the source of truth now; settings.json entries are
+   * ignored by Claude Code and must be cleaned up by `init --force` or
+   * `remove`.
+   */
+  legacySettingsStale?: boolean;
 }
 
 export interface InstructionInspection {
@@ -37,10 +45,32 @@ export interface InstructionInspection {
 }
 
 const MCP_SERVER_NAME = "tracebase";
-const MCP_ENTRY = {
+/**
+ * Canonical MCP server command written into every agent's runtime
+ * registry (claude mcp, codex mcp, cursor). Exported so `tracebase
+ * doctor` can derive its live boot probe from the same literal — the
+ * probe must spawn exactly what Claude Code will spawn, otherwise a
+ * PASS against the local dev CLI can hide a broken npm-published
+ * runtime.
+ *
+ * The `@latest` pin is load-bearing: without it, `npx -y tracebase-ai`
+ * executed from inside the tracebase-ai repo (or any workspace/
+ * monorepo that happens to have a `tracebase-ai` package locally)
+ * resolves against that local package and fails with `sh: tracebase:
+ * command not found` because the local workspace doesn't expose the
+ * bin on PATH the way an npx-installed copy does. Pinning the
+ * registry spec to `@latest` forces npx through the npm registry,
+ * bypassing the local workspace shadow and making `tracebase init`
+ * inside the repo produce a registration Claude Code can actually
+ * run.
+ *
+ * Any change here must keep the command/args order stable, since
+ * `--selftest` (or similar) gets appended by callers.
+ */
+export const MCP_ENTRY = {
   command: "npx",
-  args: ["-y", "tracebase-ai", "serve", "--mcp"],
-};
+  args: ["-y", "tracebase-ai@latest", "serve", "--mcp"],
+} as const;
 
 const TRACEBASE_BEGIN = "<!-- tracebase:begin (managed section — do not edit between markers) -->";
 const TRACEBASE_END = "<!-- tracebase:end -->";
@@ -54,9 +84,10 @@ When you start a debugging, bug-fixing, or problem-solving task in this project:
 
 When you finish the task (whether by solving it or giving up):
 
-1. Call \`record_reasoning_outcome\` with the \`queryId\` you received from \`get_reasoning_patterns\`.
-2. Report whether you actually used the suggested pattern (\`usedPattern\`) and whether the task resolved (\`resolved\`).
-3. This closes the self-correction loop — future retrievals get calibrated from real outcomes.
+1. Call \`record_reasoning_outcome\` with the \`queryId\` you received from \`get_reasoning_patterns\`. Report whether you actually used the suggested pattern (\`usedPattern\`) and whether the task resolved (\`resolved\`).
+2. **If \`resolved\` is true and no prior pattern applied** — i.e. you solved a novel case from scratch — also call \`store_reasoning_pattern\` with a short \`situation\`, the \`mechanism\` that explains why the fix works, the concrete \`unlock\`, and a \`verification\` step. This is how institutional memory grows. Without this call, the next agent facing the same problem will re-derive the solution from scratch.
+
+Together these close the self-correction loop: retrievals become hypotheses, outcomes calibrate them, and captured patterns turn one-off solves into compounding knowledge.
 
 Additional tools available: \`recall\`, \`store\`, \`search\`, \`explain\`, \`stats\`.`;
 
@@ -66,9 +97,13 @@ const AGENT_TARGETS: Record<InstallAgent, AgentTargetMeta> = {
     displayName: "Claude Code",
     instructionFile: "CLAUDE.md",
     cloudAgent: "claude-code",
-    mcpLocationLabel: ".claude/settings.json",
+    // Claude Code stores MCP servers in its runtime registry
+    // (`claude mcp`), *not* in `.claude/settings.json`. Writing to the
+    // settings.json file was a no-op at runtime — the source of truth
+    // is now the local scope of the `claude` CLI.
+    mcpLocationLabel: "claude mcp registry (local)",
     verificationTitle: "Restart Claude Code",
-    verificationCommand: "/tools → confirm get_reasoning_patterns is listed",
+    verificationCommand: "/mcp → confirm tracebase appears, then /tools → get_reasoning_patterns",
   },
   cursor: {
     id: "cursor",
@@ -186,7 +221,7 @@ export function installCommandForAgent(_agent: InstallAgent): string {
 export function writeAgentMcpConfig(basePath: string, agent: InstallAgent, force: boolean): StepResult {
   switch (agent) {
     case "claude-code":
-      return writeJsonMcpConfig(join(basePath, ".claude", "settings.json"), force);
+      return writeClaudeMcpRegistration(basePath, force);
     case "cursor":
       return writeJsonMcpConfig(join(getUserHomeDir(), ".cursor", "mcp.json"), force);
     case "codex":
@@ -197,7 +232,7 @@ export function writeAgentMcpConfig(basePath: string, agent: InstallAgent, force
 export function inspectAgentMcpConfig(basePath: string, agent: InstallAgent): MpcInspection {
   switch (agent) {
     case "claude-code":
-      return inspectJsonMcpConfig(join(basePath, ".claude", "settings.json"));
+      return inspectClaudeMcpRegistration(basePath);
     case "cursor":
       return inspectJsonMcpConfig(join(getUserHomeDir(), ".cursor", "mcp.json"));
     case "codex":
@@ -216,12 +251,63 @@ export function inspectAgentInstructionFile(basePath: string, agent: InstallAgen
 export function removeAgentMcpConfig(basePath: string, agent: InstallAgent): CleanupResult {
   switch (agent) {
     case "claude-code":
-      return removeJsonMcpConfig(join(basePath, ".claude", "settings.json"));
+      return removeClaudeMcpRegistration(basePath);
     case "cursor":
       return removeJsonMcpConfig(join(getUserHomeDir(), ".cursor", "mcp.json"));
     case "codex":
       return removeCodexMcpConfig();
   }
+}
+
+/**
+ * True iff a stale `tracebase` entry is still living in the legacy
+ * `.claude/settings.json` container. Claude Code no longer reads MCP
+ * servers from that file — the entry is inert — but users who ran old
+ * versions of `init` will have one lying around. doctor warns on it,
+ * and both `init` and `remove` clean it up as a best-effort migration.
+ *
+ * Returns false when the `TRACEBASE_CLAUDE_REGISTRY_FILE` test seam is
+ * pointing at the same file — in that mode settings.json IS the
+ * runtime registry for test purposes, so there's no "stale" state to
+ * warn about.
+ */
+export function inspectLegacyClaudeSettings(basePath: string): boolean {
+  const filePath = join(basePath, ".claude", "settings.json");
+  if (!existsSync(filePath)) return false;
+  const override = process.env.TRACEBASE_CLAUDE_REGISTRY_FILE?.trim();
+  if (override && resolvePathsEqual(override, filePath)) return false;
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, "utf-8")) as Record<string, unknown>;
+    const servers = parsed.mcpServers as Record<string, unknown> | undefined;
+    return Boolean(servers && MCP_SERVER_NAME in servers);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Silently drop the stale tracebase entry from `.claude/settings.json`
+ * if one exists. Returns true when a cleanup was performed. Never
+ * throws — a missing or malformed file is treated as "nothing to do".
+ *
+ * When the `TRACEBASE_CLAUDE_REGISTRY_FILE` test seam points at the
+ * same path this sweep would operate on, we no-op so the test path
+ * doesn't race with init's own writes. That seam is the entire runtime
+ * registry under test — it's not "legacy" in that world.
+ */
+export function cleanupLegacyClaudeSettings(basePath: string): boolean {
+  const filePath = join(basePath, ".claude", "settings.json");
+  if (!existsSync(filePath)) return false;
+  const override = process.env.TRACEBASE_CLAUDE_REGISTRY_FILE?.trim();
+  if (override && resolvePathsEqual(override, filePath)) return false;
+  const res = removeJsonMcpConfig(filePath);
+  return res.ok && res.kind !== "already-absent";
+}
+
+function resolvePathsEqual(a: string, b: string): boolean {
+  // Simple normalisation — both paths are expected to be absolute and
+  // produced by `join`, so string-compare after re-joining is enough.
+  return join(a) === join(b);
 }
 
 export function removeAgentInstructionFile(basePath: string, agent: InstallAgent): CleanupResult {
@@ -378,6 +464,232 @@ function inspectJsonMcpConfig(filePath: string): MpcInspection {
       parseError: error instanceof Error ? error.message : "invalid JSON",
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Claude Code runtime registry (`claude mcp …`)
+//
+// Claude Code's MCP servers live in `~/.claude.json` under
+// `projects["<cwd>"].mcpServers` when scoped local, not in
+// `.claude/settings.json`. The only officially supported way to mutate
+// that registry is through `claude mcp {add,get,remove}`, and local
+// scope binds the registration to the current working directory — so
+// we spawn the CLI with `cwd: basePath`.
+//
+// Test seam: if `TRACEBASE_CLAUDE_REGISTRY_FILE` is set, read/write it
+// as a JSON file instead of spawning the CLI. This lets the unit tests
+// exercise the full write/inspect/remove code path without requiring a
+// real `claude` binary on PATH or a shell shim. Production never sets
+// this variable; the e2e suite uses a PATH shim for a real-CLI check.
+// ---------------------------------------------------------------------------
+
+const CLAUDE_MCP_LABEL = "claude mcp registry (local)";
+
+function getClaudeRegistryOverride(): string | null {
+  return process.env.TRACEBASE_CLAUDE_REGISTRY_FILE?.trim() || null;
+}
+
+function isClaudeCliAvailable(): boolean {
+  return isCommandAvailable("claude", ["--version"]);
+}
+
+export function writeClaudeMcpRegistration(basePath: string, force: boolean): StepResult {
+  const override = getClaudeRegistryOverride();
+  if (override) return writeJsonMcpConfig(override, force);
+
+  if (!isClaudeCliAvailable()) {
+    return {
+      ok: false,
+      reason:
+        "claude CLI is not available in PATH — install Claude Code " +
+        "(https://claude.com/claude-code) or add `claude` to PATH, then re-run",
+      path: CLAUDE_MCP_LABEL,
+    };
+  }
+
+  const current = inspectClaudeMcpRegistration(basePath);
+  if (current.cliMissing) {
+    return {
+      ok: false,
+      reason: "claude CLI not reachable (failed to spawn)",
+      path: CLAUDE_MCP_LABEL,
+    };
+  }
+
+  if (current.present && current.canonical) {
+    return { ok: true, kind: "already-up-to-date", path: CLAUDE_MCP_LABEL };
+  }
+
+  if (current.present && !force) {
+    return {
+      ok: false,
+      reason: `existing "${MCP_SERVER_NAME}" claude mcp entry differs — pass --force to overwrite`,
+      path: CLAUDE_MCP_LABEL,
+    };
+  }
+
+  if (current.present && force) {
+    const removed = spawnSync("claude", ["mcp", "remove", MCP_SERVER_NAME, "-s", "local"], {
+      encoding: "utf-8",
+      cwd: basePath,
+    });
+    if (removed.status !== 0 && !readSpawnFailure(removed).includes("No MCP server found")) {
+      return {
+        ok: false,
+        reason: readSpawnFailure(removed),
+        path: CLAUDE_MCP_LABEL,
+      };
+    }
+  }
+
+  const added = spawnSync(
+    "claude",
+    [
+      "mcp",
+      "add",
+      MCP_SERVER_NAME,
+      "--scope",
+      "local",
+      "--",
+      MCP_ENTRY.command,
+      ...MCP_ENTRY.args,
+    ],
+    { encoding: "utf-8", cwd: basePath },
+  );
+  if (added.status !== 0) {
+    return {
+      ok: false,
+      reason: readSpawnFailure(added),
+      path: CLAUDE_MCP_LABEL,
+    };
+  }
+
+  return {
+    ok: true,
+    kind: current.present ? "updated" : "created",
+    path: CLAUDE_MCP_LABEL,
+  };
+}
+
+export function inspectClaudeMcpRegistration(basePath: string): MpcInspection {
+  const override = getClaudeRegistryOverride();
+  if (override) {
+    const base = inspectJsonMcpConfig(override);
+    return {
+      ...base,
+      legacySettingsStale: inspectLegacyClaudeSettings(basePath),
+    };
+  }
+
+  if (!isClaudeCliAvailable()) {
+    return {
+      present: false,
+      canonical: false,
+      containerPresent: false,
+      cliMissing: true,
+      legacySettingsStale: inspectLegacyClaudeSettings(basePath),
+    };
+  }
+
+  const result = spawnSync("claude", ["mcp", "get", MCP_SERVER_NAME], {
+    encoding: "utf-8",
+    cwd: basePath,
+  });
+
+  if (result.error) {
+    return {
+      present: false,
+      canonical: false,
+      containerPresent: false,
+      cliMissing: true,
+      parseError: result.error.message,
+      legacySettingsStale: inspectLegacyClaudeSettings(basePath),
+    };
+  }
+
+  const stdout = result.stdout ?? "";
+  const stderr = result.stderr ?? "";
+  const combined = `${stdout}\n${stderr}`;
+  const notFound = /No MCP server found with name/i.test(combined);
+
+  if (result.status !== 0 || notFound) {
+    return {
+      present: false,
+      canonical: false,
+      containerPresent: true,
+      legacySettingsStale: inspectLegacyClaudeSettings(basePath),
+    };
+  }
+
+  // `claude mcp get <name>` prints a plain-text block:
+  //   tracebase:
+  //     Scope: Local config (private to you in this project)
+  //     Status: ...
+  //     Type: stdio
+  //     Command: npx
+  //     Args: -y tracebase-ai@latest serve --mcp
+  //     Environment: ...
+  // Parse Type/Command/Args to decide canonicality.
+  const type = /^\s*Type:\s*(\S+)/m.exec(stdout)?.[1];
+  const command = /^\s*Command:\s*(.+?)\s*$/m.exec(stdout)?.[1];
+  const rawArgs = /^\s*Args:\s*(.*)$/m.exec(stdout)?.[1] ?? "";
+  const args = rawArgs.length === 0 ? [] : rawArgs.split(/\s+/);
+
+  const canonical =
+    type === "stdio" &&
+    command === MCP_ENTRY.command &&
+    deepEqual(args, MCP_ENTRY.args);
+
+  return {
+    present: true,
+    canonical,
+    containerPresent: true,
+    legacySettingsStale: inspectLegacyClaudeSettings(basePath),
+  };
+}
+
+export function removeClaudeMcpRegistration(basePath: string): CleanupResult {
+  const override = getClaudeRegistryOverride();
+  let registryResult: CleanupResult;
+
+  if (override) {
+    registryResult = removeJsonMcpConfig(override);
+  } else if (!isClaudeCliAvailable()) {
+    // No CLI → nothing we can do about the runtime registry. This is
+    // not fatal for `remove`: if Claude Code is uninstalled, the
+    // registry is already unreachable from the user's perspective, so
+    // we just note "already-absent" and move on to clean up legacy
+    // surfaces.
+    registryResult = { ok: true, kind: "already-absent", path: CLAUDE_MCP_LABEL };
+  } else {
+    const current = inspectClaudeMcpRegistration(basePath);
+    if (!current.present) {
+      registryResult = { ok: true, kind: "already-absent", path: CLAUDE_MCP_LABEL };
+    } else {
+      const removed = spawnSync(
+        "claude",
+        ["mcp", "remove", MCP_SERVER_NAME, "-s", "local"],
+        { encoding: "utf-8", cwd: basePath },
+      );
+      if (removed.status !== 0 && !readSpawnFailure(removed).includes("No MCP server found")) {
+        registryResult = {
+          ok: false,
+          reason: readSpawnFailure(removed),
+          path: CLAUDE_MCP_LABEL,
+        };
+      } else {
+        registryResult = { ok: true, kind: "removed", path: CLAUDE_MCP_LABEL };
+      }
+    }
+  }
+
+  // Best-effort sweep of the legacy settings.json entry, so stale
+  // installs don't leave a misleading container behind after the user
+  // has uninstalled TraceBase. We don't escalate failures here — a
+  // malformed settings.json is the user's file to fix.
+  cleanupLegacyClaudeSettings(basePath);
+
+  return registryResult;
 }
 
 function writeCodexMcpConfig(force: boolean): StepResult {

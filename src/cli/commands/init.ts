@@ -31,6 +31,7 @@ import {
   validateCloudApiKey,
 } from "../cloud.js";
 import {
+  cleanupLegacyClaudeSettings,
   detectAvailableAgents,
   getAgentTargetMeta,
   normalizeInstallAgent,
@@ -160,6 +161,21 @@ export const initCommand = new Command("init")
         const res = writeAgentMcpConfig(basePath, agent, !!opts.force);
         if (!res.ok) installFailed = true;
         renderStepResult(formatSurfaceLabel(meta.displayName, meta.mcpLocationLabel), res);
+        // Claude Code's source of truth is the runtime `claude mcp`
+        // registry; any tracebase entry still sitting in the legacy
+        // `.claude/settings.json` is inert and misleading. Drop it
+        // once the real registration has succeeded so doctor/status
+        // stop nagging about a stale surface the next run.
+        if (agent === "claude-code" && res.ok) {
+          const swept = cleanupLegacyClaudeSettings(basePath);
+          if (swept) {
+            renderStep(
+              pc.dim("  ~"),
+              formatSurfaceLabel("Claude Code", ".claude/settings.json"),
+              "legacy entry cleaned up",
+            );
+          }
+        }
       }
 
       if (!opts.skipAgentInstructions && !opts.skipClaudeMd) {
@@ -257,10 +273,27 @@ export const initCommand = new Command("init")
       const meta = getAgentTargetMeta(primaryAgent);
       console.log(`  1. ${meta.verificationTitle}`);
       console.log(`  2. ${meta.verificationCommand}`);
-      console.log("  3. Verify: " + pc.cyan("npx tracebase status"));
+      console.log("  3. Verify: " + pc.cyan("npx tracebase status") + pc.dim(" · ") + pc.cyan("npx tracebase doctor"));
     } else {
       console.log("  1. Restart any of the detected agents you use");
-      console.log("  2. Verify: " + pc.cyan("npx tracebase status"));
+      console.log("  2. Verify: " + pc.cyan("npx tracebase status") + pc.dim(" · ") + pc.cyan("npx tracebase doctor"));
+    }
+    // Cloud state is load-bearing for the first-run UX: when a new user
+    // lands on this screen with no API key, the silent "all good" was
+    // historically ambiguous — was linking required, or intentionally
+    // deferred? Now we always state the cloud state explicitly so the
+    // user can decide whether to re-run with `--api-key`.
+    const linkedAfterInit = Boolean(config.cloud?.workspaceId);
+    if (!linkedAfterInit) {
+      console.log();
+      console.log(
+        pc.dim("  Cloud: local only ") +
+          pc.dim("— dashboard sync disabled. Pass ") +
+          pc.cyan("--api-key") +
+          pc.dim(" or set ") +
+          pc.cyan("TRACEBASE_API_KEY") +
+          pc.dim(" and re-run `init` to link."),
+      );
     }
     if (installFailed) {
       console.log();
