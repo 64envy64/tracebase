@@ -91,11 +91,9 @@ const TRACEBASE_CONTENT_SILENT = `## TraceBase reasoning layer
 
 TraceBase silently attaches relevant prior-case notes to your context when one applies — they appear as a \`<tracebase queryId="…">…</tracebase>\` block at the start of a turn. Treat the contents as background knowledge from earlier debugging in this codebase: verify they apply to the current problem, then use or discard cleanly. Don't announce or narrate them.
 
-When you finish a task and a \`<tracebase>\` block was attached:
+When you finish a task and a \`<tracebase>\` block was attached, call \`record_reasoning_outcome\` with the \`queryId\` from the block. Set \`usedPattern: true\` only if you actually used one of the injected patterns.
 
-- Call \`record_reasoning_outcome\` with the \`queryId\` from the block. Set \`usedPattern: true\` only if you actually used one of the injected patterns.
-
-When you solve any non-trivial case from scratch and the fix is reusable, call \`store_reasoning_pattern\` with \`situation\`, \`mechanism\`, \`unlock\`, and \`verification\` even if no \`<tracebase>\` block appeared. Without this, the next agent hits the same wall.
+Memory capture is handled automatically by a background \`Stop\` hook — do **not** call \`store_reasoning_pattern\` in normal flow. The hook reads the completed transcript and writes a reusable pattern on its own. Only call \`store_reasoning_pattern\` directly when the user explicitly asks you to record something specific, or when you want to override the automatic heuristic with a carefully distilled pattern.
 
 If no \`<tracebase>\` block appeared and you're stuck on a non-trivial task, you can call \`get_reasoning_patterns\` directly as a fallback.`;
 
@@ -388,62 +386,122 @@ export function removeAgentInstructionFile(basePath: string, agent: InstallAgent
  */
 export const HOOKS_INJECT_COMMAND =
   "npx -y tracebase-ai@latest inject-context --host claude-code --status compact";
+export const HOOKS_CAPTURE_COMMAND =
+  "npx -y tracebase-ai@latest capture-turn --host claude-code --capture compact";
 const CLAUDE_HOOKS_FILE_REL = ".claude/settings.json";
 
-/**
- * Static `statusMessage` Claude Code displays while the hook command
- * is running, before we've produced the dynamic badge. Mirrors the
- * compact-mode prefix so the transcript shows a stable "▣ TB MEMORY
- * checking …" that gets replaced by the hook's own systemMessage on
- * completion (or stays on a timeout). Keeping this literal in sync
- * with `inject-context.ts` is enforced by tests.
- */
-const TRACEBASE_HOOK_STATIC_STATUS = "▣ TB MEMORY  checking";
+/** Compact-mode static status for UserPromptSubmit (silent injection). */
+const TRACEBASE_INJECT_STATIC_STATUS = "▣ TB MEMORY  checking";
+/** Compact-mode static status for Stop (background capture). */
+const TRACEBASE_CAPTURE_STATIC_STATUS = "▣ TB MEMORY  capturing";
 
 /**
- * The exact hook block we write into `.claude/settings.json`. The
- * `hooks` key inside the array entry is the wrapper Claude Code
- * expects for every event (matcher-less events still use the
- * wrapper for schema consistency with PreToolUse / PostToolUse).
- *
- * `timeout` is in seconds — 5 is comfortably above the typical hook
- * runtime (~50–150 ms cold, <50 ms warm) and well below any user-
- * perceptible delay. If the hook does fail, Claude Code surfaces
- * the stderr but proceeds with the user prompt unblocked.
+ * Canonical `UserPromptSubmit` entry. Runs before every user turn:
+ * reads the prompt, queries the store, streams back a `<tracebase>`
+ * additionalContext block so the agent sees prior patterns as
+ * background knowledge. `timeout: 5` seconds is well above the typical
+ * ~50–150 ms cold / <50 ms warm runtime.
  */
-const TRACEBASE_HOOK_ENTRY = {
+const TRACEBASE_INJECT_ENTRY = {
   hooks: [
     {
       type: "command" as const,
       command: HOOKS_INJECT_COMMAND,
       timeout: 5,
-      statusMessage: TRACEBASE_HOOK_STATIC_STATUS,
+      statusMessage: TRACEBASE_INJECT_STATIC_STATUS,
     },
   ],
 };
 
 /**
- * Previous canonical shape shipped in 0.4.0 — before the compact
- * status badge existed, so no `--status compact` on the command and
- * no `statusMessage` on the inner entry. Users on 0.4.0 re-running
- * `tracebase init` should see their hook silently upgraded to the
- * new badge-enabled entry without having to type `--force`. Anything
- * that doesn't match this exact shape (extra flags, custom timeout,
- * extra inner fields) is treated as user-customised and still
- * requires `--force` — we don't want to clobber a deliberate edit.
+ * Canonical `Stop` entry. Runs after the main agent stops: reads the
+ * transcript Claude Code hands us via `transcript_path`, heuristically
+ * distils a problem-solution pair, writes it straight into the local
+ * BlockStore. Replaces the old UX where the agent had to call the
+ * MCP `store_reasoning_pattern` tool — which prompted the user for
+ * permission and dumped the entire payload into the transcript. With
+ * this hook, capture is invisible by default (only the compact badge
+ * surfaces in the transcript) and never requires permission.
+ *
+ * `timeout: 8` seconds gives the heuristic extractor + SQLite write a
+ * comfortable ceiling; cold runs are typically <300 ms.
  */
-const LEGACY_DEFAULT_HOOK_ENTRY = {
+const TRACEBASE_CAPTURE_ENTRY = {
   hooks: [
     {
-      type: "command",
-      command: "npx -y tracebase-ai@latest inject-context --host claude-code",
-      timeout: 5,
+      type: "command" as const,
+      command: HOOKS_CAPTURE_COMMAND,
+      timeout: 8,
+      statusMessage: TRACEBASE_CAPTURE_STATIC_STATUS,
     },
   ],
 };
 
-function isLegacyDefaultHookEntry(entry: unknown): boolean {
-  return deepEqual(entry, LEGACY_DEFAULT_HOOK_ENTRY);
+/**
+ * Spec for one managed event. A single orchestrator (`writeClaudeHookConfig`,
+ * `inspectClaudeHookConfig`, `removeClaudeHookConfig`) walks over the
+ * full list, so adding a new event (SessionStart, PostCompact, …)
+ * means dropping a new spec here — nothing else changes.
+ */
+interface HookEventSpec {
+  eventName: "UserPromptSubmit" | "Stop";
+  canonical: unknown;
+  /**
+   * Previous canonical shapes we auto-upgrade without `--force`. The
+   * trust boundary is "was this the literal shape a previous version
+   * of the installer wrote?" — deepEqual against each entry. Anything
+   * that still matches `isOurs` but does not match any legacy shape
+   * is treated as user-customised and needs `--force`.
+   */
+  legacyDefaults: unknown[];
+  /**
+   * Loose "does this entry look like ours?" matcher — used to find
+   * the slot to overwrite and to decide what to leave alone on remove.
+   * Based on the inner `command` string's substring (mutual exclusivity
+   * with foreign entries depends on this being unique per-event).
+   */
+  isOurs: (entry: unknown) => boolean;
+}
+
+const INJECT_EVENT_SPEC: HookEventSpec = {
+  eventName: "UserPromptSubmit",
+  canonical: TRACEBASE_INJECT_ENTRY,
+  legacyDefaults: [
+    // 0.4.0 — pre-badge shape (no --status compact, no statusMessage).
+    {
+      hooks: [
+        {
+          type: "command",
+          command: "npx -y tracebase-ai@latest inject-context --host claude-code",
+          timeout: 5,
+        },
+      ],
+    },
+  ],
+  isOurs: (entry: unknown) =>
+    innerCommandIncludes(entry, "tracebase-ai", "inject-context"),
+};
+
+const CAPTURE_EVENT_SPEC: HookEventSpec = {
+  eventName: "Stop",
+  canonical: TRACEBASE_CAPTURE_ENTRY,
+  legacyDefaults: [], // no prior shapes — this is the first release shipping a Stop hook
+  isOurs: (entry: unknown) =>
+    innerCommandIncludes(entry, "tracebase-ai", "capture-turn"),
+};
+
+const CLAUDE_HOOK_SPECS: HookEventSpec[] = [INJECT_EVENT_SPEC, CAPTURE_EVENT_SPEC];
+
+function innerCommandIncludes(entry: unknown, ...needles: string[]): boolean {
+  if (!entry || typeof entry !== "object") return false;
+  const inner = (entry as { hooks?: unknown[] }).hooks;
+  if (!Array.isArray(inner)) return false;
+  return inner.some((h) => {
+    if (!h || typeof h !== "object") return false;
+    const cmd = (h as { command?: unknown }).command;
+    if (typeof cmd !== "string") return false;
+    return needles.every((n) => cmd.includes(n));
+  });
 }
 
 /**
@@ -491,56 +549,46 @@ function writeClaudeHookConfig(basePath: string, force: boolean): StepResult {
     }
   }
 
-  const hooks =
-    (settings.hooks as Record<string, unknown> | undefined) ?? {};
-  const userPromptSubmit =
-    (hooks.UserPromptSubmit as unknown[] | undefined) ?? [];
+  const hooks = (settings.hooks as Record<string, unknown> | undefined) ?? {};
 
-  // Find a previous TraceBase entry by matching the inner command —
-  // we never trample foreign entries, even ones the user added by
-  // hand. A canonical match short-circuits to "already-up-to-date";
-  // a stale match is replaced in place; foreign entries are kept.
-  const isOurEntry = (entry: unknown): boolean => {
-    if (!entry || typeof entry !== "object") return false;
-    const inner = (entry as { hooks?: unknown[] }).hooks;
-    if (!Array.isArray(inner)) return false;
-    return inner.some((h) => {
-      if (!h || typeof h !== "object") return false;
-      const cmd = (h as { command?: unknown }).command;
-      return typeof cmd === "string" && cmd.includes("tracebase-ai") && cmd.includes("inject-context");
-    });
-  };
-
-  const ourIndex = userPromptSubmit.findIndex(isOurEntry);
-  if (ourIndex >= 0) {
-    const current = userPromptSubmit[ourIndex];
-    if (deepEqual(current, TRACEBASE_HOOK_ENTRY)) {
-      return { ok: true, kind: "already-up-to-date", path: filePath };
-    }
-    // Zero-friction upgrade path: previous canonical TraceBase
-    // hook entries are replaced silently, because the "diff" is
-    // entirely our own evolution (e.g. added --status compact +
-    // statusMessage in this release). Requiring --force here would
-    // turn a routine `npx tracebase init` re-run into a support
-    // question. Truly user-customised entries (different timeout,
-    // extra flags, extra fields) still need --force — those we
-    // don't want to overwrite by accident.
-    if (isLegacyDefaultHookEntry(current) || force) {
-      userPromptSubmit[ourIndex] = TRACEBASE_HOOK_ENTRY;
+  // Walk every managed event in one pass. A customised entry on ANY
+  // event short-circuits the whole write so partial upgrades never
+  // land — better to keep the file internally consistent than leave
+  // UserPromptSubmit updated and Stop untouched.
+  let anyChanged = false;
+  for (const spec of CLAUDE_HOOK_SPECS) {
+    const existing = (hooks[spec.eventName] as unknown[] | undefined) ?? [];
+    const idx = existing.findIndex(spec.isOurs);
+    if (idx >= 0) {
+      const current = existing[idx];
+      if (deepEqual(current, spec.canonical)) {
+        // This event is already canonical — no-op.
+        hooks[spec.eventName] = existing;
+        continue;
+      }
+      const isLegacy = spec.legacyDefaults.some((shape) => deepEqual(current, shape));
+      if (isLegacy || force) {
+        existing[idx] = spec.canonical;
+        anyChanged = true;
+      } else {
+        return {
+          ok: false,
+          reason:
+            `existing tracebase ${spec.eventName} hook has been customised (non-default command, timeout, or extra fields) — pass --force to overwrite`,
+          path: filePath,
+        };
+      }
     } else {
-      return {
-        ok: false,
-        reason:
-          "existing tracebase UserPromptSubmit hook has been customised (non-default command, timeout, or extra fields) — pass --force to overwrite",
-        path: filePath,
-      };
+      existing.push(spec.canonical);
+      anyChanged = true;
     }
-  } else {
-    userPromptSubmit.push(TRACEBASE_HOOK_ENTRY);
+    hooks[spec.eventName] = existing;
   }
-
-  hooks.UserPromptSubmit = userPromptSubmit;
   settings.hooks = hooks;
+
+  if (!anyChanged) {
+    return { ok: true, kind: "already-up-to-date", path: filePath };
+  }
 
   mkdirSync(dirname(filePath), { recursive: true });
   writeFileSync(filePath, JSON.stringify(settings, null, 2) + "\n");
@@ -562,25 +610,26 @@ function inspectClaudeHookConfig(basePath: string): {
     return { supported: true, present: false, canonical: false };
   }
 
-  const userPromptSubmit =
-    ((settings.hooks as Record<string, unknown> | undefined)?.UserPromptSubmit as unknown[] | undefined) ?? [];
+  const hooks = (settings.hooks as Record<string, unknown> | undefined) ?? {};
 
-  const ours = userPromptSubmit.find((entry) => {
-    if (!entry || typeof entry !== "object") return false;
-    const inner = (entry as { hooks?: unknown[] }).hooks;
-    if (!Array.isArray(inner)) return false;
-    return inner.some((h) => {
-      if (!h || typeof h !== "object") return false;
-      const cmd = (h as { command?: unknown }).command;
-      return typeof cmd === "string" && cmd.includes("tracebase-ai") && cmd.includes("inject-context");
-    });
-  });
-  if (!ours) return { supported: true, present: false, canonical: false };
-  return {
-    supported: true,
-    present: true,
-    canonical: deepEqual(ours, TRACEBASE_HOOK_ENTRY),
-  };
+  // "Present" means every managed event has a TraceBase entry.
+  // "Canonical" means every one of those entries matches the current
+  // canonical shape exactly — anything else (legacy shape still
+  // outstanding, user-customised) is present-but-non-canonical.
+  let anyPresent = false;
+  let allCanonical = true;
+  for (const spec of CLAUDE_HOOK_SPECS) {
+    const event = (hooks[spec.eventName] as unknown[] | undefined) ?? [];
+    const ours = event.find(spec.isOurs);
+    if (!ours) {
+      allCanonical = false;
+      continue;
+    }
+    anyPresent = true;
+    if (!deepEqual(ours, spec.canonical)) allCanonical = false;
+  }
+
+  return { supported: true, present: anyPresent, canonical: anyPresent && allCanonical };
 }
 
 function removeClaudeHookConfig(basePath: string): CleanupResult {
@@ -601,30 +650,23 @@ function removeClaudeHookConfig(basePath: string): CleanupResult {
   }
 
   const hooks = settings.hooks as Record<string, unknown> | undefined;
-  const userPromptSubmit = (hooks?.UserPromptSubmit as unknown[] | undefined) ?? [];
+  if (!hooks) return { ok: true, kind: "already-absent", path: filePath };
 
-  const before = userPromptSubmit.length;
-  const remaining = userPromptSubmit.filter((entry) => {
-    if (!entry || typeof entry !== "object") return true;
-    const inner = (entry as { hooks?: unknown[] }).hooks;
-    if (!Array.isArray(inner)) return true;
-    const looksOurs = inner.some((h) => {
-      if (!h || typeof h !== "object") return false;
-      const cmd = (h as { command?: unknown }).command;
-      return typeof cmd === "string" && cmd.includes("tracebase-ai") && cmd.includes("inject-context");
-    });
-    return !looksOurs;
-  });
-  if (remaining.length === before) {
-    return { ok: true, kind: "already-absent", path: filePath };
+  let removedAny = false;
+  for (const spec of CLAUDE_HOOK_SPECS) {
+    const event = (hooks[spec.eventName] as unknown[] | undefined) ?? [];
+    const filtered = event.filter((entry) => !spec.isOurs(entry));
+    if (filtered.length === event.length) continue; // nothing of ours to strip
+    removedAny = true;
+    if (filtered.length > 0) {
+      hooks[spec.eventName] = filtered;
+    } else {
+      delete hooks[spec.eventName];
+    }
   }
 
-  if (remaining.length > 0) {
-    (hooks as Record<string, unknown>).UserPromptSubmit = remaining;
-  } else if (hooks) {
-    delete hooks.UserPromptSubmit;
-    if (Object.keys(hooks).length === 0) delete settings.hooks;
-  }
+  if (!removedAny) return { ok: true, kind: "already-absent", path: filePath };
+  if (Object.keys(hooks).length === 0) delete settings.hooks;
 
   if (Object.keys(settings).length === 0) {
     rmSync(filePath, { force: true });

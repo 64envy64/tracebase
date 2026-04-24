@@ -70,6 +70,37 @@ describe("writeAgentHookConfig — Claude Code", () => {
     expect(inner?.statusMessage).toBe("▣ TB MEMORY  checking");
   });
 
+  it("installs a Stop hook alongside UserPromptSubmit pointing at capture-turn", () => {
+    const res = writeAgentHookConfig(dir, "claude-code", false);
+    expect(res?.ok).toBe(true);
+
+    const settings = JSON.parse(readFileSync(join(dir, ".claude", "settings.json"), "utf-8")) as {
+      hooks?: {
+        UserPromptSubmit?: Array<{ hooks?: Array<{ command?: string }> }>;
+        Stop?: Array<{
+          hooks?: Array<{ command?: string; statusMessage?: string; timeout?: number }>;
+        }>;
+      };
+    };
+    // Both hooks must be present — the Stop hook is the production
+    // replacement for the MCP `store_reasoning_pattern` permission
+    // prompt UX, and regressing it sends users back to that prompt.
+    expect(settings.hooks?.UserPromptSubmit?.length).toBe(1);
+    expect(settings.hooks?.Stop?.length).toBe(1);
+
+    const inner = settings.hooks?.Stop?.[0]?.hooks?.[0];
+    expect(inner?.command).toContain("tracebase-ai");
+    expect(inner?.command).toContain("capture-turn");
+    expect(inner?.command).toContain("--host claude-code");
+    expect(inner?.command).toContain("--capture compact");
+    expect(inner?.statusMessage).toBe("▣ TB MEMORY  capturing");
+    // Stop hook gets a slightly larger timeout — the heuristic
+    // extractor has to read the transcript and run a SQLite write,
+    // which is still fast but allocates more than the inject-context
+    // path's read-only query.
+    expect(inner?.timeout).toBeGreaterThanOrEqual(5);
+  });
+
   it("returns null for agents that do not support silent injection", () => {
     expect(writeAgentHookConfig(dir, "cursor", false)).toBeNull();
     expect(writeAgentHookConfig(dir, "codex", false)).toBeNull();
@@ -273,15 +304,37 @@ describe("writeAgentHookConfig — Claude Code", () => {
 });
 
 describe("writeAgentInstructionFile — variant per agent", () => {
-  it("Claude Code gets the silent variant mentioning the <tracebase> block", () => {
+  it("Claude Code gets the silent variant mentioning the <tracebase> block and delegating capture to the background hook", () => {
     writeAgentInstructionFile(dir, "claude-code");
     const content = readFileSync(join(dir, "CLAUDE.md"), "utf-8");
     expect(content).toContain("tracebase:begin");
     expect(content).toContain("<tracebase queryId");
     expect(content).toContain("silently attaches");
-    expect(content).toContain("even if no `<tracebase>` block appeared");
     // The silent variant explicitly tells the agent NOT to narrate.
     expect(content).toContain("Don't announce or narrate");
+    // Regression: the default flow MUST NOT instruct Claude Code to
+    // call `store_reasoning_pattern` directly. That was the v1 UX
+    // users complained about — a permission prompt plus the full
+    // payload dump in the transcript after every novel task. Capture
+    // now runs in the background Stop hook; the instruction file
+    // tells the agent that explicitly.
+    expect(content).toContain("handled automatically");
+    expect(content).toContain("Stop");
+    expect(content).toContain("do **not** call `store_reasoning_pattern` in normal flow");
+    // outcome attribution stays on the agent — hooks can't guess
+    // which patterns were useful.
+    expect(content).toContain("record_reasoning_outcome");
+  });
+
+  it("silent variant does NOT ask the agent to call store_reasoning_pattern in normal flow", () => {
+    writeAgentInstructionFile(dir, "claude-code");
+    const content = readFileSync(join(dir, "CLAUDE.md"), "utf-8");
+    // The phrase "call store_reasoning_pattern" MAY appear inside
+    // the "do not call … in normal flow" sentence; assert absence of
+    // the old directive phrasing that pushed the agent to call it
+    // after every novel case.
+    expect(content).not.toContain("even if no `<tracebase>` block appeared");
+    expect(content).not.toMatch(/call\s+`?store_reasoning_pattern`?\s+(with|to save)/i);
   });
 
   it("Cursor gets the tool variant instructing the agent to call get_reasoning_patterns directly", () => {
