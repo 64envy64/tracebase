@@ -10,19 +10,54 @@
  * statement content into the sample object.
  *
  * Shape of an allowlist entry:
- *   - `true`  → leaf, value kept as-is (must be JSON-serialisable).
- *   - `AllowlistSpec` → nested object, recurse.
+ *   - `true`  → primitive leaf. Only string / number / boolean / null
+ *               / arrays-of-primitives survive at this position.
+ *               Object-shaped values are rejected (return `undefined`)
+ *               so a future field that starts carrying user content
+ *               never silently ships.
+ *   - `AllowlistSpec` → nested object spec, recurse. Every field the
+ *               control plane expects is listed explicitly down to
+ *               primitive leaves.
  *
- * Everything not in the spec is dropped silently. The sanitizer is
- * pure, deterministic, and never throws — telemetry must never break
- * a user's CLI run.
+ * Everything not listed is dropped silently. The sanitizer is pure,
+ * deterministic, and never throws — telemetry must never break a
+ * user's CLI run.
  *
  * PLAN-0.5 §7 is the authoritative catalogue of what may ship; this
  * file's exported spec is the implementation of that list.
+ *
+ * NOTE: an earlier revision of this file used `topBlockHits: true` /
+ * `topFactHits: true` as permissive leaves that copied every nested
+ * key of the value verbatim. Those keys never existed in the real
+ * `UsageMetrics` type — they were planning-phase placeholders — and
+ * the leaf-copy mode masked the problem by allowing arbitrary
+ * nesting. Both are removed; if those aggregates ever ship they get
+ * an explicit nested spec here first.
  */
 
 export type AllowlistSpec = {
   [key: string]: true | AllowlistSpec;
+};
+
+/**
+ * Leaf spec for `UsageEstimate` — a small value/sampleSize/formula
+ * triple. `formula` is a short programmatic string (e.g.
+ * `"mean(holdout.tokens) − mean(assisted.tokens)"`) the dashboard
+ * renders verbatim in a tooltip; it's constructed from known inputs,
+ * not user prompts, so it ships. If that ever changes the spec here
+ * changes first.
+ */
+const USAGE_ESTIMATE_SPEC: AllowlistSpec = {
+  value: true,
+  sampleSize: true,
+  formula: true,
+};
+
+/** Leaf spec for `UsageCohort`. Counts + rate only. */
+const USAGE_COHORT_SPEC: AllowlistSpec = {
+  n: true,
+  resolved: true,
+  resolvedRate: true,
 };
 
 /**
@@ -31,7 +66,7 @@ export type AllowlistSpec = {
  * `sanitizeForCloud(payload, USAGE_SAMPLE_ALLOWLIST)` before sending.
  *
  * Adding a new field means:
- *   (a) explicit addition here,
+ *   (a) explicit addition here, all the way down to primitive leaves,
  *   (b) a regression entry in tests/cli/cloud-allowlist.test.ts.
  * Both are required; a field without both doesn't ship.
  */
@@ -43,74 +78,55 @@ export const USAGE_SAMPLE_ALLOWLIST: AllowlistSpec = {
   windowEnd: true,
   cliVersion: true,
 
-  // The UsageMetrics body. Each sub-object is allowlisted to the
-  // named, numeric / enumerable fields only. Any free-form string
-  // column (e.g. a future `description`) is blocked by default —
-  // addition requires editing this spec first.
+  // The UsageMetrics body — mirrored against the actual
+  // `src/analytics/usage-metrics.ts` type definitions. Each nested
+  // object has its own explicit spec down to primitive leaves, so
+  // a future refactor that bubbles a text field up (prompt,
+  // statement, path, blockId, factId, mechanism) cannot reach the
+  // wire without editing this spec first.
   metrics: {
     scope: true,
     window: {
-      start: true,
-      end: true,
+      afterTs: true,
+      beforeTs: true,
     },
     observed: {
-      queries: true,
-      injectedQueries: true,
-      factsInjected: true,
-      usedQueries: true,
-      outcomeQueries: true,
-      resolvedQueries: true,
-      usedRate: true,
-      resolvedRate: true,
-      shadowQueries: true,
-      coverage: true,
-      reuseByBlockKind: true,
-      topBlockHits: true,
-      topFactHits: true,
+      eligibleRuns: true,
+      recalledRuns: true,
+      injectedRuns: true,
+      usedRuns: true,
+      helpfulRuns: true,
+      resolvedRateWithMemory: true,
     },
     estimated: {
-      tokensSaved: true,
-      stepsSaved: true,
-      durationSavedMs: true,
+      tokensSaved: USAGE_ESTIMATE_SPEC,
+      latencySavedMs: USAGE_ESTIMATE_SPEC,
     },
     causal: {
-      assisted: {
-        n: true,
-        resolved: true,
-        resolvedRate: true,
-      },
-      holdout: {
-        n: true,
-        resolved: true,
-        resolvedRate: true,
-      },
+      assisted: USAGE_COHORT_SPEC,
+      holdout: USAGE_COHORT_SPEC,
       resolvedLift: true,
-      tokensLift: true,
-      latencyLift: true,
+      tokensLift: USAGE_ESTIMATE_SPEC,
+      latencyLift: USAGE_ESTIMATE_SPEC,
       minCohortSize: true,
     },
     integrity: {
-      shadowGate: true,
-      holdoutActive: true,
-      holdoutRate: true,
-      experimentSalt: true,
-      windowStart: true,
-      windowEnd: true,
+      shadowControlMismatches: true,
+      outcomesWithoutRetrieval: true,
     },
   },
 };
 
 /**
  * Deep-copy `value` through the allowlist. Forbidden keys are
- * omitted; forbidden nested shapes are replaced by an empty object
- * or dropped. Arrays are kept as arrays with each element recursed
- * against the same sub-spec (arrays in the metrics surface are all
- * "lists of objects with the same shape" — e.g. `topBlockHits[]`).
+ * omitted; forbidden nested shapes are dropped. Arrays of primitives
+ * are kept as-is; arrays that contain any object element at a
+ * `true` leaf are rejected whole (arrays-of-objects need an explicit
+ * element spec — described in the `AllowlistSpec` contract).
  *
- * The function never reads properties of null / undefined and never
- * invokes getters beyond plain property access. Circular references
- * are broken after 16 levels of nesting by returning `undefined`
- * (a cycle we'd never put in a JSON body anyway).
+ * The function never reads properties of null / undefined, never
+ * invokes getters beyond plain property access, and caps nesting at
+ * `MAX_DEPTH` to break any cycles.
  */
 export function sanitizeForCloud<T>(value: T, spec: AllowlistSpec = USAGE_SAMPLE_ALLOWLIST): Partial<T> {
   return deepPick(value, spec, 0) as Partial<T>;
@@ -122,9 +138,12 @@ function deepPick(value: unknown, spec: AllowlistSpec | true, depth: number): un
   if (depth > MAX_DEPTH) return undefined;
   if (value === null || value === undefined) return value;
 
-  // Leaf: keep primitives as-is, recurse into arrays / objects.
+  // `true` leaf: primitive-only contract. Objects dropped. Arrays
+  // retained only if every element is a primitive. This is the
+  // tightening documented in the file header — prior versions used
+  // a recursive copyLeaf that silently widened the surface.
   if (spec === true) {
-    return copyLeaf(value, depth);
+    return copyPrimitiveLeaf(value);
   }
 
   if (Array.isArray(value)) {
@@ -146,24 +165,29 @@ function deepPick(value: unknown, spec: AllowlistSpec | true, depth: number): un
   return out;
 }
 
-function copyLeaf(value: unknown, depth: number): unknown {
-  if (depth > MAX_DEPTH) return undefined;
+/**
+ * Primitive-only leaf copier. Accepts: string / number / boolean /
+ * null / undefined, and arrays whose elements are all primitives.
+ * Rejects (returns undefined): any object shape, any array
+ * containing even one object element.
+ *
+ * The strictness is intentional. If a future metric legitimately
+ * wants to ship an object at a `true` leaf, it needs an explicit
+ * nested `AllowlistSpec` first — that's the whole point of the
+ * allowlist, and the tightening this module's header calls out.
+ */
+function copyPrimitiveLeaf(value: unknown): unknown {
   if (value === null || value === undefined) return value;
   const t = typeof value;
   if (t === "string" || t === "number" || t === "boolean") return value;
   if (Array.isArray(value)) {
-    return value.map((el) => copyLeaf(el, depth + 1));
-  }
-  if (t === "object") {
-    // At a `true` leaf, we keep the whole object but walk once to strip
-    // any function / symbol values JSON wouldn't emit anyway.
-    const src = value as Record<string, unknown>;
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(src)) {
-      const copied = copyLeaf(v, depth + 1);
-      if (copied !== undefined) out[k] = copied;
+    for (const el of value) {
+      if (el === null || el === undefined) continue;
+      const et = typeof el;
+      if (et !== "string" && et !== "number" && et !== "boolean") return undefined;
     }
-    return out;
+    return [...value];
   }
+  // Objects, functions, symbols, bigints — not shippable at a leaf.
   return undefined;
 }

@@ -429,15 +429,24 @@ stripped, regardless of nesting depth. Extended every phase, not just
 fact_type added, composite badge, leakage-scanner extension, repo-
 relative path normalizer. No new hook events.
 
-**0.5.1 — TB CONTEXT.** PreCompact hook + `capture-context` command.
+**0.5.1 — Cloud allowlist hardening.** Tighten `sanitizeForCloud` so
+every nested metrics field has an explicit allowlist down to
+primitive leaves. Removed permissive `topBlockHits`/`topFactHits`
+placeholders. `true` leaves now accept only primitives + primitive
+arrays — objects at a `true` position are dropped, so a future
+refactor that bubbles body content up can't ship silently. Allowlist
+rewritten against the real `UsageMetrics` type (previous version had
+fabricated field names). No runtime changes for Claude Code users.
+
+**0.5.2 — TB CONTEXT.** PreCompact hook + `capture-context` command.
 Pre-ship sanity: live stdin shape via `--dump-stdin` dev mode. Digest-
 in-session injection at UserPromptSubmit. 14-day TTL sweeper.
 
-**0.5.2 — TB TOOL + TB LOOP.** New `tool_observations` table
-(V2_MIGRATIONS[6]). PostToolBatch default. PostToolUse manual compat.
+**0.5.3 — TB TOOL + TB LOOP.** New `tool_observations` table
+(V2_MIGRATIONS[7]). PostToolBatch default. PostToolUse manual compat.
 PreToolUse opt-in. Workspace salt.
 
-**0.5.3 — SDK polish.** `BadgeEvent` exported. `wrapGeneric` added.
+**0.5.4 — SDK polish.** `BadgeEvent` exported. `wrapGeneric` added.
 `docs/SDK.md` with three recipes. No runtime changes for Claude Code
 users.
 
