@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { Command } from "commander";
 import pc from "picocolors";
 import { initCommand } from "../src/cli/commands/init.js";
+import { injectContextCommand } from "../src/cli/commands/inject-context.js";
 import { removeCommand } from "../src/cli/commands/remove.js";
 import { recallCommand } from "../src/cli/commands/recall.js";
 import { searchCommand } from "../src/cli/commands/search.js";
@@ -58,6 +59,7 @@ program.addCommand(eventsCommand);
 program.addCommand(reportCommand);
 program.addCommand(usageCommand);
 program.addCommand(experimentCommand);
+program.addCommand(injectContextCommand);
 
 // No args → guided quickstart instead of generic help
 if (process.argv.length <= 2) {

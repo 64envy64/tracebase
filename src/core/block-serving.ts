@@ -146,6 +146,11 @@ export interface FactHit {
 export interface RecallV2Result {
   queryId: string;
   shadow: boolean;
+  /**
+   * Present only for experimental holdout controls. Manual / diagnostic
+   * shadow keeps this undefined for back-compat.
+   */
+  controlReason?: "shadow" | "holdout";
   blocks: BlockHit[];
   facts: FactHit[];
   /**
@@ -337,6 +342,7 @@ export class BlockServer {
     return {
       queryId,
       shadow,
+      ...(controlReason ? { controlReason } : {}),
       blocks: blockHits,
       facts: factHits,
       shouldInject,
@@ -527,10 +533,28 @@ export class BlockServer {
 }
 
 // ---------------------------------------------------------------------------
-// Injection formatter — HYPOTHESIS framing, never imperative.
+// Injection formatter — tool-path voice (the legacy shape).
+//
+// Renders the markdown+xml payload the MCP `get_reasoning_patterns`
+// tool has always returned: explicit "Hypothesis" headings, audit
+// sub-tags, optional XML tagging for LLMs tuned for XML. The new
+// silent / hook-driven path lives in `build-injection-payload.ts`
+// and intentionally does NOT share rendering with this function:
+// the silent voice is prose, has no audit ribbons, and wraps in a
+// `<tracebase queryId="…">` block that the tool voice never emits.
+//
+// Both paths obey the same `passesGate` contract — only above-gate
+// hits render — and both short-circuit on shadow / no-inject
+// results. The two payloads stay in lockstep with the analytics
+// events that fire in `BlockServer.recall`.
 // ---------------------------------------------------------------------------
 
 export interface InjectionFormatOptions {
+  /**
+   * Output shape. Markdown is the default and what the MCP tool
+   * returns. XML is preserved for LLMs / clients tuned to consume
+   * XML-tagged context. Both honour the same gate contract.
+   */
   format?: "markdown" | "xml";
   /** Include block id + case ref ids for audit. Default true. */
   includeAudit?: boolean;
@@ -548,11 +572,9 @@ export interface InjectionFormatOptions {
  * payload and the `injection` / `fact_injection` analytics events in
  * one-to-one correspondence. Shadow queries always render empty.
  *
- * Framing is always declarative-hypothesis:
- *   "A prior case with a similar signature suggests that …"
- *   "You can verify this by …"
- * Never imperative. The agent is free to ignore it if the current task
- * does not actually match the block's mechanism.
+ * Framing is always declarative-hypothesis. The agent is free to
+ * ignore the contents if the current task does not actually match
+ * the block's mechanism.
  */
 export function formatInjection(
   result: RecallV2Result,
@@ -562,14 +584,8 @@ export function formatInjection(
   const includeAudit = opts.includeAudit ?? true;
   const includeFacts = opts.includeFacts ?? true;
 
-  // If the server decided not to inject anything (shadow query, or no
-  // hit cleared the gate), render empty — even if candidate lists are
-  // non-empty. Candidates exist for debugging; the prompt does not.
   if (!result.shouldInject) return "";
 
-  // Filter by the gate contract. Hits with passesGate=false are
-  // debug-only; they would otherwise leak into the prompt without a
-  // matching injection event.
   const renderableBlocks = result.blocks.filter((h) => h.passesGate);
   const renderableFacts = result.facts.filter((h) => h.passesGate);
   if (renderableBlocks.length === 0 && renderableFacts.length === 0) {
@@ -598,7 +614,6 @@ export function formatInjection(
       }
     }
   } else {
-    // XML (for LLMs tuned for XML tagging).
     if (renderableBlocks.length > 0) {
       lines.push("<prior_reasoning>");
       for (const hit of renderableBlocks) {

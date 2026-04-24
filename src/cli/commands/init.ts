@@ -35,6 +35,7 @@ import {
   detectAvailableAgents,
   getAgentTargetMeta,
   normalizeInstallAgent,
+  writeAgentHookConfig,
   writeAgentInstructionFile,
   writeAgentMcpConfig,
   writeClaudeMarkdown,
@@ -175,6 +176,23 @@ export const initCommand = new Command("init")
               "legacy entry cleaned up",
             );
           }
+        }
+
+        // Silent pre-prompt injection hook. For Claude Code this
+        // writes a `UserPromptSubmit` entry into
+        // `.claude/settings.json` that runs `tracebase
+        // inject-context` before the agent sees the user's turn —
+        // turning the formerly-mandatory `get_reasoning_patterns`
+        // tool call into a transparent context fetch. The MCP tool
+        // path stays as a fallback. Other agents return null and
+        // we render nothing.
+        const hookRes = writeAgentHookConfig(basePath, agent, !!opts.force);
+        if (hookRes) {
+          if (!hookRes.ok) installFailed = true;
+          renderStepResult(
+            formatSurfaceLabel(meta.displayName, ".claude/settings.json (hook)"),
+            hookRes,
+          );
         }
       }
 

@@ -12,6 +12,7 @@ import {
 import {
   getAgentTargetMeta,
   normalizeInstallAgent,
+  removeAgentHookConfig,
   removeAgentInstructionFile,
   removeAgentMcpConfig,
   resolveInstallAgent,
@@ -112,6 +113,17 @@ export function runRemove(input: {
         result: res,
       });
       mcpOk = res.ok;
+      // Strip our `UserPromptSubmit` hook out of `.claude/settings.json`
+      // when one was wired up. Other entries (foreign hooks, mcpServers,
+      // permissions) stay put — see `removeClaudeHookConfig`.
+      const hookRes = removeAgentHookConfig(projectPath, agent);
+      if (hookRes) {
+        steps.push({
+          label: `${meta.displayName} · .claude/settings.json (hook)`,
+          result: hookRes,
+        });
+        mcpOk = mcpOk && hookRes.ok;
+      }
     } else {
       mcpOk = false; // surface intentionally preserved, so not detached
     }

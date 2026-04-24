@@ -348,12 +348,23 @@ export async function startMcpServer(
   );
 
   // --- Tool: get_reasoning_patterns (v2) ---
+  //
+  // Description framing: this tool is now a *fallback*. In hosts that
+  // support pre-prompt hooks (Claude Code), `tracebase inject-context`
+  // already attaches a `<tracebase queryId="…">` block to the agent's
+  // context before the model runs — there's no need to make the
+  // agent call this tool too. The description steers the agent to
+  // use the silent block when present and call this tool only when
+  // the host has no hook surface or when the agent decides mid-thread
+  // that it wants more patterns.
   server.tool(
     "get_reasoning_patterns",
-    "CALL THIS FIRST before starting any debugging, bug-fixing, or problem-solving task. " +
-    "Returns prior reasoning patterns that may apply — as HYPOTHESES to verify, not commands to follow. " +
-    "Records a retrieval event and, for every pattern clearing the gate, an injection event. " +
-    "Always respond with the queryId from the reply when you later call record_reasoning_outcome.",
+    "Fetch prior reasoning patterns relevant to a problem. In hosts that support " +
+    "pre-prompt injection (Claude Code), the patterns are normally injected silently " +
+    "into your context as a `<tracebase queryId='…'>…</tracebase>` block — check there first. " +
+    "Use this tool only when no such block was injected (Cursor today; Claude Code if the hook " +
+    "isn't installed) or when you decide mid-thread that you need more patterns. " +
+    "Returns hypotheses to verify against the current task, plus a queryId for record_reasoning_outcome.",
     {
       problem: z.string().describe("Description of the current problem, bug, or task"),
       language: z.string().optional().describe("Programming language"),
@@ -390,15 +401,16 @@ export async function startMcpServer(
       const header =
         `queryId: ${result.queryId}\n` +
         (result.shadow
-          ? "shadow: true (this run is a control — no injection fired)"
+          ? "shadow: true (control run — no patterns surfaced)"
           : result.shouldInject
             ? `patterns: ${result.blocks.filter((h) => h.passesGate).length} block(s), ${result.facts.filter((h) => h.passesGate).length} fact(s)`
             : "no high-confidence patterns cleared the gate");
 
-      const guidance =
-        result.shouldInject
-          ? "These are HYPOTHESES drawn from prior cases — verify the mechanism against the current task before acting. When you finish, call record_reasoning_outcome with this queryId."
-          : "No applicable patterns. Proceed normally. Still call record_reasoning_outcome with usedPattern=false so future retrievals can calibrate.";
+      // Brief, non-narrating guidance. The agent already saw the
+      // hypothesis framing in the body; it doesn't need a sermon.
+      const guidance = result.shouldInject
+        ? "Use the patterns below as background hypotheses to verify against the current task. When you finish, call record_reasoning_outcome with this queryId."
+        : "No patterns applied. When you finish, call record_reasoning_outcome with this queryId so future retrievals stay calibrated.";
 
       const body =
         formatted && formatted.trim().length > 0
