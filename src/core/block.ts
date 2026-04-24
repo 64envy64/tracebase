@@ -14,6 +14,7 @@ import type {
   BlockTrigger,
   StoreBlockInput,
 } from "../types.js";
+import { detectLeakageExtended } from "./guard.js";
 
 /** Current schema version of ReasoningBlock. Bump on breaking changes. */
 export const BLOCK_SCHEMA_VERSION = 1;
@@ -129,15 +130,24 @@ export function createBlock(input: StoreBlockInput, opts?: { now?: number; id?: 
     fingerprint,
   };
 
+  // Default kind to "success" so pre-failure-lane call sites that still
+  // pass StoreBlockInput without `kind` produce success blocks byte-
+  // identically to before this change.
+  const kind = input.kind ?? "success";
+
   return {
     id: opts?.id ?? randomUUID(),
     version: BLOCK_SCHEMA_VERSION,
+    kind,
     trigger,
     body: {
       mechanism: input.body.mechanism,
       deadEnds: [...input.body.deadEnds],
       unlock: input.body.unlock,
       verification: input.body.verification,
+      ...(input.body.guardrails !== undefined
+        ? { guardrails: [...input.body.guardrails] }
+        : {}),
     },
     provenance: {
       ...input.provenance,
@@ -166,7 +176,16 @@ export function createBlock(input: StoreBlockInput, opts?: { now?: number; id?: 
 // Leakage guards (Pillar 2: distillation anti-leakage checks)
 // ---------------------------------------------------------------------------
 
-/** Regex patterns that should NEVER appear in a distilled block body. */
+/**
+ * Regex patterns that should NEVER appear in a distilled block body.
+ * These are the *legacy* gold-truth / distillation-specific patterns
+ * kept in the Pillar 2 anti-leakage net. General host-level shapes
+ * (absolute paths, API keys, .env lines) live in
+ * `src/core/guard.ts#LEAKAGE_PATTERNS_EXTENDED` so the hook-side
+ * extractors (capture-turn fact extraction, future capture-context
+ * digest) can reuse them without dragging the full ReasoningBlock
+ * shape along.
+ */
 const LEAKAGE_PATTERNS: Array<{ name: string; re: RegExp }> = [
   { name: "diff-header", re: /^---\s|^\+\+\+\s/m },
   { name: "patch-hunk", re: /^@@\s/m },
@@ -177,10 +196,14 @@ const LEAKAGE_PATTERNS: Array<{ name: string; re: RegExp }> = [
 ];
 
 /**
- * Check whether a candidate block leaks gold-truth material. Returns the
- * first leaked pattern name if leakage is detected, otherwise null.
+ * Check whether a candidate block leaks gold-truth or secret-shaped
+ * material. Returns the first leaked pattern name if leakage is
+ * detected, otherwise null.
  *
- * The distiller should reject any block for which this is non-null.
+ * Runs the legacy gold-truth pattern set AND the extended host-level
+ * pattern set (API keys, absolute paths outside `/testbed`, `.env`-
+ * line shapes). The distiller and every hook-side write path rejects
+ * any block for which this is non-null.
  */
 export function detectLeakage(block: Pick<ReasoningBlock, "trigger" | "body">): string | null {
   const corpus = [
@@ -189,12 +212,14 @@ export function detectLeakage(block: Pick<ReasoningBlock, "trigger" | "body">): 
     block.body.unlock,
     block.body.verification,
     ...block.body.deadEnds,
+    ...(block.body.guardrails ?? []),
   ].join("\n");
 
   for (const { name, re } of LEAKAGE_PATTERNS) {
     if (re.test(corpus)) return name;
   }
-  return null;
+  // Layered: if gold-truth check passes, run the general host shapes.
+  return detectLeakageExtended(corpus);
 }
 
 // ---------------------------------------------------------------------------

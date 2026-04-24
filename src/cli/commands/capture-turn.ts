@@ -52,11 +52,13 @@ import { existsSync, readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { BlockStore } from "../../core/block-store.js";
 import { findProjectRoot, isInitialized, loadConfig } from "../../core/config.js";
+import { boundField, detectLeakageExtended, isRepoRelative } from "../../core/guard.js";
 import {
   storeReasoningPattern,
   StorePatternValidationError,
   type StoreReasoningPatternArgs,
 } from "../../server/mcp-v2-helpers.js";
+import type { StoreProjectFactInput } from "../../types.js";
 
 // ---------------------------------------------------------------------------
 // Hook shape + CLI options
@@ -108,11 +110,15 @@ export interface CaptureTurnOutcome {
  * `formatStatus(situation, mode)` maps each to at most one badge
  * literal — no duplicate label strings anywhere. Mirrors the
  * `InjectSituation` pattern in inject-context.ts for consistency.
+ *
+ * `factCount` is optional on stored / reinforced / no-pattern so the
+ * composite TB TRACE + TB MEMORY badge can render either half
+ * without a dangling separator.
  */
 type CaptureSituation =
-  | { kind: "stored"; blockId: string }
-  | { kind: "reinforced"; blockId: string }
-  | { kind: "no-pattern" }
+  | { kind: "stored"; blockId: string; factCount: number }
+  | { kind: "reinforced"; blockId: string; factCount: number }
+  | { kind: "no-pattern"; factCount: number }
   | { kind: "unavailable" }
   | { kind: "off" };
 
@@ -126,6 +132,15 @@ const MIN_UNLOCK_CHARS = 15;
 const MAX_SITUATION = 280;
 const MAX_FIELD = 600;
 const TRANSCRIPT_BYTE_LIMIT = 8 * 1024 * 1024; // 8 MiB — Claude Code transcripts can get large
+
+// 0.5.0 TB MEMORY — semantic file facts.
+// Hard bounds per plan §5.1: 400 chars per statement, 3 facts per turn.
+const MAX_FACT_STATEMENT = 400;
+const MAX_FACTS_PER_TURN = 3;
+/** Scope shared by every TB MEMORY fact in a workspace. Hierarchical
+ * searching can refine later; 0.5 treats all file_semantic facts as
+ * workspace-level regardless of which transcript they came from. */
+const FACT_SCOPE = "project";
 
 export const captureTurnCommand = new Command("capture-turn")
   .description(
@@ -166,45 +181,89 @@ export function runCaptureTurn(
     const basePath = resolveBasePath(opts.path, stdin);
     if (!basePath || !isInitialized(basePath)) {
       // Uninitialised project → quiet no-op, same UX as inject-context.
-      return wrapEnvelope("", formatStatus({ kind: "no-pattern" }, mode));
+      return wrapEnvelope("", formatStatus({ kind: "no-pattern", factCount: 0 }, mode));
     }
 
     const transcriptPath = stdin.transcript_path ?? stdin.transcriptPath ?? null;
     if (!transcriptPath || !existsSync(transcriptPath)) {
-      return wrapEnvelope("", formatStatus({ kind: "no-pattern" }, mode));
+      return wrapEnvelope("", formatStatus({ kind: "no-pattern", factCount: 0 }, mode));
     }
 
     const transcript = readTranscript(transcriptPath);
     if (!transcript) {
-      return wrapEnvelope("", formatStatus({ kind: "no-pattern" }, mode));
+      return wrapEnvelope("", formatStatus({ kind: "no-pattern", factCount: 0 }, mode));
+    }
+
+    // Fact extraction runs independently of pattern extraction so one
+    // path's heuristic miss doesn't starve the other. Errors inside the
+    // extractor fall through to 0 facts — the envelope still lands.
+    let factsExtracted: StoreProjectFactInput[] = [];
+    try {
+      factsExtracted = extractFacts(transcript.lastUserText, transcript.lastAssistantText);
+    } catch (err) {
+      process.stderr.write(
+        `tracebase capture-turn: fact extraction skipped: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
     }
 
     const extracted = extractPattern(transcript.lastUserText, transcript.lastAssistantText);
-    if (!extracted) {
-      return wrapEnvelope("", formatStatus({ kind: "no-pattern" }, mode));
-    }
-
     const config = loadConfig(basePath);
-    const result = withBlockStore(config.storagePath, (store) => {
-      return storeReasoningPattern(store, extracted);
+
+    // A single store handle services both the pattern and the facts so
+    // the SQLite file is opened once per hook invocation.
+    const { blockResult, factCount } = withBlockStore(config.storagePath, (store) => {
+      let blockResult: ReturnType<typeof storeReasoningPattern> | null = null;
+      if (extracted) {
+        try {
+          blockResult = storeReasoningPattern(store, extracted);
+        } catch (err) {
+          const isValidation = err instanceof StorePatternValidationError;
+          process.stderr.write(
+            `tracebase capture-turn: ${isValidation ? "pattern skipped (validation): " : "pattern error: "}${err instanceof Error ? err.message : String(err)}\n`,
+          );
+          if (!isValidation) throw err; // rethrow non-validation to the outer catch
+        }
+      }
+      let factCount = 0;
+      for (const candidate of factsExtracted) {
+        try {
+          store.storeFact(candidate);
+          factCount += 1;
+        } catch (err) {
+          // Per-fact failures are swallowed with a stderr line; one bad
+          // row never kills the batch. (§5.1 privacy / leakage scanner
+          // rejections surface here.)
+          process.stderr.write(
+            `tracebase capture-turn: fact dropped: ${err instanceof Error ? err.message : String(err)}\n`,
+          );
+        }
+      }
+      return { blockResult, factCount };
     });
 
-    const situation: CaptureSituation = result.isNew
-      ? { kind: "stored", blockId: result.blockId }
-      : { kind: "reinforced", blockId: result.blockId };
-    return wrapEnvelope(result.blockId, formatStatus(situation, mode));
+    // Compose the situation from pattern + fact outcomes. When neither
+    // produced anything, the hook emits "no reusable pattern"; when
+    // only facts landed, we still report the capture via the fact
+    // count — no block badge, but the TB MEMORY half lights up.
+    let situation: CaptureSituation;
+    if (blockResult) {
+      situation = blockResult.isNew
+        ? { kind: "stored", blockId: blockResult.blockId, factCount }
+        : { kind: "reinforced", blockId: blockResult.blockId, factCount };
+    } else {
+      situation = { kind: "no-pattern", factCount };
+    }
+    const writtenBlockId = blockResult?.blockId ?? "";
+    return wrapEnvelope(writtenBlockId, formatStatus(situation, mode));
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    // Store validation errors are expected (the heuristic can produce
-    // a field that's technically too short even after we gated it) —
-    // log them at info level only, they aren't a broken install.
     const isValidation = err instanceof StorePatternValidationError;
     process.stderr.write(
       `tracebase capture-turn: ${isValidation ? "skipped (validation): " : ""}${reason}\n`,
     );
     return wrapEnvelope(
       "",
-      formatStatus(isValidation ? { kind: "no-pattern" } : { kind: "unavailable" }, mode),
+      formatStatus(isValidation ? { kind: "no-pattern", factCount: 0 } : { kind: "unavailable" }, mode),
     );
   }
 }
@@ -220,9 +279,10 @@ function wrapEnvelope(blockId: string, status: string | null): CaptureTurnOutcom
 }
 
 /**
- * Single source of truth for the TB TRACE capture badge. Silent and
- * off-mode always return null. Off is included in the switch so every
- * caller is type-safe exhaustive.
+ * Single source of truth for the capture-side badge. Silent and off
+ * always return null. When both a pattern landed AND facts landed, the
+ * badge is composed `▣ TB TRACE … · ▣ TB MEMORY …`; either half is
+ * omitted if its count is zero so there's never a dangling separator.
  */
 function formatStatus(situation: CaptureSituation, mode: CaptureStatusMode): string | null {
   if (mode === "silent" || mode === "off") return null;
@@ -230,14 +290,33 @@ function formatStatus(situation: CaptureSituation, mode: CaptureStatusMode): str
     case "off":
       return null; // should never reach here with mode=compact, but kept for exhaustiveness
     case "stored":
-      return `▣ TB TRACE  stored #${shortBlockId(situation.blockId)}`;
+      return composeCaptureBadge(
+        `▣ TB TRACE  stored #${shortBlockId(situation.blockId)}`,
+        situation.factCount,
+      );
     case "reinforced":
-      return `▣ TB TRACE  reinforced #${shortBlockId(situation.blockId)}`;
+      return composeCaptureBadge(
+        `▣ TB TRACE  reinforced #${shortBlockId(situation.blockId)}`,
+        situation.factCount,
+      );
     case "no-pattern":
+      // No pattern, but facts can still have landed. When both are
+      // zero we keep the legacy "no reusable pattern" message so
+      // users still see the hook ran.
+      if (situation.factCount > 0) return memoryBadge(situation.factCount);
       return "▣ TB TRACE  no reusable pattern";
     case "unavailable":
       return "▣ TB TRACE  capture unavailable";
   }
+}
+
+function composeCaptureBadge(tracePart: string, factCount: number): string {
+  if (factCount <= 0) return tracePart;
+  return `${tracePart} · ${memoryBadge(factCount)}`;
+}
+
+function memoryBadge(factCount: number): string {
+  return `▣ TB MEMORY  noted ${factCount} fact(s)`;
 }
 
 function shortBlockId(id: string): string {
@@ -493,6 +572,107 @@ function findVerificationLine(text: string): string | null {
     }
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// TB MEMORY — semantic project-fact extraction (0.5.0)
+// ---------------------------------------------------------------------------
+
+/**
+ * Conservative, deterministic fact extractor. Pulls up to
+ * `MAX_FACTS_PER_TURN` candidates in four deliberately narrow buckets:
+ *
+ *   1. Repo commands — `npm`, `pnpm`, `yarn`, `cargo`, `pytest`, `go`,
+ *      `node`, `make`, `python` invocations mentioned near an action
+ *      verb ("Run", "Use", "Build", "Test", etc.).
+ *   2. File roles — `"<path> (lives|is|contains) <role>"`, path
+ *      validated as repo-relative (§4.1 — no absolute paths).
+ *   3. Conventions — "uses <Tool>" for a small allowlist of tools
+ *      (ESLint / Prettier / Vitest / Jest / Mocha / Tsup / Webpack /
+ *      Tailwind).
+ *   4. Env requirements — "(Node|Python|Ruby|Go|Rust|Deno|Bun) >= X".
+ *
+ * Each candidate is bounded to `MAX_FACT_STATEMENT` chars, scanned
+ * for leakage patterns (absolute paths, API keys, env lines) via the
+ * shared `detectLeakageExtended`, and silently dropped on any match.
+ * Returns `[]` on empty input, thrown regexes, or post-filter
+ * emptiness — never throws at the call boundary.
+ *
+ * The extractor is intentionally dumb: it prefers false negatives
+ * (missed facts) over false positives (polluting the fact store with
+ * fragments that don't retrieve well).
+ */
+export function extractFacts(userText: string, assistantText: string): StoreProjectFactInput[] {
+  const corpus = stripCodeBlocks(`${userText}\n\n${assistantText}`);
+  if (corpus.length < 80) return [];
+
+  const candidates: StoreProjectFactInput[] = [];
+  const seenStatements = new Set<string>();
+
+  const accept = (statement: string, factType: "repo_fact" | "convention" | "architecture" | "preference" | "file_semantic"): void => {
+    if (candidates.length >= MAX_FACTS_PER_TURN) return;
+    const bounded = boundField(statement, MAX_FACT_STATEMENT, factType).value;
+    if (bounded.length < 10) return;
+    // Leakage: reject any candidate that still carries an abs-path,
+    // API key, or `.env`-line shape.
+    if (detectLeakageExtended(bounded)) return;
+    // Dedupe within-turn by normalized form; SQLite-level dedupe (by
+    // sha256) handles cross-turn collapse.
+    const key = bounded.toLowerCase().replace(/\s+/g, " ");
+    if (seenStatements.has(key)) return;
+    seenStatements.add(key);
+    candidates.push({
+      scope: FACT_SCOPE,
+      factType: "file_semantic",
+      statement: bounded,
+      invariants: {},
+      source: { origin: "observed" },
+    });
+  };
+
+  try {
+    // Bucket 1 — repo commands. Backtick-wrapped, imperative-verb
+    // neighborhood.
+    const COMMAND_RE = /(?:^|[\s(])(?:Run|Use|Build|Test|Install|Deploy|Start|Launch|Serve|Verify)[\s:]+?`([^`\n]{3,100})`/gim;
+    for (const m of corpus.matchAll(COMMAND_RE)) {
+      const cmd = (m[1] ?? "").trim();
+      if (!/^(npm|pnpm|yarn|node|npx|pytest|python|cargo|go|make|bun|deno)\b/i.test(cmd)) continue;
+      accept(`Run: \`${cmd}\``, "repo_fact");
+    }
+
+    // Bucket 2 — file roles. Only accept when the path is repo-relative.
+    const FILE_ROLE_RE = /`([A-Za-z0-9_\-./*]+(?:\.[a-z]{1,6})?)`\s+(?:lives|is|located|contains|holds|defines|implements)\s+(.{4,180}?)[.\n]/gim;
+    for (const m of corpus.matchAll(FILE_ROLE_RE)) {
+      const p = (m[1] ?? "").trim();
+      const role = (m[2] ?? "").trim();
+      if (!p || !role) continue;
+      if (!isRepoRelative(p)) continue;
+      accept(`${p}: ${role}`, "file_semantic");
+    }
+
+    // Bucket 3 — conventions. Tight allowlist so prose like
+    // "use it to compile" doesn't match.
+    const CONVENTION_RE = /\buses?\s+`?(ESLint|Prettier|Vitest|Jest|Mocha|Tsup|Webpack|Vite|Rollup|Tailwind|Biome|Turbopack|Playwright|Cypress)`?\b/gi;
+    for (const m of corpus.matchAll(CONVENTION_RE)) {
+      const tool = (m[1] ?? "").trim();
+      if (!tool) continue;
+      accept(`Uses ${tool}`, "convention");
+    }
+
+    // Bucket 4 — env requirements. Standard "(Runtime) >= X" shapes.
+    const ENV_RE = /\b(Node|Node\.js|Python|Ruby|Go|Rust|Deno|Bun)\s*(?:≥|>=|>|== ?)\s*([0-9][0-9.]*)\b/gi;
+    for (const m of corpus.matchAll(ENV_RE)) {
+      const runtime = (m[1] ?? "").trim();
+      const version = (m[2] ?? "").trim();
+      if (!runtime || !version) continue;
+      accept(`${runtime} >= ${version}`, "repo_fact");
+    }
+  } catch {
+    // Defensive — any regex engine hiccup drops the whole batch.
+    return [];
+  }
+
+  return candidates;
 }
 
 // ---------------------------------------------------------------------------

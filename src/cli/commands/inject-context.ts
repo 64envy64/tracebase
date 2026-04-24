@@ -198,17 +198,19 @@ export function runInjectContext(
 }
 
 /**
- * Single source of truth for the TB TRACE badge. Every caller funnels
- * through here — there are no duplicated label literals elsewhere in
- * this file, so changing the prefix only touches one spot. Returns
- * `null` when the host should see no `systemMessage`:
- *   - silent mode (hard suppress everywhere)
- *   - trivial / uninitialized in any mode (we haven't done work worth
- *     announcing; see spec)
+ * Single source of truth for the inject-side badge. Silent mode hard-
+ * suppresses. Trivial / uninitialized emit nothing. On a match the
+ * badge composes a TB TRACE half (pattern count) and a TB MEMORY half
+ * (fact count); either half is omitted when its count is zero, so the
+ * output never carries a dangling separator.
  *
  * Every emitted badge is capped under 100 characters by construction:
- * queryId short-hand is 8 chars, patterns/facts cap at single digits
- * (renderer caps at 4), tokens cap at 4 digits (budget ≤ 2200).
+ *   `▣ TB TRACE recalled 4 pattern(s)` (30 chars) +
+ *   ` · ▣ TB MEMORY recalled 4 fact(s)` (34 chars) +
+ *   ` · #abcdef12 · 2200t` (20 chars) = 84 chars max.
+ *
+ * Separation of TB TRACE (reasoning reuse) and TB MEMORY (semantic
+ * project facts) is the 0.5 namespace split — see PLAN-0.5 §2.
  */
 function formatStatus(situation: InjectSituation, mode: HookStatusMode): string | null {
   if (mode === "silent") return null;
@@ -217,13 +219,19 @@ function formatStatus(situation: InjectSituation, mode: HookStatusMode): string 
     case "uninitialized":
       return null;
     case "match": {
-      const factsPart =
-        situation.facts > 0 ? ` + ${situation.facts} fact(s)` : "";
       const shortId = situation.queryId.slice(0, 8);
-      return (
-        `▣ TB TRACE  recalled ${situation.patterns} pattern(s)` +
-        `${factsPart} · #${shortId} · ${situation.tokens}t`
-      );
+      const parts: string[] = [];
+      if (situation.patterns > 0) {
+        parts.push(`▣ TB TRACE  recalled ${situation.patterns} pattern(s)`);
+      }
+      if (situation.facts > 0) {
+        parts.push(`▣ TB MEMORY  recalled ${situation.facts} fact(s)`);
+      }
+      // hasContent is true by construction for "match", so `parts` is
+      // never empty — but guard anyway so a future refactor can't
+      // accidentally emit the tail (`· #id · Tt`) alone.
+      if (parts.length === 0) return null;
+      return `${parts.join(" · ")} · #${shortId} · ${situation.tokens}t`;
     }
     case "no-match":
       return "▣ TB TRACE  checked · no match";

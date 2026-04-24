@@ -41,7 +41,7 @@ import { detectLeakage } from "./block.js";
 // Schema
 // ---------------------------------------------------------------------------
 
-const V2_SCHEMA_VERSION = 4;
+const V2_SCHEMA_VERSION = 6;
 
 const V2_SCHEMA = `
 CREATE TABLE IF NOT EXISTS reasoning_blocks (
@@ -50,6 +50,10 @@ CREATE TABLE IF NOT EXISTS reasoning_blocks (
   created_at          INTEGER NOT NULL,
   updated_at          INTEGER NOT NULL,
   status              TEXT NOT NULL CHECK(status IN ('candidate','active','demoted','merged','retired')),
+  -- Discriminator between success-derived and failure-derived (pitfall)
+  -- blocks. DEFAULT 'success' covers pre-failure-lane inserts when a row
+  -- is materialized by unrelated paths that don't know about kind yet.
+  kind                TEXT NOT NULL DEFAULT 'success' CHECK(kind IN ('success','pitfall')),
 
   -- Trigger
   trig_situation      TEXT NOT NULL,
@@ -65,6 +69,10 @@ CREATE TABLE IF NOT EXISTS reasoning_blocks (
   body_dead_ends      TEXT NOT NULL DEFAULT '[]',
   body_unlock         TEXT NOT NULL,
   body_verification   TEXT NOT NULL,
+  -- Early-warning signals. JSON array of strings; at most 3 entries,
+  -- each ≤ 20 words, leakage-scanned. Empty array on success blocks
+  -- unless the distiller chose to populate them.
+  body_guardrails     TEXT NOT NULL DEFAULT '[]',
 
   -- Provenance
   prov_source_task_id         TEXT NOT NULL,
@@ -103,6 +111,11 @@ CREATE TABLE IF NOT EXISTS reasoning_blocks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_blocks_fingerprint  ON reasoning_blocks(trig_fingerprint);
+-- Dedupe is scoped by (fingerprint, kind) so a success block and a
+-- pitfall block describing the same pattern can coexist. The composite
+-- index accelerates the lookups in storeBlock and the distillation
+-- pipeline.
+CREATE INDEX IF NOT EXISTS idx_blocks_fp_kind      ON reasoning_blocks(trig_fingerprint, kind);
 CREATE INDEX IF NOT EXISTS idx_blocks_status       ON reasoning_blocks(status);
 CREATE INDEX IF NOT EXISTS idx_blocks_language     ON reasoning_blocks(trig_language);
 CREATE INDEX IF NOT EXISTS idx_blocks_framework    ON reasoning_blocks(trig_framework);
@@ -161,7 +174,7 @@ CREATE TABLE IF NOT EXISTS project_facts (
   id                TEXT PRIMARY KEY,
   version           INTEGER NOT NULL,
   scope             TEXT NOT NULL,
-  fact_type         TEXT NOT NULL CHECK(fact_type IN ('convention','schema','repo_fact','architecture','preference')),
+  fact_type         TEXT NOT NULL CHECK(fact_type IN ('convention','schema','repo_fact','architecture','preference','file_semantic')),
   statement         TEXT NOT NULL,
 
   inv_language      TEXT,
@@ -300,6 +313,116 @@ const V2_MIGRATIONS: Record<number, string[]> = {
       payload    TEXT NOT NULL,
       fitted_at  INTEGER NOT NULL
     )`,
+  ],
+  // v4 → v5: failure-distillation lane. Adds `kind` (success/pitfall)
+  // plus `body_guardrails` JSON array. Both columns are additive with
+  // DEFAULTs so existing rows are rehydrated as success blocks with no
+  // guardrails — byte-identical to the pre-failure-lane behaviour.
+  // Composite (fingerprint, kind) index is created so the distillation
+  // pipeline can look up dedupe candidates scoped by kind without a
+  // table scan.
+  5: [
+    `ALTER TABLE reasoning_blocks ADD COLUMN kind TEXT NOT NULL DEFAULT 'success'`,
+    `ALTER TABLE reasoning_blocks ADD COLUMN body_guardrails TEXT NOT NULL DEFAULT '[]'`,
+    `CREATE INDEX IF NOT EXISTS idx_blocks_fp_kind ON reasoning_blocks(trig_fingerprint, kind)`,
+  ],
+  // v5 → v6: widen project_facts.fact_type CHECK to include
+  // 'file_semantic' (0.5.0 TB MEMORY bucket). SQLite cannot ALTER a
+  // CHECK constraint in place, so this rebuilds the table + its
+  // indexes + the FTS virtual mirror.
+  //
+  // Idempotent for legacy DBs that never had project_facts: the first
+  // step creates the old-CHECK table with IF NOT EXISTS, so the rebuild
+  // has a source to SELECT from even on pre-L4 databases that went
+  // v1 → v2 without ever landing project_facts. For current DBs, the
+  // IF NOT EXISTS is a no-op and the rebuild does the real work.
+  6: [
+    // Bootstrap (no-op when the table already exists in its v5 shape).
+    // Full column set + old CHECK matches the baseline V2_SCHEMA circa
+    // v5 so a real v5 DB's rows transfer cleanly to the v6 layout.
+    `CREATE TABLE IF NOT EXISTS project_facts (
+      id                TEXT PRIMARY KEY,
+      version           INTEGER NOT NULL,
+      scope             TEXT NOT NULL,
+      fact_type         TEXT NOT NULL CHECK(fact_type IN ('convention','schema','repo_fact','architecture','preference')),
+      statement         TEXT NOT NULL,
+      inv_language      TEXT,
+      inv_framework     TEXT,
+      inv_error_type    TEXT,
+      inv_api_surface   TEXT NOT NULL DEFAULT '[]',
+      src_origin        TEXT NOT NULL CHECK(src_origin IN ('observed','declared','imported')),
+      src_trace_id      TEXT,
+      src_author        TEXT,
+      src_reference     TEXT,
+      confidence        REAL NOT NULL DEFAULT 0.5,
+      last_verified_at  INTEGER NOT NULL,
+      created_at        INTEGER NOT NULL,
+      updated_at        INTEGER NOT NULL,
+      status            TEXT NOT NULL CHECK(status IN ('active','stale','retired')),
+      dedupe_key        TEXT NOT NULL
+    )`,
+    // Rebuild with the widened CHECK.
+    `CREATE TABLE project_facts_v6 (
+      id                TEXT PRIMARY KEY,
+      version           INTEGER NOT NULL,
+      scope             TEXT NOT NULL,
+      fact_type         TEXT NOT NULL CHECK(fact_type IN ('convention','schema','repo_fact','architecture','preference','file_semantic')),
+      statement         TEXT NOT NULL,
+      inv_language      TEXT,
+      inv_framework     TEXT,
+      inv_error_type    TEXT,
+      inv_api_surface   TEXT NOT NULL DEFAULT '[]',
+      src_origin        TEXT NOT NULL CHECK(src_origin IN ('observed','declared','imported')),
+      src_trace_id      TEXT,
+      src_author        TEXT,
+      src_reference     TEXT,
+      confidence        REAL NOT NULL DEFAULT 0.5,
+      last_verified_at  INTEGER NOT NULL,
+      created_at        INTEGER NOT NULL,
+      updated_at        INTEGER NOT NULL,
+      status            TEXT NOT NULL CHECK(status IN ('active','stale','retired')),
+      dedupe_key        TEXT NOT NULL
+    )`,
+    `INSERT INTO project_facts_v6
+       SELECT id, version, scope, fact_type, statement,
+              inv_language, inv_framework, inv_error_type, inv_api_surface,
+              src_origin, src_trace_id, src_author, src_reference,
+              confidence, last_verified_at, created_at, updated_at, status,
+              dedupe_key
+         FROM project_facts`,
+    // FTS virtual + its triggers are tied to the base table by name;
+    // drop them in the right order so the rename doesn't orphan them.
+    `DROP TABLE IF EXISTS project_facts_fts`,
+    `DROP TABLE project_facts`,
+    `ALTER TABLE project_facts_v6 RENAME TO project_facts`,
+    `CREATE INDEX IF NOT EXISTS idx_facts_scope     ON project_facts(scope)`,
+    `CREATE INDEX IF NOT EXISTS idx_facts_type      ON project_facts(fact_type)`,
+    `CREATE INDEX IF NOT EXISTS idx_facts_language  ON project_facts(inv_language)`,
+    `CREATE INDEX IF NOT EXISTS idx_facts_status    ON project_facts(status)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_facts_dedupe ON project_facts(dedupe_key)`,
+    // Recreate FTS + triggers so storeFact/searchFacts stay indexed.
+    // Trigger names must match the baseline V2_SCHEMA so the base
+    // CREATE TRIGGER IF NOT EXISTS statements the fresh-init path
+    // runs don't end up creating parallel duplicates on top of ours.
+    `CREATE VIRTUAL TABLE IF NOT EXISTS project_facts_fts USING fts5(
+       statement,
+       content='project_facts',
+       content_rowid='rowid',
+       tokenize='porter unicode61'
+     )`,
+    `CREATE TRIGGER IF NOT EXISTS facts_fts_insert AFTER INSERT ON project_facts BEGIN
+       INSERT INTO project_facts_fts(rowid, statement) VALUES (new.rowid, new.statement);
+     END`,
+    `CREATE TRIGGER IF NOT EXISTS facts_fts_delete AFTER DELETE ON project_facts BEGIN
+       INSERT INTO project_facts_fts(project_facts_fts, rowid, statement) VALUES('delete', old.rowid, old.statement);
+     END`,
+    `CREATE TRIGGER IF NOT EXISTS facts_fts_update AFTER UPDATE OF statement ON project_facts BEGIN
+       INSERT INTO project_facts_fts(project_facts_fts, rowid, statement) VALUES('delete', old.rowid, old.statement);
+       INSERT INTO project_facts_fts(rowid, statement) VALUES (new.rowid, new.statement);
+     END`,
+    // Rebuild FTS content from the now-renamed table so existing rows
+    // are searchable after migration.
+    `INSERT INTO project_facts_fts(project_facts_fts) VALUES('rebuild')`,
   ],
 };
 
@@ -473,19 +596,28 @@ export class BlockStore {
       }
     }
 
-    const existingByFp = this.findBlockByFingerprint(block.trigger.fingerprint);
+    // Dedupe is scoped by (fingerprint, kind): a success block and a
+    // pitfall block with the same trigger fingerprint describe opposite
+    // sides of the same pattern and are allowed to coexist. Collision
+    // within the same kind remains a hard integrity error — the caller
+    // must resolve it via mergeBlocks or attach a supporting ref instead.
+    const existingByFp = this.findBlockByFingerprintAndKind(
+      block.trigger.fingerprint,
+      block.kind,
+    );
     if (existingByFp && existingByFp.id !== block.id) {
       throw new BlockIntegrityError(
-        `duplicate trigger fingerprint ${block.trigger.fingerprint} (existing id=${existingByFp.id})`,
+        `duplicate trigger fingerprint ${block.trigger.fingerprint} (kind=${block.kind}, existing id=${existingByFp.id})`,
       );
     }
 
     const stmt = this.db.prepare(`
       INSERT INTO reasoning_blocks (
-        id, version, created_at, updated_at, status,
+        id, version, created_at, updated_at, status, kind,
         trig_situation, trig_fingerprint, trig_keywords,
         trig_language, trig_framework, trig_error_type, trig_api_surface,
         body_mechanism, body_dead_ends, body_unlock, body_verification,
+        body_guardrails,
         prov_source_task_id, prov_source_agent, prov_source_model,
         prov_extracted_from, prov_distilled_at, prov_distilled_by,
         prov_distilled_with_model, prov_parent_trace_id,
@@ -497,10 +629,11 @@ export class BlockStore {
         qual_confidence, qual_wilson_lb, qual_calibration_cohort,
         embed_situation, embed_unlock, embed_model
       ) VALUES (
-        @id, @version, @created_at, @updated_at, @status,
+        @id, @version, @created_at, @updated_at, @status, @kind,
         @trig_situation, @trig_fingerprint, @trig_keywords,
         @trig_language, @trig_framework, @trig_error_type, @trig_api_surface,
         @body_mechanism, @body_dead_ends, @body_unlock, @body_verification,
+        @body_guardrails,
         @prov_source_task_id, @prov_source_agent, @prov_source_model,
         @prov_extracted_from, @prov_distilled_at, @prov_distilled_by,
         @prov_distilled_with_model, @prov_parent_trace_id,
@@ -527,6 +660,25 @@ export class BlockStore {
     const row = this.db
       .prepare("SELECT * FROM reasoning_blocks WHERE trig_fingerprint = ? LIMIT 1")
       .get(fingerprint) as BlockRow | undefined;
+    return row ? this.rowToBlock(row) : null;
+  }
+
+  /**
+   * Kind-scoped lookup used by the distillation pipeline for dedupe:
+   * a failure-derived pitfall block and a success-derived block with
+   * the same trigger fingerprint are complementary, not duplicates, and
+   * must be resolved independently. Callers that don't care about kind
+   * can still use {@link findBlockByFingerprint}.
+   */
+  findBlockByFingerprintAndKind(
+    fingerprint: string,
+    kind: ReasoningBlock["kind"],
+  ): ReasoningBlock | null {
+    const row = this.db
+      .prepare(
+        "SELECT * FROM reasoning_blocks WHERE trig_fingerprint = ? AND kind = ? LIMIT 1",
+      )
+      .get(fingerprint, kind) as BlockRow | undefined;
     return row ? this.rowToBlock(row) : null;
   }
 
@@ -621,6 +773,7 @@ export class BlockStore {
         version = @version,
         updated_at = @updated_at,
         status = @status,
+        kind = @kind,
         trig_situation = @trig_situation,
         trig_fingerprint = @trig_fingerprint,
         trig_keywords = @trig_keywords,
@@ -632,6 +785,7 @@ export class BlockStore {
         body_dead_ends = @body_dead_ends,
         body_unlock = @body_unlock,
         body_verification = @body_verification,
+        body_guardrails = @body_guardrails,
         prov_source_task_id = @prov_source_task_id,
         prov_source_agent = @prov_source_agent,
         prov_source_model = @prov_source_model,
@@ -684,6 +838,14 @@ export class BlockStore {
     if (winner.trigger.fingerprint !== loser.trigger.fingerprint) {
       throw new BlockIntegrityError(
         "cannot merge blocks with different trigger fingerprints",
+      );
+    }
+    if (winner.kind !== loser.kind) {
+      // A success block and a pitfall block describing the same pattern
+      // are complementary, not duplicate — merging them would lose the
+      // anti-pattern half of the signal. Refuse explicitly.
+      throw new BlockIntegrityError(
+        `cannot merge blocks of different kinds (winner=${winner.kind}, loser=${loser.kind})`,
       );
     }
 
@@ -1333,6 +1495,7 @@ export class BlockStore {
       created_at: b.createdAt,
       updated_at: b.updatedAt,
       status: b.status,
+      kind: b.kind,
       trig_situation: b.trigger.situation,
       trig_fingerprint: b.trigger.fingerprint,
       trig_keywords: JSON.stringify(b.trigger.keywords),
@@ -1344,6 +1507,7 @@ export class BlockStore {
       body_dead_ends: JSON.stringify(b.body.deadEnds),
       body_unlock: b.body.unlock,
       body_verification: b.body.verification,
+      body_guardrails: JSON.stringify(b.body.guardrails ?? []),
       prov_source_task_id: b.provenance.sourceTaskId,
       prov_source_agent: b.provenance.sourceAgent ?? null,
       prov_source_model: b.provenance.sourceModel ?? null,
@@ -1379,9 +1543,26 @@ export class BlockStore {
   }
 
   private rowToBlock(r: BlockRow): ReasoningBlock {
+    // Pre-v5 rows materialized before the failure-distillation lane
+    // lack both `kind` and `body_guardrails`. SQLite's column DEFAULTs
+    // already backfill them for any post-migration read, but we guard
+    // defensively against unexpected NULLs coming from hand-rolled
+    // inserts or older fixtures so the reader can never produce an
+    // invalid block.
+    const guardrailsRaw = r.body_guardrails ?? "[]";
+    let guardrails: string[];
+    try {
+      const parsed = JSON.parse(guardrailsRaw) as unknown;
+      guardrails = Array.isArray(parsed)
+        ? parsed.filter((g): g is string => typeof g === "string")
+        : [];
+    } catch {
+      guardrails = [];
+    }
     return {
       id: r.id,
       version: r.version,
+      kind: (r.kind ?? "success") as ReasoningBlock["kind"],
       createdAt: r.created_at,
       updatedAt: r.updated_at,
       status: r.status as ReasoningBlock["status"],
@@ -1401,6 +1582,7 @@ export class BlockStore {
         deadEnds: JSON.parse(r.body_dead_ends) as string[],
         unlock: r.body_unlock,
         verification: r.body_verification,
+        ...(guardrails.length > 0 ? { guardrails } : {}),
       },
       provenance: {
         sourceTaskId: r.prov_source_task_id,
@@ -1546,6 +1728,8 @@ interface BlockRow {
   created_at: number;
   updated_at: number;
   status: string;
+  /** Failure-distillation discriminator; NULL only on legacy rows. */
+  kind: string | null;
   trig_situation: string;
   trig_fingerprint: string;
   trig_keywords: string;
@@ -1557,6 +1741,8 @@ interface BlockRow {
   body_dead_ends: string;
   body_unlock: string;
   body_verification: string;
+  /** JSON array of guardrail strings; NULL only on legacy rows. */
+  body_guardrails: string | null;
   prov_source_task_id: string;
   prov_source_agent: string | null;
   prov_source_model: string | null;

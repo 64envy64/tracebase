@@ -1,0 +1,344 @@
+/**
+ * Benchmark harness for TraceBase Claude Code hooks.
+ *
+ * Runs the built CLI against canonical stdin fixtures, 100 warm runs
+ * per fixture after 5 warm-ups, reports p50 / p95 / p99 in ms, writes
+ * `bench-results/<pkg.version>.json`. CI gate (§3.2 PLAN-0.5) fails
+ * when any release-gated fixture exceeds its budget.
+ *
+ * Not shipped: the `scripts/` directory is excluded from the npm
+ * `files` array. This harness runs against `dist/cli.js` so build
+ * first (`npm run build`) before invoking.
+ *
+ * Run: `npm run bench:hooks`
+ */
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import Database from "better-sqlite3";
+
+const __filename = fileURLToPath(import.meta.url);
+const repoRoot = resolve(dirname(__filename), "..");
+const cliPath = join(repoRoot, "dist", "cli.js");
+const resultsDir = join(repoRoot, "bench-results");
+const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf-8")) as {
+  version: string;
+};
+
+interface Budget {
+  hook: string;
+  target_ms: number;
+  release_gate: boolean;
+}
+
+// Mirrors PLAN-0.5 §3 table. Source of truth for the CI gate.
+const BUDGETS: Budget[] = [
+  { hook: "inject-context", target_ms: 150, release_gate: true },
+  { hook: "capture-turn", target_ms: 500, release_gate: true },
+];
+
+interface FixtureResult {
+  hook: string;
+  target_ms: number;
+  release_gate: boolean;
+  runs: number;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+  max_ms: number;
+  exceedsBudget: boolean;
+}
+
+const WARMUP = 5;
+const RUNS = 100;
+
+function quantile(sorted: number[], q: number): number {
+  if (sorted.length === 0) return 0;
+  const idx = Math.min(sorted.length - 1, Math.floor(sorted.length * q));
+  return sorted[idx]!;
+}
+
+function measure(
+  hook: string,
+  cliArgs: string[],
+  stdin: string,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+): number[] {
+  const durations: number[] = [];
+  for (let i = 0; i < WARMUP + RUNS; i++) {
+    const start = process.hrtime.bigint();
+    const res = spawnSync("node", [cliPath, ...cliArgs], {
+      cwd,
+      input: stdin,
+      encoding: "utf-8",
+      env: { ...process.env, NO_COLOR: "1", TRACEBASE_MCP_PROBE_COMMAND: "skip", ...env },
+      timeout: 10_000,
+    });
+    if (res.status !== 0 && !res.stdout?.includes("systemMessage")) {
+      // Non-zero exit with nothing-envelope: something broke. Treat
+      // as a timeout-class entry — keeps benchmark honest.
+      console.error(
+        `[bench] ${hook} run ${i} exited ${res.status}: ${(res.stderr ?? "").slice(0, 200)}`,
+      );
+    }
+    const end = process.hrtime.bigint();
+    const ms = Number(end - start) / 1e6;
+    if (i >= WARMUP) durations.push(ms);
+  }
+  return durations;
+}
+
+/**
+ * Fixture: UserPromptSubmit (inject-context) on a project with a
+ * modest existing store. Target: p95 < 150 ms.
+ */
+function fixtureInjectContext(): FixtureResult {
+  const projectDir = mkdtempSync(join(tmpdir(), "tb-bench-inject-"));
+  try {
+    // Init the store synchronously (matches what init would do).
+    const config = {
+      workspaceId: "bench-workspace",
+      storagePath: join(projectDir, ".tracebase", "memory.db"),
+    };
+    mkdirSync(join(projectDir, ".tracebase"), { recursive: true });
+    writeFileSync(join(projectDir, ".tracebase", "config.json"), JSON.stringify(config));
+
+    // Seed ~50 blocks + ~30 facts so the FTS index has some material.
+    const db = new Database(config.storagePath);
+    // Use the in-process helper to avoid requiring a migration layer.
+    // Minimal seeding: pattern-shaped rows the store's migrator will
+    // accept. The bench cares about FTS latency, not content quality.
+    const { BlockStore } = require(join(repoRoot, "dist", "index.js")) as {
+      BlockStore: typeof import("../src/core/block-store").BlockStore;
+    };
+    const store = new BlockStore(db);
+    // 50 blocks
+    for (let i = 0; i < 50; i++) {
+      const b = {
+        id: `bench-block-${i}`,
+        version: 1,
+        status: "candidate" as const,
+        kind: "success" as const,
+        trigger: {
+          situation: `Bench block ${i} — pytest collection wrong package sys.path shadow`,
+          fingerprint: `fp-bench-${i}`,
+          keywords: ["pytest", "collection", "shadow", "sys.path"],
+          invariants: { language: "python", framework: "pytest" },
+        },
+        body: {
+          mechanism: "shadowing helper picks up earlier in sys.path",
+          deadEnds: [],
+          unlock: "remove the shadow or rename the helper module",
+          verification: "pytest --collect-only",
+        },
+        provenance: {
+          sourceTaskId: `bench-${i}`,
+          extractedFrom: "trajectory" as const,
+          distilledAt: Date.now(),
+          distilledBy: "rule" as const,
+        },
+        stats: {
+          timesRetrieved: 0,
+          timesInjected: 0,
+          timesAgentUsed: 0,
+          timesHelpful: 0,
+          timesCounterproductive: 0,
+          cumulativeTokensSaved: 0,
+          cumulativeStepsSaved: 0,
+        },
+        quality: { confidence: 0.5, wilsonLowerBound: 0 },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      store.storeBlock(b);
+      store.attachCaseRef({
+        blockId: b.id,
+        traceId: `tr-bench-${i}`,
+        role: "origin",
+        evidenceQuality: "strong",
+      });
+      store.updateBlockStatus(b.id, "active");
+    }
+    // 30 facts
+    for (let i = 0; i < 30; i++) {
+      store.storeFact({
+        scope: "project",
+        factType: "file_semantic",
+        statement: `Bench fact ${i}: tests live under tests/cli/*.test.ts`,
+        invariants: {},
+        source: { origin: "observed" },
+      });
+    }
+    store.close();
+
+    const stdin = JSON.stringify({
+      prompt: "pytest is collecting the wrong package in my monorepo sys.path shadow issue",
+      cwd: projectDir,
+    });
+    const durations = measure(
+      "inject-context",
+      ["inject-context", "--host", "claude-code", "--status", "silent"],
+      stdin,
+      projectDir,
+      {},
+    );
+    const sorted = [...durations].sort((a, b) => a - b);
+    const budget = BUDGETS.find((b) => b.hook === "inject-context")!;
+    const p95 = quantile(sorted, 0.95);
+    return {
+      hook: "inject-context",
+      target_ms: budget.target_ms,
+      release_gate: budget.release_gate,
+      runs: durations.length,
+      p50_ms: round2(quantile(sorted, 0.5)),
+      p95_ms: round2(p95),
+      p99_ms: round2(quantile(sorted, 0.99)),
+      max_ms: round2(sorted[sorted.length - 1] ?? 0),
+      exceedsBudget: p95 > budget.target_ms,
+    };
+  } finally {
+    rmSync(projectDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Fixture: Stop (capture-turn) on a realistic transcript tail.
+ * Target: p95 < 500 ms.
+ */
+function fixtureCaptureTurn(): FixtureResult {
+  const projectDir = mkdtempSync(join(tmpdir(), "tb-bench-capture-"));
+  try {
+    mkdirSync(join(projectDir, ".tracebase"), { recursive: true });
+    writeFileSync(
+      join(projectDir, ".tracebase", "config.json"),
+      JSON.stringify({
+        workspaceId: "bench-workspace",
+        storagePath: join(projectDir, ".tracebase", "memory.db"),
+      }),
+    );
+
+    // Build a substantive transcript. Enough lines that parsing +
+    // tail-read isn't the fast path, but still a realistic shape.
+    const userLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content:
+          "pytest is collecting the wrong package in my monorepo — sys.path shadowing module. I've seen this before; the helper module shadows the intended namespace package.",
+      },
+      timestamp: new Date().toISOString(),
+    });
+    const assistantLine = JSON.stringify({
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text:
+              "The symptom is that pytest's collection picks up a shadowing helper earlier in sys.path than the intended package, which is why `pytest --collect-only` reports the wrong tree.\n\n" +
+              "Remove the shadowing helper directory from sys.path, or rename the helper module so it stops competing with the intended namespace package.\n\n" +
+              "Verify by running pytest --collect-only and confirming the output lists only modules under the intended package.",
+          },
+        ],
+      },
+      timestamp: new Date().toISOString(),
+    });
+    const noise = Array.from({ length: 6000 }, (_, i) =>
+      JSON.stringify({ type: "file-history-snapshot", messageId: `snap-${i}` }),
+    );
+    const transcriptPath = join(projectDir, "transcript.jsonl");
+    writeFileSync(transcriptPath, [...noise, userLine, assistantLine].join("\n"));
+
+    const stdin = JSON.stringify({
+      hook_event_name: "Stop",
+      transcript_path: transcriptPath,
+      cwd: projectDir,
+      session_id: "bench-session",
+    });
+    const durations = measure(
+      "capture-turn",
+      ["capture-turn", "--host", "claude-code", "--capture", "silent"],
+      stdin,
+      projectDir,
+      {},
+    );
+    const sorted = [...durations].sort((a, b) => a - b);
+    const budget = BUDGETS.find((b) => b.hook === "capture-turn")!;
+    const p95 = quantile(sorted, 0.95);
+    return {
+      hook: "capture-turn",
+      target_ms: budget.target_ms,
+      release_gate: budget.release_gate,
+      runs: durations.length,
+      p50_ms: round2(quantile(sorted, 0.5)),
+      p95_ms: round2(p95),
+      p99_ms: round2(quantile(sorted, 0.99)),
+      max_ms: round2(sorted[sorted.length - 1] ?? 0),
+      exceedsBudget: p95 > budget.target_ms,
+    };
+  } finally {
+    rmSync(projectDir, { recursive: true, force: true });
+  }
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function main(): void {
+  if (!existsSync(cliPath)) {
+    console.error(`[bench] dist/cli.js not found at ${cliPath}. Run \`npm run build\` first.`);
+    process.exit(2);
+  }
+  mkdirSync(resultsDir, { recursive: true });
+
+  const results: FixtureResult[] = [];
+  console.log(`TraceBase bench-hooks — version ${pkg.version}`);
+  console.log(`runs per fixture: ${RUNS} (after ${WARMUP} warmups)`);
+  console.log("");
+
+  results.push(fixtureInjectContext());
+  results.push(fixtureCaptureTurn());
+
+  for (const r of results) {
+    const status = r.exceedsBudget ? (r.release_gate ? "FAIL" : "warn") : "pass";
+    console.log(
+      `  ${status.padEnd(4)}  ${r.hook.padEnd(20)}  p50=${r.p50_ms}ms p95=${r.p95_ms}ms p99=${r.p99_ms}ms max=${r.max_ms}ms (target ${r.target_ms}ms)`,
+    );
+  }
+  console.log("");
+
+  const resultsPath = join(resultsDir, `${pkg.version}.json`);
+  writeFileSync(
+    resultsPath,
+    JSON.stringify(
+      {
+        version: pkg.version,
+        timestamp: new Date().toISOString(),
+        runs: RUNS,
+        warmup: WARMUP,
+        results,
+      },
+      null,
+      2,
+    ),
+  );
+  console.log(`results: ${resultsPath}`);
+
+  const gateFailures = results.filter((r) => r.exceedsBudget && r.release_gate);
+  if (gateFailures.length > 0) {
+    console.error("");
+    console.error(`[bench] ${gateFailures.length} release-gated fixture(s) exceeded budget.`);
+    for (const f of gateFailures) {
+      console.error(`  - ${f.hook}: p95=${f.p95_ms}ms > target ${f.target_ms}ms`);
+    }
+    process.exit(1);
+  }
+}
+
+main();

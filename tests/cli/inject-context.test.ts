@@ -375,6 +375,79 @@ describe("runInjectContext — silent mode suppresses systemMessage entirely", (
   });
 });
 
+// ---------------------------------------------------------------------------
+// Composite TB TRACE + TB MEMORY badge — §2 PLAN-0.5
+// ---------------------------------------------------------------------------
+
+describe("runInjectContext — composite TB TRACE + TB MEMORY badge", () => {
+  it("emits ONLY TB TRACE half when no facts are recalled", () => {
+    const config = initConfig(projectDir);
+    const db = new Database(config.storagePath);
+    const store = new BlockStore(db);
+    storeActive(store, PY_BLOCK);
+    store.close();
+    const out = runInjectContext(
+      { path: projectDir },
+      { prompt: "pytest is collecting the wrong package — sys.path shadow issue" },
+    );
+    const msg = JSON.parse(out.envelope).systemMessage as string;
+    expect(msg.startsWith("▣ TB TRACE  recalled ")).toBe(true);
+    expect(msg).not.toContain("TB MEMORY");
+  });
+
+  it("composes BOTH halves when patterns AND facts both recall", () => {
+    const config = initConfig(projectDir);
+    const db = new Database(config.storagePath);
+    const store = new BlockStore(db);
+    storeActive(store, PY_BLOCK);
+    // Seed a relevant fact so recall returns both.
+    store.storeFact({
+      scope: "project",
+      factType: "file_semantic",
+      statement: "pytest collection is sensitive to sys.path order in monorepos",
+      invariants: { language: "python", framework: "pytest" },
+      source: { origin: "observed" },
+    });
+    store.close();
+    const out = runInjectContext(
+      { path: projectDir },
+      { prompt: "pytest is collecting the wrong package — sys.path shadow in monorepo" },
+    );
+    const msg = JSON.parse(out.envelope).systemMessage as string;
+    // Ordering: TB TRACE first, then TB MEMORY; separator `·`; tail `· #<id> · <T>t`.
+    expect(msg).toMatch(/^▣ TB TRACE  recalled \d+ pattern\(s\)/);
+    expect(msg).toMatch(/· ▣ TB MEMORY  recalled \d+ fact\(s\)/);
+    expect(msg).toMatch(/· #[0-9a-f]{8} · \d+t$/);
+    expect(msg.length).toBeLessThan(100);
+  });
+
+  it("omits separators when one half is zero — never a dangling `·`", () => {
+    const config = initConfig(projectDir);
+    const db = new Database(config.storagePath);
+    const store = new BlockStore(db);
+    // Only a fact — no blocks.
+    store.storeFact({
+      scope: "project",
+      factType: "file_semantic",
+      statement: "pytest collection is sensitive to sys.path order",
+      invariants: { language: "python", framework: "pytest" },
+      source: { origin: "observed" },
+    });
+    store.close();
+    const out = runInjectContext(
+      { path: projectDir },
+      { prompt: "pytest collection sys.path shadow — what's the convention here?" },
+    );
+    const msg = JSON.parse(out.envelope).systemMessage as string;
+    if (msg && msg.startsWith("▣ TB MEMORY")) {
+      // When facts matched but no patterns did, the badge is MEMORY-only.
+      expect(msg).not.toContain("TB TRACE");
+      expect(msg).not.toMatch(/^·/);
+      expect(msg).not.toMatch(/· · /);
+    }
+  });
+});
+
 describe("parseStdinPayload — collapses every error mode to {}", () => {
   it("returns {} on empty input", () => {
     expect(parseStdinPayload("")).toEqual({});

@@ -39,6 +39,7 @@ import Database from "better-sqlite3";
 import { initConfig, loadConfig } from "../../src/core/config.js";
 import { BlockStore } from "../../src/core/block-store.js";
 import {
+  extractFacts,
   extractPattern,
   parseStdinPayload,
   parseTranscript,
@@ -406,5 +407,163 @@ describe("parseStdinPayload — collapses errors to {}", () => {
     expect(parseStdinPayload('{"transcript_path":"/x"}')).toEqual({
       transcript_path: "/x",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TB MEMORY — semantic fact extraction (0.5.0)
+// ---------------------------------------------------------------------------
+
+describe("extractFacts — deterministic extraction", () => {
+  it("returns [] on trivial input", () => {
+    expect(extractFacts("hi", "ok")).toEqual([]);
+    expect(extractFacts("", "")).toEqual([]);
+  });
+
+  it("picks a repo command from an assistant reply", () => {
+    const userText = "How do I build and test this monorepo from a fresh clone?";
+    const assistantText =
+      "For this project the canonical workflow is: Run `npm run build` to compile the TypeScript bundle, then run `npm test` to execute the vitest suite. Both commands have to succeed before opening a PR, so treat them as the gate.";
+    const facts = extractFacts(userText, assistantText);
+    const stmts = facts.map((f) => f.statement);
+    expect(stmts.some((s) => /npm run build/.test(s))).toBe(true);
+    expect(facts.every((f) => f.factType === "file_semantic")).toBe(true);
+    expect(facts.every((f) => f.scope === "project")).toBe(true);
+    expect(facts.length).toBeLessThanOrEqual(3);
+  });
+
+  it("picks a repo-relative file role, ignores absolute paths", () => {
+    const userText = "Where do the CLI integration tests live and which runner are they built for?";
+    const assistantText =
+      "For this repo `tests/cli/init-e2e.test.ts` holds the end-to-end CLI suite, which runs under vitest. The absolute tree `/Users/me/project/tests/cli/a.ts` is an aside you shouldn't reference.";
+    const facts = extractFacts(userText, assistantText);
+    expect(facts.some((f) => f.statement.includes("tests/cli/init-e2e.test.ts"))).toBe(true);
+    // Absolute-path candidate rejected.
+    expect(facts.every((f) => !f.statement.includes("/Users/"))).toBe(true);
+  });
+
+  it("rejects candidates containing secrets", () => {
+    const userText = "How do I set the API key and call the service?";
+    const assistantText =
+      "Run `npm run build` to compile. Also set `ANTHROPIC_API_KEY=sk-ant-abcdef0123456789abcdef0123abcdef0123` in your environment before launching.";
+    const facts = extractFacts(userText, assistantText);
+    // The `npm run build` line might still land — but nothing containing
+    // the secret should pass the leakage scanner.
+    expect(facts.every((f) => !/sk-ant-/.test(f.statement))).toBe(true);
+    expect(facts.every((f) => !/ANTHROPIC_API_KEY=/.test(f.statement))).toBe(true);
+  });
+
+  it("picks env requirements", () => {
+    const userText = "What runtime versions does this project need on a fresh machine?";
+    const assistantText =
+      "For this repo Node >= 18 and Python >= 3.11 are hard requirements. A Node 16 install won't bundle the native modules correctly, and 3.10 fails the pytest fixtures for the integrations test suite.";
+    const facts = extractFacts(userText, assistantText);
+    expect(facts.some((f) => /Node >= 18/.test(f.statement))).toBe(true);
+    expect(facts.some((f) => /Python >= 3\.11/.test(f.statement))).toBe(true);
+  });
+
+  it("caps at 3 facts per turn", () => {
+    const userText = "Describe every convention and build command this project uses in detail.";
+    const assistantText = `
+Run \`npm run build\` first.
+Run \`npm test\` second.
+Run \`npm run lint\` third.
+Uses Vitest for the test runner.
+Uses ESLint for linting.
+Uses Prettier for formatting.
+Node >= 18 is required.
+Python >= 3.11 is required.
+`.trim();
+    const facts = extractFacts(userText, assistantText);
+    expect(facts.length).toBeLessThanOrEqual(3);
+  });
+
+  it("dedupes duplicate candidates within the turn", () => {
+    const userText = "Remind me how to build and test this project once more, please.";
+    const assistantText =
+      "Run `npm run build` to compile. Run `npm run build` again if it fails the first time. Run `npm test` to verify.";
+    const facts = extractFacts(userText, assistantText);
+    const buildCount = facts.filter((f) => /npm run build/.test(f.statement)).length;
+    expect(buildCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runCaptureTurn — composite TB TRACE + TB MEMORY badge (0.5.0)
+// ---------------------------------------------------------------------------
+
+function writeTranscriptFacts(user: string, assistant: string): void {
+  const path = transcriptPath;
+  const lines = [
+    {
+      type: "user",
+      message: { role: "user", content: user },
+      timestamp: new Date().toISOString(),
+    },
+    {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: assistant }],
+      },
+      timestamp: new Date().toISOString(),
+    },
+  ];
+  require("node:fs").writeFileSync(path, lines.map((l) => JSON.stringify(l)).join("\n"));
+  void path;
+}
+
+describe("runCaptureTurn — composite TB TRACE + TB MEMORY badge", () => {
+  it("emits composite badge when pattern stored AND facts noted", () => {
+    initConfig(projectDir);
+    writeTranscriptFacts(
+      "pytest is collecting the wrong package in my monorepo — the helper module shadows sys.path.",
+      `The symptom is that pytest's collection picks up a shadowing helper earlier in sys.path than the intended package, which is why pytest --collect-only reports the wrong tree.
+
+Remove the shadowing helper directory from sys.path, or rename the helper module so it stops competing with the intended namespace package.
+
+Verify by running \`npm test\` to confirm the pytest fixtures now find the intended package. Node >= 18 is required.`,
+    );
+    const out = runCaptureTurn(
+      { path: projectDir },
+      { transcript_path: transcriptPath, cwd: projectDir },
+    );
+    expect(out.captured).toBe(true);
+    const msg = JSON.parse(out.envelope).systemMessage as string;
+    expect(msg).toMatch(/^▣ TB TRACE  stored #[0-9a-f]+/);
+    expect(msg).toMatch(/· ▣ TB MEMORY  noted \d+ fact\(s\)/);
+    expect(msg.length).toBeLessThan(100);
+  });
+
+  it("emits only TB MEMORY when no pattern stored but facts noted", () => {
+    initConfig(projectDir);
+    // Transcript where the assistant's answer is too short to pass
+    // the pattern-extractor gate (< MIN_OUTCOME_CHARS) but still
+    // contains extractable facts.
+    writeTranscriptFacts(
+      "What runtime does this project require on a fresh clone? Which test runner is used?",
+      "Node >= 18 is required for this repo, and the test runner is Vitest.",
+    );
+    const out = runCaptureTurn(
+      { path: projectDir },
+      { transcript_path: transcriptPath, cwd: projectDir },
+    );
+    const msg = JSON.parse(out.envelope).systemMessage as string;
+    expect(msg).toMatch(/^▣ TB MEMORY  noted \d+ fact\(s\)/);
+    expect(msg).not.toContain("TB TRACE");
+  });
+
+  it("falls back to `no reusable pattern` when neither side extracts", () => {
+    initConfig(projectDir);
+    writeTranscriptFacts(
+      "how do I fix the pytest shadow — short question without enough detail to trigger extraction",
+      "hmm",
+    );
+    const out = runCaptureTurn(
+      { path: projectDir },
+      { transcript_path: transcriptPath, cwd: projectDir },
+    );
+    const msg = JSON.parse(out.envelope).systemMessage as string;
+    expect(msg).toBe("▣ TB TRACE  no reusable pattern");
   });
 });

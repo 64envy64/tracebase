@@ -36,6 +36,7 @@ import { BlockStore } from "../../core/block-store.js";
 import { computeAggregates } from "../../core/analytics.js";
 import { computeUsageMetrics, type UsageMetrics } from "../../analytics/usage-metrics.js";
 import { loadCloudCredential, normalizeApiUrl } from "../cloud.js";
+import { sanitizeForCloud } from "../cloud-allowlist.js";
 import { parseSince } from "./events.js";
 import { join } from "node:path";
 
@@ -223,19 +224,26 @@ async function pushSample(input: {
   cliVersion: string;
 }): Promise<PushResult> {
   try {
+    // Defense in depth: pipe the payload through `sanitizeForCloud`
+    // before it leaves the machine, so any field that sneaks into the
+    // usage sample outside the PLAN-0.5 §7 allowlist (future schema
+    // drift, accidental inclusion) is dropped here. Today's payload
+    // already conforms; the sanitizer guarantees it stays that way.
+    const rawBody = {
+      installationId: input.installationId,
+      windowStart: input.windowStart,
+      windowEnd: input.windowEnd,
+      metrics: input.metrics,
+      cliVersion: input.cliVersion,
+    };
+    const safeBody = sanitizeForCloud(rawBody);
     const res = await fetch(`${input.apiUrl}/api/control-plane/usage-samples`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${input.apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        installationId: input.installationId,
-        windowStart: input.windowStart,
-        windowEnd: input.windowEnd,
-        metrics: input.metrics,
-        cliVersion: input.cliVersion,
-      }),
+      body: JSON.stringify(safeBody),
     });
     const body = await res.text();
     return { ok: res.ok, status: res.status, body };

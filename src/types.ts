@@ -635,10 +635,40 @@ export interface RecallInjectConfig {
  *   - Never put body content in trigger fields (contaminates retrieval).
  *   - Never put trigger invariants in body (agent ignores them there).
  */
+/**
+ * Discriminator for procedural blocks (L2).
+ *
+ * - "success": distilled from a SOLVED trajectory. The body describes a
+ *   reusable fix — `mechanism` is the root cause, `unlock` is the
+ *   pivotal insight, `verification` is how to confirm the fix. This is
+ *   the only kind the pre-failure-lane codebase produced.
+ * - "pitfall": distilled from a FAILED trajectory. The body describes
+ *   a recurring dead-end pattern — `mechanism` is the misleading
+ *   intuition that trapped the agent, `deadEnds` are the concrete
+ *   ways the trap manifests, `unlock` is the corrective redirect out
+ *   of the trap, `verification` is the falsification check that tells
+ *   you you're on the false path. `guardrails` are early signals that
+ *   SHOULD stop the agent before it commits to the wrong direction.
+ *
+ * Retrieval / serving semantics for `pitfall` blocks are not expanded
+ * in this change: they are stored as `status: "candidate"` and never
+ * promoted to `active` automatically. A future phase wires held-out
+ * verification into promotion. See docs/DESIGN_v2.md §L2 and the
+ * failure-distillation lane in src/distillation/pipeline.ts.
+ */
+export type BlockKind = "success" | "pitfall";
+
 export interface ReasoningBlock {
   id: string;
   /** Schema version, bumps on breaking change. v1 = first release. */
   version: number;
+  /**
+   * Discriminator between success-derived blocks and failure-derived
+   * pitfall blocks. See `BlockKind` for semantics. Treat as required;
+   * legacy rows persisted before the field existed are rehydrated as
+   * "success" by the store.
+   */
+  kind: BlockKind;
 
   trigger: BlockTrigger;
   body: BlockBody;
@@ -707,14 +737,39 @@ export interface BlockInvariants {
  * trigger has matched.
  */
 export interface BlockBody {
-  /** Root cause structure. */
+  /**
+   * For `kind = "success"`: root-cause structure of the bug.
+   * For `kind = "pitfall"`: the misleading intuition the agent followed
+   * when walking into the trap (why the false path looked plausible).
+   */
   mechanism: string;
-  /** Approaches that look plausible but fail; prevents wasted exploration. */
+  /**
+   * Approaches that look plausible but fail; prevents wasted exploration.
+   * Required to be non-empty (≥ 1 entry) when `kind = "pitfall"` — a
+   * pitfall block without a concrete dead-end carries no signal.
+   */
   deadEnds: string[];
-  /** The key insight, ≤ 30 words. */
+  /**
+   * The key insight, ≤ 30 words.
+   * For `kind = "success"`: the pivotal step that solved the problem.
+   * For `kind = "pitfall"`: the corrective redirect — what to do
+   * instead to leave the false path.
+   */
   unlock: string;
-  /** How the agent confirms the fix actually worked (e.g. reproduction test). */
+  /**
+   * For `kind = "success"`: how to confirm the fix actually worked
+   * (e.g. a reproduction test).
+   * For `kind = "pitfall"`: the falsification check — how to recognize
+   * that the current approach is on the false path and must be abandoned.
+   */
   verification: string;
+  /**
+   * Early warning signals. Each entry ≤ 20 words; at most 3 entries.
+   * Optional on success blocks, meaningful on pitfall blocks as the
+   * "if you see X, stop" guard before the agent commits to the wrong
+   * direction. Leakage regex applies to each entry.
+   */
+  guardrails?: string[];
 }
 
 /**
@@ -827,6 +882,13 @@ export interface BlockEmbeddings {
 
 /** Input for creating a new block; computed fields filled by the distiller. */
 export interface StoreBlockInput {
+  /**
+   * Discriminator between success-derived blocks and failure-derived
+   * pitfall blocks. Optional for backwards-compatible call sites —
+   * `createBlock` defaults unset inputs to `"success"` so pre-failure
+   * callers continue to produce success blocks byte-identically.
+   */
+  kind?: BlockKind;
   trigger: Omit<BlockTrigger, "fingerprint" | "keywords">;
   body: BlockBody;
   provenance: Omit<BlockProvenance, "distilledAt">;
@@ -883,7 +945,8 @@ export type ProjectFactType =
   | "schema"          // "users.email is UNIQUE NOT NULL"
   | "repo_fact"       // "build command is `pnpm build`"
   | "architecture"    // "auth lives in services/auth/, not middleware/"
-  | "preference";     // "favor small PRs over big ones"
+  | "preference"      // "favor small PRs over big ones"
+  | "file_semantic";  // "tests live under tests/cli/*.test.ts" — 0.5.0 TB MEMORY bucket
 
 export type ProjectFactStatus = "active" | "stale" | "retired";
 
