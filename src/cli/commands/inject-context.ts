@@ -38,6 +38,28 @@ import { runReasoningPatternsRecall } from "../../server/reasoning-patterns-entr
 export type InjectContextHost = "claude-code" | "codex";
 
 /**
+ * Compact shows one-line status badges on the host; silent suppresses
+ * them. The default is `compact` — users who ran `tracebase init` see
+ * a visible breadcrumb when the hook recalled patterns (or decided
+ * not to), without reading the injected context itself. Silent is for
+ * power users who don't want the host showing anything at all.
+ */
+export type HookStatusMode = "compact" | "silent";
+
+/**
+ * One-shot classification of what the hook actually did, fed into
+ * `formatStatus`. Keeping the situation closed-shape avoids duplicate
+ * badge logic — there is exactly one place that maps a situation to
+ * a badge string, and the compact/silent flag flows through it.
+ */
+type InjectSituation =
+  | { kind: "match"; queryId: string; patterns: number; facts: number; tokens: number }
+  | { kind: "no-match" }
+  | { kind: "trivial" }
+  | { kind: "uninitialized" }
+  | { kind: "failure" };
+
+/**
  * Hook event shapes we recognise. Claude Code spells the field
  * `prompt`; Codex calls it `userPrompt` in some contexts. We accept
  * both so a single command serves both hosts.
@@ -58,6 +80,15 @@ export interface RunInjectContextOptions {
   event?: string;
   budget?: string | number;
   path?: string;
+  /**
+   * `compact` (default) attaches a one-line `systemMessage` to the
+   * envelope summarising what the hook did. `silent` emits only the
+   * `hookSpecificOutput` envelope — no top-level badge, ever. Env
+   * override: `TRACEBASE_HOOK_STATUS=compact|silent` wins over this
+   * flag, so a user can flip the project-wide installer default
+   * without editing `.claude/settings.json`.
+   */
+  status?: string;
 }
 
 export interface InjectContextOutcome {
@@ -79,6 +110,11 @@ export const injectContextCommand = new Command("inject-context")
   .option("--host <host>", "host shaping the JSON envelope: claude-code | codex", "claude-code")
   .option("--event <event>", "hook event name (UserPromptSubmit | SessionStart)", "UserPromptSubmit")
   .option("--budget <tokens>", "soft token budget for injected content (default 1200)", "1200")
+  .option(
+    "--status <mode>",
+    "hook status-line mode: compact (default) | silent. Env override: TRACEBASE_HOOK_STATUS.",
+    "compact",
+  )
   .option("-p, --path <path>", "project root override")
   .action(async (opts: RunInjectContextOptions) => {
     // Spawn-side wrapper: pull stdin via fs, hand off to the pure
@@ -106,6 +142,7 @@ export function runInjectContext(
   const host = normaliseHost(opts.host);
   const eventName = normaliseEvent(opts.event);
   const budget = parseBudget(opts.budget);
+  const statusMode = resolveStatusMode(opts.status);
 
   try {
     const prompt = extractPrompt(stdin);
@@ -115,14 +152,14 @@ export function runInjectContext(
     // events for "hi" and "thanks". The MCP tool path is still
     // available if the agent really wants patterns mid-thread.
     if (!shouldQuery(eventName, prompt)) {
-      return wrapEnvelope(host, eventName, "");
+      return wrapEnvelope(host, eventName, "", formatStatus({ kind: "trivial" }, statusMode));
     }
 
     // Project may not be initialised — that's fine, we emit empty.
     // First-run UX is: user types something, hook fires, hook sees
     // no .tracebase, exits clean. No crash, no nag.
     if (!basePath || !isInitialized(basePath)) {
-      return wrapEnvelope(host, eventName, "");
+      return wrapEnvelope(host, eventName, "", formatStatus({ kind: "uninitialized" }, statusMode));
     }
 
     const config = loadConfig(basePath);
@@ -137,12 +174,80 @@ export function runInjectContext(
       return built;
     });
 
-    return wrapEnvelope(host, eventName, payload.text);
+    // `hasContent` encodes the full gate chain: query ran, something
+    // cleared the gate, something fit the budget. Anything else — no
+    // matches, all shadow, everything cut by the budget — lands as
+    // "checked · no match" so the user sees the hook ran.
+    if (!payload.hasContent) {
+      return wrapEnvelope(host, eventName, "", formatStatus({ kind: "no-match" }, statusMode));
+    }
+
+    const situation: InjectSituation = {
+      kind: "match",
+      queryId: payload.queryId,
+      patterns: payload.blockIds.length,
+      facts: payload.factIds.length,
+      tokens: payload.tokensEstimate,
+    };
+    return wrapEnvelope(host, eventName, payload.text, formatStatus(situation, statusMode));
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     process.stderr.write(`tracebase inject-context: ${reason}\n`);
-    return wrapEnvelope(host, eventName, "");
+    return wrapEnvelope(host, eventName, "", formatStatus({ kind: "failure" }, statusMode));
   }
+}
+
+/**
+ * Single source of truth for the TB MEMORY badge. Every caller funnels
+ * through here — there are no duplicated label literals elsewhere in
+ * this file, so changing the prefix only touches one spot. Returns
+ * `null` when the host should see no `systemMessage`:
+ *   - silent mode (hard suppress everywhere)
+ *   - trivial / uninitialized in any mode (we haven't done work worth
+ *     announcing; see spec)
+ *
+ * Every emitted badge is capped under 100 characters by construction:
+ * queryId short-hand is 8 chars, patterns/facts cap at single digits
+ * (renderer caps at 4), tokens cap at 4 digits (budget ≤ 2200).
+ */
+function formatStatus(situation: InjectSituation, mode: HookStatusMode): string | null {
+  if (mode === "silent") return null;
+  switch (situation.kind) {
+    case "trivial":
+    case "uninitialized":
+      return null;
+    case "match": {
+      const factsPart =
+        situation.facts > 0 ? ` + ${situation.facts} fact(s)` : "";
+      const shortId = situation.queryId.slice(0, 8);
+      return (
+        `▣ TB MEMORY  recalled ${situation.patterns} pattern(s)` +
+        `${factsPart} · #${shortId} · ${situation.tokens}t`
+      );
+    }
+    case "no-match":
+      return "▣ TB MEMORY  checked · no match";
+    case "failure":
+      return "▣ TB MEMORY  skipped · unavailable";
+  }
+}
+
+function resolveStatusMode(raw: string | undefined): HookStatusMode {
+  // Env override wins so a user can flip the project-wide default
+  // (written into .claude/settings.json by `init`) without editing
+  // config. Invalid env values fall through to the --status flag.
+  const fromEnv = normaliseStatusMode(process.env.TRACEBASE_HOOK_STATUS);
+  if (fromEnv) return fromEnv;
+  const fromFlag = normaliseStatusMode(raw);
+  if (fromFlag) return fromFlag;
+  return "compact";
+}
+
+function normaliseStatusMode(raw: string | undefined): HookStatusMode | null {
+  const v = raw?.trim().toLowerCase();
+  if (v === "silent") return "silent";
+  if (v === "compact") return "compact";
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,11 +258,17 @@ export function runInjectContext(
  * Both Claude Code and Codex use the same hook envelope shape:
  *
  *   {
+ *     "systemMessage"?: "▣ TB MEMORY  …",
  *     "hookSpecificOutput": {
  *       "hookEventName": "UserPromptSubmit" | "SessionStart" | …,
  *       "additionalContext": "<text the host inlines into the model prompt>"
  *     }
  *   }
+ *
+ * `systemMessage` is Claude Code's top-level channel for user-visible
+ * breadcrumbs (rendered in the transcript as a dim status line). When
+ * `status` is `null` we omit the field entirely — absence is the
+ * contract for "show nothing".
  *
  * If `additionalContext` is empty, the host injects nothing — which
  * is exactly the behaviour we want for trivial prompts and
@@ -168,13 +279,15 @@ function wrapEnvelope(
   host: InjectContextHost,
   eventName: string,
   additionalContext: string,
+  status: string | null,
 ): InjectContextOutcome {
-  const envelope = {
+  const envelope: Record<string, unknown> = {
     hookSpecificOutput: {
       hookEventName: eventName,
       additionalContext,
     },
   };
+  if (status !== null) envelope.systemMessage = status;
   // host parameter is currently identical for the two supported
   // hosts. Kept on the function signature so a divergent envelope
   // (e.g. a future host that wants a different field name) only

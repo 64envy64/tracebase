@@ -51,12 +51,23 @@ describe("writeAgentHookConfig — Claude Code", () => {
     expect(res.kind).toBe("created");
 
     const settings = JSON.parse(readFileSync(join(dir, ".claude", "settings.json"), "utf-8")) as {
-      hooks?: { UserPromptSubmit?: Array<{ hooks?: Array<{ command?: string }> }> };
+      hooks?: {
+        UserPromptSubmit?: Array<{
+          hooks?: Array<{ command?: string; statusMessage?: string; timeout?: number }>;
+        }>;
+      };
     };
     const inner = settings.hooks?.UserPromptSubmit?.[0]?.hooks?.[0];
     expect(inner?.command).toContain("tracebase-ai");
     expect(inner?.command).toContain("inject-context");
     expect(inner?.command).toContain("--host claude-code");
+    // Hook transparency contract: the installed command opts into the
+    // compact TB MEMORY badge, and the static `statusMessage` Claude
+    // Code shows while the hook is running mirrors that badge prefix.
+    // Regressing either drops the user's only visible signal that the
+    // hook fired.
+    expect(inner?.command).toContain("--status compact");
+    expect(inner?.statusMessage).toBe("▣ TB MEMORY  checking");
   });
 
   it("returns null for agents that do not support silent injection", () => {
@@ -145,6 +156,120 @@ describe("writeAgentHookConfig — Claude Code", () => {
     removeAgentHookConfig(dir, "claude-code");
     expect(existsSync(join(dir, ".claude", "settings.json"))).toBe(false);
   });
+
+  // Zero-friction upgrade regression. The 0.4.0 hook entry had no
+  // --status flag and no statusMessage; this release adds both for
+  // the compact TB MEMORY badge. A user re-running `npx tracebase
+  // init` (without --force) after upgrading the npm package must
+  // land on the new entry automatically — that is the core promise
+  // of `init` in this codebase. Requiring --force here would turn
+  // a routine upgrade into a visible error.
+  it("upgrades the 0.4.0 default hook entry to the new badge-enabled entry without --force", () => {
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    writeFileSync(
+      join(dir, ".claude", "settings.json"),
+      JSON.stringify(
+        {
+          hooks: {
+            UserPromptSubmit: [
+              {
+                hooks: [
+                  {
+                    type: "command",
+                    command: "npx -y tracebase-ai@latest inject-context --host claude-code",
+                    timeout: 5,
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const res = writeAgentHookConfig(dir, "claude-code", false);
+    expect(res?.ok).toBe(true);
+    if (!res?.ok) return;
+    expect(res.kind).toBe("updated");
+
+    const after = JSON.parse(readFileSync(join(dir, ".claude", "settings.json"), "utf-8")) as {
+      hooks: {
+        UserPromptSubmit: Array<{
+          hooks: Array<{ command: string; statusMessage?: string; timeout: number }>;
+        }>;
+      };
+    };
+    const inner = after.hooks.UserPromptSubmit[0]!.hooks[0]!;
+    expect(inner.command).toContain("--status compact");
+    expect(inner.statusMessage).toBe("▣ TB MEMORY  checking");
+    expect(inner.timeout).toBe(5);
+    // No duplicate entries landed — the slot was reused.
+    expect(after.hooks.UserPromptSubmit.length).toBe(1);
+    expect(after.hooks.UserPromptSubmit[0]!.hooks.length).toBe(1);
+  });
+
+  it("still requires --force to replace a user-customised TraceBase hook (non-default command / timeout / extras)", () => {
+    // Identifiably "ours" (command mentions tracebase-ai +
+    // inject-context) but with a user-added flag — we must NOT
+    // silently overwrite this.
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    writeFileSync(
+      join(dir, ".claude", "settings.json"),
+      JSON.stringify(
+        {
+          hooks: {
+            UserPromptSubmit: [
+              {
+                hooks: [
+                  {
+                    type: "command",
+                    command:
+                      "npx -y tracebase-ai@latest inject-context --host claude-code --budget 2400",
+                    timeout: 10,
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const res = writeAgentHookConfig(dir, "claude-code", false);
+    expect(res?.ok).toBe(false);
+    if (res?.ok) return;
+    expect(res.reason).toMatch(/customised.*--force/);
+
+    // File untouched.
+    const after = JSON.parse(readFileSync(join(dir, ".claude", "settings.json"), "utf-8")) as {
+      hooks: {
+        UserPromptSubmit: Array<{ hooks: Array<{ command: string; timeout: number }> }>;
+      };
+    };
+    expect(after.hooks.UserPromptSubmit[0]!.hooks[0]!.command).toContain("--budget 2400");
+    expect(after.hooks.UserPromptSubmit[0]!.hooks[0]!.timeout).toBe(10);
+
+    // With --force, the custom shape is replaced by the canonical one.
+    const forced = writeAgentHookConfig(dir, "claude-code", true);
+    expect(forced?.ok).toBe(true);
+    if (!forced?.ok) return;
+    const afterForce = JSON.parse(readFileSync(join(dir, ".claude", "settings.json"), "utf-8")) as {
+      hooks: {
+        UserPromptSubmit: Array<{
+          hooks: Array<{ command: string; statusMessage?: string; timeout: number }>;
+        }>;
+      };
+    };
+    expect(afterForce.hooks.UserPromptSubmit[0]!.hooks[0]!.command).toContain("--status compact");
+    expect(afterForce.hooks.UserPromptSubmit[0]!.hooks[0]!.statusMessage).toBe(
+      "▣ TB MEMORY  checking",
+    );
+    expect(afterForce.hooks.UserPromptSubmit[0]!.hooks[0]!.timeout).toBe(5);
+  });
 });
 
 describe("writeAgentInstructionFile — variant per agent", () => {
@@ -154,6 +279,7 @@ describe("writeAgentInstructionFile — variant per agent", () => {
     expect(content).toContain("tracebase:begin");
     expect(content).toContain("<tracebase queryId");
     expect(content).toContain("silently attaches");
+    expect(content).toContain("even if no `<tracebase>` block appeared");
     // The silent variant explicitly tells the agent NOT to narrate.
     expect(content).toContain("Don't announce or narrate");
   });

@@ -94,7 +94,8 @@ TraceBase silently attaches relevant prior-case notes to your context when one a
 When you finish a task and a \`<tracebase>\` block was attached:
 
 - Call \`record_reasoning_outcome\` with the \`queryId\` from the block. Set \`usedPattern: true\` only if you actually used one of the injected patterns.
-- If you solved a novel case from scratch (no prior pattern applied), also call \`store_reasoning_pattern\` with \`situation\`, \`mechanism\`, \`unlock\`, and \`verification\`. Without this, the next agent hits the same wall.
+
+When you solve any non-trivial case from scratch and the fix is reusable, call \`store_reasoning_pattern\` with \`situation\`, \`mechanism\`, \`unlock\`, and \`verification\` even if no \`<tracebase>\` block appeared. Without this, the next agent hits the same wall.
 
 If no \`<tracebase>\` block appeared and you're stuck on a non-trivial task, you can call \`get_reasoning_patterns\` directly as a fallback.`;
 
@@ -376,8 +377,28 @@ export function removeAgentInstructionFile(basePath: string, agent: InstallAgent
 // what is intentionally missing is the config writer.
 // ---------------------------------------------------------------------------
 
-export const HOOKS_INJECT_COMMAND = "npx -y tracebase-ai@latest inject-context --host claude-code";
+/**
+ * `--status compact` is part of the canonical installed command. The
+ * compact badge produced by `inject-context` (a one-line `▣ TB MEMORY`
+ * systemMessage) is the only way a user without dev-tools open can
+ * see the hook fired. Silent mode is available as an env override
+ * (`TRACEBASE_HOOK_STATUS=silent`) for users who really want no
+ * breadcrumb; we don't bake silent into the installer because the
+ * whole point of hook transparency is that people know the hook ran.
+ */
+export const HOOKS_INJECT_COMMAND =
+  "npx -y tracebase-ai@latest inject-context --host claude-code --status compact";
 const CLAUDE_HOOKS_FILE_REL = ".claude/settings.json";
+
+/**
+ * Static `statusMessage` Claude Code displays while the hook command
+ * is running, before we've produced the dynamic badge. Mirrors the
+ * compact-mode prefix so the transcript shows a stable "▣ TB MEMORY
+ * checking …" that gets replaced by the hook's own systemMessage on
+ * completion (or stays on a timeout). Keeping this literal in sync
+ * with `inject-context.ts` is enforced by tests.
+ */
+const TRACEBASE_HOOK_STATIC_STATUS = "▣ TB MEMORY  checking";
 
 /**
  * The exact hook block we write into `.claude/settings.json`. The
@@ -396,9 +417,34 @@ const TRACEBASE_HOOK_ENTRY = {
       type: "command" as const,
       command: HOOKS_INJECT_COMMAND,
       timeout: 5,
+      statusMessage: TRACEBASE_HOOK_STATIC_STATUS,
     },
   ],
 };
+
+/**
+ * Previous canonical shape shipped in 0.4.0 — before the compact
+ * status badge existed, so no `--status compact` on the command and
+ * no `statusMessage` on the inner entry. Users on 0.4.0 re-running
+ * `tracebase init` should see their hook silently upgraded to the
+ * new badge-enabled entry without having to type `--force`. Anything
+ * that doesn't match this exact shape (extra flags, custom timeout,
+ * extra inner fields) is treated as user-customised and still
+ * requires `--force` — we don't want to clobber a deliberate edit.
+ */
+const LEGACY_DEFAULT_HOOK_ENTRY = {
+  hooks: [
+    {
+      type: "command",
+      command: "npx -y tracebase-ai@latest inject-context --host claude-code",
+      timeout: 5,
+    },
+  ],
+};
+
+function isLegacyDefaultHookEntry(entry: unknown): boolean {
+  return deepEqual(entry, LEGACY_DEFAULT_HOOK_ENTRY);
+}
 
 /**
  * Write or update the Claude Code hook entry. Returns `null` for
@@ -471,15 +517,24 @@ function writeClaudeHookConfig(basePath: string, force: boolean): StepResult {
     if (deepEqual(current, TRACEBASE_HOOK_ENTRY)) {
       return { ok: true, kind: "already-up-to-date", path: filePath };
     }
-    if (!force) {
+    // Zero-friction upgrade path: previous canonical TraceBase
+    // hook entries are replaced silently, because the "diff" is
+    // entirely our own evolution (e.g. added --status compact +
+    // statusMessage in this release). Requiring --force here would
+    // turn a routine `npx tracebase init` re-run into a support
+    // question. Truly user-customised entries (different timeout,
+    // extra flags, extra fields) still need --force — those we
+    // don't want to overwrite by accident.
+    if (isLegacyDefaultHookEntry(current) || force) {
+      userPromptSubmit[ourIndex] = TRACEBASE_HOOK_ENTRY;
+    } else {
       return {
         ok: false,
         reason:
-          "existing tracebase UserPromptSubmit hook differs (custom command or timeout) — pass --force to overwrite",
+          "existing tracebase UserPromptSubmit hook has been customised (non-default command, timeout, or extra fields) — pass --force to overwrite",
         path: filePath,
       };
     }
-    userPromptSubmit[ourIndex] = TRACEBASE_HOOK_ENTRY;
   } else {
     userPromptSubmit.push(TRACEBASE_HOOK_ENTRY);
   }

@@ -76,6 +76,7 @@ afterEach(() => {
 
 function envelope(out: { envelope: string }): {
   hookSpecificOutput: { hookEventName: string; additionalContext: string };
+  systemMessage?: string;
 } {
   return JSON.parse(out.envelope);
 }
@@ -192,6 +193,185 @@ describe("runInjectContext — failure-mode benignity", () => {
     const out = runInjectContext({ path: projectDir }, {});
     expect(out.injected).toBe(false);
     expect(envelope(out).hookSpecificOutput.additionalContext).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Compact-mode TB MEMORY badge — systemMessage contract
+//
+// The badge is the only user-visible signal the hook is running. If
+// the label / shape / emission conditions drift, users lose hook
+// transparency and we can't tell "hook didn't fire" from "hook fired
+// and found nothing". Tests here pin every branch.
+// ---------------------------------------------------------------------------
+
+describe("runInjectContext — compact status badge (systemMessage)", () => {
+  it("matching pattern: systemMessage starts with ▣ TB MEMORY and includes recalled count, shortId, tokens", () => {
+    const config = initConfig(projectDir);
+    const db = new Database(config.storagePath);
+    const store = new BlockStore(db);
+    storeActive(store, PY_BLOCK);
+    store.close();
+
+    const out = runInjectContext(
+      { path: projectDir },
+      { prompt: "pytest collects the wrong package — sys.path shadowing module issue" },
+    );
+    const parsed = envelope(out);
+    expect(parsed.systemMessage).toBeDefined();
+    const msg = parsed.systemMessage!;
+    expect(msg.startsWith("▣ TB MEMORY")).toBe(true);
+    expect(msg).toMatch(/recalled \d+ pattern\(s\)/);
+    // queryId is 8-char slice of a UUID; match only the contract
+    // surface, not a specific value.
+    expect(msg).toMatch(/· #[0-9a-f]{8}/i);
+    expect(msg).toMatch(/· \d+t$/);
+    // Spec: each status under 100 chars.
+    expect(msg.length).toBeLessThan(100);
+    // Double-check shortId actually matches the queryId in the body.
+    const injected = parsed.hookSpecificOutput.additionalContext;
+    const embeddedQueryId = /<tracebase queryId="([^"]+)">/.exec(injected)?.[1];
+    expect(embeddedQueryId).toBeDefined();
+    const badgeShortId = /· #([0-9a-f]+)/i.exec(msg)?.[1];
+    expect(embeddedQueryId!.startsWith(badgeShortId!)).toBe(true);
+  });
+
+  it('no match (gate rejects / no results): systemMessage is exactly "▣ TB MEMORY  checked · no match"', () => {
+    // Project initialised, no blocks seeded → gate has nothing to
+    // return → payload.hasContent is false.
+    initConfig(projectDir);
+
+    const out = runInjectContext(
+      { path: projectDir },
+      { prompt: "something generic enough that nothing matches in an empty store" },
+    );
+    const parsed = envelope(out);
+    expect(parsed.systemMessage).toBe("▣ TB MEMORY  checked · no match");
+    // additionalContext stays empty — "no match" means no inject.
+    expect(parsed.hookSpecificOutput.additionalContext).toBe("");
+    expect(out.injected).toBe(false);
+  });
+
+  it("trivial prompt: no systemMessage even in compact mode (spec: by default)", () => {
+    initConfig(projectDir);
+    const out = runInjectContext({ path: projectDir }, { prompt: "hi" });
+    const parsed = envelope(out);
+    expect(parsed.systemMessage).toBeUndefined();
+    expect(parsed.hookSpecificOutput.additionalContext).toBe("");
+  });
+
+  it("uninitialized project: no systemMessage (spec: by default)", () => {
+    const out = runInjectContext(
+      { path: projectDir },
+      { prompt: "real-looking task prompt with enough chars to pass the trivial gate" },
+    );
+    const parsed = envelope(out);
+    expect(parsed.systemMessage).toBeUndefined();
+    expect(parsed.hookSpecificOutput.additionalContext).toBe("");
+  });
+
+  it('hook failure: systemMessage is "▣ TB MEMORY  skipped · unavailable"', () => {
+    // Simulate an inner failure by pointing at a path that WILL fail
+    // inside the block-server open — e.g. init a project, then delete
+    // the storage directory while preserving the config pointer so
+    // better-sqlite3 can't create its file.
+    initConfig(projectDir);
+    // Replace .tracebase/memory.db with a directory — better-sqlite3
+    // will throw on open. findProjectRoot still points at projectDir
+    // because .tracebase/config.json is intact.
+    const storagePath = join(projectDir, ".tracebase", "memory.db");
+    rmSync(storagePath, { force: true });
+    require("node:fs").mkdirSync(storagePath, { recursive: true });
+
+    const out = runInjectContext(
+      { path: projectDir },
+      { prompt: "a reasonable task description that would otherwise trigger recall" },
+    );
+    const parsed = envelope(out);
+    expect(parsed.systemMessage).toBe("▣ TB MEMORY  skipped · unavailable");
+    expect(parsed.hookSpecificOutput.additionalContext).toBe("");
+  });
+});
+
+describe("runInjectContext — silent mode suppresses systemMessage entirely", () => {
+  it("silent mode drops systemMessage on a match", () => {
+    const config = initConfig(projectDir);
+    const db = new Database(config.storagePath);
+    const store = new BlockStore(db);
+    storeActive(store, PY_BLOCK);
+    store.close();
+
+    const out = runInjectContext(
+      { path: projectDir, status: "silent" },
+      { prompt: "pytest collects the wrong package — sys.path shadowing module issue" },
+    );
+    const parsed = envelope(out);
+    expect(parsed.systemMessage).toBeUndefined();
+    // Silent suppresses the badge but NOT the injection itself — the
+    // agent still reads the context.
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("<tracebase queryId=");
+    expect(out.injected).toBe(true);
+  });
+
+  it("silent mode drops systemMessage on no-match too", () => {
+    initConfig(projectDir);
+    const out = runInjectContext(
+      { path: projectDir, status: "silent" },
+      { prompt: "generic prompt long enough to pass the trivial gate" },
+    );
+    expect(envelope(out).systemMessage).toBeUndefined();
+  });
+
+  it("TRACEBASE_HOOK_STATUS=silent env var overrides --status compact", () => {
+    const config = initConfig(projectDir);
+    const db = new Database(config.storagePath);
+    const store = new BlockStore(db);
+    storeActive(store, PY_BLOCK);
+    store.close();
+
+    const prev = process.env.TRACEBASE_HOOK_STATUS;
+    process.env.TRACEBASE_HOOK_STATUS = "silent";
+    try {
+      const out = runInjectContext(
+        { path: projectDir, status: "compact" },
+        { prompt: "pytest collects the wrong package — sys.path shadowing module issue" },
+      );
+      expect(envelope(out).systemMessage).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.TRACEBASE_HOOK_STATUS;
+      else process.env.TRACEBASE_HOOK_STATUS = prev;
+    }
+  });
+
+  it("TRACEBASE_HOOK_STATUS=compact env var overrides --status silent", () => {
+    const config = initConfig(projectDir);
+    const db = new Database(config.storagePath);
+    const store = new BlockStore(db);
+    storeActive(store, PY_BLOCK);
+    store.close();
+
+    const prev = process.env.TRACEBASE_HOOK_STATUS;
+    process.env.TRACEBASE_HOOK_STATUS = "compact";
+    try {
+      const out = runInjectContext(
+        { path: projectDir, status: "silent" },
+        { prompt: "pytest collects the wrong package — sys.path shadowing module issue" },
+      );
+      expect(envelope(out).systemMessage).toMatch(/^▣ TB MEMORY/);
+    } finally {
+      if (prev === undefined) delete process.env.TRACEBASE_HOOK_STATUS;
+      else process.env.TRACEBASE_HOOK_STATUS = prev;
+    }
+  });
+
+  it("invalid --status value falls back to compact default (not an error)", () => {
+    initConfig(projectDir);
+    const out = runInjectContext(
+      { path: projectDir, status: "quiet" }, // not a valid mode
+      { prompt: "generic prompt long enough to clear the trivial gate" },
+    );
+    // Fell back to compact → emits the no-match badge.
+    expect(envelope(out).systemMessage).toBe("▣ TB MEMORY  checked · no match");
   });
 });
 
