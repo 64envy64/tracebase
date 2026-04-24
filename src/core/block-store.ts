@@ -41,7 +41,7 @@ import { detectLeakage } from "./block.js";
 // Schema
 // ---------------------------------------------------------------------------
 
-const V2_SCHEMA_VERSION = 6;
+const V2_SCHEMA_VERSION = 7;
 
 const V2_SCHEMA = `
 CREATE TABLE IF NOT EXISTS reasoning_blocks (
@@ -174,7 +174,7 @@ CREATE TABLE IF NOT EXISTS project_facts (
   id                TEXT PRIMARY KEY,
   version           INTEGER NOT NULL,
   scope             TEXT NOT NULL,
-  fact_type         TEXT NOT NULL CHECK(fact_type IN ('convention','schema','repo_fact','architecture','preference','file_semantic')),
+  fact_type         TEXT NOT NULL CHECK(fact_type IN ('convention','schema','repo_fact','architecture','preference','file_semantic','session_digest')),
   statement         TEXT NOT NULL,
 
   inv_language      TEXT,
@@ -193,6 +193,12 @@ CREATE TABLE IF NOT EXISTS project_facts (
   updated_at        INTEGER NOT NULL,
   status            TEXT NOT NULL CHECK(status IN ('active','stale','retired')),
 
+  -- Optional absolute expiry timestamp (epoch ms). NULL = no TTL.
+  -- 0.5.2 TB CONTEXT digests set this via StoreProjectFactInput.ttlDays.
+  -- doctor's sweepExpiredFacts() retires rows where ttl_until_at is
+  -- non-null and already past Date.now().
+  ttl_until_at      INTEGER,
+
   dedupe_key        TEXT NOT NULL
 );
 
@@ -200,6 +206,7 @@ CREATE INDEX IF NOT EXISTS idx_facts_scope     ON project_facts(scope);
 CREATE INDEX IF NOT EXISTS idx_facts_type      ON project_facts(fact_type);
 CREATE INDEX IF NOT EXISTS idx_facts_language  ON project_facts(inv_language);
 CREATE INDEX IF NOT EXISTS idx_facts_status    ON project_facts(status);
+CREATE INDEX IF NOT EXISTS idx_facts_ttl       ON project_facts(ttl_until_at) WHERE ttl_until_at IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_facts_dedupe ON project_facts(dedupe_key);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS project_facts_fts USING fts5(
@@ -422,6 +429,102 @@ const V2_MIGRATIONS: Record<number, string[]> = {
      END`,
     // Rebuild FTS content from the now-renamed table so existing rows
     // are searchable after migration.
+    `INSERT INTO project_facts_fts(project_facts_fts) VALUES('rebuild')`,
+  ],
+  // v6 → v7: 0.5.2 TB CONTEXT lands. Two additive changes to
+  // project_facts:
+  //   (a) widen the fact_type CHECK to include 'session_digest';
+  //   (b) add a nullable `ttl_until_at` column so digests cap at 14
+  //       days and the doctor sweeper retires them after expiry.
+  //
+  // Same idempotent rebuild pattern as v6: bootstrap the table with
+  // the v6-shape CHECK (in case a legacy DB somehow reached v6 without
+  // it), then rebuild via v7_new.
+  7: [
+    // Bootstrap — no-op when the table already exists in its v6 shape.
+    // Column list matches v6 exactly, so a real v6 DB's rows transfer
+    // cleanly to the v7 layout.
+    `CREATE TABLE IF NOT EXISTS project_facts (
+      id                TEXT PRIMARY KEY,
+      version           INTEGER NOT NULL,
+      scope             TEXT NOT NULL,
+      fact_type         TEXT NOT NULL CHECK(fact_type IN ('convention','schema','repo_fact','architecture','preference','file_semantic')),
+      statement         TEXT NOT NULL,
+      inv_language      TEXT,
+      inv_framework     TEXT,
+      inv_error_type    TEXT,
+      inv_api_surface   TEXT NOT NULL DEFAULT '[]',
+      src_origin        TEXT NOT NULL CHECK(src_origin IN ('observed','declared','imported')),
+      src_trace_id      TEXT,
+      src_author        TEXT,
+      src_reference     TEXT,
+      confidence        REAL NOT NULL DEFAULT 0.5,
+      last_verified_at  INTEGER NOT NULL,
+      created_at        INTEGER NOT NULL,
+      updated_at        INTEGER NOT NULL,
+      status            TEXT NOT NULL CHECK(status IN ('active','stale','retired')),
+      dedupe_key        TEXT NOT NULL
+    )`,
+    // Rebuild with widened CHECK + new ttl_until_at column.
+    `CREATE TABLE project_facts_v7 (
+      id                TEXT PRIMARY KEY,
+      version           INTEGER NOT NULL,
+      scope             TEXT NOT NULL,
+      fact_type         TEXT NOT NULL CHECK(fact_type IN ('convention','schema','repo_fact','architecture','preference','file_semantic','session_digest')),
+      statement         TEXT NOT NULL,
+      inv_language      TEXT,
+      inv_framework     TEXT,
+      inv_error_type    TEXT,
+      inv_api_surface   TEXT NOT NULL DEFAULT '[]',
+      src_origin        TEXT NOT NULL CHECK(src_origin IN ('observed','declared','imported')),
+      src_trace_id      TEXT,
+      src_author        TEXT,
+      src_reference     TEXT,
+      confidence        REAL NOT NULL DEFAULT 0.5,
+      last_verified_at  INTEGER NOT NULL,
+      created_at        INTEGER NOT NULL,
+      updated_at        INTEGER NOT NULL,
+      status            TEXT NOT NULL CHECK(status IN ('active','stale','retired')),
+      ttl_until_at      INTEGER,
+      dedupe_key        TEXT NOT NULL
+    )`,
+    `INSERT INTO project_facts_v7
+       (id, version, scope, fact_type, statement,
+        inv_language, inv_framework, inv_error_type, inv_api_surface,
+        src_origin, src_trace_id, src_author, src_reference,
+        confidence, last_verified_at, created_at, updated_at, status,
+        ttl_until_at, dedupe_key)
+       SELECT id, version, scope, fact_type, statement,
+              inv_language, inv_framework, inv_error_type, inv_api_surface,
+              src_origin, src_trace_id, src_author, src_reference,
+              confidence, last_verified_at, created_at, updated_at, status,
+              NULL, dedupe_key
+         FROM project_facts`,
+    `DROP TABLE IF EXISTS project_facts_fts`,
+    `DROP TABLE project_facts`,
+    `ALTER TABLE project_facts_v7 RENAME TO project_facts`,
+    `CREATE INDEX IF NOT EXISTS idx_facts_scope     ON project_facts(scope)`,
+    `CREATE INDEX IF NOT EXISTS idx_facts_type      ON project_facts(fact_type)`,
+    `CREATE INDEX IF NOT EXISTS idx_facts_language  ON project_facts(inv_language)`,
+    `CREATE INDEX IF NOT EXISTS idx_facts_status    ON project_facts(status)`,
+    `CREATE INDEX IF NOT EXISTS idx_facts_ttl       ON project_facts(ttl_until_at) WHERE ttl_until_at IS NOT NULL`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_facts_dedupe ON project_facts(dedupe_key)`,
+    `CREATE VIRTUAL TABLE IF NOT EXISTS project_facts_fts USING fts5(
+       statement,
+       content='project_facts',
+       content_rowid='rowid',
+       tokenize='porter unicode61'
+     )`,
+    `CREATE TRIGGER IF NOT EXISTS facts_fts_insert AFTER INSERT ON project_facts BEGIN
+       INSERT INTO project_facts_fts(rowid, statement) VALUES (new.rowid, new.statement);
+     END`,
+    `CREATE TRIGGER IF NOT EXISTS facts_fts_delete AFTER DELETE ON project_facts BEGIN
+       INSERT INTO project_facts_fts(project_facts_fts, rowid, statement) VALUES('delete', old.rowid, old.statement);
+     END`,
+    `CREATE TRIGGER IF NOT EXISTS facts_fts_update AFTER UPDATE OF statement ON project_facts BEGIN
+       INSERT INTO project_facts_fts(project_facts_fts, rowid, statement) VALUES('delete', old.rowid, old.statement);
+       INSERT INTO project_facts_fts(rowid, statement) VALUES (new.rowid, new.statement);
+     END`,
     `INSERT INTO project_facts_fts(project_facts_fts) VALUES('rebuild')`,
   ],
 };
@@ -1123,18 +1226,29 @@ export class BlockStore {
       );
     }
 
+    // Absolute expiry timestamp, or null when the caller didn't
+    // ask for a TTL. `ttl_until_at` is indexed (partial index on
+    // non-null values) so `sweepExpiredFacts` can do a cheap range
+    // scan without scanning durable facts.
+    const ttlUntilAt =
+      input.ttlDays !== undefined && input.ttlDays > 0
+        ? now + Math.floor(input.ttlDays * 86_400_000)
+        : null;
+
     this.db
       .prepare(
         `INSERT INTO project_facts (
            id, version, scope, fact_type, statement,
            inv_language, inv_framework, inv_error_type, inv_api_surface,
            src_origin, src_trace_id, src_author, src_reference,
-           confidence, last_verified_at, created_at, updated_at, status, dedupe_key
+           confidence, last_verified_at, created_at, updated_at, status,
+           ttl_until_at, dedupe_key
          ) VALUES (
            @id, @version, @scope, @fact_type, @statement,
            @inv_language, @inv_framework, @inv_error_type, @inv_api_surface,
            @src_origin, @src_trace_id, @src_author, @src_reference,
-           @confidence, @last_verified_at, @created_at, @updated_at, @status, @dedupe_key
+           @confidence, @last_verified_at, @created_at, @updated_at, @status,
+           @ttl_until_at, @dedupe_key
          )`,
       )
       .run({
@@ -1156,10 +1270,36 @@ export class BlockStore {
         created_at: now,
         updated_at: now,
         status: "active",
+        ttl_until_at: ttlUntilAt,
         dedupe_key: dedupeKey,
       });
 
     return this.getFact(id)!;
+  }
+
+  /**
+   * Retire expired TTL facts. Rows written with `StoreProjectFactInput.ttlDays`
+   * carry a non-null `ttl_until_at` epoch-ms deadline; once the
+   * wall-clock is past that deadline, the row's status flips to
+   * `retired` so recall stops surfacing it. Durable facts
+   * (`ttl_until_at IS NULL`) are never touched.
+   *
+   * Returns the number of rows transitioned. Called by `tracebase
+   * doctor` on every invocation so the sweep is cheap and
+   * deterministic — no background scheduler needed.
+   */
+  sweepExpiredFacts(): number {
+    const now = this.now();
+    const res = this.db
+      .prepare(
+        `UPDATE project_facts
+            SET status = 'retired', updated_at = ?
+          WHERE ttl_until_at IS NOT NULL
+            AND ttl_until_at <= ?
+            AND status <> 'retired'`,
+      )
+      .run(now, now);
+    return Number(res.changes ?? 0);
   }
 
   getFact(id: string): ProjectFact | null {
@@ -1667,6 +1807,7 @@ export class BlockStore {
       createdAt: r.created_at,
       updatedAt: r.updated_at,
       status: r.status as ProjectFactStatus,
+      ...(r.ttl_until_at !== null ? { ttlUntilAt: r.ttl_until_at } : {}),
     };
   }
 }
@@ -1799,5 +1940,6 @@ interface FactRow {
   created_at: number;
   updated_at: number;
   status: string;
+  ttl_until_at: number | null;
   dedupe_key: string;
 }

@@ -34,6 +34,7 @@ import {
 import { loadBlockCalibrator } from "../../lifecycle/calibrator.js";
 import { findProjectRoot, isInitialized, loadConfig, readHoldoutConfig } from "../../core/config.js";
 import { runReasoningPatternsRecall } from "../../server/reasoning-patterns-entry.js";
+import { sessionScope as sessionScopeFor } from "./capture-context.js";
 
 export type InjectContextHost = "claude-code" | "codex";
 
@@ -73,6 +74,16 @@ export interface HookStdin {
   /** Workspace path, when the host supplies it. */
   cwd?: string;
   workspace?: string;
+  /**
+   * Claude Code's stable session id. When present, inject-context
+   * narrows fact recall to the matching `project.session.<hash>`
+   * sub-scope so the next turn after a `/compact` re-injects THIS
+   * session's TB CONTEXT digest — and never another session's.
+   * Hierarchical resolution still surfaces project-level
+   * (`project`) and workspace-global (`global`) facts.
+   */
+  session_id?: string;
+  sessionId?: string;
 }
 
 export interface RunInjectContextOptions {
@@ -163,10 +174,19 @@ export function runInjectContext(
     }
 
     const config = loadConfig(basePath);
+    const sessionId = stdin.session_id ?? stdin.sessionId;
+    // When the host gives us a session id we narrow fact recall to
+    // `project.session.<hash>`. Hierarchical scope resolution in
+    // BlockStore (`expandScopeHierarchy`) will still surface
+    // `project`-level facts (TB MEMORY file_semantic) and `global`
+    // facts via prefix-walk; sibling sessions' digests stay isolated
+    // because `project.session.A` is not a prefix of
+    // `project.session.B`.
+    const recallScope = sessionId ? sessionScopeFor(sessionId) : "project";
     const payload = withBlockServer(config.storagePath, basePath, (server, store, holdoutLoader) => {
       const result = runReasoningPatternsRecall(
         server,
-        { problem: prompt },
+        { problem: prompt, scope: recallScope },
         { readHoldoutConfig: holdoutLoader },
       );
       const built = buildInjectionPayload(result, { tokenBudget: budget });

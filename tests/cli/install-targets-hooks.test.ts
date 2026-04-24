@@ -101,6 +101,37 @@ describe("writeAgentHookConfig — Claude Code", () => {
     expect(inner?.timeout).toBeGreaterThanOrEqual(5);
   });
 
+  it("installs a PreCompact hook alongside UserPromptSubmit + Stop pointing at capture-context", () => {
+    const res = writeAgentHookConfig(dir, "claude-code", false);
+    expect(res?.ok).toBe(true);
+
+    const settings = JSON.parse(readFileSync(join(dir, ".claude", "settings.json"), "utf-8")) as {
+      hooks?: {
+        UserPromptSubmit?: Array<{ hooks?: Array<{ command?: string }> }>;
+        Stop?: Array<{ hooks?: Array<{ command?: string }> }>;
+        PreCompact?: Array<{
+          hooks?: Array<{ command?: string; statusMessage?: string; timeout?: number }>;
+        }>;
+      };
+    };
+    // All three managed events present.
+    expect(settings.hooks?.UserPromptSubmit?.length).toBe(1);
+    expect(settings.hooks?.Stop?.length).toBe(1);
+    expect(settings.hooks?.PreCompact?.length).toBe(1);
+
+    const inner = settings.hooks?.PreCompact?.[0]?.hooks?.[0];
+    expect(inner?.command).toContain("tracebase-ai");
+    expect(inner?.command).toContain("capture-context");
+    expect(inner?.command).toContain("--host claude-code");
+    expect(inner?.command).toContain("--capture compact");
+    // Production hook MUST NOT carry --dump-stdin (dev-only diagnostic).
+    expect(inner?.command).not.toContain("--dump-stdin");
+    expect(inner?.statusMessage).toBe("▣ TB CONTEXT  capturing");
+    // PreCompact runs at compaction time — give it more headroom than
+    // UserPromptSubmit / Stop because cold npx fetch can stretch.
+    expect(inner?.timeout).toBeGreaterThanOrEqual(8);
+  });
+
   it("returns null for agents that do not support silent injection", () => {
     expect(writeAgentHookConfig(dir, "cursor", false)).toBeNull();
     expect(writeAgentHookConfig(dir, "codex", false)).toBeNull();
@@ -358,6 +389,74 @@ describe("writeAgentHookConfig — Claude Code", () => {
     };
     expect(after.hooks.UserPromptSubmit[0]!.hooks[0]!.statusMessage).toBe("▣ TB TRACE  checking");
     expect(after.hooks.Stop[0]!.hooks[0]!.statusMessage).toBe("▣ TB TRACE  capturing");
+  });
+
+  // 0.5.1 shipped only UserPromptSubmit + Stop. Re-running `init`
+  // after upgrading to 0.5.2 must auto-add the PreCompact entry
+  // without --force; the existing two stay untouched if already
+  // canonical, the new entry appended, kind === "updated".
+  it("adds the PreCompact hook to a 0.5.1-shape settings.json without --force", () => {
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    writeFileSync(
+      join(dir, ".claude", "settings.json"),
+      JSON.stringify(
+        {
+          hooks: {
+            UserPromptSubmit: [
+              {
+                hooks: [
+                  {
+                    type: "command",
+                    command:
+                      "npx -y tracebase-ai@latest inject-context --host claude-code --status compact",
+                    timeout: 5,
+                    statusMessage: "▣ TB TRACE  checking",
+                  },
+                ],
+              },
+            ],
+            Stop: [
+              {
+                hooks: [
+                  {
+                    type: "command",
+                    command:
+                      "npx -y tracebase-ai@latest capture-turn --host claude-code --capture compact",
+                    timeout: 8,
+                    statusMessage: "▣ TB TRACE  capturing",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const res = writeAgentHookConfig(dir, "claude-code", false);
+    expect(res?.ok).toBe(true);
+    if (!res?.ok) return;
+    expect(res.kind).toBe("updated");
+
+    const after = JSON.parse(readFileSync(join(dir, ".claude", "settings.json"), "utf-8")) as {
+      hooks: {
+        UserPromptSubmit: Array<{ hooks: Array<{ statusMessage?: string }> }>;
+        Stop: Array<{ hooks: Array<{ statusMessage?: string }> }>;
+        PreCompact: Array<{ hooks: Array<{ command: string; statusMessage?: string; timeout?: number }> }>;
+      };
+    };
+    // Two prior events stay canonical.
+    expect(after.hooks.UserPromptSubmit[0]!.hooks[0]!.statusMessage).toBe("▣ TB TRACE  checking");
+    expect(after.hooks.Stop[0]!.hooks[0]!.statusMessage).toBe("▣ TB TRACE  capturing");
+    // PreCompact freshly added with the canonical capture-context command.
+    expect(after.hooks.PreCompact?.length).toBe(1);
+    const pc = after.hooks.PreCompact[0]!.hooks[0]!;
+    expect(pc.command).toContain("capture-context");
+    expect(pc.command).toContain("--capture compact");
+    expect(pc.command).not.toContain("--dump-stdin");
+    expect(pc.statusMessage).toBe("▣ TB CONTEXT  capturing");
   });
 
   it("still requires --force to replace a user-customised TraceBase hook (non-default command / timeout / extras)", () => {

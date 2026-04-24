@@ -38,6 +38,7 @@ interface Budget {
 const BUDGETS: Budget[] = [
   { hook: "inject-context", target_ms: 150, release_gate: true },
   { hook: "capture-turn", target_ms: 500, release_gate: true },
+  { hook: "capture-context", target_ms: 2000, release_gate: true },
 ];
 
 interface FixtureResult {
@@ -286,6 +287,92 @@ function fixtureCaptureTurn(): FixtureResult {
   }
 }
 
+/**
+ * Fixture: PreCompact (capture-context) on a 4 MiB-ish transcript
+ * tail. Target: p95 < 2 s. The 4 MiB cap is the bound capture-context
+ * itself uses for transcript reading; sizing the fixture to that
+ * limit measures the actual hot path.
+ */
+function fixtureCaptureContext(): FixtureResult {
+  const projectDir = mkdtempSync(join(tmpdir(), "tb-bench-ctx-"));
+  try {
+    mkdirSync(join(projectDir, ".tracebase"), { recursive: true });
+    writeFileSync(
+      join(projectDir, ".tracebase", "config.json"),
+      JSON.stringify({
+        workspaceId: "bench-workspace",
+        storagePath: join(projectDir, ".tracebase", "memory.db"),
+      }),
+    );
+
+    // Build a transcript large enough to push capture-context's
+    // tail-read + parser. Two-thirds of the bytes are noise lines
+    // that the parser must skip; the meaningful content sits in the
+    // last few entries so the digest extractor has something to find.
+    const userLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content:
+          "Summarise: pytest collection picks up the wrong package on a fresh clone — sys.path shadow.",
+      },
+      timestamp: new Date().toISOString(),
+    });
+    const assistantLine = JSON.stringify({
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text:
+              "## Diagnosis\n\nThe shadowing helper sits earlier in sys.path than the intended package.\n\n" +
+              "## Fix\n\n- Remove the shadow directory from sys.path\n- Or rename the helper module\n\n" +
+              "## Verify\n\nRun `pytest --collect-only` and confirm only the intended package is listed.",
+          },
+        ],
+      },
+      timestamp: new Date().toISOString(),
+    });
+    const noise = Array.from({ length: 8000 }, (_, i) =>
+      JSON.stringify({ type: "file-history-snapshot", messageId: `snap-${i}` }),
+    );
+    const transcriptPath = join(projectDir, "transcript.jsonl");
+    writeFileSync(transcriptPath, [...noise, userLine, assistantLine].join("\n"));
+
+    const stdin = JSON.stringify({
+      hook_event_name: "PreCompact",
+      transcript_path: transcriptPath,
+      cwd: projectDir,
+      session_id: "bench-precompact",
+      trigger: "manual",
+    });
+    const durations = measure(
+      "capture-context",
+      ["capture-context", "--host", "claude-code", "--capture", "silent"],
+      stdin,
+      projectDir,
+      {},
+    );
+    const sorted = [...durations].sort((a, b) => a - b);
+    const budget = BUDGETS.find((b) => b.hook === "capture-context")!;
+    const p95 = quantile(sorted, 0.95);
+    return {
+      hook: "capture-context",
+      target_ms: budget.target_ms,
+      release_gate: budget.release_gate,
+      runs: durations.length,
+      p50_ms: round2(quantile(sorted, 0.5)),
+      p95_ms: round2(p95),
+      p99_ms: round2(quantile(sorted, 0.99)),
+      max_ms: round2(sorted[sorted.length - 1] ?? 0),
+      exceedsBudget: p95 > budget.target_ms,
+    };
+  } finally {
+    rmSync(projectDir, { recursive: true, force: true });
+  }
+}
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -304,6 +391,7 @@ function main(): void {
 
   results.push(fixtureInjectContext());
   results.push(fixtureCaptureTurn());
+  results.push(fixtureCaptureContext());
 
   for (const r of results) {
     const status = r.exceedsBudget ? (r.release_gate ? "FAIL" : "warn") : "pass";

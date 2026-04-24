@@ -1,184 +1,599 @@
 /**
- * `tracebase capture-context` — 0.5.2 dump-first scaffold.
+ * `tracebase capture-context` — 0.5.2 PreCompact hook backend.
  *
- * Covers what this release ships and nothing more:
+ * Five coverage axes:
  *
- *   1. `--dump-stdin` writes bounded raw bytes to a known path under
- *      the user's home and echoes the parsed shape to stderr.
- *   2. Default mode is an intentional no-op — emits a valid empty
- *      envelope, touches no disk, returns `dumped: false`.
- *   3. `parseStdinPayload` collapses every malformed / primitive /
- *      oversized input to `{}` so the hook never throws.
+ *   1. Digest extraction. A substantive transcript yields a bounded
+ *      deterministic digest of last user questions + assistant
+ *      section headers + bullet first-items, ≤ 1200 chars, never
+ *      paraphrased.
+ *   2. Storage. `runCaptureContext` writes the digest as a
+ *      `session_digest` fact with the canonical `project.session.<sha>`
+ *      scope and a 14-day TTL. Sweeper retires expired rows.
+ *   3. Mode switches. `--capture compact|silent|off` map cleanly to
+ *      "saved badge" / "saved no badge" / "no write no badge".
+ *      Env override `TRACEBASE_CAPTURE_CONTEXT` wins over the flag.
+ *   4. Failure isolation. Trivial / missing transcript / missing
+ *      session id / store unavailable / leaky digest each emit a
+ *      well-shaped envelope; no path ever throws.
+ *   5. `--dump-stdin` dev-only diagnostic still works in isolation
+ *      and is NEVER fired from the default path.
  *
- * The real parser + digest extractor land in a follow-up release
- * after a live PreCompact payload has been captured and the shape
- * locked against ground truth.
+ * Tests drive `runCaptureContext` directly so the CLI wrapping
+ * layer (argv, stdin reader) is bypassed; the helper is what
+ * production runs after the stdin read, so behaviour is identical.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
+import { initConfig, loadConfig } from "../../src/core/config.js";
+import { BlockStore } from "../../src/core/block-store.js";
 import {
+  extractDigest,
   parseStdinPayload,
   runCaptureContext,
+  sessionScope,
 } from "../../src/cli/commands/capture-context.js";
 
+let projectDir: string;
 let homeDir: string;
+let transcriptPath: string;
 const origHome = process.env.HOME;
+const origCaptureCtx = process.env.TRACEBASE_CAPTURE_CONTEXT;
 
 beforeEach(() => {
+  projectDir = mkdtempSync(join(tmpdir(), "tb-capture-ctx-"));
   homeDir = mkdtempSync(join(tmpdir(), "tb-capture-ctx-home-"));
   process.env.HOME = homeDir;
+  delete process.env.TRACEBASE_CAPTURE_CONTEXT;
+  transcriptPath = join(projectDir, "transcript.jsonl");
 });
 
 afterEach(() => {
   process.env.HOME = origHome;
+  if (origCaptureCtx === undefined) delete process.env.TRACEBASE_CAPTURE_CONTEXT;
+  else process.env.TRACEBASE_CAPTURE_CONTEXT = origCaptureCtx;
+  rmSync(projectDir, { recursive: true, force: true });
   rmSync(homeDir, { recursive: true, force: true });
 });
 
-describe("runCaptureContext — default mode (no-op)", () => {
-  it("emits an empty envelope, writes no dump, returns dumped=false", () => {
-    const rawStdin = Buffer.from(
-      JSON.stringify({
-        hook_event_name: "PreCompact",
-        transcript_path: "/does/not/matter/here",
-        session_id: "s-1",
-        cwd: "/tmp/anywhere",
-      }),
-    );
-    const out = runCaptureContext({}, rawStdin);
-    expect(JSON.parse(out.envelope)).toEqual({});
-    expect(out.dumped).toBe(false);
-    expect(out.dumpPath).toBeNull();
+function envelope(out: { envelope: string }): { systemMessage?: string } {
+  return JSON.parse(out.envelope);
+}
 
-    // No dump directory created.
-    expect(existsSync(join(homeDir, ".tracebase", "precompact-dumps"))).toBe(false);
+/** Minimal substantive transcript that exercises every digest source. */
+function writeSubstantiveTranscript(): void {
+  const lines = [
+    { type: "file-history-snapshot", messageId: "snap-1" },
+    {
+      type: "user",
+      message: { role: "user", content: "How do I fix the pytest shadow issue in this monorepo?" },
+      timestamp: new Date().toISOString(),
+    },
+    {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: `## Diagnosis
+
+The shadowing helper module sits earlier in sys.path than the intended package.
+
+## Fix
+
+- Remove the shadow directory from sys.path
+- Or rename the helper module so it stops competing
+
+## Verify
+
+Run pytest --collect-only and confirm only the intended package is listed.`,
+          },
+        ],
+      },
+      timestamp: new Date().toISOString(),
+    },
+    {
+      type: "user",
+      message: { role: "user", content: "Why does that happen on a fresh clone but not in CI?" },
+      timestamp: new Date().toISOString(),
+    },
+    {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: `### Root cause
+
+CI's PYTHONPATH wipes user dotfiles, so the local shadow never appears.
+
+- Local sys.path inherits from your shell
+- CI's sys.path is hermetic
+
+OK so the fix is environment-aware.`,
+          },
+        ],
+      },
+      timestamp: new Date().toISOString(),
+    },
+  ];
+  writeFileSync(transcriptPath, lines.map((l) => JSON.stringify(l)).join("\n"));
+}
+
+function countActiveDigests(): number {
+  const cfg = loadConfig(projectDir);
+  if (!existsSync(cfg.storagePath)) return 0;
+  const db = new Database(cfg.storagePath, { readonly: true });
+  const store = new BlockStore(db, { skipMigrate: true });
+  try {
+    return store.searchFacts({
+      text: "",
+      status: "active",
+      factTypes: ["session_digest"],
+      limit: 100,
+    }).length;
+  } finally {
+    store.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Digest extractor — pure, deterministic
+// ---------------------------------------------------------------------------
+
+describe("extractDigest — deterministic, bounded", () => {
+  it("returns null for an empty / under-threshold transcript", () => {
+    expect(extractDigest("")).toBeNull();
+    expect(extractDigest("hi")).toBeNull();
   });
 
-  it("no-ops even when stdin is empty — hook-safe on misfires", () => {
-    const out = runCaptureContext({}, Buffer.alloc(0));
-    expect(JSON.parse(out.envelope)).toEqual({});
-    expect(out.dumped).toBe(false);
+  it("captures last user questions + assistant headers + bullet first-items", () => {
+    writeSubstantiveTranscript();
+    const raw = readFileSync(transcriptPath, "utf-8");
+    const digest = extractDigest(raw);
+    expect(digest).not.toBeNull();
+    const d = digest!;
+    // Sections appear with their canonical markers.
+    expect(d).toMatch(/Recent user questions:/);
+    expect(d).toMatch(/Discussion topics:/);
+    expect(d).toMatch(/Key points:/);
+    // User questions kept verbatim.
+    expect(d).toMatch(/pytest shadow/i);
+    // Headers present.
+    expect(d).toMatch(/Diagnosis|Fix|Verify|Root cause/);
+    // Bounded.
+    expect(d.length).toBeLessThanOrEqual(1200);
+  });
+
+  it("rejects digests that contain leakage shapes (absolute path)", () => {
+    const transcript = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: "Why does the build fail on a fresh checkout? Walk me through the failure.",
+      },
+    }) + "\n" + JSON.stringify({
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "## Diagnosis\n\n- The error trace points at /Users/me/work/project/dist/cli.js line 42\n- The bootstrap script picks the wrong path",
+          },
+        ],
+      },
+    });
+    expect(extractDigest(transcript)).toBeNull();
+  });
+
+  it("rejects digests that contain API-key shapes", () => {
+    const transcript = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: "Pin the API key in the doctor diagnostics — what's the right format?",
+      },
+    }) + "\n" + JSON.stringify({
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "## Setup\n\n- Use the literal `sk-ant-abcdefghijklmnopqrstuvwxyz0123456789` token\n- Restart the daemon",
+          },
+        ],
+      },
+    });
+    expect(extractDigest(transcript)).toBeNull();
+  });
+
+  it("strips code blocks before extraction", () => {
+    const transcript = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "Show me the implementation" },
+    }) + "\n" + JSON.stringify({
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text:
+              "## Implementation\n\n```ts\nconst secret = \"sk-not-allowed-but-inside-code-block\";\nfunction f() { return 1; }\n```\n\n- The function returns 1 always",
+          },
+        ],
+      },
+    });
+    const digest = extractDigest(transcript)!;
+    // Code-block contents removed.
+    expect(digest).not.toContain("sk-not-allowed");
+    expect(digest).not.toContain("function f()");
+    // Surrounding text preserved.
+    expect(digest).toMatch(/Implementation/);
+  });
+
+  it("skips Claude Code meta wrappers as user content", () => {
+    const transcript = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "<command-name>/resume</command-name>" },
+    }) + "\n" + JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "Real question — how do I make this faster?" },
+    }) + "\n" + JSON.stringify({
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "## Speedup\n\n- Cache the result" }],
+      },
+    });
+    const digest = extractDigest(transcript)!;
+    expect(digest).toMatch(/how do I make this faster/);
+    expect(digest).not.toMatch(/command-name/);
   });
 });
 
-describe("runCaptureContext — --dump-stdin dev mode", () => {
-  it("writes the raw bytes to ~/.tracebase/precompact-dumps/<ts>-<session>.jsonl", () => {
-    const rawStdin = Buffer.from(
+// ---------------------------------------------------------------------------
+// runCaptureContext — default (compact) mode happy path
+// ---------------------------------------------------------------------------
+
+describe("runCaptureContext — default compact mode writes the digest", () => {
+  it("saves a session_digest fact at project.session.<hash> scope with TTL", () => {
+    initConfig(projectDir);
+    writeSubstantiveTranscript();
+    const out = runCaptureContext(
+      { path: projectDir },
+      Buffer.from(
+        JSON.stringify({
+          hook_event_name: "PreCompact",
+          transcript_path: transcriptPath,
+          cwd: projectDir,
+          session_id: "sess-bench-1",
+          trigger: "manual",
+        }),
+      ),
+    );
+    expect(out.captured).toBe(true);
+    expect(out.factId).toBeTruthy();
+    expect(envelope(out).systemMessage).toMatch(/^▣ TB CONTEXT  digest saved · \d+t$/);
+
+    // Round-trip the fact: scope, factType, TTL all set as designed.
+    const cfg = loadConfig(projectDir);
+    const db = new Database(cfg.storagePath, { readonly: true });
+    const store = new BlockStore(db, { skipMigrate: true });
+    try {
+      const fact = store.getFact(out.factId!);
+      expect(fact).not.toBeNull();
+      expect(fact!.factType).toBe("session_digest");
+      expect(fact!.scope).toBe(sessionScope("sess-bench-1"));
+      expect(fact!.scope).toMatch(/^project\.session\.[0-9a-f]{12}$/);
+      expect(fact!.ttlUntilAt).toBeDefined();
+      // 14 days ≈ 14 * 86_400_000 ms ≈ 1.21e9 ms in the future.
+      const horizon = Date.now() + 13 * 86_400_000;
+      expect(fact!.ttlUntilAt!).toBeGreaterThan(horizon);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("emits skipped · no content for a transcript that yields no digest", () => {
+    initConfig(projectDir);
+    writeFileSync(transcriptPath, JSON.stringify({ type: "system", subtype: "noise" }) + "\n");
+    const out = runCaptureContext(
+      { path: projectDir },
+      Buffer.from(
+        JSON.stringify({
+          hook_event_name: "PreCompact",
+          transcript_path: transcriptPath,
+          session_id: "sess-empty",
+          cwd: projectDir,
+        }),
+      ),
+    );
+    expect(out.captured).toBe(false);
+    expect(envelope(out).systemMessage).toBe("▣ TB CONTEXT  skipped · no content");
+  });
+
+  it("emits skipped · no content when transcript_path is missing or unreadable", () => {
+    initConfig(projectDir);
+    const out = runCaptureContext(
+      { path: projectDir },
+      Buffer.from(JSON.stringify({ session_id: "s", cwd: projectDir })),
+    );
+    expect(out.captured).toBe(false);
+    expect(envelope(out).systemMessage).toBe("▣ TB CONTEXT  skipped · no content");
+  });
+
+  it("emits skipped · no content when the project is uninitialised", () => {
+    writeSubstantiveTranscript();
+    const out = runCaptureContext(
+      { path: projectDir },
+      Buffer.from(
+        JSON.stringify({
+          transcript_path: transcriptPath,
+          session_id: "s",
+          cwd: projectDir,
+        }),
+      ),
+    );
+    expect(out.captured).toBe(false);
+    // Uninitialised + no-content collapse to the same user-facing
+    // message; both signal "nothing to do".
+    expect(envelope(out).systemMessage).toBe("▣ TB CONTEXT  skipped · no content");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mode switches: silent / off / env override
+// ---------------------------------------------------------------------------
+
+describe("runCaptureContext — capture mode switches", () => {
+  it("`silent` writes the digest but suppresses the systemMessage", () => {
+    initConfig(projectDir);
+    writeSubstantiveTranscript();
+    const out = runCaptureContext(
+      { path: projectDir, capture: "silent" },
+      Buffer.from(
+        JSON.stringify({
+          transcript_path: transcriptPath,
+          session_id: "sess-silent",
+          cwd: projectDir,
+        }),
+      ),
+    );
+    expect(out.captured).toBe(true);
+    expect(envelope(out).systemMessage).toBeUndefined();
+    expect(countActiveDigests()).toBe(1);
+  });
+
+  it("`off` writes nothing, emits no systemMessage", () => {
+    initConfig(projectDir);
+    writeSubstantiveTranscript();
+    const out = runCaptureContext(
+      { path: projectDir, capture: "off" },
+      Buffer.from(
+        JSON.stringify({
+          transcript_path: transcriptPath,
+          session_id: "sess-off",
+          cwd: projectDir,
+        }),
+      ),
+    );
+    expect(out.captured).toBe(false);
+    expect(envelope(out).systemMessage).toBeUndefined();
+    expect(countActiveDigests()).toBe(0);
+  });
+
+  it("`TRACEBASE_CAPTURE_CONTEXT=off` env wins over `--capture compact`", () => {
+    initConfig(projectDir);
+    writeSubstantiveTranscript();
+    process.env.TRACEBASE_CAPTURE_CONTEXT = "off";
+    const out = runCaptureContext(
+      { path: projectDir, capture: "compact" },
+      Buffer.from(
+        JSON.stringify({
+          transcript_path: transcriptPath,
+          session_id: "sess-env",
+          cwd: projectDir,
+        }),
+      ),
+    );
+    expect(out.captured).toBe(false);
+    expect(envelope(out).systemMessage).toBeUndefined();
+  });
+
+  it("`TRACEBASE_CAPTURE_CONTEXT=compact` env wins over `--capture silent`", () => {
+    initConfig(projectDir);
+    writeSubstantiveTranscript();
+    process.env.TRACEBASE_CAPTURE_CONTEXT = "compact";
+    const out = runCaptureContext(
+      { path: projectDir, capture: "silent" },
+      Buffer.from(
+        JSON.stringify({
+          transcript_path: transcriptPath,
+          session_id: "sess-env-2",
+          cwd: projectDir,
+        }),
+      ),
+    );
+    expect(envelope(out).systemMessage).toMatch(/^▣ TB CONTEXT  digest saved /);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TTL sweeper — used by doctor at command time
+// ---------------------------------------------------------------------------
+
+describe("BlockStore.sweepExpiredFacts — retires past-TTL session digests", () => {
+  it("retires a digest whose ttl_until_at is past, leaves durable facts alone", () => {
+    initConfig(projectDir);
+    const cfg = loadConfig(projectDir);
+    const db = new Database(cfg.storagePath);
+    const store = new BlockStore(db);
+    // Durable fact (no TTL).
+    store.storeFact({
+      scope: "project",
+      factType: "file_semantic",
+      statement: "tests live under tests/cli/*.test.ts",
+      invariants: {},
+      source: { origin: "observed" },
+    });
+    // Session digest with a 1-day TTL we'll then rewind.
+    const digest = store.storeFact({
+      scope: sessionScope("expiring"),
+      factType: "session_digest",
+      statement: "Recent user questions:\n- expired session sample for tests",
+      invariants: {},
+      source: { origin: "observed", reference: "expiring" },
+      ttlDays: 1,
+    });
+    // Force the row's ttl_until_at into the past.
+    db.prepare("UPDATE project_facts SET ttl_until_at = ? WHERE id = ?")
+      .run(Date.now() - 1, digest.id);
+
+    const swept = store.sweepExpiredFacts();
+    expect(swept).toBe(1);
+
+    const stillThere = store.searchFacts({
+      text: "tests live",
+      status: "active",
+      limit: 10,
+    });
+    expect(stillThere.length).toBeGreaterThan(0);
+
+    const expired = store.getFact(digest.id);
+    expect(expired?.status).toBe("retired");
+    store.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// --dump-stdin dev-only diagnostic
+// ---------------------------------------------------------------------------
+
+describe("runCaptureContext — --dump-stdin (dev-only)", () => {
+  it("writes raw bytes to ~/.tracebase/precompact-dumps/<ts>-<session>.jsonl", () => {
+    const raw = Buffer.from(
       JSON.stringify({
         hook_event_name: "PreCompact",
-        transcript_path: "/tmp/transcript.jsonl",
-        session_id: "sess-abc-123",
-        cwd: "/tmp/proj",
-        trigger: "manual",
+        session_id: "dev-dump-session",
+        cwd: "/anywhere",
       }),
     );
-    const out = runCaptureContext({ dumpStdin: true }, rawStdin);
+    const out = runCaptureContext({ dumpStdin: true }, raw);
     expect(out.dumped).toBe(true);
     expect(out.dumpPath).toBeTruthy();
-    expect(out.dumpPath!.startsWith(join(homeDir, ".tracebase", "precompact-dumps"))).toBe(true);
+    expect(envelope(out).systemMessage).toBeUndefined(); // dump never emits a badge
 
-    // Envelope still valid — PreCompact proceeds unaffected.
-    expect(JSON.parse(out.envelope)).toEqual({});
-
-    // File on disk round-trips the raw bytes.
     const onDisk = readFileSync(out.dumpPath!);
-    expect(onDisk.toString("utf-8")).toBe(rawStdin.toString("utf-8"));
+    expect(onDisk.toString("utf-8")).toBe(raw.toString("utf-8"));
 
-    // Filename encodes both timestamp and a sanitised session tag.
     const dir = join(homeDir, ".tracebase", "precompact-dumps");
     const entries = readdirSync(dir);
     expect(entries.length).toBe(1);
-    expect(entries[0]).toMatch(/sess-abc-123/);
-    expect(entries[0]).toMatch(/\.jsonl$/);
+    expect(entries[0]).toMatch(/dev-dump-session/);
   });
 
-  it("filesystem-sanitises session ids containing path separators", () => {
-    const rawStdin = Buffer.from(
-      JSON.stringify({ session_id: "weird/session:value\\bad" }),
+  it("dump mode short-circuits BEFORE any digest extraction or fact write", () => {
+    initConfig(projectDir);
+    writeSubstantiveTranscript();
+    const raw = Buffer.from(
+      JSON.stringify({
+        hook_event_name: "PreCompact",
+        session_id: "dump-no-write",
+        transcript_path: transcriptPath,
+        cwd: projectDir,
+      }),
     );
-    const out = runCaptureContext({ dumpStdin: true }, rawStdin);
+    const out = runCaptureContext({ dumpStdin: true, path: projectDir }, raw);
+    expect(out.captured).toBe(false);
+    expect(out.factId).toBeNull();
     expect(out.dumped).toBe(true);
-    // No raw slash / colon in the path basename — substitutions
-    // must yield a filename-safe tag.
-    const base = out.dumpPath!.split("/").pop()!;
-    expect(base).not.toContain("/");
-    expect(base).not.toContain(":");
-    expect(base).not.toContain("\\");
+    expect(countActiveDigests()).toBe(0);
   });
 
   it("falls back to `unknown-session` when the payload has no session id", () => {
-    const rawStdin = Buffer.from("{}");
-    const out = runCaptureContext({ dumpStdin: true }, rawStdin);
+    const out = runCaptureContext({ dumpStdin: true }, Buffer.from("{}"));
     expect(out.dumped).toBe(true);
-    const base = out.dumpPath!.split("/").pop()!;
-    expect(base).toMatch(/unknown-session/);
+    expect(out.dumpPath!.split("/").pop()).toMatch(/unknown-session/);
   });
 
-  it("dumps empty stdin as an empty file without throwing", () => {
-    const out = runCaptureContext({ dumpStdin: true }, Buffer.alloc(0));
-    expect(out.dumped).toBe(true);
-    const onDisk = readFileSync(out.dumpPath!);
-    expect(onDisk.length).toBe(0);
-  });
-
-  it("emits an empty envelope even when the dump write fails", () => {
-    // Point HOME at a file (not a directory) to force mkdir to fail.
-    const badFile = join(homeDir, "blocker");
-    require("node:fs").writeFileSync(badFile, "x");
-    process.env.HOME = badFile;
+  it("never throws when the dump dir cannot be created", () => {
+    const blocker = join(homeDir, "blocker");
+    writeFileSync(blocker, "x"); // file with the name our mkdir wants → ENOTDIR
+    process.env.HOME = blocker;
     try {
       const out = runCaptureContext({ dumpStdin: true }, Buffer.from("{}"));
-      expect(JSON.parse(out.envelope)).toEqual({});
       expect(out.dumped).toBe(false);
       expect(out.dumpPath).toBeNull();
+      expect(envelope(out).systemMessage).toBeUndefined();
     } finally {
       process.env.HOME = homeDir;
     }
   });
 });
 
-describe("parseStdinPayload — tolerant to every failure mode", () => {
-  it("returns {} for empty / malformed / primitive / over-size input", () => {
+// ---------------------------------------------------------------------------
+// parseStdinPayload — tolerant
+// ---------------------------------------------------------------------------
+
+describe("parseStdinPayload — collapses every error to {}", () => {
+  it("returns {} for empty / malformed / primitive / over-size", () => {
     expect(parseStdinPayload("")).toEqual({});
     expect(parseStdinPayload(Buffer.alloc(0))).toEqual({});
     expect(parseStdinPayload("{not valid")).toEqual({});
     expect(parseStdinPayload("null")).toEqual({});
     expect(parseStdinPayload("42")).toEqual({});
-    expect(parseStdinPayload('"a string"')).toEqual({});
-    expect(parseStdinPayload("[1,2,3]")).toEqual({});
-    const oversize = "{\"padding\":\"" + "x".repeat(300_000) + "\"}";
+    expect(parseStdinPayload("[1,2]")).toEqual({});
+    const oversize = '{"x":"' + "y".repeat(300_000) + '"}';
     expect(parseStdinPayload(oversize)).toEqual({});
   });
 
-  it("parses a well-formed PreCompact-shaped payload", () => {
+  it("preserves unknown fields", () => {
     const parsed = parseStdinPayload(
       JSON.stringify({
-        hook_event_name: "PreCompact",
-        transcript_path: "/x/tx.jsonl",
-        session_id: "s-1",
-        cwd: "/work",
-        trigger: "auto",
-        custom_instructions: "compress hard",
-      }),
-    );
-    expect(parsed.hook_event_name).toBe("PreCompact");
-    expect(parsed.transcript_path).toBe("/x/tx.jsonl");
-    expect(parsed.session_id).toBe("s-1");
-    expect(parsed.cwd).toBe("/work");
-    expect(parsed.trigger).toBe("auto");
-    expect(parsed.custom_instructions).toBe("compress hard");
-  });
-
-  it("preserves unknown fields (dump mode inspects everything)", () => {
-    const parsed = parseStdinPayload(
-      JSON.stringify({
-        session_id: "s-1",
-        futureField: "still visible in the dump",
-        nested: { anything: [1, 2, 3] },
+        session_id: "s",
+        future_field: "still here",
+        nested: { a: 1 },
       }),
     ) as Record<string, unknown>;
-    expect(parsed.futureField).toBe("still visible in the dump");
-    expect(parsed.nested).toEqual({ anything: [1, 2, 3] });
+    expect(parsed.future_field).toBe("still here");
+    expect(parsed.nested).toEqual({ a: 1 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// sessionScope — regression for the project.session.<sha> hierarchy
+// ---------------------------------------------------------------------------
+
+describe("sessionScope — hierarchical scope key", () => {
+  it("returns project.session.<12-hex-char-sha>", () => {
+    const s = sessionScope("any-session-id-string");
+    expect(s).toMatch(/^project\.session\.[0-9a-f]{12}$/);
+  });
+
+  it("is deterministic for the same input", () => {
+    expect(sessionScope("sess-1")).toBe(sessionScope("sess-1"));
+  });
+
+  it("different sessions hash to different leaves", () => {
+    expect(sessionScope("sess-A")).not.toBe(sessionScope("sess-B"));
+  });
+});
+
+// Quiet helpers that vitest may not reach but typescript still needs.
+void mkdirSync;

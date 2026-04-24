@@ -472,3 +472,101 @@ describe("parseStdinPayload — collapses every error mode to {}", () => {
     expect(parseStdinPayload(oversize)).toEqual({});
   });
 });
+
+// ---------------------------------------------------------------------------
+// Session-scoped recall — TB CONTEXT cross-compaction continuity (0.5.2)
+//
+// When `session_id` is in the UserPromptSubmit stdin, recall narrows
+// to `project.session.<sha>` so the digest captured by capture-context
+// before /compact lands in the additionalContext of the FIRST turn
+// after compaction. Sibling sessions' digests stay isolated because
+// project.session.A is never a prefix of project.session.B.
+// ---------------------------------------------------------------------------
+
+describe("runInjectContext — session-scoped fact recall (TB CONTEXT)", () => {
+  it("re-injects a same-session digest after compact", async () => {
+    const config = initConfig(projectDir);
+    const db = new Database(config.storagePath);
+    const store = new BlockStore(db);
+    // Seed a session digest at project.session.<sha-for-S1>.
+    const { sessionScope } = await import("../../src/cli/commands/capture-context.js");
+    store.storeFact({
+      scope: sessionScope("S1"),
+      factType: "session_digest",
+      statement:
+        "Recent user questions:\n- pytest fix needed\n\nDiscussion topics:\n- pytest collection sys.path shadow",
+      invariants: {},
+      source: { origin: "observed", reference: "S1" },
+      ttlDays: 14,
+    });
+    store.close();
+
+    const out = runInjectContext(
+      { path: projectDir },
+      {
+        prompt: "Continue helping me with the pytest collection sys.path shadow problem from earlier.",
+        session_id: "S1",
+      },
+    );
+    const ctx = JSON.parse(out.envelope).hookSpecificOutput.additionalContext as string;
+    expect(ctx).toContain("pytest collection sys.path shadow");
+  });
+
+  it("does NOT inject a digest from a different session", async () => {
+    const config = initConfig(projectDir);
+    const db = new Database(config.storagePath);
+    const store = new BlockStore(db);
+    const { sessionScope } = await import("../../src/cli/commands/capture-context.js");
+    // Seed digest under session A.
+    store.storeFact({
+      scope: sessionScope("session-A"),
+      factType: "session_digest",
+      statement: "Recent user questions:\n- some unique-token from session A's conversation",
+      invariants: {},
+      source: { origin: "observed", reference: "session-A" },
+      ttlDays: 14,
+    });
+    store.close();
+
+    // Query under session B with a prompt that would otherwise match
+    // by FTS keywords.
+    const out = runInjectContext(
+      { path: projectDir },
+      {
+        prompt:
+          "What was the unique-token discussion about in the previous compaction we were just doing?",
+        session_id: "session-B",
+      },
+    );
+    const ctx = JSON.parse(out.envelope).hookSpecificOutput.additionalContext as string;
+    // The digest text must NOT cross session boundaries.
+    expect(ctx).not.toContain("unique-token from session A");
+  });
+
+  it("still surfaces project-level facts when a session_id is present", async () => {
+    const config = initConfig(projectDir);
+    const db = new Database(config.storagePath);
+    const store = new BlockStore(db);
+    // Seed a project-scoped TB MEMORY fact.
+    store.storeFact({
+      scope: "project",
+      factType: "file_semantic",
+      statement: "tests live under tests/cli/*.test.ts (vitest suite)",
+      invariants: {},
+      source: { origin: "observed" },
+    });
+    store.close();
+
+    const out = runInjectContext(
+      { path: projectDir },
+      {
+        prompt: "Where does the cli vitest suite live in this codebase exactly?",
+        session_id: "S2",
+      },
+    );
+    const ctx = JSON.parse(out.envelope).hookSpecificOutput.additionalContext as string;
+    // project-scoped facts ARE prefix-parents of project.session.<S2>,
+    // so hierarchical resolution surfaces them.
+    expect(ctx).toContain("tests/cli");
+  });
+});

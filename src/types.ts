@@ -946,7 +946,8 @@ export type ProjectFactType =
   | "repo_fact"       // "build command is `pnpm build`"
   | "architecture"    // "auth lives in services/auth/, not middleware/"
   | "preference"      // "favor small PRs over big ones"
-  | "file_semantic";  // "tests live under tests/cli/*.test.ts" — 0.5.0 TB MEMORY bucket
+  | "file_semantic"   // "tests live under tests/cli/*.test.ts" — 0.5.0 TB MEMORY bucket
+  | "session_digest"; // bounded deterministic digest of a Claude Code session before compaction — 0.5.2 TB CONTEXT bucket
 
 export type ProjectFactStatus = "active" | "stale" | "retired";
 
@@ -982,6 +983,13 @@ export interface ProjectFact {
   createdAt: number;
   updatedAt: number;
   status: ProjectFactStatus;
+  /**
+   * Optional absolute expiry timestamp (epoch ms). When set, the
+   * doctor sweep retires the fact once `Date.now() > ttlUntilAt`.
+   * Used by `session_digest` facts to cap their lifetime at ~14
+   * days; omitted for durable facts that never expire.
+   */
+  ttlUntilAt?: number;
 }
 
 /** Input for creating a new project fact; computed fields filled by storage. */
@@ -993,6 +1001,12 @@ export interface StoreProjectFactInput {
   source: ProjectFactSource;
   /** Optional override of default 0.5 prior. */
   confidence?: number;
+  /**
+   * Optional TTL in days. Storage converts this to an absolute
+   * `ttlUntilAt = createdAt + ttlDays * 86_400_000` at write time.
+   * `0` / negative / undefined = no expiry.
+   */
+  ttlDays?: number;
 }
 
 // ============================================================================

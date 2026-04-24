@@ -286,7 +286,7 @@ describe("runDoctor — Claude Code hook health", () => {
     expect(hookCheck.message).toMatch(/not installed/);
   });
 
-  it("PASSes when both UserPromptSubmit and Stop hooks are canonical", async () => {
+  it("PASSes when all three managed hooks (UserPromptSubmit + Stop + PreCompact) are canonical", async () => {
     const { writeAgentHookConfig, writeAgentInstructionFile } = await import(
       "../../src/cli/install-targets.js"
     );
@@ -301,6 +301,7 @@ describe("runDoctor — Claude Code hook health", () => {
     expect(hookCheck.message).toMatch(/hooks canonical/);
     expect(hookCheck.message).toMatch(/UserPromptSubmit:ok/);
     expect(hookCheck.message).toMatch(/Stop:ok/);
+    expect(hookCheck.message).toMatch(/PreCompact:ok/);
   });
 });
 

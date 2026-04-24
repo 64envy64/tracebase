@@ -388,12 +388,16 @@ export const HOOKS_INJECT_COMMAND =
   "npx -y tracebase-ai@latest inject-context --host claude-code --status compact";
 export const HOOKS_CAPTURE_COMMAND =
   "npx -y tracebase-ai@latest capture-turn --host claude-code --capture compact";
+export const HOOKS_PRECOMPACT_COMMAND =
+  "npx -y tracebase-ai@latest capture-context --host claude-code --capture compact";
 const CLAUDE_HOOKS_FILE_REL = ".claude/settings.json";
 
 /** Compact-mode static status for UserPromptSubmit (silent injection). */
 const TRACEBASE_INJECT_STATIC_STATUS = "▣ TB TRACE  checking";
 /** Compact-mode static status for Stop (background capture). */
 const TRACEBASE_CAPTURE_STATIC_STATUS = "▣ TB TRACE  capturing";
+/** Compact-mode static status for PreCompact (session digest). */
+const TRACEBASE_PRECOMPACT_STATIC_STATUS = "▣ TB CONTEXT  capturing";
 
 /**
  * Canonical `UserPromptSubmit` entry. Runs before every user turn:
@@ -438,13 +442,42 @@ const TRACEBASE_CAPTURE_ENTRY = {
 };
 
 /**
+ * Canonical `PreCompact` entry. Runs immediately before Claude Code
+ * compacts its context. Reads the transcript tail, distils a bounded
+ * deterministic session digest, writes it as a session-scoped
+ * `project_facts.session_digest` row with a 14-day TTL, so the next
+ * `UserPromptSubmit` in the same session can re-inject the digest
+ * across the compaction boundary.
+ *
+ * `--dump-stdin` is intentionally ABSENT from this canonical
+ * command. The flag stays available for ad-hoc developer
+ * troubleshooting (`tracebase capture-context --dump-stdin`) but
+ * never ships in the installed hook — production hooks must not
+ * leave dump files in users' home dirs.
+ *
+ * `timeout: 10` seconds — PreCompact is a 2 s p95 budget per
+ * PLAN-0.5 §3 with comfortable headroom for cold-start npx fetch
+ * on a fresh machine.
+ */
+const TRACEBASE_PRECOMPACT_ENTRY = {
+  hooks: [
+    {
+      type: "command" as const,
+      command: HOOKS_PRECOMPACT_COMMAND,
+      timeout: 10,
+      statusMessage: TRACEBASE_PRECOMPACT_STATIC_STATUS,
+    },
+  ],
+};
+
+/**
  * Spec for one managed event. A single orchestrator (`writeClaudeHookConfig`,
  * `inspectClaudeHookConfig`, `removeClaudeHookConfig`) walks over the
  * full list, so adding a new event (SessionStart, PostCompact, …)
  * means dropping a new spec here — nothing else changes.
  */
 interface HookEventSpec {
-  eventName: "UserPromptSubmit" | "Stop";
+  eventName: "UserPromptSubmit" | "Stop" | "PreCompact";
   canonical: unknown;
   /**
    * Previous canonical shapes we auto-upgrade without `--force`. The
@@ -518,7 +551,23 @@ const CAPTURE_EVENT_SPEC: HookEventSpec = {
     innerCommandIncludes(entry, "tracebase-ai", "capture-turn"),
 };
 
-const CLAUDE_HOOK_SPECS: HookEventSpec[] = [INJECT_EVENT_SPEC, CAPTURE_EVENT_SPEC];
+const PRECOMPACT_EVENT_SPEC: HookEventSpec = {
+  eventName: "PreCompact",
+  canonical: TRACEBASE_PRECOMPACT_ENTRY,
+  // 0.5.2 ships PreCompact for the first time. Empty list per the
+  // pattern in PLAN-0.5 §6 — the slot exists from day one so the
+  // next release-bump's rebadge / shape evolution gets zero-friction
+  // upgrade via deepEqual against the canonical we ship today.
+  legacyDefaults: [],
+  isOurs: (entry: unknown) =>
+    innerCommandIncludes(entry, "tracebase-ai", "capture-context"),
+};
+
+const CLAUDE_HOOK_SPECS: HookEventSpec[] = [
+  INJECT_EVENT_SPEC,
+  CAPTURE_EVENT_SPEC,
+  PRECOMPACT_EVENT_SPEC,
+];
 
 function innerCommandIncludes(entry: unknown, ...needles: string[]): boolean {
   if (!entry || typeof entry !== "object") return false;
@@ -547,7 +596,7 @@ export function writeAgentHookConfig(
 }
 
 /** Per-event state for a host's managed hook entries. */
-export type HookEventName = "UserPromptSubmit" | "Stop";
+export type HookEventName = "UserPromptSubmit" | "Stop" | "PreCompact";
 export type HookEventState = "missing" | "non-canonical" | "canonical";
 
 export interface HookInspection {
@@ -655,6 +704,7 @@ function inspectClaudeHookConfig(basePath: string): HookInspection {
   const emptyEvents: Record<HookEventName, HookEventState> = {
     UserPromptSubmit: "missing",
     Stop: "missing",
+    PreCompact: "missing",
   };
   if (!existsSync(filePath)) {
     return { supported: true, present: false, canonical: false, events: emptyEvents };
