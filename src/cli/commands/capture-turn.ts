@@ -20,7 +20,7 @@
  *   A Stop hook lets us capture in the background: Claude Code hands
  *   us the transcript path, we open the file in-process, pick the
  *   pattern out via heuristics, and write it directly to SQLite. The
- *   only user-visible signal is a one-line `▣ TB MEMORY` badge in
+ *   only user-visible signal is a one-line `▣ TB TRACE` badge in
  *   the transcript — and only when compact mode is on.
  *
  * Capture heuristic
@@ -220,7 +220,7 @@ function wrapEnvelope(blockId: string, status: string | null): CaptureTurnOutcom
 }
 
 /**
- * Single source of truth for the TB MEMORY capture badge. Silent and
+ * Single source of truth for the TB TRACE capture badge. Silent and
  * off-mode always return null. Off is included in the switch so every
  * caller is type-safe exhaustive.
  */
@@ -230,13 +230,13 @@ function formatStatus(situation: CaptureSituation, mode: CaptureStatusMode): str
     case "off":
       return null; // should never reach here with mode=compact, but kept for exhaustiveness
     case "stored":
-      return `▣ TB MEMORY  stored #${shortBlockId(situation.blockId)}`;
+      return `▣ TB TRACE  stored #${shortBlockId(situation.blockId)}`;
     case "reinforced":
-      return `▣ TB MEMORY  reinforced #${shortBlockId(situation.blockId)}`;
+      return `▣ TB TRACE  reinforced #${shortBlockId(situation.blockId)}`;
     case "no-pattern":
-      return "▣ TB MEMORY  no reusable pattern";
+      return "▣ TB TRACE  no reusable pattern";
     case "unavailable":
-      return "▣ TB MEMORY  capture unavailable";
+      return "▣ TB TRACE  capture unavailable";
   }
 }
 

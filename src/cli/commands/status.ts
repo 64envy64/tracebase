@@ -20,9 +20,12 @@ import { findProjectRoot, loadConfig, normalizeInstallAgents } from "../../core/
 import { BlockStore } from "../../core/block-store.js";
 import {
   getAgentTargetMeta,
+  inspectAgentHookConfig,
   inspectAgentInstructionFile,
   inspectAgentMcpConfig,
   resolveInstallAgent,
+  type HookEventName,
+  type HookEventState,
   type InstallAgent,
 } from "../install-targets.js";
 
@@ -33,6 +36,20 @@ export interface AgentInstallReport {
   instructionFile: string;
   mcpConfigured: boolean;
   instructionsPresent: boolean;
+  /**
+   * Hook state, per managed event. Undefined when the agent has no
+   * hook surface (cursor, codex today). For Claude Code, both
+   * `UserPromptSubmit` and `Stop` appear here with one of
+   * `canonical | non-canonical | missing`. `status` renders this as
+   * a separate line next to MCP + instructions; doctor emits a WARN
+   * when anything is missing or non-canonical.
+   */
+  hooks?: {
+    supported: boolean;
+    present: boolean;
+    canonical: boolean;
+    events: Partial<Record<HookEventName, HookEventState>>;
+  };
 }
 
 interface StatusReport {
@@ -152,7 +169,8 @@ export function buildStatusReport(invocationPath: string): StatusReport {
     const m = getAgentTargetMeta(a);
     const mcp = inspectAgentMcpConfig(projectRoot, a);
     const instr = inspectAgentInstructionFile(projectRoot, a);
-    return {
+    const hook = inspectAgentHookConfig(projectRoot, a);
+    const report: AgentInstallReport = {
       agent: a,
       agentDisplayName: m.displayName,
       mcpLocation: m.mcpLocationLabel,
@@ -160,6 +178,15 @@ export function buildStatusReport(invocationPath: string): StatusReport {
       mcpConfigured: mcp.present && mcp.canonical,
       instructionsPresent: instr.present && instr.managed,
     };
+    if (hook.supported) {
+      report.hooks = {
+        supported: hook.supported,
+        present: hook.present,
+        canonical: hook.canonical,
+        events: hook.events,
+      };
+    }
+    return report;
   });
   const primaryReport = agentReports[0];
   const claudeReport = agentReports.find((r) => r.agent === "claude-code");
@@ -256,6 +283,12 @@ function renderStatus(r: StatusReport): void {
         (r.cloudWorkspaceSlug ?? "linked") +
         (r.cloudApiUrl ? pc.dim(`  (${r.cloudApiUrl})`) : ""),
     );
+  } else {
+    console.log(
+      pc.dim("  cloud:    ") +
+        "local only " +
+        pc.dim("(dashboard sync disabled — pass --api-key to `init` or set TRACEBASE_API_KEY to link)"),
+    );
   }
   console.log();
 
@@ -278,6 +311,24 @@ function renderStatus(r: StatusReport): void {
           " " +
           instrBadge,
       );
+      // Hook row — shown only for agents with a hook surface. Listed
+      // per-event so users diagnose "MCP fine, Stop hook missing"
+      // without cross-referencing doctor output.
+      if (a.hooks?.supported) {
+        const parts = Object.entries(a.hooks.events).map(([event, state]) => {
+          const badge =
+            state === "canonical" ? pc.green("ok")
+            : state === "non-canonical" ? pc.yellow("non-canonical")
+            : pc.yellow("missing");
+          return pc.dim(event) + " " + badge;
+        });
+        console.log(
+          "  " +
+            " ".repeat(12) +
+            pc.dim("hooks       ") +
+            parts.join(pc.dim(" · ")),
+        );
+      }
     }
   }
   console.log();
@@ -308,8 +359,16 @@ function renderStatus(r: StatusReport): void {
   }
   console.log();
 
-  // Guidance if any configured agent is missing a surface.
-  const broken = r.agents.filter((a) => !a.mcpConfigured || !a.instructionsPresent);
+  // Guidance if any configured agent is missing a surface. Hook
+  // health counts too — a Claude Code install with MCP + CLAUDE.md
+  // canonical but Stop hook missing is NOT fully OK; it silently
+  // degrades capture UX back to the MCP permission prompt.
+  const broken = r.agents.filter(
+    (a) =>
+      !a.mcpConfigured ||
+      !a.instructionsPresent ||
+      (a.hooks?.supported === true && !a.hooks.canonical),
+  );
   if (broken.length > 0) {
     const names = broken.map((a) => a.agentDisplayName).join(", ");
     console.log(pc.yellow("  Heads up: ") + `${names} config is incomplete.`);

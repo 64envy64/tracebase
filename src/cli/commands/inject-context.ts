@@ -198,7 +198,7 @@ export function runInjectContext(
 }
 
 /**
- * Single source of truth for the TB MEMORY badge. Every caller funnels
+ * Single source of truth for the TB TRACE badge. Every caller funnels
  * through here — there are no duplicated label literals elsewhere in
  * this file, so changing the prefix only touches one spot. Returns
  * `null` when the host should see no `systemMessage`:
@@ -221,14 +221,14 @@ function formatStatus(situation: InjectSituation, mode: HookStatusMode): string 
         situation.facts > 0 ? ` + ${situation.facts} fact(s)` : "";
       const shortId = situation.queryId.slice(0, 8);
       return (
-        `▣ TB MEMORY  recalled ${situation.patterns} pattern(s)` +
+        `▣ TB TRACE  recalled ${situation.patterns} pattern(s)` +
         `${factsPart} · #${shortId} · ${situation.tokens}t`
       );
     }
     case "no-match":
-      return "▣ TB MEMORY  checked · no match";
+      return "▣ TB TRACE  checked · no match";
     case "failure":
-      return "▣ TB MEMORY  skipped · unavailable";
+      return "▣ TB TRACE  skipped · unavailable";
   }
 }
 
@@ -258,7 +258,7 @@ function normaliseStatusMode(raw: string | undefined): HookStatusMode | null {
  * Both Claude Code and Codex use the same hook envelope shape:
  *
  *   {
- *     "systemMessage"?: "▣ TB MEMORY  …",
+ *     "systemMessage"?: "▣ TB TRACE  …",
  *     "hookSpecificOutput": {
  *       "hookEventName": "UserPromptSubmit" | "SessionStart" | …,
  *       "additionalContext": "<text the host inlines into the model prompt>"

@@ -197,7 +197,7 @@ describe("runInjectContext — failure-mode benignity", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Compact-mode TB MEMORY badge — systemMessage contract
+// Compact-mode TB TRACE badge — systemMessage contract
 //
 // The badge is the only user-visible signal the hook is running. If
 // the label / shape / emission conditions drift, users lose hook
@@ -206,7 +206,7 @@ describe("runInjectContext — failure-mode benignity", () => {
 // ---------------------------------------------------------------------------
 
 describe("runInjectContext — compact status badge (systemMessage)", () => {
-  it("matching pattern: systemMessage starts with ▣ TB MEMORY and includes recalled count, shortId, tokens", () => {
+  it("matching pattern: systemMessage starts with ▣ TB TRACE and includes recalled count, shortId, tokens", () => {
     const config = initConfig(projectDir);
     const db = new Database(config.storagePath);
     const store = new BlockStore(db);
@@ -220,7 +220,7 @@ describe("runInjectContext — compact status badge (systemMessage)", () => {
     const parsed = envelope(out);
     expect(parsed.systemMessage).toBeDefined();
     const msg = parsed.systemMessage!;
-    expect(msg.startsWith("▣ TB MEMORY")).toBe(true);
+    expect(msg.startsWith("▣ TB TRACE")).toBe(true);
     expect(msg).toMatch(/recalled \d+ pattern\(s\)/);
     // queryId is 8-char slice of a UUID; match only the contract
     // surface, not a specific value.
@@ -236,7 +236,7 @@ describe("runInjectContext — compact status badge (systemMessage)", () => {
     expect(embeddedQueryId!.startsWith(badgeShortId!)).toBe(true);
   });
 
-  it('no match (gate rejects / no results): systemMessage is exactly "▣ TB MEMORY  checked · no match"', () => {
+  it('no match (gate rejects / no results): systemMessage is exactly "▣ TB TRACE  checked · no match"', () => {
     // Project initialised, no blocks seeded → gate has nothing to
     // return → payload.hasContent is false.
     initConfig(projectDir);
@@ -246,7 +246,7 @@ describe("runInjectContext — compact status badge (systemMessage)", () => {
       { prompt: "something generic enough that nothing matches in an empty store" },
     );
     const parsed = envelope(out);
-    expect(parsed.systemMessage).toBe("▣ TB MEMORY  checked · no match");
+    expect(parsed.systemMessage).toBe("▣ TB TRACE  checked · no match");
     // additionalContext stays empty — "no match" means no inject.
     expect(parsed.hookSpecificOutput.additionalContext).toBe("");
     expect(out.injected).toBe(false);
@@ -270,7 +270,7 @@ describe("runInjectContext — compact status badge (systemMessage)", () => {
     expect(parsed.hookSpecificOutput.additionalContext).toBe("");
   });
 
-  it('hook failure: systemMessage is "▣ TB MEMORY  skipped · unavailable"', () => {
+  it('hook failure: systemMessage is "▣ TB TRACE  skipped · unavailable"', () => {
     // Simulate an inner failure by pointing at a path that WILL fail
     // inside the block-server open — e.g. init a project, then delete
     // the storage directory while preserving the config pointer so
@@ -288,7 +288,7 @@ describe("runInjectContext — compact status badge (systemMessage)", () => {
       { prompt: "a reasonable task description that would otherwise trigger recall" },
     );
     const parsed = envelope(out);
-    expect(parsed.systemMessage).toBe("▣ TB MEMORY  skipped · unavailable");
+    expect(parsed.systemMessage).toBe("▣ TB TRACE  skipped · unavailable");
     expect(parsed.hookSpecificOutput.additionalContext).toBe("");
   });
 });
@@ -357,7 +357,7 @@ describe("runInjectContext — silent mode suppresses systemMessage entirely", (
         { path: projectDir, status: "silent" },
         { prompt: "pytest collects the wrong package — sys.path shadowing module issue" },
       );
-      expect(envelope(out).systemMessage).toMatch(/^▣ TB MEMORY/);
+      expect(envelope(out).systemMessage).toMatch(/^▣ TB TRACE/);
     } finally {
       if (prev === undefined) delete process.env.TRACEBASE_HOOK_STATUS;
       else process.env.TRACEBASE_HOOK_STATUS = prev;
@@ -371,7 +371,7 @@ describe("runInjectContext — silent mode suppresses systemMessage entirely", (
       { prompt: "generic prompt long enough to clear the trivial gate" },
     );
     // Fell back to compact → emits the no-match badge.
-    expect(envelope(out).systemMessage).toBe("▣ TB MEMORY  checked · no match");
+    expect(envelope(out).systemMessage).toBe("▣ TB TRACE  checked · no match");
   });
 });
 

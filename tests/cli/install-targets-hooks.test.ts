@@ -62,12 +62,12 @@ describe("writeAgentHookConfig — Claude Code", () => {
     expect(inner?.command).toContain("inject-context");
     expect(inner?.command).toContain("--host claude-code");
     // Hook transparency contract: the installed command opts into the
-    // compact TB MEMORY badge, and the static `statusMessage` Claude
+    // compact TB TRACE badge, and the static `statusMessage` Claude
     // Code shows while the hook is running mirrors that badge prefix.
     // Regressing either drops the user's only visible signal that the
     // hook fired.
     expect(inner?.command).toContain("--status compact");
-    expect(inner?.statusMessage).toBe("▣ TB MEMORY  checking");
+    expect(inner?.statusMessage).toBe("▣ TB TRACE  checking");
   });
 
   it("installs a Stop hook alongside UserPromptSubmit pointing at capture-turn", () => {
@@ -93,7 +93,7 @@ describe("writeAgentHookConfig — Claude Code", () => {
     expect(inner?.command).toContain("capture-turn");
     expect(inner?.command).toContain("--host claude-code");
     expect(inner?.command).toContain("--capture compact");
-    expect(inner?.statusMessage).toBe("▣ TB MEMORY  capturing");
+    expect(inner?.statusMessage).toBe("▣ TB TRACE  capturing");
     // Stop hook gets a slightly larger timeout — the heuristic
     // extractor has to read the transcript and run a SQLite write,
     // which is still fast but allocates more than the inject-context
@@ -153,25 +153,27 @@ describe("writeAgentHookConfig — Claude Code", () => {
     expect(cleaned.hooks.UserPromptSubmit[0]!.hooks[0]!.command).toBe("echo foreign");
   });
 
-  it("inspect reports {present, canonical} based on file state", () => {
-    expect(inspectAgentHookConfig(dir, "claude-code")).toEqual({
-      supported: true,
-      present: false,
-      canonical: false,
-    });
+  it("inspect reports {present, canonical, events} based on file state", () => {
+    const before = inspectAgentHookConfig(dir, "claude-code");
+    expect(before.supported).toBe(true);
+    expect(before.present).toBe(false);
+    expect(before.canonical).toBe(false);
+    // Pre-install: every managed event is marked missing.
+    expect(before.events.UserPromptSubmit).toBe("missing");
+    expect(before.events.Stop).toBe("missing");
 
     writeAgentHookConfig(dir, "claude-code", false);
-    expect(inspectAgentHookConfig(dir, "claude-code")).toEqual({
-      supported: true,
-      present: true,
-      canonical: true,
-    });
+    const after = inspectAgentHookConfig(dir, "claude-code");
+    expect(after.supported).toBe(true);
+    expect(after.present).toBe(true);
+    expect(after.canonical).toBe(true);
+    expect(after.events.UserPromptSubmit).toBe("canonical");
+    expect(after.events.Stop).toBe("canonical");
 
-    expect(inspectAgentHookConfig(dir, "cursor")).toEqual({
-      supported: false,
-      present: false,
-      canonical: false,
-    });
+    const cursor = inspectAgentHookConfig(dir, "cursor");
+    expect(cursor.supported).toBe(false);
+    expect(cursor.present).toBe(false);
+    expect(cursor.canonical).toBe(false);
   });
 
   it("removing a never-installed hook is a no-op (already-absent)", () => {
@@ -190,7 +192,7 @@ describe("writeAgentHookConfig — Claude Code", () => {
 
   // Zero-friction upgrade regression. The 0.4.0 hook entry had no
   // --status flag and no statusMessage; this release adds both for
-  // the compact TB MEMORY badge. A user re-running `npx tracebase
+  // the compact TB TRACE badge. A user re-running `npx tracebase
   // init` (without --force) after upgrading the npm package must
   // land on the new entry automatically — that is the core promise
   // of `init` in this codebase. Requiring --force here would turn
@@ -234,11 +236,128 @@ describe("writeAgentHookConfig — Claude Code", () => {
     };
     const inner = after.hooks.UserPromptSubmit[0]!.hooks[0]!;
     expect(inner.command).toContain("--status compact");
-    expect(inner.statusMessage).toBe("▣ TB MEMORY  checking");
+    expect(inner.statusMessage).toBe("▣ TB TRACE  checking");
     expect(inner.timeout).toBe(5);
     // No duplicate entries landed — the slot was reused.
     expect(after.hooks.UserPromptSubmit.length).toBe(1);
     expect(after.hooks.UserPromptSubmit[0]!.hooks.length).toBe(1);
+  });
+
+  // Regression: 0.4.1 users only had the UserPromptSubmit hook (no
+  // Stop hook existed). After the Stop hook shipped in 0.4.2, a
+  // re-run of `tracebase init` must auto-add it without requiring
+  // --force — the existing UserPromptSubmit stays untouched if
+  // already canonical, the Stop entry is appended, result kind is
+  // "updated" (not an error).
+  it("adds the Stop hook to an existing 0.4.1-shape settings.json without --force", () => {
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    writeFileSync(
+      join(dir, ".claude", "settings.json"),
+      JSON.stringify(
+        {
+          hooks: {
+            UserPromptSubmit: [
+              {
+                hooks: [
+                  {
+                    type: "command",
+                    command:
+                      "npx -y tracebase-ai@latest inject-context --host claude-code --status compact",
+                    timeout: 5,
+                    statusMessage: "▣ TB MEMORY  checking",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const res = writeAgentHookConfig(dir, "claude-code", false);
+    expect(res?.ok).toBe(true);
+    if (!res?.ok) return;
+    expect(res.kind).toBe("updated");
+
+    const after = JSON.parse(readFileSync(join(dir, ".claude", "settings.json"), "utf-8")) as {
+      hooks: {
+        UserPromptSubmit: Array<{
+          hooks: Array<{ command: string; statusMessage?: string }>;
+        }>;
+        Stop: Array<{
+          hooks: Array<{ command: string; statusMessage?: string }>;
+        }>;
+      };
+    };
+    // UserPromptSubmit rebadged from TB MEMORY → TB TRACE automatically
+    // via the 0.4.1/0.4.2 legacyDefault entry.
+    expect(after.hooks.UserPromptSubmit[0]!.hooks[0]!.statusMessage).toBe("▣ TB TRACE  checking");
+    // Stop hook newly added with current canonical shape.
+    expect(after.hooks.Stop?.length).toBe(1);
+    expect(after.hooks.Stop[0]!.hooks[0]!.command).toContain("capture-turn");
+    expect(after.hooks.Stop[0]!.hooks[0]!.statusMessage).toBe("▣ TB TRACE  capturing");
+  });
+
+  // Regression: 0.4.2 installed both hooks but the statusMessages read
+  // "TB MEMORY" (the pre-rename badge). 0.4.3 reserves TB MEMORY for a
+  // different feature and rebadges reasoning reuse to TB TRACE.
+  // Users on 0.4.2 must get the rebadge on a plain `tracebase init`
+  // re-run — no --force prompt, no user-customisation error.
+  it("rebadges 0.4.2 'TB MEMORY' statusMessages to 'TB TRACE' without --force", () => {
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    writeFileSync(
+      join(dir, ".claude", "settings.json"),
+      JSON.stringify(
+        {
+          hooks: {
+            UserPromptSubmit: [
+              {
+                hooks: [
+                  {
+                    type: "command",
+                    command:
+                      "npx -y tracebase-ai@latest inject-context --host claude-code --status compact",
+                    timeout: 5,
+                    statusMessage: "▣ TB MEMORY  checking",
+                  },
+                ],
+              },
+            ],
+            Stop: [
+              {
+                hooks: [
+                  {
+                    type: "command",
+                    command:
+                      "npx -y tracebase-ai@latest capture-turn --host claude-code --capture compact",
+                    timeout: 8,
+                    statusMessage: "▣ TB MEMORY  capturing",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const res = writeAgentHookConfig(dir, "claude-code", false);
+    expect(res?.ok).toBe(true);
+    if (!res?.ok) return;
+    expect(res.kind).toBe("updated");
+
+    const after = JSON.parse(readFileSync(join(dir, ".claude", "settings.json"), "utf-8")) as {
+      hooks: {
+        UserPromptSubmit: Array<{ hooks: Array<{ statusMessage: string }> }>;
+        Stop: Array<{ hooks: Array<{ statusMessage: string }> }>;
+      };
+    };
+    expect(after.hooks.UserPromptSubmit[0]!.hooks[0]!.statusMessage).toBe("▣ TB TRACE  checking");
+    expect(after.hooks.Stop[0]!.hooks[0]!.statusMessage).toBe("▣ TB TRACE  capturing");
   });
 
   it("still requires --force to replace a user-customised TraceBase hook (non-default command / timeout / extras)", () => {
@@ -297,7 +416,7 @@ describe("writeAgentHookConfig — Claude Code", () => {
     };
     expect(afterForce.hooks.UserPromptSubmit[0]!.hooks[0]!.command).toContain("--status compact");
     expect(afterForce.hooks.UserPromptSubmit[0]!.hooks[0]!.statusMessage).toBe(
-      "▣ TB MEMORY  checking",
+      "▣ TB TRACE  checking",
     );
     expect(afterForce.hooks.UserPromptSubmit[0]!.hooks[0]!.timeout).toBe(5);
   });

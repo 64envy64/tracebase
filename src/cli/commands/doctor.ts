@@ -20,10 +20,13 @@ import { BlockStore } from "../../core/block-store.js";
 import type { TraceBaseConfig } from "../../types.js";
 import {
   getAgentTargetMeta,
+  hookEventsForAgent,
+  inspectAgentHookConfig,
   inspectAgentInstructionFile,
   inspectAgentMcpConfig,
   MCP_ENTRY,
   resolveInstallAgent,
+  type HookEventState,
   type InstallAgent,
 } from "../install-targets.js";
 
@@ -699,6 +702,64 @@ function appendAgentIntegrationChecks(
       message: "managed section present",
     });
   }
+
+  // Hook health — Claude Code only. Surfaced as a separate check
+  // from MCP because the two surfaces are independent: MCP can be
+  // perfectly configured while `.claude/settings.json` has no hook
+  // entries, which silently degrades the default UX (users lose
+  // silent injection + background capture and fall back to the
+  // foreground MCP permission prompt). Regression that doctor must
+  // catch: MCP + CLAUDE.md OK but Stop hook missing — report-level
+  // must not be "fully OK".
+  const hookInspection = inspectAgentHookConfig(projectRoot, agent);
+  if (hookInspection.supported) {
+    const hookCheckName = `${agent}-hooks`;
+    const managedEvents = hookEventsForAgent(agent);
+    const states = managedEvents.map(
+      (e) => [e, hookInspection.events[e] ?? "missing"] as const,
+    );
+    const missing = states.filter(([, s]) => s === "missing").map(([e]) => e);
+    const nonCanonical = states.filter(([, s]) => s === "non-canonical").map(([e]) => e);
+
+    if (missing.length === managedEvents.length) {
+      checks.push({
+        name: hookCheckName,
+        level: "warn",
+        message:
+          `${displayName} hooks not installed (silent injection + background capture disabled)`,
+        fix:
+          `Run \`${initCommand}\` to install the UserPromptSubmit + Stop hooks. ` +
+          "Without them, the agent sees no injected prior patterns and the MCP tool path pops a permission prompt on every capture.",
+      });
+    } else if (missing.length > 0) {
+      checks.push({
+        name: hookCheckName,
+        level: "warn",
+        message: `${displayName} hooks partially installed — missing: ${missing.join(", ")}`,
+        fix: `Run \`${initCommand}\` to install the missing hook(s).`,
+      });
+    } else if (nonCanonical.length > 0) {
+      checks.push({
+        name: hookCheckName,
+        level: "warn",
+        message: `${displayName} hooks installed but non-canonical: ${nonCanonical.join(", ")}`,
+        fix: `Re-run \`${initCommand}\` to refresh the hook entry (auto-upgrades from known legacy shapes without --force).`,
+      });
+    } else {
+      const stateSummary = states
+        .map(([e, s]) => `${e}:${stateAbbrev(s)}`)
+        .join(" · ");
+      checks.push({
+        name: hookCheckName,
+        level: "pass",
+        message: `${displayName} hooks canonical (${stateSummary})`,
+      });
+    }
+  }
+}
+
+function stateAbbrev(s: HookEventState): string {
+  return s === "canonical" ? "ok" : s;
 }
 
 function finalize(projectPath: string, checks: DoctorCheck[]): DoctorReport {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildStatusReport } from "../../src/cli/commands/status.js";
@@ -116,6 +116,71 @@ describe("buildStatusReport — populated store", () => {
     expect(r.events.outcome).toBe(1);
     expect(r.lastActivityTs).toBe(1800);
     expect(r.storageBytes).toBeGreaterThan(0);
+  });
+});
+
+describe("buildStatusReport — Claude Code hook state", () => {
+  // Regression: status must not report a Claude Code install as
+  // fully OK when `.claude/settings.json` has MCP configured but
+  // the Stop hook is missing. `hooks` per-event map lets the user
+  // see which event is missing at a glance.
+  it("surfaces the Stop hook as missing when only MCP + CLAUDE.md are configured", async () => {
+    const {
+      writeAgentHookConfig,
+      writeAgentInstructionFile,
+    } = await import("../../src/cli/install-targets.js");
+    initConfig(dir);
+    writeClaudeSettings(dir, false);
+    writeAgentInstructionFile(dir, "claude-code");
+    // Install hooks, then strip Stop to simulate the partial state.
+    writeAgentHookConfig(dir, "claude-code", false);
+    const settings = JSON.parse(
+      readFileSync(join(dir, ".claude", "settings.json"), "utf-8"),
+    ) as { hooks: { UserPromptSubmit: unknown[]; Stop?: unknown[] } };
+    delete settings.hooks.Stop;
+    writeFileSync(join(dir, ".claude", "settings.json"), JSON.stringify(settings, null, 2));
+
+    const r = buildStatusReport(dir);
+    const claude = r.agents.find((a) => a.agent === "claude-code")!;
+    expect(claude.mcpConfigured).toBe(true);
+    expect(claude.instructionsPresent).toBe(true);
+    // Hook block is populated; Stop flagged as missing, UserPromptSubmit canonical.
+    expect(claude.hooks?.supported).toBe(true);
+    expect(claude.hooks?.canonical).toBe(false);
+    expect(claude.hooks?.events.UserPromptSubmit).toBe("canonical");
+    expect(claude.hooks?.events.Stop).toBe("missing");
+  });
+
+  it("hooks.canonical is true when both UserPromptSubmit and Stop are canonical", async () => {
+    const {
+      writeAgentHookConfig,
+      writeAgentInstructionFile,
+    } = await import("../../src/cli/install-targets.js");
+    initConfig(dir);
+    writeClaudeSettings(dir, false);
+    writeAgentInstructionFile(dir, "claude-code");
+    writeAgentHookConfig(dir, "claude-code", false);
+
+    const r = buildStatusReport(dir);
+    const claude = r.agents.find((a) => a.agent === "claude-code")!;
+    expect(claude.hooks?.canonical).toBe(true);
+    expect(claude.hooks?.events.UserPromptSubmit).toBe("canonical");
+    expect(claude.hooks?.events.Stop).toBe("canonical");
+  });
+
+  it("cursor adapter has no hook block (hook surface not supported)", () => {
+    const originalHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "tb-status-hooks-cursor-"));
+    process.env.HOME = home;
+    try {
+      initConfig(dir, { install: { agents: ["cursor"] } });
+      const r = buildStatusReport(dir);
+      const cursor = r.agents.find((a) => a.agent === "cursor")!;
+      expect(cursor.hooks).toBeUndefined();
+    } finally {
+      process.env.HOME = originalHome;
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 

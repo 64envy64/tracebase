@@ -377,7 +377,7 @@ export function removeAgentInstructionFile(basePath: string, agent: InstallAgent
 
 /**
  * `--status compact` is part of the canonical installed command. The
- * compact badge produced by `inject-context` (a one-line `▣ TB MEMORY`
+ * compact badge produced by `inject-context` (a one-line `▣ TB TRACE`
  * systemMessage) is the only way a user without dev-tools open can
  * see the hook fired. Silent mode is available as an env override
  * (`TRACEBASE_HOOK_STATUS=silent`) for users who really want no
@@ -391,9 +391,9 @@ export const HOOKS_CAPTURE_COMMAND =
 const CLAUDE_HOOKS_FILE_REL = ".claude/settings.json";
 
 /** Compact-mode static status for UserPromptSubmit (silent injection). */
-const TRACEBASE_INJECT_STATIC_STATUS = "▣ TB MEMORY  checking";
+const TRACEBASE_INJECT_STATIC_STATUS = "▣ TB TRACE  checking";
 /** Compact-mode static status for Stop (background capture). */
-const TRACEBASE_CAPTURE_STATIC_STATUS = "▣ TB MEMORY  capturing";
+const TRACEBASE_CAPTURE_STATIC_STATUS = "▣ TB TRACE  capturing";
 
 /**
  * Canonical `UserPromptSubmit` entry. Runs before every user turn:
@@ -477,6 +477,20 @@ const INJECT_EVENT_SPEC: HookEventSpec = {
         },
       ],
     },
+    // 0.4.1 / 0.4.2 — --status compact + statusMessage, but the badge
+    // label was "TB MEMORY" before we reserved that namespace for
+    // semantic file memory. 0.4.3 switched reasoning reuse to
+    // "TB TRACE"; this legacy entry lets users upgrade silently.
+    {
+      hooks: [
+        {
+          type: "command",
+          command: "npx -y tracebase-ai@latest inject-context --host claude-code --status compact",
+          timeout: 5,
+          statusMessage: "▣ TB MEMORY  checking",
+        },
+      ],
+    },
   ],
   isOurs: (entry: unknown) =>
     innerCommandIncludes(entry, "tracebase-ai", "inject-context"),
@@ -485,7 +499,21 @@ const INJECT_EVENT_SPEC: HookEventSpec = {
 const CAPTURE_EVENT_SPEC: HookEventSpec = {
   eventName: "Stop",
   canonical: TRACEBASE_CAPTURE_ENTRY,
-  legacyDefaults: [], // no prior shapes — this is the first release shipping a Stop hook
+  legacyDefaults: [
+    // 0.4.2 — same capture command as 0.4.3, but the pre-rename
+    // "TB MEMORY" badge on the statusMessage. Auto-upgrade without
+    // --force so rebadging lands on the next `tracebase init`.
+    {
+      hooks: [
+        {
+          type: "command",
+          command: "npx -y tracebase-ai@latest capture-turn --host claude-code --capture compact",
+          timeout: 8,
+          statusMessage: "▣ TB MEMORY  capturing",
+        },
+      ],
+    },
+  ],
   isOurs: (entry: unknown) =>
     innerCommandIncludes(entry, "tracebase-ai", "capture-turn"),
 };
@@ -518,12 +546,39 @@ export function writeAgentHookConfig(
   return writeClaudeHookConfig(basePath, force);
 }
 
+/** Per-event state for a host's managed hook entries. */
+export type HookEventName = "UserPromptSubmit" | "Stop";
+export type HookEventState = "missing" | "non-canonical" | "canonical";
+
+export interface HookInspection {
+  /** False when the agent has no hook surface at all (cursor, codex). */
+  supported: boolean;
+  /** True iff at least one managed event has a TraceBase entry. */
+  present: boolean;
+  /** True iff every managed event has a canonical TraceBase entry. */
+  canonical: boolean;
+  /**
+   * Per-event breakdown. doctor uses this to name the specific
+   * event(s) that are missing / non-canonical; status uses it to
+   * render a precise row.
+   */
+  events: Partial<Record<HookEventName, HookEventState>>;
+}
+
 export function inspectAgentHookConfig(
   basePath: string,
   agent: InstallAgent,
-): { supported: boolean; present: boolean; canonical: boolean } {
-  if (agent !== "claude-code") return { supported: false, present: false, canonical: false };
+): HookInspection {
+  if (agent !== "claude-code") {
+    return { supported: false, present: false, canonical: false, events: {} };
+  }
   return inspectClaudeHookConfig(basePath);
+}
+
+/** Managed events for a given agent, in installer-ordered form. */
+export function hookEventsForAgent(agent: InstallAgent): HookEventName[] {
+  if (agent !== "claude-code") return [];
+  return CLAUDE_HOOK_SPECS.map((s) => s.eventName);
 }
 
 export function removeAgentHookConfig(basePath: string, agent: InstallAgent): CleanupResult | null {
@@ -595,41 +650,55 @@ function writeClaudeHookConfig(basePath: string, force: boolean): StepResult {
   return { ok: true, kind: existedBefore ? "updated" : "created", path: filePath };
 }
 
-function inspectClaudeHookConfig(basePath: string): {
-  supported: boolean;
-  present: boolean;
-  canonical: boolean;
-} {
+function inspectClaudeHookConfig(basePath: string): HookInspection {
   const filePath = join(basePath, CLAUDE_HOOKS_FILE_REL);
-  if (!existsSync(filePath)) return { supported: true, present: false, canonical: false };
+  const emptyEvents: Record<HookEventName, HookEventState> = {
+    UserPromptSubmit: "missing",
+    Stop: "missing",
+  };
+  if (!existsSync(filePath)) {
+    return { supported: true, present: false, canonical: false, events: emptyEvents };
+  }
 
   let settings: Record<string, unknown>;
   try {
     settings = JSON.parse(readFileSync(filePath, "utf-8")) as Record<string, unknown>;
   } catch {
-    return { supported: true, present: false, canonical: false };
+    return { supported: true, present: false, canonical: false, events: emptyEvents };
   }
 
   const hooks = (settings.hooks as Record<string, unknown> | undefined) ?? {};
 
-  // "Present" means every managed event has a TraceBase entry.
-  // "Canonical" means every one of those entries matches the current
-  // canonical shape exactly — anything else (legacy shape still
-  // outstanding, user-customised) is present-but-non-canonical.
+  // Per-event classification. "Present" means ANY managed event has
+  // our entry; "canonical" means EVERY managed event has a canonical
+  // entry. doctor/status consume `events` for precise messages; the
+  // top-level booleans stay for back-compat with existing callers.
+  const events: Partial<Record<HookEventName, HookEventState>> = {};
   let anyPresent = false;
   let allCanonical = true;
   for (const spec of CLAUDE_HOOK_SPECS) {
     const event = (hooks[spec.eventName] as unknown[] | undefined) ?? [];
     const ours = event.find(spec.isOurs);
     if (!ours) {
+      events[spec.eventName] = "missing";
       allCanonical = false;
       continue;
     }
     anyPresent = true;
-    if (!deepEqual(ours, spec.canonical)) allCanonical = false;
+    if (deepEqual(ours, spec.canonical)) {
+      events[spec.eventName] = "canonical";
+    } else {
+      events[spec.eventName] = "non-canonical";
+      allCanonical = false;
+    }
   }
 
-  return { supported: true, present: anyPresent, canonical: anyPresent && allCanonical };
+  return {
+    supported: true,
+    present: anyPresent,
+    canonical: anyPresent && allCanonical,
+    events,
+  };
 }
 
 function removeClaudeHookConfig(basePath: string): CleanupResult {

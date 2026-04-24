@@ -133,14 +133,14 @@ describe("runCaptureTurn — envelope contract", () => {
       { transcript_path: transcriptPath, cwd: projectDir },
     );
     expect(out.captured).toBe(false);
-    expect(envelope(out).systemMessage).toBe("▣ TB MEMORY  no reusable pattern");
+    expect(envelope(out).systemMessage).toBe("▣ TB TRACE  no reusable pattern");
   });
 
   it("degrades to `no reusable pattern` when transcript_path is missing", () => {
     initConfig(projectDir);
     const out = runCaptureTurn({ path: projectDir }, { cwd: projectDir });
     expect(out.captured).toBe(false);
-    expect(envelope(out).systemMessage).toBe("▣ TB MEMORY  no reusable pattern");
+    expect(envelope(out).systemMessage).toBe("▣ TB TRACE  no reusable pattern");
   });
 });
 
@@ -163,7 +163,7 @@ Verify by running \`pytest --collect-only\` and confirming it only lists modules
     expect(out.captured).toBe(true);
     expect(out.blockId).toBeTruthy();
     const msg = envelope(out).systemMessage;
-    expect(msg).toMatch(/^▣ TB MEMORY  stored #[0-9a-f]+/i);
+    expect(msg).toMatch(/^▣ TB TRACE  stored #[0-9a-f]+/i);
     expect(msg!.length).toBeLessThan(100);
     expect(countBlocks()).toBe(1);
   });
@@ -186,7 +186,7 @@ Verify by running pytest --collect-only.`,
       { transcript_path: transcriptPath, cwd: projectDir },
     );
     expect(out.captured).toBe(false);
-    expect(envelope(out).systemMessage).toBe("▣ TB MEMORY  no reusable pattern");
+    expect(envelope(out).systemMessage).toBe("▣ TB TRACE  no reusable pattern");
     expect(countBlocks()).toBe(0);
   });
 
@@ -202,7 +202,7 @@ Verify by running pytest --collect-only.`,
       { transcript_path: transcriptPath, cwd: projectDir },
     );
     expect(out.captured).toBe(false);
-    expect(envelope(out).systemMessage).toBe("▣ TB MEMORY  no reusable pattern");
+    expect(envelope(out).systemMessage).toBe("▣ TB TRACE  no reusable pattern");
     expect(countBlocks()).toBe(0);
   });
 });
@@ -224,7 +224,7 @@ Verify by running pytest --collect-only and confirming the output lists only mod
       { transcript_path: transcriptPath, cwd: projectDir },
     );
     expect(first.captured).toBe(true);
-    expect(envelope(first).systemMessage).toMatch(/^▣ TB MEMORY  stored /);
+    expect(envelope(first).systemMessage).toMatch(/^▣ TB TRACE  stored /);
     const afterFirst = countBlocks();
     expect(afterFirst).toBe(1);
 
@@ -236,7 +236,7 @@ Verify by running pytest --collect-only and confirming the output lists only mod
     // Same blockId on the return — fingerprint dedupe points at the
     // existing block rather than minting a new one.
     expect(second.blockId).toBe(first.blockId);
-    expect(envelope(second).systemMessage).toMatch(/^▣ TB MEMORY  reinforced /);
+    expect(envelope(second).systemMessage).toMatch(/^▣ TB TRACE  reinforced /);
     expect(countBlocks()).toBe(afterFirst);
   });
 });
@@ -295,7 +295,7 @@ Verify by running pytest --collect-only and confirming the output lists only mod
       { path: projectDir, capture: "silent" },
       { transcript_path: transcriptPath, cwd: projectDir },
     );
-    expect(envelope(out).systemMessage).toMatch(/^▣ TB MEMORY  stored /);
+    expect(envelope(out).systemMessage).toMatch(/^▣ TB TRACE  stored /);
   });
 
   it("invalid --capture value falls back to compact default (not an error)", () => {
@@ -305,7 +305,7 @@ Verify by running pytest --collect-only and confirming the output lists only mod
       { path: projectDir, capture: "loud" },
       { transcript_path: transcriptPath, cwd: projectDir },
     );
-    expect(envelope(out).systemMessage).toMatch(/^▣ TB MEMORY  stored /);
+    expect(envelope(out).systemMessage).toMatch(/^▣ TB TRACE  stored /);
   });
 });
 

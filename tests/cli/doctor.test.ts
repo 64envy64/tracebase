@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
   mkdirSync,
@@ -231,6 +232,75 @@ describe("runDoctor — regressions", () => {
     } finally {
       rmSync(outer, { recursive: true, force: true });
     }
+  });
+});
+
+describe("runDoctor — Claude Code hook health", () => {
+  // Regression: before this, doctor reported the install as fully OK
+  // whenever MCP + CLAUDE.md were canonical, even if
+  // `.claude/settings.json` had no Stop hook. That silently degraded
+  // capture UX (users went back to the MCP permission-prompt flow).
+  // Doctor must WARN specifically on a missing Stop hook.
+  it("WARNs on missing Stop hook even when MCP + CLAUDE.md are canonical", async () => {
+    const { writeAgentHookConfig, removeAgentHookConfig, writeAgentInstructionFile } = await import(
+      "../../src/cli/install-targets.js"
+    );
+    initConfig(dir);
+    writeClaudeSettings(dir, false); // MCP registered (runtime registry override file)
+    writeAgentInstructionFile(dir, "claude-code"); // CLAUDE.md written
+
+    // Install hooks, then strip the Stop hook to simulate the
+    // half-configured state a user lands in if they upgraded from
+    // 0.4.1 but somehow missed the 0.4.2 hook init.
+    writeAgentHookConfig(dir, "claude-code", false);
+    const settings = JSON.parse(
+      readFileSync(join(dir, ".claude", "settings.json"), "utf-8"),
+    ) as { hooks: { UserPromptSubmit: unknown[]; Stop?: unknown[] } };
+    delete settings.hooks.Stop;
+    writeFileSync(join(dir, ".claude", "settings.json"), JSON.stringify(settings, null, 2));
+
+    const r = runDoctor(dir);
+    expect(byName(r.checks, "claude-code-mcp")!.level).toBe("pass");
+    expect(byName(r.checks, "claude-code-instructions")!.level).toBe("pass");
+    const hookCheck = byName(r.checks, "claude-code-hooks")!;
+    expect(hookCheck).toBeDefined();
+    expect(hookCheck.level).toBe("warn");
+    expect(hookCheck.message).toMatch(/Stop/);
+    expect(hookCheck.fix).toMatch(/tracebase init/);
+
+    // Cleanup not strictly needed (tmp dir torn down), but silence
+    // the linter about an unused import in this fallthrough.
+    void removeAgentHookConfig;
+  });
+
+  it("WARNs when no hooks are installed at all (fresh MCP-only project)", async () => {
+    const { writeAgentInstructionFile } = await import("../../src/cli/install-targets.js");
+    initConfig(dir);
+    writeClaudeSettings(dir, false);
+    writeAgentInstructionFile(dir, "claude-code");
+    // No hook config written.
+
+    const r = runDoctor(dir);
+    const hookCheck = byName(r.checks, "claude-code-hooks")!;
+    expect(hookCheck.level).toBe("warn");
+    expect(hookCheck.message).toMatch(/not installed/);
+  });
+
+  it("PASSes when both UserPromptSubmit and Stop hooks are canonical", async () => {
+    const { writeAgentHookConfig, writeAgentInstructionFile } = await import(
+      "../../src/cli/install-targets.js"
+    );
+    initConfig(dir);
+    writeClaudeSettings(dir, false);
+    writeAgentInstructionFile(dir, "claude-code");
+    writeAgentHookConfig(dir, "claude-code", false);
+
+    const r = runDoctor(dir);
+    const hookCheck = byName(r.checks, "claude-code-hooks")!;
+    expect(hookCheck.level).toBe("pass");
+    expect(hookCheck.message).toMatch(/hooks canonical/);
+    expect(hookCheck.message).toMatch(/UserPromptSubmit:ok/);
+    expect(hookCheck.message).toMatch(/Stop:ok/);
   });
 });
 
