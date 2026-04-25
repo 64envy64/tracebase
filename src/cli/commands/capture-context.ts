@@ -35,7 +35,6 @@
  * `▣ TB CONTEXT  skipped · unavailable` and move on".
  */
 import { Command } from "commander";
-import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -46,8 +45,14 @@ import {
   isInitialized,
   loadConfig,
 } from "../../core/config.js";
-import { boundField, detectLeakageExtended } from "../../core/guard.js";
+import { extractDigest, sessionScope } from "../../runtime/digest.js";
 import type { StoreProjectFactInput } from "../../types.js";
+
+// Back-compat re-exports — older importers (`inject-context`,
+// `runtime/recall.ts`) used to pull these from this file. The
+// canonical implementations now live on `src/runtime/digest.ts`;
+// both names resolve to those.
+export { extractDigest, sessionScope };
 
 // ---------------------------------------------------------------------------
 // Hook shape + CLI options
@@ -121,11 +126,11 @@ type ContextSituation =
 // Soft caps. The digest must be small — the next UserPromptSubmit
 // will inject it alongside TB TRACE / TB MEMORY, competing for a
 // bounded context budget.
+//
+// MAX_DIGEST_CHARS / MAX_USER_LINES / MAX_ASSISTANT_HEADERS /
+// MAX_ASSISTANT_BULLETS now live on `src/runtime/digest.ts` so the
+// SDK runtime + CLI hook share the same bounds — see §3a.
 const MIN_TRANSCRIPT_CHARS = 400;
-const MAX_DIGEST_CHARS = 1200;
-const MAX_USER_LINES = 5;
-const MAX_ASSISTANT_HEADERS = 4;
-const MAX_ASSISTANT_BULLETS = 6;
 const DIGEST_TTL_DAYS = 14;
 const TRANSCRIPT_BYTE_LIMIT = 4 * 1024 * 1024; // 4 MiB cap per PLAN-0.5 §5.2
 
@@ -305,28 +310,9 @@ function normaliseMode(raw: string | undefined): CaptureContextMode | null {
   return null;
 }
 
-/**
- * Scope key for session_digest facts. Uses the dotted hierarchy
- * BlockStore's scope resolver understands so a query at this scope
- * recalls digests for THIS session AND parent-scope facts (TB MEMORY
- * file_semantic at `project`, plus any `global` overrides).
- *
- * Sibling scopes (different sessions under the same project) are
- * NEVER prefixes of each other, so cross-session digests stay
- * isolated by construction.
- *
- * The hash is sha256 truncated to 12 hex chars — selectivity helper,
- * not a security boundary. Raw `session_id` would land verbatim in a
- * scope column SQL string; hashing keeps the column free of PII-
- * shaped opaque ids.
- */
-export function sessionScope(sessionId: string): string {
-  const hash = createHash("sha256").update(sessionId).digest("hex").slice(0, 12);
-  return `project.session.${hash}`;
-}
-
 // ---------------------------------------------------------------------------
-// Transcript reader + digest extractor
+// Transcript reader (still CLI-side — the SDK runtime never reads
+// transcript files; only the Claude Code PreCompact hook does).
 // ---------------------------------------------------------------------------
 
 function readTranscriptTail(path: string): string | null {
@@ -340,138 +326,6 @@ function readTranscriptTail(path: string): string | null {
   } catch {
     return null;
   }
-}
-
-/**
- * Distil a bounded digest from the transcript tail. Rules per PLAN-0.5
- * §5.2: last N user-question first lines + assistant section headers +
- * assistant bullet list first-items. No paraphrase. No code blocks.
- * No tool args.
- *
- * Returns `null` when no section clears the bar — the caller treats
- * that as "skipped, no content".
- */
-export function extractDigest(raw: string): string | null {
-  const lines = raw.split("\n");
-  const userQuestions: string[] = [];
-  const assistantHeaders: string[] = [];
-  const assistantBullets: string[] = [];
-
-  // Walk lines as JSONL transcript entries. Anything that doesn't
-  // parse as JSON is skipped (meta lines, partial writes). Only
-  // `type: "user"` string content + `type: "assistant"` text blocks
-  // are mined.
-  for (const line of lines) {
-    if (!line || line.length === 0) continue;
-    let entry: unknown;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (!entry || typeof entry !== "object") continue;
-    const e = entry as {
-      type?: string;
-      message?: { role?: string; content?: unknown };
-    };
-
-    if (e.type === "user" && typeof e.message?.content === "string") {
-      const first = firstLineStripped(e.message.content);
-      if (first && first.length >= 12 && first.length <= 200) {
-        userQuestions.push(first);
-      }
-    } else if (e.type === "assistant" && Array.isArray(e.message?.content)) {
-      for (const block of e.message!.content as unknown[]) {
-        if (!block || typeof block !== "object") continue;
-        const b = block as { type?: string; text?: unknown };
-        if (b.type !== "text" || typeof b.text !== "string") continue;
-        const text = stripCodeBlocks(b.text);
-        for (const header of extractMarkdownHeaders(text)) {
-          assistantHeaders.push(header);
-        }
-        for (const bullet of extractBulletFirstItems(text)) {
-          assistantBullets.push(bullet);
-        }
-      }
-    }
-  }
-
-  // Pick the tail slice of each collection — most recent signal wins.
-  const userKeep = userQuestions.slice(-MAX_USER_LINES);
-  const headerKeep = assistantHeaders.slice(-MAX_ASSISTANT_HEADERS);
-  const bulletKeep = assistantBullets.slice(-MAX_ASSISTANT_BULLETS);
-
-  const sections: string[] = [];
-  if (userKeep.length > 0) {
-    sections.push("Recent user questions:\n" + userKeep.map((q) => `- ${q}`).join("\n"));
-  }
-  if (headerKeep.length > 0) {
-    sections.push("Discussion topics:\n" + headerKeep.map((h) => `- ${h}`).join("\n"));
-  }
-  if (bulletKeep.length > 0) {
-    sections.push("Key points:\n" + bulletKeep.map((b) => `- ${b}`).join("\n"));
-  }
-  if (sections.length === 0) return null;
-
-  const joined = sections.join("\n\n");
-  const bounded = boundField(joined, MAX_DIGEST_CHARS, "digest").value;
-  if (bounded.length < 40) return null;
-
-  // Leakage scanner runs on the exact string that would land in
-  // SQLite. Absolute paths / API keys / env lines at this boundary
-  // kill the digest — we refuse to store partial content.
-  if (detectLeakageExtended(bounded)) return null;
-
-  return bounded;
-}
-
-function firstLineStripped(content: string): string {
-  // Skip Claude Code meta wrappers (command caveats, tracebase
-  // injections, system reminders). These are NOT real user input.
-  const trimmed = content.trim();
-  if (!trimmed) return "";
-  if (/^<(command-name|local-command-caveat|system-reminder|tracebase)[\s>]/.test(trimmed)) {
-    return "";
-  }
-  const firstLine = trimmed.split("\n", 1)[0]!.trim();
-  return firstLine;
-}
-
-function stripCodeBlocks(text: string): string {
-  return text.replace(/```[\s\S]*?```/g, "");
-}
-
-function extractMarkdownHeaders(text: string): string[] {
-  const headers: string[] = [];
-  for (const raw of text.split("\n")) {
-    const m = /^#{1,4}\s+(.+?)\s*$/.exec(raw.trim());
-    if (m && m[1]) {
-      const h = m[1].trim();
-      if (h.length >= 4 && h.length <= 120) headers.push(h);
-    }
-  }
-  return headers;
-}
-
-function extractBulletFirstItems(text: string): string[] {
-  const bullets: string[] = [];
-  const lines = text.split("\n");
-  let prevWasBullet = false;
-  for (const raw of lines) {
-    const line = raw.trim();
-    const m = /^[-*•]\s+(.+)$/.exec(line);
-    if (!m) {
-      prevWasBullet = false;
-      continue;
-    }
-    if (prevWasBullet) continue; // only the FIRST item of each list
-    prevWasBullet = true;
-    const b = m[1]!.trim();
-    // Skip bullet lines that themselves look like code / paths.
-    if (b.startsWith("`") && b.endsWith("`")) continue;
-    if (b.length >= 10 && b.length <= 180) bullets.push(b);
-  }
-  return bullets;
 }
 
 // ---------------------------------------------------------------------------

@@ -51,7 +51,7 @@ import {
   type HoldoutLoader,
 } from "../runtime/recall.js";
 import { observeToolBatch } from "../runtime/observe-tools.js";
-import { extractDigest, sessionScope } from "../cli/commands/capture-context.js";
+import { extractDigestFromTurns, sessionScope } from "../runtime/digest.js";
 import { createSyncCoordinator, type SyncCoordinator } from "./sync-coordinator.js";
 import type { ReasoningLayer } from "../core/engine.js";
 import type {
@@ -527,33 +527,5 @@ function resolveDigest(input: SaveContextInput): string | null {
   return null;
 }
 
-/**
- * Bridge between the SDK's `{ role, content }[]` shape and the
- * `extractDigest` helper that already lives on capture-context and
- * expects a JSONL transcript. Reuses the canonical digest extractor
- * verbatim so SDK-derived digests look identical to PreCompact-derived
- * ones — same rules, same bounds, same leakage scan.
- */
-function extractDigestFromTurns(
-  turns: ReadonlyArray<{ role: "user" | "assistant"; content: string }>,
-): string | null {
-  const lines: string[] = [];
-  for (const t of turns) {
-    if (typeof t.content !== "string" || t.content.length === 0) continue;
-    if (t.role === "user") {
-      lines.push(JSON.stringify({ type: "user", message: { role: "user", content: t.content } }));
-    } else if (t.role === "assistant") {
-      lines.push(
-        JSON.stringify({
-          type: "assistant",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: t.content }],
-          },
-        }),
-      );
-    }
-  }
-  if (lines.length === 0) return null;
-  return extractDigest(lines.join("\n"));
-}
+// `extractDigestFromTurns` moved to `src/runtime/digest.ts` in
+// §3a. The SDK runtime imports the canonical implementation now.

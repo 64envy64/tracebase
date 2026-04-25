@@ -34,7 +34,7 @@ import type { readHoldoutConfig } from "../core/config.js";
 import { detectToolPattern } from "../core/tool-loop-detect.js";
 import { buildInjectionPayload } from "../core/build-injection-payload.js";
 import { runReasoningPatternsRecall } from "../server/reasoning-patterns-entry.js";
-import { sessionScope } from "../cli/commands/capture-context.js";
+import { sessionScope } from "./digest.js";
 
 /**
  * Match the signature `withBlockServer` already passes — a function
