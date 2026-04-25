@@ -52,7 +52,7 @@ cost, not ours).
 | Stop (capture-turn) | 500 ms | yes | 6 k-line transcript tail |
 | **PostToolBatch** (capture-tool-use, primary) | **200 ms** | **yes** | batch of 8 mixed Read/Grep/Glob/Bash tool_calls |
 | PostToolUse (capture-tool-use, fallback) | 200 ms | no — compat only | single tool_call per invocation |
-| PreCompact (capture-context) | 2 s | yes (0.5.1) | 4 MiB transcript tail |
+| PreCompact (capture-context) | 2 s | yes (0.5.2) | 4 MiB transcript tail |
 | PreToolUse | 50 ms | **opt-in only** — off by default | single tool_call |
 
 ### 3.1 Benchmark harness
@@ -186,7 +186,7 @@ See §7.
   gains N rows → next UserPromptSubmit → inject-context emits composite
   badge with `MEMORY K fact(s)`.
 
-### 5.2 TB CONTEXT — session digest (ships in 0.5.1)
+### 5.2 TB CONTEXT — session digest (ships in 0.5.2)
 
 - **Prereq.** Confirm live `PreCompact` stdin shape via a throwaway
   `tracebase capture-context --dump-stdin` dev command. Validate before
@@ -219,7 +219,7 @@ See §7.
   row with scope `session:<id>` → inject-context with same session_id
   returns digest in additionalContext; different session_id returns none.
 
-### 5.3 TB TOOL + TB LOOP — PostToolBatch-first (ships in 0.5.2)
+### 5.3 TB TOOL + TB LOOP — PostToolBatch-first (ships in 0.5.3)
 
 - **Primary input: PostToolBatch.** Fires once per assistant turn after
   the full tool batch. Single SQLite transaction per envelope. Max one
@@ -239,7 +239,7 @@ See §7.
     on next UserPromptSubmit.
   - Unknown / missing `hook_event_name` → valid empty envelope, silent.
 
-- **Storage record — new table, `V2_MIGRATIONS[6]`:**
+- **Storage record — new table, `V2_MIGRATIONS[8]`:**
 
   ```sql
   CREATE TABLE tool_observations (
@@ -310,7 +310,7 @@ See §7.
   the binary → 3 rows → next UserPromptSubmit emits TB LOOP badge in
   composite.
 
-### 5.4 SDK wrappers (ships in 0.5.3)
+### 5.4 SDK wrappers (ships in 0.5.4)
 
 - **Event surface.** Add `BadgeEvent` union exported from
   `src/index.ts`:
@@ -364,10 +364,10 @@ gets zero-friction rebadging (pattern `4490c4ab` carried forward).
 
 | Phase | Hook event | Default / compat |
 |---|---|---|
-| 0.5.1 | `PreCompact` | default |
-| 0.5.2 | `PostToolBatch` | **default, installed unconditionally** |
-| 0.5.2 | `PostToolUse` | **manual user compat only** — `npx tracebase init --compat=posttooluse`. No auto-switchover. No auto-nag. |
-| 0.5.2 | `PreToolUse` | opt-in only — `TRACEBASE_PRETOOLUSE=on` at `init` time |
+| 0.5.2 | `PreCompact` | default |
+| 0.5.3 | `PostToolBatch` | **default, installed unconditionally** |
+| 0.5.3 | `PostToolUse` | **manual user compat only** — `npx tracebase init --compat=posttooluse`. No auto-switchover. No auto-nag. |
+| 0.5.3 | `PreToolUse` | opt-in only — `TRACEBASE_PRETOOLUSE=on` at `init` time |
 
 **Doctor reporting rules for PostToolBatch.**
 - Installed + canonical → **PASS** (`claude-code-posttoolbatch`).
@@ -421,7 +421,7 @@ then only via explicit user-accepted consent with its own design doc.
 
 `tests/cli/cloud-allowlist.test.ts` asserts every forbidden key is
 stripped, regardless of nesting depth. Extended every phase, not just
-0.5.3.
+the SDK release.
 
 ## 8. Release phasing
 
@@ -443,7 +443,7 @@ Pre-ship sanity: live stdin shape via `--dump-stdin` dev mode. Digest-
 in-session injection at UserPromptSubmit. 14-day TTL sweeper.
 
 **0.5.3 — TB TOOL + TB LOOP.** New `tool_observations` table
-(V2_MIGRATIONS[7]). PostToolBatch default. PostToolUse manual compat.
+(V2_MIGRATIONS[8]). PostToolBatch default. PostToolUse manual compat.
 PreToolUse opt-in. Workspace salt.
 
 **0.5.4 — SDK polish.** `BadgeEvent` exported. `wrapGeneric` added.
@@ -481,8 +481,10 @@ Every phase must pass all of:
    `.tracebase/config.json`. Never shipped to cloud.
 4. **`fact_type = "file_semantic"` vs. finer taxonomy.** One bucket for
    0.5; revisit after real usage.
-5. **PreCompact stdin shape — unknown today.** 0.5.1 ships
-   `--dump-stdin` dev command first; validate live, lock parser, release.
+5. **PreCompact stdin shape — resolved in 0.5.2.** Live dump
+   confirmed `{hook_event_name, transcript_path, cwd, session_id,
+   trigger, custom_instructions}`; parser locked. The same dump-first
+   sequence applies to the PostToolBatch payload before 0.5.3 codes.
 6. **Workspace salt visibility.** `doctor` shows literally `present` or
    `missing`. No prefix, no hash, no byte count.
 7. **Cloud allowlist enforcement location.**
