@@ -14,11 +14,14 @@ import { Command } from "commander";
 import { basename } from "node:path";
 import pc from "picocolors";
 import {
+  enableHoldoutExperiment,
   initConfig,
   isInitialized,
   loadConfig,
   normalizeInstallAgents,
+  readHoldoutConfig,
   resolveProjectBase,
+  DEFAULT_HOLDOUT_RATE,
 } from "../../core/config.js";
 import {
   bestEffortOpenUrl,
@@ -60,6 +63,15 @@ export const initCommand = new Command("init")
   .option("--skip-agent-instructions", "do not touch the agent instruction file")
   .option("--skip-claude-settings", "back-compat alias for --skip-mcp-config")
   .option("--skip-claude-md", "back-compat alias for --skip-agent-instructions")
+  // 0.6.0 — impact measurement enabled by default. Two opt-outs.
+  .option(
+    "--no-holdout",
+    "do NOT enable the default 10% holdout (disables impact measurement on this install)",
+  )
+  .option(
+    "--holdout-rate <rate>",
+    "override the default 10% holdout rate (0 < rate ≤ 1)",
+  )
   .action(async (opts: {
     path: string;
     agent?: string;
@@ -72,12 +84,30 @@ export const initCommand = new Command("init")
     skipAgentInstructions?: boolean;
     skipClaudeSettings?: boolean;
     skipClaudeMd?: boolean;
+    holdout?: boolean;       // commander's `--no-holdout` produces `holdout === false`
+    holdoutRate?: string;
   }) => {
     const basePath = resolveProjectBase(opts.path);
     if (opts.agent && !normalizeInstallAgent(opts.agent)) {
       console.error(pc.red("Unsupported agent target: ") + opts.agent);
       console.error("Use one of " + pc.cyan("claude-code") + ", " + pc.cyan("cursor") + ", or " + pc.cyan("codex") + ".");
       process.exit(1);
+    }
+
+    // 0.6.0 — validate `--holdout-rate` early so a typo fails before
+    // we touch any filesystem.
+    let parsedHoldoutRate: number | undefined;
+    if (opts.holdoutRate !== undefined) {
+      const r = Number(opts.holdoutRate);
+      if (!Number.isFinite(r) || r <= 0 || r > 1) {
+        console.error(
+          pc.red("Invalid --holdout-rate: ") +
+            opts.holdoutRate +
+            pc.dim(" (must be a number in (0, 1])"),
+        );
+        process.exit(1);
+      }
+      parsedHoldoutRate = r;
     }
 
     const existingConfig = isInitialized(basePath) ? loadConfig(basePath) : undefined;
@@ -285,6 +315,20 @@ export const initCommand = new Command("init")
       }
     }
 
+    // 0.6.0 — Impact measurement is on by default. Apply the
+    // holdout-default policy after `initConfig` has settled the
+    // workspace state so we know we have a writable
+    // `.tracebase/config.json`. The helper preserves any existing
+    // holdout config; opt-outs (`--no-holdout`, `TRACEBASE_HOLDOUT=off`)
+    // skip the enable but still print the message.
+    const holdoutResult = applyHoldoutDefault(basePath, {
+      noHoldout: opts.holdout === false,
+      holdoutRateOverride: parsedHoldoutRate,
+      env: process.env.TRACEBASE_HOLDOUT,
+    });
+    console.log();
+    console.log(holdoutResult.message);
+
     console.log();
     console.log(pc.bold("Next:"));
     if (selectedAgents.length === 1) {
@@ -482,6 +526,115 @@ async function tryInteractiveCloudLink(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ---------------------------------------------------------------------------
+// 0.6.0 — Impact measurement enabled by default
+//
+// `applyHoldoutDefault` is the single decision point for the
+// holdout-on-init policy. The init command calls it after
+// `initConfig` succeeds; tests call it directly to pin the truth
+// table without spawning the CLI.
+//
+// Decision order (every branch preserves the safety property
+// "never silently rotate / re-enable a deliberately-disabled
+// experiment"):
+//
+//   1. `noHoldout` flag OR `TRACEBASE_HOLDOUT=off` env →
+//      "disabled-by-flag". No write. Print actionable enable
+//      hint.
+//   2. Existing `experiment.holdout` config present:
+//        - `enabled: true`  → "preserved-existing" (rate kept)
+//        - `enabled: false` → "preserved-disabled" (kept off,
+//                              salt + createdAt preserved for a
+//                              future re-enable)
+//   3. No existing config → enable at the requested rate (default
+//      0.1). The salt is fresh; `enableHoldoutExperiment` writes
+//      the config without touching anything else.
+// ---------------------------------------------------------------------------
+
+export type ApplyHoldoutState =
+  | "enabled-fresh"
+  | "preserved-existing-enabled"
+  | "preserved-existing-disabled"
+  | "disabled-by-flag";
+
+export interface ApplyHoldoutDefaultOptions {
+  noHoldout?: boolean;
+  holdoutRateOverride?: number;
+  env?: string | undefined;
+}
+
+export interface ApplyHoldoutDefaultResult {
+  state: ApplyHoldoutState;
+  /** Resolved rate that landed on disk; undefined when state is `disabled-by-flag`. */
+  rate?: number;
+  /** Multi-line, terminal-formatted message ready for `console.log`. */
+  message: string;
+}
+
+export function applyHoldoutDefault(
+  basePath: string,
+  opts: ApplyHoldoutDefaultOptions = {},
+): ApplyHoldoutDefaultResult {
+  const envOff = (opts.env ?? "").trim().toLowerCase() === "off";
+  const optedOut = opts.noHoldout === true || envOff;
+
+  const existing = readHoldoutConfig(basePath);
+  if (existing) {
+    // Existing config wins — never silently rotate the salt or
+    // flip the flag based on a flag the user passed today.
+    if (existing.enabled) {
+      return {
+        state: "preserved-existing-enabled",
+        rate: existing.rate,
+        message:
+          pc.dim("  Impact measurement: ") +
+          `enabled (${formatRate(existing.rate)} holdout, preserved)` +
+          pc.dim("\n  Disable any time with: ") +
+          pc.cyan("npx tracebase experiment disable"),
+      };
+    }
+    return {
+      state: "preserved-existing-disabled",
+      rate: existing.rate,
+      message:
+        pc.dim("  Impact measurement: ") +
+        "disabled (preserved)" +
+        pc.dim("\n  Enable later with: ") +
+        pc.cyan(`npx tracebase experiment enable --rate ${formatRate(existing.rate)}`),
+    };
+  }
+
+  if (optedOut) {
+    return {
+      state: "disabled-by-flag",
+      message:
+        pc.dim("  Impact measurement: ") +
+        "disabled" +
+        pc.dim("\n  Enable later with: ") +
+        pc.cyan(`npx tracebase experiment enable --rate ${formatRate(DEFAULT_HOLDOUT_RATE)}`),
+    };
+  }
+
+  const rate = opts.holdoutRateOverride ?? DEFAULT_HOLDOUT_RATE;
+  enableHoldoutExperiment(basePath, { rate });
+  return {
+    state: "enabled-fresh",
+    rate,
+    message:
+      pc.green("  Impact measurement enabled: ") +
+      `${formatRate(rate)} holdout` +
+      pc.dim("\n  Disable any time with: ") +
+      pc.cyan("npx tracebase experiment disable"),
+  };
+}
+
+function formatRate(rate: number): string {
+  // 0.1 → "10%". Always integer percent; rates outside that
+  // range are CLI-validated up front, so we can format
+  // confidently here.
+  return `${Math.round(rate * 100)}%`;
 }
 
 export { writeClaudeSettings, writeClaudeMarkdown };

@@ -88,6 +88,25 @@ function seedOutcome(opts: {
   store.close();
 }
 
+function seedInjection(opts: {
+  queryId: string;
+  blockId?: string;
+  score?: number;
+  ts?: number;
+}): void {
+  const cfg = loadConfig(projectDir);
+  const db = new Database(cfg.storagePath);
+  const store = new BlockStore(db);
+  store.appendEvent({
+    ts: opts.ts ?? Date.now(),
+    queryId: opts.queryId,
+    event: "injection",
+    blockId: opts.blockId ?? "block-stub",
+    score: opts.score ?? 0.8,
+  });
+  store.close();
+}
+
 function setPricingConfig(input: number, output: number): void {
   const file = join(projectDir, ".tracebase", "config.json");
   const raw = JSON.parse(readFileSync(file, "utf-8")) as Record<string, unknown>;
@@ -240,24 +259,75 @@ describe("renderImpactLine — head/tail composition", () => {
     expect(line).toMatch(/Not enough data yet/);
   });
 
-  it("0.5.9 — no-holdout: head + 'savings unavailable: enable holdout' (actionable copy)", () => {
+  it("0.5.9 — no-holdout (experiment NOT enabled): head + 'savings unavailable: enable holdout'", () => {
     initConfig(projectDir);
+    // No enableHoldoutExperiment() call → holdout config absent.
     seedRetrieval({ queryId: "a", shadow: false, injectedTokens: 500 });
     seedRetrieval({ queryId: "b", shadow: false, injectedTokens: 429 });
     const r = runImpact({ path: projectDir });
     const line = renderImpactLine(r);
-    // Always-on head: assisted runs / resolved rate / injected tokens.
     expect(line).toMatch(/runs assisted/);
-    expect(line).toMatch(/injected 929 tokens|injected 0\.9k tokens/); // 929 → "929"
-    // Actionable next-step pointer.
+    expect(line).toMatch(/injected 929 tokens|injected 0\.9k tokens/);
     expect(line).toMatch(/savings unavailable/);
     expect(line).toMatch(/tracebase experiment enable --rate/);
-    // Must NOT pretend the cohort is "configured" — the 0.5.7
-    // copy was wrong on this exact case.
     expect(line).not.toMatch(/Causal arm not configured/);
   });
 
-  it("0.5.9 — below-cohort: head + 'Not enough causal data yet — assisted=N, holdout=M'", () => {
+  it("0.6.0 — experiment ENABLED but no holdout outcomes yet → 'collecting causal data'", () => {
+    initConfig(projectDir);
+    enableHoldoutExperiment(projectDir, { rate: 0.1 });
+    // Assisted: retrieval + injection + outcome(control=false).
+    // No holdout outcomes recorded yet.
+    seedRetrieval({ queryId: "a", shadow: false, injectedTokens: 500 });
+    seedInjection({ queryId: "a" });
+    seedOutcome({ queryId: "a", resolved: true, control: false });
+    seedRetrieval({ queryId: "b", shadow: false, injectedTokens: 429 });
+    seedInjection({ queryId: "b" });
+    seedOutcome({ queryId: "b", resolved: true, control: false });
+    const r = runImpact({ path: projectDir });
+    expect(r.experiment).toEqual({
+      enabled: true,
+      rate: 0.1,
+      assistedN: 2,
+      holdoutN: 0,
+      minCohortSize: expect.any(Number),
+    });
+    const line = renderImpactLine(r);
+    expect(line).toMatch(/runs assisted/);
+    expect(line).toMatch(/injected/);
+    expect(line).toMatch(/collecting causal data/);
+    expect(line).toMatch(/assisted=2/);
+    expect(line).toMatch(/holdout=0/);
+    expect(line).toMatch(/need ≥ 30 per arm/);
+    expect(line).not.toMatch(/savings unavailable/);
+    expect(line).not.toMatch(/tracebase experiment enable/);
+  });
+
+  it("0.6.0 — experiment enabled + below-cohort: 'collecting' replaces 'Not enough causal data yet'", () => {
+    initConfig(projectDir);
+    enableHoldoutExperiment(projectDir, { rate: 0.1 });
+    // Holdout arm: shadow retrieval + outcome(control=true).
+    seedRetrieval({
+      queryId: "h",
+      shadow: true,
+      controlReason: "holdout",
+      injectedTokens: 0,
+    });
+    seedOutcome({ queryId: "h", resolved: false, control: true });
+    // Assisted arm: retrieval + injection + outcome(control=false).
+    seedRetrieval({ queryId: "a", shadow: false, injectedTokens: 1200 });
+    seedInjection({ queryId: "a" });
+    seedOutcome({ queryId: "a", resolved: true, control: false });
+    const r = runImpact({ path: projectDir });
+    const line = renderImpactLine(r);
+    expect(line).toMatch(/collecting causal data — assisted=1, holdout=1/);
+    expect(line).not.toMatch(/Not enough causal data yet/);
+  });
+
+  it("0.6.0 — experiment ENABLED + below-cohort: 'collecting causal data' (renamed from 'Not enough')", () => {
+    // Pre-0.6.0 this rendered "Not enough causal data yet"; with
+    // experiment enabled the copy now reads "collecting causal
+    // data" so users see growing-not-broken state.
     initConfig(projectDir);
     enableHoldoutExperiment(projectDir, { rate: 0.5 });
     seedRetrieval({
@@ -268,15 +338,15 @@ describe("renderImpactLine — head/tail composition", () => {
     });
     seedOutcome({ queryId: "h-1", resolved: false, control: true });
     seedRetrieval({ queryId: "a-1", shadow: false, injectedTokens: 1200 });
+    seedInjection({ queryId: "a-1" });
     seedOutcome({ queryId: "a-1", resolved: true, control: false });
     const r = runImpact({ path: projectDir });
     const line = renderImpactLine(r);
-    expect(line).toMatch(/runs assisted/);
+    expect(line).toMatch(/runs? assisted/);
     expect(line).toMatch(/injected/);
-    expect(line).toMatch(/Not enough causal data yet/);
+    expect(line).toMatch(/collecting causal data/);
     expect(line).toMatch(/assisted=\d+/);
     expect(line).toMatch(/holdout=\d+/);
-    // No fabricated savings on small cohorts.
     expect(line).not.toMatch(/saved over \d+d/);
   });
 

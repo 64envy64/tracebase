@@ -15,7 +15,12 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import pc from "picocolors";
 import Database from "better-sqlite3";
-import { findProjectRoot, loadConfig, normalizeInstallAgents } from "../../core/config.js";
+import {
+  findProjectRoot,
+  loadConfig,
+  normalizeInstallAgents,
+  readHoldoutConfig,
+} from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
 import type { TraceBaseConfig } from "../../types.js";
 import {
@@ -32,7 +37,12 @@ import {
 } from "../install-targets.js";
 import { readHookHealth } from "../hook-self-heal.js";
 
-export type DoctorLevel = "pass" | "warn" | "fail";
+/**
+ * 0.6.0 — `info` added for purely diagnostic state that's
+ * neither passing nor warning. Doctor exit-code logic still
+ * keys on `fail` only; `info` rows show with a cyan badge.
+ */
+export type DoctorLevel = "pass" | "info" | "warn" | "fail";
 
 export interface DoctorCheck {
   /** Short identifier, e.g. "tracebase-config". */
@@ -47,7 +57,7 @@ export interface DoctorCheck {
 export interface DoctorReport {
   projectPath: string;
   checks: DoctorCheck[];
-  summary: { pass: number; warn: number; fail: number };
+  summary: { pass: number; info: number; warn: number; fail: number };
 }
 
 export const doctorCommand = new Command("doctor")
@@ -164,6 +174,12 @@ export function runDoctor(invocationPath: string): DoctorReport {
     });
   }
   cfg = resolvedCfg;
+
+  // 0.6.0 — Impact measurement check. PASS when holdout is
+  // enabled at a sane rate; INFO when disabled / missing (the
+  // state is intentional but we surface the next-step command);
+  // WARN when the experiment block is malformed / partial.
+  appendImpactMeasurementCheck(checks, projectRoot);
 
   const configuredAgents = normalizeInstallAgents(cfg.install);
   // Same three-state handling as `status`: distinguish legacy
@@ -603,6 +619,97 @@ function probeWithoutSelftest(
   };
 }
 
+/**
+ * 0.6.0 — Impact measurement (holdout experiment) doctor check.
+ *
+ * Reads the on-disk experiment config directly so a malformed
+ * file is reported as WARN rather than silently ignored by
+ * `readHoldoutConfig`'s tolerant parse. The render copy is
+ * actionable: PASS shows the rate; INFO shows the enable
+ * command; WARN says how to repair.
+ */
+function appendImpactMeasurementCheck(
+  checks: DoctorCheck[],
+  projectRoot: string,
+): void {
+  const configFile = join(projectRoot, ".tracebase", "config.json");
+  let raw: unknown = null;
+  try {
+    raw = JSON.parse(readFileSync(configFile, "utf-8")) as unknown;
+  } catch {
+    // config.json parse error already surfaced by an earlier
+    // check — skip the impact check rather than double-reporting.
+    return;
+  }
+  if (!raw || typeof raw !== "object") return;
+  const experiment = (raw as { experiment?: unknown }).experiment;
+  if (experiment !== undefined && (typeof experiment !== "object" || experiment === null)) {
+    checks.push({
+      name: "impact-measurement",
+      level: "warn",
+      message: "experiment block is not an object",
+      fix:
+        "Edit `.tracebase/config.json` and remove the malformed `experiment` field, " +
+        "then re-enable with `npx tracebase experiment enable --rate 0.1`.",
+    });
+    return;
+  }
+  const cfg = readHoldoutConfig(projectRoot);
+  if (!cfg) {
+    // Either no experiment block at all, or the holdout sub-field
+    // failed validation (numbers / booleans / dates). The
+    // tolerant reader returned null; we can't tell the two apart
+    // from here without re-parsing, so the message covers both.
+    if (
+      experiment !== undefined &&
+      typeof experiment === "object" &&
+      experiment !== null &&
+      "holdout" in (experiment as Record<string, unknown>)
+    ) {
+      checks.push({
+        name: "impact-measurement",
+        level: "warn",
+        message: "experiment.holdout block is malformed",
+        fix:
+          "Run `npx tracebase experiment enable --rate 0.1` to rewrite it cleanly. " +
+          "The command preserves any salt + createdAt that survives the rewrite.",
+      });
+      return;
+    }
+    checks.push({
+      name: "impact-measurement",
+      level: "info",
+      message: "disabled — enable with `npx tracebase experiment enable --rate 0.1`",
+    });
+    return;
+  }
+  if (!cfg.enabled) {
+    checks.push({
+      name: "impact-measurement",
+      level: "info",
+      message: `disabled (rate ${cfg.rate}) — re-enable with \`npx tracebase experiment enable --rate ${cfg.rate}\``,
+    });
+    return;
+  }
+  // Sanity check the rate: outside (0, 1] is malformed even if
+  // the JSON parsed cleanly.
+  if (!Number.isFinite(cfg.rate) || cfg.rate <= 0 || cfg.rate > 1) {
+    checks.push({
+      name: "impact-measurement",
+      level: "warn",
+      message: `rate out of range: ${cfg.rate} (expected 0 < rate ≤ 1)`,
+      fix: "Re-run `npx tracebase experiment enable --rate 0.1` to reset to a valid value.",
+    });
+    return;
+  }
+  const ratePct = Math.round(cfg.rate * 100);
+  checks.push({
+    name: "impact-measurement",
+    level: "pass",
+    message: `enabled (${ratePct}% holdout)`,
+  });
+}
+
 function appendAgentIntegrationChecks(
   checks: DoctorCheck[],
   projectRoot: string,
@@ -829,7 +936,7 @@ function stateAbbrev(s: HookEventState): string {
 }
 
 function finalize(projectPath: string, checks: DoctorCheck[]): DoctorReport {
-  const summary = { pass: 0, warn: 0, fail: 0 };
+  const summary = { pass: 0, info: 0, warn: 0, fail: 0 };
   for (const c of checks) summary[c.level]++;
   return { projectPath, checks, summary };
 }
@@ -844,6 +951,7 @@ function renderDoctor(report: DoctorReport): void {
   for (const c of report.checks) {
     const badge =
       c.level === "pass" ? pc.green("PASS")
+      : c.level === "info" ? pc.cyan("INFO")
       : c.level === "warn" ? pc.yellow("WARN")
       : pc.red("FAIL");
     const namePad = c.name.padEnd(nameWidth);

@@ -42,11 +42,14 @@ import {
   findProjectRoot,
   isInitialized,
   loadConfig,
+  readHoldoutConfig,
+  DEFAULT_HOLDOUT_RATE,
 } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
-import { computeAggregates } from "../../core/analytics.js";
+import { computeAggregates, type EventAggregates } from "../../core/analytics.js";
 import {
   computeUsageMetrics,
+  DEFAULT_MIN_CAUSAL_COHORT,
   type UsageMetrics,
 } from "../../analytics/usage-metrics.js";
 
@@ -114,6 +117,22 @@ export interface ImpactReport {
   metrics: UsageMetrics | null;
   /** Resolved pricing config — `null` when neither flag nor config provides BOTH prices. */
   pricing: { inputPer1mTokens: number; outputPer1mTokens: number } | null;
+  /**
+   * 0.6.0 — surface the experiment-side state separately from
+   * `metrics.causal`. The aggregator omits the causal block
+   * entirely when no holdout outcomes are recorded, but a
+   * just-enabled experiment is "collecting" not "missing" — the
+   * render needs both signals.
+   */
+  experiment: {
+    enabled: boolean;
+    /** Configured rate when enabled; otherwise the would-be rate. */
+    rate: number;
+    /** Per-arm outcome counts pulled directly from the aggregator (bypasses metrics filtering). */
+    assistedN: number;
+    holdoutN: number;
+    minCohortSize: number;
+  } | null;
   error?: string;
 }
 
@@ -126,11 +145,13 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
       windowBeforeTs: Date.now(),
       metrics: null,
       pricing: null,
+      experiment: null,
       error: "not initialized — run `npx tracebase init` first",
     };
   }
   const config = loadConfig(projectRoot);
   const pricing = resolvePricing(opts, config.pricing);
+  const holdout = readHoldoutConfig(projectRoot);
 
   if (!existsSync(config.storagePath)) {
     return {
@@ -139,6 +160,15 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
       windowBeforeTs: Date.now(),
       metrics: null,
       pricing,
+      experiment: holdout
+        ? {
+            enabled: holdout.enabled,
+            rate: holdout.rate,
+            assistedN: 0,
+            holdoutN: 0,
+            minCohortSize: DEFAULT_MIN_CAUSAL_COHORT,
+          }
+        : null,
     };
   }
 
@@ -148,12 +178,28 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
   const db = new Database(config.storagePath, { readonly: true });
   const store = new BlockStore(db, { skipMigrate: true });
   let metrics: UsageMetrics;
+  let agg: EventAggregates;
   try {
-    const agg = computeAggregates(store, { afterTs, beforeTs });
+    agg = computeAggregates(store, { afterTs, beforeTs });
     metrics = computeUsageMetrics(agg);
   } finally {
     store.close();
   }
+
+  // 0.6.0 — pull experiment-side counts directly off the
+  // aggregator. `metrics.causal` is filtered out when
+  // `holdout.n === 0`, but for an enabled-but-just-started
+  // experiment we still want to surface "collecting" with the
+  // current per-arm counts.
+  const experiment: ImpactReport["experiment"] = holdout
+    ? {
+        enabled: holdout.enabled,
+        rate: holdout.rate,
+        assistedN: agg.causal.assisted.n,
+        holdoutN: agg.causal.holdout.n,
+        minCohortSize: metrics.causal?.minCohortSize ?? DEFAULT_MIN_CAUSAL_COHORT,
+      }
+    : null;
 
   if (metrics.observed.eligibleRuns === 0) {
     return {
@@ -162,6 +208,7 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
       windowBeforeTs: beforeTs,
       metrics,
       pricing,
+      experiment,
     };
   }
 
@@ -188,6 +235,7 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
     windowBeforeTs: beforeTs,
     metrics,
     pricing,
+    experiment,
   };
 }
 
@@ -238,19 +286,38 @@ function renderHead(m: UsageMetrics): string {
 function renderTail(report: ImpactReport, windowDays: number): string {
   const m = report.metrics!;
   switch (report.readiness) {
-    case "no-holdout":
+    case "no-holdout": {
+      // 0.6.0 — experiment may be ENABLED but have zero holdout
+      // outcomes recorded yet (just-init'd install). That's a
+      // "collecting" state, not "savings unavailable". Read the
+      // experiment field to decide which copy is honest.
+      if (report.experiment?.enabled) {
+        const exp = report.experiment;
+        return pc.dim(
+          `collecting causal data — assisted=${exp.assistedN}, holdout=${exp.holdoutN} (need ≥ ${exp.minCohortSize} per arm)`,
+        );
+      }
       // 0.5.9 §4 — actionable, not just descriptive. The user
       // gets the exact command to enable the experiment.
       return pc.dim(
-        "savings unavailable: enable holdout with `tracebase experiment enable --rate 0.1`",
+        `savings unavailable: enable holdout with \`tracebase experiment enable --rate ${formatRateForCli(report.experiment?.rate)}\``,
       );
+    }
     case "below-cohort": {
+      // 0.6.0 — same "collecting" copy when the experiment is
+      // enabled but the per-arm cohort is below threshold. The
+      // older "Not enough causal data yet" still fires when
+      // someone has explicitly disabled the experiment but
+      // historical data leaves residual causal numbers.
       const causal = m.causal!;
       const need = causal.minCohortSize;
       const haveA = causal.assisted.n;
       const haveH = causal.holdout.n;
+      const verb = report.experiment?.enabled
+        ? "collecting causal data"
+        : "Not enough causal data yet";
       return pc.dim(
-        `Not enough causal data yet — assisted=${haveA}, holdout=${haveH} (need ≥ ${need} per arm)`,
+        `${verb} — assisted=${haveA}, holdout=${haveH} (need ≥ ${need} per arm)`,
       );
     }
     case "ready": {
@@ -259,6 +326,12 @@ function renderTail(report: ImpactReport, windowDays: number): string {
     default:
       return "";
   }
+}
+
+/** Format a holdout rate for the CLI hint. Default 0.1 → "0.1". */
+function formatRateForCli(rate: number | undefined): string {
+  const r = typeof rate === "number" && rate > 0 && rate <= 1 ? rate : DEFAULT_HOLDOUT_RATE;
+  return r.toString();
 }
 
 function renderReadyTail(

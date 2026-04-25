@@ -176,7 +176,8 @@ describe("runDoctor — summary", () => {
     writeClaudeSettings(dir, false);
     writeClaudeMarkdown(dir);
     const r = runDoctor(dir);
-    const totals = { pass: 0, warn: 0, fail: 0 };
+    // 0.6.0 — `info` joined the level enum; counts must include it.
+    const totals = { pass: 0, info: 0, warn: 0, fail: 0 };
     for (const c of r.checks) totals[c.level]++;
     expect(r.summary).toEqual(totals);
   });
@@ -374,6 +375,89 @@ describe("runDoctor — hook-health (0.5.6 self-heal)", () => {
     expect(c.level).toBe("pass");
     expect(c.message).toMatch(/recently/);
     expect(c.message).toMatch(/PostToolBatch/);
+  });
+});
+
+describe("runDoctor — impact measurement (0.6.0)", () => {
+  it("PASS when holdout is enabled", async () => {
+    const { enableHoldoutExperiment } = await import("../../src/core/config.js");
+    initConfig(dir);
+    enableHoldoutExperiment(dir, { rate: 0.1 });
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "impact-measurement")!;
+    expect(c).toBeDefined();
+    expect(c.level).toBe("pass");
+    expect(c.message).toMatch(/enabled \(10% holdout\)/);
+  });
+
+  it("INFO when holdout is missing — surfaces the enable command", () => {
+    initConfig(dir);
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "impact-measurement")!;
+    expect(c.level).toBe("info");
+    expect(c.message).toMatch(/disabled/);
+    expect(c.message).toMatch(/tracebase experiment enable --rate 0\.1/);
+  });
+
+  it("INFO when holdout is explicitly disabled", async () => {
+    const { enableHoldoutExperiment, disableHoldoutExperiment } = await import(
+      "../../src/core/config.js"
+    );
+    initConfig(dir);
+    enableHoldoutExperiment(dir, { rate: 0.2 });
+    disableHoldoutExperiment(dir);
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "impact-measurement")!;
+    expect(c.level).toBe("info");
+    expect(c.message).toMatch(/disabled \(rate 0\.2\)/);
+  });
+
+  it("WARN when experiment.holdout block is malformed", () => {
+    initConfig(dir);
+    // Hand-corrupt the experiment block to look present-but-bad.
+    const cfgFile = join(dir, ".tracebase", "config.json");
+    const raw = JSON.parse(readFileSync(cfgFile, "utf-8")) as Record<string, unknown>;
+    raw.experiment = { holdout: { not: "valid" } };
+    writeFileSync(cfgFile, JSON.stringify(raw, null, 2));
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "impact-measurement")!;
+    expect(c.level).toBe("warn");
+    expect(c.message).toMatch(/holdout block is malformed/);
+    expect(c.fix).toMatch(/tracebase experiment enable/);
+  });
+
+  it("WARN when rate is out of range", async () => {
+    const { enableHoldoutExperiment } = await import("../../src/core/config.js");
+    initConfig(dir);
+    enableHoldoutExperiment(dir, { rate: 0.5 });
+    // Hand-edit the rate to an invalid value, simulating a user
+    // who edited config.json directly.
+    const cfgFile = join(dir, ".tracebase", "config.json");
+    const raw = JSON.parse(readFileSync(cfgFile, "utf-8")) as Record<string, unknown>;
+    const exp = raw.experiment as Record<string, unknown>;
+    const holdout = exp.holdout as Record<string, unknown>;
+    holdout.rate = 5;
+    writeFileSync(cfgFile, JSON.stringify(raw, null, 2));
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "impact-measurement")!;
+    expect(c.level).toBe("warn");
+    expect(c.message).toMatch(/rate out of range/);
+  });
+
+  it("INFO does not increment fail count (exit code stays 0)", async () => {
+    const { writeAgentHookConfig, writeAgentInstructionFile } = await import(
+      "../../src/cli/install-targets.js"
+    );
+    initConfig(dir);
+    writeClaudeSettings(dir, false);
+    writeAgentInstructionFile(dir, "claude-code");
+    writeAgentHookConfig(dir, "claude-code", false);
+    const r = runDoctor(dir);
+    const impact = byName(r.checks, "impact-measurement")!;
+    expect(impact.level).toBe("info"); // missing holdout
+    expect(r.summary.fail).toBe(0);
+    // INFO is counted in the new summary slot.
+    expect(r.summary.info).toBeGreaterThanOrEqual(1);
   });
 });
 
