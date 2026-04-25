@@ -32,6 +32,7 @@
     "test:watch": "vitest",
     "lint": "tsc --noEmit -p tsconfig.check.json",
     "bench:hooks": "tsx scripts/bench-hooks.ts",
+    "bench:sdk": "tsx scripts/bench-sdk.ts",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
