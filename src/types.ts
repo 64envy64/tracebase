@@ -601,6 +601,27 @@ export interface RecallInjectConfig {
   /** Enable recall-before-call. Default: true when config is provided. */
   enabled?: boolean;
   /**
+   * 0.5.4 SDK runtime opt-in. When set, the wrapper routes through
+   * `runtime.beforeRun()` instead of the v1 `performRecall` path,
+   * unlocking five-capability parity (TB TRACE / MEMORY / CONTEXT /
+   * TOOL / LOOP) for OpenAI / Anthropic clients without changing the
+   * wrapper signature.
+   */
+  runtime?: Runtime;
+  /**
+   * 0.5.4 BadgeEvent callback. When set without an explicit `runtime`,
+   * the wrapper builds an internal runtime lazily so the callback
+   * still fires. Throws inside the callback are swallowed and never
+   * propagate into the wrapped LLM call.
+   */
+  onBadge?: (ev: BadgeEvent) => void;
+  /** Default session id forwarded into runtime.beforeRun. */
+  sessionId?: string;
+  /** Project root passed to the runtime. Defaults to `findProjectRoot(cwd)`. */
+  projectPath?: string;
+  /** BadgeEvent.source attribution. Defaults to `"openai"` / `"anthropic"`. */
+  source?: RuntimeSource;
+  /**
    * Minimum similarity score to inject a prior solution (0.0–1.0).
    * Higher = fewer but more precise injections. Default: 0.72
    *

@@ -37,7 +37,8 @@ export {
 } from "./core/config.js";
 
 // Middleware
-export { wrapAgent } from "./middleware/generic.js";
+export { wrapAgent, wrapGeneric } from "./middleware/generic.js";
+export type { WrapGenericOptions } from "./middleware/generic.js";
 export { wrapOpenAI } from "./middleware/openai.js";
 export { wrapAnthropic } from "./middleware/anthropic.js";
 // 0.5.4 — framework-neutral runtime + onBadge surface (PLAN-0.5.4 §3, §8.6)

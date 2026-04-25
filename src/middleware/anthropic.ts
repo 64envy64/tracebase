@@ -1,11 +1,12 @@
 import type { ReasoningLayer } from "../core/engine.js";
-import type { RecallInjectConfig } from "../types.js";
+import type { RecallInjectConfig, Runtime } from "../types.js";
 import { jaccardSimilarity } from "../core/fingerprint.js";
 import {
   performRecall,
   injectIntoAnthropicSystem,
   type InjectionResult,
 } from "./recall-inject.js";
+import { createRuntime } from "../sdk/runtime.js";
 
 const WRAPPED = Symbol.for("tracebase.wrapped");
 
@@ -38,12 +39,13 @@ export function wrapAnthropic<T extends object>(
   if (!messages) return client;
 
   const injectEnabled = recallConfig?.enabled !== false && recallConfig !== undefined;
+  const runtime = resolveAnthropicRuntime(layer, recallConfig);
 
   // Wrap messages.create
   const originalCreate = messages["create"] as ((...args: unknown[]) => Promise<unknown>) | undefined;
   if (typeof originalCreate === "function") {
     messages["create"] = new Proxy(originalCreate, {
-      apply: makeApplyHandler(layer, injectEnabled, recallConfig),
+      apply: makeApplyHandler(layer, injectEnabled, recallConfig, runtime),
     });
   }
 
@@ -51,7 +53,7 @@ export function wrapAnthropic<T extends object>(
   const originalStream = messages["stream"] as ((...args: unknown[]) => Promise<unknown>) | undefined;
   if (typeof originalStream === "function") {
     messages["stream"] = new Proxy(originalStream, {
-      apply: makeApplyHandler(layer, injectEnabled, recallConfig),
+      apply: makeApplyHandler(layer, injectEnabled, recallConfig, runtime),
     });
   }
 
@@ -59,10 +61,26 @@ export function wrapAnthropic<T extends object>(
   return client;
 }
 
+function resolveAnthropicRuntime(
+  layer: ReasoningLayer,
+  recallConfig?: RecallInjectConfig,
+): Runtime | null {
+  if (!recallConfig) return null;
+  if (recallConfig.runtime) return recallConfig.runtime;
+  if (typeof recallConfig.onBadge !== "function") return null;
+  return createRuntime(layer, {
+    ...(recallConfig.sessionId ? { sessionId: recallConfig.sessionId } : {}),
+    ...(recallConfig.projectPath ? { projectPath: recallConfig.projectPath } : {}),
+    source: recallConfig.source ?? "anthropic",
+    onBadge: recallConfig.onBadge,
+  });
+}
+
 function makeApplyHandler(
   layer: ReasoningLayer,
   injectEnabled: boolean,
   recallConfig?: RecallInjectConfig,
+  runtime?: Runtime | null,
 ) {
   return async function apply(
     target: (...args: unknown[]) => Promise<unknown>,
@@ -76,6 +94,25 @@ function makeApplyHandler(
     // --- Phase 1: Recall & Inject ---
     let injection: InjectionResult | null = null;
     let modifiedArgs = argsList;
+
+    // 0.5.4 SDK runtime — additive: BadgeEvents fire alongside the
+    // legacy recall path.
+    if (runtime && problemText && params) {
+      try {
+        const before = await runtime.beforeRun({
+          prompt: problemText,
+          ...(recallConfig?.sessionId ? { sessionId: recallConfig.sessionId } : {}),
+          ...(recallConfig?.projectPath ? { projectPath: recallConfig.projectPath } : {}),
+        });
+        if (before.additionalContext.length > 0) {
+          const newSystem = injectIntoAnthropicSystem(params.system, before.additionalContext);
+          const newParams = { ...params, system: newSystem };
+          modifiedArgs = [newParams, ...argsList.slice(1)];
+        }
+      } catch (err) {
+        void err;
+      }
+    }
 
     if (injectEnabled && problemText && params) {
       injection = performRecall(layer, problemText, recallConfig!);

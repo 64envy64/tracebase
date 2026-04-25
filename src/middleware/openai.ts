@@ -1,11 +1,12 @@
 import type { ReasoningLayer } from "../core/engine.js";
-import type { RecallInjectConfig } from "../types.js";
+import type { RecallInjectConfig, Runtime } from "../types.js";
 import { jaccardSimilarity } from "../core/fingerprint.js";
 import {
   performRecall,
   injectIntoOpenAIMessages,
   type InjectionResult,
 } from "./recall-inject.js";
+import { createRuntime } from "../sdk/runtime.js";
 
 const WRAPPED = Symbol.for("tracebase.wrapped");
 
@@ -45,6 +46,7 @@ export function wrapOpenAI<T extends object>(
   if (typeof originalCreate !== "function") return client;
 
   const injectEnabled = recallConfig?.enabled !== false && recallConfig !== undefined;
+  const runtime = resolveOpenAIRuntime(layer, recallConfig);
 
   completions["create"] = new Proxy(originalCreate, {
     async apply(target, thisArg, argsList) {
@@ -65,6 +67,29 @@ export function wrapOpenAI<T extends object>(
           const newParams = { ...params, messages: newMessages };
           modifiedArgs = [newParams, ...argsList.slice(1)];
           // Events (recall:injected / recall:skipped) emitted inside performRecall
+        }
+      }
+
+      // 0.5.4 SDK runtime — additive: BadgeEvents fire alongside the
+      // legacy recall path. The runtime's `additionalContext` is
+      // appended to the OpenAI system slot when present so TB MEMORY
+      // / TB CONTEXT facts surface to the model. Failures inside the
+      // runtime never break the wrapped call.
+      if (runtime && problemText && params?.messages) {
+        try {
+          const before = await runtime.beforeRun({
+            prompt: problemText,
+            ...(recallConfig?.sessionId ? { sessionId: recallConfig.sessionId } : {}),
+            ...(recallConfig?.projectPath ? { projectPath: recallConfig.projectPath } : {}),
+          });
+          if (before.additionalContext.length > 0) {
+            const baseMessages = (modifiedArgs[0] as OpenAIParams).messages ?? params.messages;
+            const newMessages = injectIntoOpenAIMessages(baseMessages, before.additionalContext);
+            const newParams = { ...(modifiedArgs[0] as OpenAIParams), messages: newMessages };
+            modifiedArgs = [newParams, ...modifiedArgs.slice(1)];
+          }
+        } catch (err) {
+          void err;
         }
       }
 
@@ -111,12 +136,48 @@ export function wrapOpenAI<T extends object>(
       // Emit token tracking event
       emitTokenUsage(layer, injection, completion.usage, params?.model, durationMs);
 
+      // 0.5.4 — runtime.afterRun queued; never blocks the return.
+      if (runtime) {
+        runtime
+          .afterRun({
+            userText: problemText,
+            assistantText: responseText.slice(0, maxChars),
+            ...(recallConfig?.sessionId ? { sessionId: recallConfig.sessionId } : {}),
+            ...(recallConfig?.projectPath ? { projectPath: recallConfig.projectPath } : {}),
+          })
+          .catch(() => {
+            // never break the wrapped call
+          });
+      }
+
       return result;
     },
   });
 
   (client as Record<symbol, unknown>)[WRAPPED] = true;
   return client;
+}
+
+/**
+ * Resolve the runtime the OpenAI wrapper should use for BadgeEvent
+ * emission + same-session digest recall + tool-loop detection.
+ * Returns the explicit runtime if the caller passed one; otherwise
+ * builds a lazy runtime when `onBadge` is set; otherwise returns
+ * null (legacy path only).
+ */
+function resolveOpenAIRuntime(
+  layer: ReasoningLayer,
+  recallConfig?: RecallInjectConfig,
+): Runtime | null {
+  if (!recallConfig) return null;
+  if (recallConfig.runtime) return recallConfig.runtime;
+  if (typeof recallConfig.onBadge !== "function") return null;
+  return createRuntime(layer, {
+    ...(recallConfig.sessionId ? { sessionId: recallConfig.sessionId } : {}),
+    ...(recallConfig.projectPath ? { projectPath: recallConfig.projectPath } : {}),
+    source: recallConfig.source ?? "openai",
+    onBadge: recallConfig.onBadge,
+  });
 }
 
 // ============================================================================
