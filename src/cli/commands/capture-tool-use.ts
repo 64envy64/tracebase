@@ -57,11 +57,11 @@ import {
   isInitialized,
   loadConfig,
 } from "../../core/config.js";
-import { sanitizeToolArgs } from "../../core/tool-arg.js";
-import type {
-  RecordToolObservationInput,
-  ToolObservationOutcome,
-} from "../../types.js";
+import {
+  observeToolBatch,
+  type ObserveToolBatchCall,
+} from "../../runtime/observe-tools.js";
+import type { ToolObservationOutcome } from "../../types.js";
 
 // ---------------------------------------------------------------------------
 // Hook shape + CLI options
@@ -145,13 +145,9 @@ export interface CaptureToolUseOutcome {
 
 const STDIN_BYTE_LIMIT = 256 * 1024;
 const DUMP_BYTE_CAP = 4 * 1024 * 1024;
-/**
- * Hard ceiling on the per-batch observation count. Real Claude
- * Code batches are <10 calls; anything above 64 is almost
- * certainly a malformed payload or a denial-of-service probe and
- * gets the tail dropped.
- */
-const MAX_CALLS_PER_BATCH = 64;
+// MAX_CALLS_PER_BATCH lives on the pure core in
+// `src/runtime/observe-tools.ts` so the SDK runtime applies the
+// same cap. Imported transitively via observeToolBatch().
 
 export const captureToolUseCommand = new Command("capture-tool-use")
   .description(
@@ -206,33 +202,22 @@ export function runCaptureToolUse(
     const sessionId = stringField(parsed.session_id ?? parsed.sessionId, "unknown-session");
     const cwd = stringField(parsed.cwd, basePath);
 
-    const inputs: RecordToolObservationInput[] = [];
-    for (let i = 0; i < calls.length && inputs.length < MAX_CALLS_PER_BATCH; i++) {
-      const call = calls[i]!;
-      const { argSummary, argKey } = sanitizeToolArgs({
-        toolName: call.toolName,
-        toolInput: call.toolInput,
-        cwd,
-        workspaceSalt: salt,
-      });
-      inputs.push({
-        sessionId,
-        batchOrder: i,
-        toolUseId: call.toolUseId,
-        toolName: call.toolName,
-        argSummary,
-        argKey,
-        outcome: call.outcome,
-      });
-    }
-
-    if (inputs.length === 0) return emptyEnvelope();
+    const observeCalls: ObserveToolBatchCall[] = calls.map((c) => ({
+      toolName: c.toolName,
+      toolInput: c.toolInput,
+      toolUseId: c.toolUseId,
+      outcome: c.outcome,
+    }));
 
     const config = loadConfig(basePath);
-    const recorded = withBlockStore(config.storagePath, (store) => {
-      const ids = store.recordToolObservations(inputs);
-      return ids.length;
-    });
+    const { recorded } = withBlockStore(config.storagePath, (store) =>
+      observeToolBatch(store, {
+        sessionId,
+        cwd,
+        workspaceSalt: salt,
+        toolCalls: observeCalls,
+      }),
+    );
 
     return {
       envelope: JSON.stringify({}),
