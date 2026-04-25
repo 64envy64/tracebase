@@ -134,6 +134,105 @@ const MAX_SITUATION = 280;
 const MAX_FIELD = 600;
 const TRANSCRIPT_BYTE_LIMIT = 8 * 1024 * 1024; // 8 MiB — Claude Code transcripts can get large
 
+// ---------------------------------------------------------------------------
+// 0.5.7 §A — quality gate (narrow, high-precision).
+//
+// Pre-0.5.7 the gate was length-only: any user turn with ≥80 chars
+// + assistant turn with ≥300 chars + one substantive paragraph
+// produced a stored pattern. That admitted a wide class of
+// project-management noise — release tags, plan approvals,
+// "schedule a follow-up", session-continuation wrappers, etc. —
+// every one of which then surfaced in `additionalContext` on
+// future prompts as fake "prior debugging".
+//
+// New gate intent: a missed capture is cheaper than a noisy
+// stored pattern. We REJECT user turns that:
+//   1. Are/contain Claude Code session-continuation / meta wrappers
+//      that escape the per-line strip in `extractUserText`.
+//   2. Lead with project-management vocabulary
+//      ("Plan approved", "Start 0.5.x", "Yes, schedule", etc.) —
+//      the user is operating, not debugging.
+//   3. Carry NO problem signal — no `?`, no error/bug/failure
+//      vocabulary in EN or RU.
+//
+// Each predicate is a pure regex over the cleaned user text.
+// Tests use literal strings from the live store so the gate
+// catches the exact noise classes we observed in the wild.
+// ---------------------------------------------------------------------------
+
+/**
+ * Patterns the user text MUST NOT lead with (or contain in
+ * context-leak cases). Each entry is anchored or scoped tight
+ * enough that a real bug-report sentence can't accidentally
+ * match.
+ */
+const META_WRAP_LEADS: readonly RegExp[] = [
+  /^This session is being continued from a previous conversation/i,
+  /^This conversation is being continued/i,
+  /^Continuing from where (we|I) left off/i,
+  /^<(command-name|local-command-(caveat|stdout|output)|system-reminder|tracebase)\b/i,
+  /^Login successful\s*$/i,
+] as const;
+
+/**
+ * Project-management / release-process leads. The user is driving
+ * a release / approval / scheduling flow, not asking the agent to
+ * solve a problem. None of these belong in `reasoning_blocks`.
+ *
+ * Both `\b` and `^` are deliberate: leads must be at the START
+ * of the trimmed user text, not buried inside a longer paragraph
+ * that happens to use the word.
+ */
+const PROJECT_MANAGEMENT_LEADS: readonly RegExp[] = [
+  // Approvals / sign-offs
+  /^plan approved\b/i,
+  /^approved\s*(with\b|\.|$)/i,
+  /^lgtm\b/i,
+  /^ship it\b/i,
+  // Release / version starts
+  /^start\b.*\b(0\.\d|candidate|implementation|the\s+work|release|0\.5\.|0\.6\.)/i,
+  /^bump (to )?\d+\.\d+\b/i,
+  /^cut (a |the )?release\b/i,
+  // Planning / build verbs aimed at the agent itself
+  /^build (one|a|the)\s+(unified|combined)\b/i,
+  /^do(es)? .*later\b/i,
+  // Scheduling / smoke / verify-and-do
+  /^yes,?\s+(schedule|do|continue|proceed|publish|push|ship)\b/i,
+  /^schedule (a |the )?follow[- ]?up\b/i,
+  /^run (a |the )?smoke\b/i,
+  // Russian project-management leads
+  /^(окей|ок|давай|сделай|сделать|запускай|пиши|посмотри|глянь|погляди|продолжи)\b/iu,
+  /^(всё|все)\s+(гуд|ок|норм)\b/iu,
+] as const;
+
+/**
+ * Problem signals — at least one MUST appear in the user text.
+ * Question mark, EN error/bug vocabulary, RU equivalents. The
+ * list is deliberately narrow: "the store gave me nothing useful"
+ * is the wrong concern at the gate; "the store fed me a noisy
+ * project-management note as if it were debugging" is the right
+ * one.
+ */
+const PROBLEM_SIGNAL_RE =
+  /[?]|\b(error|errors|bug|bugs|fails?|failure|failed|broken|breaking|issue|issues|crash(?:ed|es|ing)?|stuck|wrong|why|how come|regression|regress|hang(?:s|ing)?|panic|exception|trace(?:back)?|throws?|timeout|leaks?)\b|(?:ошибк[аиуые]|баг[иу]?|не\s+работает|не\s+пашет|сломал[оа]?сь?|сломан[оы]?|завис(?:ло|ли|ает)?|регрессия|регрес|вылет(?:ает|ел|ела))/iu;
+
+function isPatternShapedUserText(cleaned: string): boolean {
+  if (META_WRAP_LEADS.some((re) => re.test(cleaned))) return false;
+  if (PROJECT_MANAGEMENT_LEADS.some((re) => re.test(cleaned))) return false;
+  if (!PROBLEM_SIGNAL_RE.test(cleaned)) return false;
+  return true;
+}
+
+/**
+ * Exposed for the prune command (§B) so it can reuse the same
+ * classifier when sweeping previously-stored blocks. Keep the
+ * implementation behind one function so future tweaks land in
+ * exactly one place.
+ */
+export function isPatternShapedSituation(situation: string): boolean {
+  return isPatternShapedUserText(situation);
+}
+
 // 0.5.0 TB MEMORY — semantic file facts.
 // Hard bounds per plan §5.1: 400 chars per statement, 3 facts per turn.
 const MAX_FACT_STATEMENT = 400;
@@ -531,6 +630,16 @@ export function extractPattern(
 ): StoreReasoningPatternArgs | null {
   if (userText.length < MIN_TASK_CHARS) return null;
   if (assistantText.length < MIN_OUTCOME_CHARS) return null;
+
+  // 0.5.7 §A — narrow, high-precision gate. Reject project-
+  // management / release-process / meta-wrapper leads, and
+  // require a problem signal (`?` or error vocabulary EN/RU)
+  // before storing as a reusable pattern. See the predicate
+  // declarations at the top of this file for the rationale —
+  // missing a capture is far cheaper than injecting a noisy
+  // pattern on every future prompt.
+  const trimmedUser = userText.trim();
+  if (!isPatternShapedUserText(trimmedUser)) return null;
 
   const situation = firstSentence(userText).slice(0, MAX_SITUATION);
   if (situation.length < 20) return null;

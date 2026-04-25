@@ -394,6 +394,65 @@ Verify by running pytest --collect-only.`,
     expect(p!.verification.length).toBeGreaterThan(0);
   });
 
+  // 0.5.7 §A — narrow / high-precision quality gate. The literal
+  // user-text strings below were observed in the wild on the
+  // local store and need to be rejected. Every assertion is a
+  // regression: if a future tweak loosens the gate, one of these
+  // will fail loudly.
+  describe("0.5.7 §A — quality gate rejects noise classes", () => {
+    const SUBSTANTIVE_ASSISTANT = `## Diagnosis
+
+The shadow helper sits earlier in sys.path than the intended package, which is why pytest's collection picks the wrong module first.
+
+## Fix
+
+- Remove the shadow directory from sys.path
+- Or rename the helper module so it stops competing with the intended namespace
+
+## Verify
+
+Run pytest --collect-only and confirm only the intended package is listed.`;
+
+    it.each([
+      // Project-management / release / approval leads
+      ["plan-approved", "Plan approved with required amendments before implementation — start §1 today and we'll re-review on Tuesday after the cohort warms up."],
+      ["start-candidate", "Start 0.5.5 candidate. Begin §1: live auto-sync wiring with the new payload module."],
+      ["yes-schedule", "Yes, schedule a follow-up smoke for ~24h after 0.5.5 publish. The smoke covers..."],
+      ["build-one-plan", "Build one unified 0.5.4 plan: SDK parity + automatic aggregate sync. Constraints follow."],
+      ["smotri", "Посмотри package.json и src/cli/commands/capture-tool-use.ts тщательно и опиши флаги."],
+      ["okey-no", "окей но теперь проблема — качество сохранённых паттернов с шумом в store нужно решать"],
+      ["session-cont", "This session is being continued from a previous conversation that ran out of context. The summary covers..."],
+      // Pure status / acknowledgement
+      ["lgtm", "lgtm — let's ship 0.5.5 and verify against the cloud-linked workspace next session."],
+      ["sdelai", "сделай и протестируй а потом покажи мне результат полностью со всеми деталями плз"],
+    ])("rejects: %s", (_label, userText) => {
+      // Each must clear the length-only gate (≥80 chars) — i.e.
+      // the OLD gate would have stored these.
+      expect(userText.length).toBeGreaterThanOrEqual(80);
+      const result = extractPattern(userText, SUBSTANTIVE_ASSISTANT);
+      expect(result).toBeNull();
+    });
+
+    it.each([
+      // Real bug-shaped prompts MUST still pass.
+      [
+        "pytest-collection-bug",
+        "pytest is picking up the wrong package on a fresh clone — sys.path shadow is the root cause but I don't see how to confirm",
+      ],
+      [
+        "russian-error",
+        "у меня ошибка — не работает миграционный скрипт после обновления зависимостей, в чём может быть проблема?",
+      ],
+      [
+        "regression-question",
+        "we hit a regression after the v8 migration — pytest fails on collection even though the schema looks identical, why?",
+      ],
+    ])("accepts: %s", (_label, userText) => {
+      const result = extractPattern(userText, SUBSTANTIVE_ASSISTANT);
+      expect(result).not.toBeNull();
+    });
+  });
+
   // 0.5.6 §4 — noise-reduction tightenings.
   it("returns null when a single-paragraph assistant has no action line (degenerate unlock fallback)", () => {
     // Long enough to clear MIN_OUTCOME_CHARS but only ONE
