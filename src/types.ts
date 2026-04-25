@@ -1079,6 +1079,217 @@ export interface RecordToolObservationInput {
 }
 
 // ============================================================================
+// SDK runtime — 0.5.4 framework-neutral surface (PLAN-0.5.4 §3).
+//
+// Brings five-capability parity (TB TRACE / TB MEMORY / TB CONTEXT /
+// TB TOOL / TB LOOP) to non-Claude-Code hosts. The runtime is what
+// `wrapOpenAI` / `wrapAnthropic` / `wrapAgent` / `wrapGeneric` build
+// on top of; users can also instantiate one directly via
+// `createRuntime(layer, options)` for custom integrations.
+//
+// Privacy invariant (enforced by tests in tests/sdk/badge-event-privacy.test.ts):
+//   `BadgeEvent` carries counts + labels + queryId only. NEVER the
+//   user prompt, the assistant response, tool_input bodies,
+//   tool_response bodies, argSummary, argKey, sessionId, file paths,
+//   code, or transcript text. The TypeScript shape itself excludes
+//   those keys; assigning an object literal with any of them to
+//   `BadgeEvent` is a compile error.
+// ============================================================================
+
+export type BadgeEventKind = "trace" | "memory" | "context" | "tool" | "loop";
+
+/**
+ * One observable event surfaced from the runtime to wrapper-side
+ * `onBadge` callbacks. Mirrors the in-process equivalent of the
+ * Claude Code `systemMessage` line, decomposed so SDK consumers can
+ * route TB TRACE / TB LOOP / etc. independently.
+ *
+ * **Forbidden keys** (must never appear on this type or be added in
+ * a future minor): `prompt`, `response`, `assistantText`,
+ * `tool_input`, `tool_response`, `argSummary`, `argKey`, `sessionId`,
+ * `file_path`, `path`, `code`, `transcript`. The privacy regression
+ * test asserts this set is disjoint from `keyof BadgeEvent`.
+ */
+export interface BadgeEvent {
+  kind: BadgeEventKind;
+  /** Human-readable line, e.g. "▣ TB LOOP  straight × 3 (Read)". */
+  label: string;
+  /** Pattern hits, fact hits, repeated/loop count. Counts only. */
+  count?: number;
+  /** Tool name on tool / loop kinds. NEVER argSummary / argKey. */
+  toolName?: string;
+  /** Stable per-call recall id so callers can correlate with their logs. */
+  queryId?: string;
+  /** Approximate token cost of injected context (recall-side only). */
+  tokens?: number;
+  /** Wall-clock ms when the wrapper observed the event. */
+  ts: number;
+  /** Wrapper source: "openai" | "anthropic" | "agent" | "generic" | etc. */
+  source?: string;
+}
+
+/**
+ * Sources we expect wrappers to identify themselves as. Free-form
+ * `string` is also accepted on `BadgeEvent.source` so a custom host
+ * can attribute its own integration without forking this enum.
+ */
+export type RuntimeSource =
+  | "openai"
+  | "anthropic"
+  | "agent"
+  | "generic"
+  | "langchain"
+  | "langgraph"
+  | "claude-agent-sdk";
+
+export interface CreateRuntimeOptions {
+  /** Default session id for runtime methods that don't pass one explicitly. */
+  sessionId?: string;
+  /** Default project root for runtime methods that don't pass one explicitly. */
+  projectPath?: string;
+  /** Wrapper attribution for `BadgeEvent.source`. */
+  source?: RuntimeSource;
+  /**
+   * Per-event callback. Throws inside this callback are swallowed and
+   * never propagate into the wrapped LLM call. Tests assert this.
+   */
+  onBadge?: (ev: BadgeEvent) => void;
+
+  /** Per-capability switches. All default to true. */
+  enableTrace?: boolean;
+  enableMemory?: boolean;
+  enableContext?: boolean;
+  enableTool?: boolean;
+  enableLoop?: boolean;
+
+  /**
+   * Background aggregate-metrics sync. Defaults to `true` iff
+   * `.tracebase/config.json` carries a `cloud.workspaceId`. Setting
+   * `false` here disables the coordinator regardless of cloud link
+   * state — useful for tests and air-gapped deployments.
+   */
+  autoSync?: boolean;
+  /** Debounce window. Default 30 000 ms. Restarts on every markDirty. */
+  syncDebounceMs?: number;
+  /** Max coalesce window. Default 300 000 ms (5 min). Forces a send. */
+  syncMaxIntervalMs?: number;
+}
+
+export interface BeforeRunInput {
+  /** User prompt the upstream LLM call is about to receive. */
+  prompt: string;
+  /** Overrides `CreateRuntimeOptions.sessionId` for this call only. */
+  sessionId?: string;
+  /** Overrides `CreateRuntimeOptions.projectPath` for this call only. */
+  projectPath?: string;
+}
+
+export interface BeforeRunResult {
+  /**
+   * Pre-prompt context to inject into the LLM call. Empty string when
+   * recall returned nothing or the prompt was trivial — wrappers may
+   * still inject the empty string into a `system` message slot or
+   * skip injection entirely; the runtime makes no assumption.
+   */
+  additionalContext: string;
+  /** TB TRACE / MEMORY / CONTEXT / TOOL / LOOP events for this call. */
+  badgeEvents: BadgeEvent[];
+  /** Stable id for `record_reasoning_outcome` later, when present. */
+  queryId?: string;
+}
+
+export interface AfterRunInput {
+  userText: string;
+  assistantText: string;
+  sessionId?: string;
+  projectPath?: string;
+}
+
+export interface ObserveToolBatchInput {
+  sessionId: string;
+  /** Workspace root the call ran against. Alias: `cwd`. */
+  projectPath?: string;
+  /** Per-call shape mirrors PostToolBatch's `tool_calls`. */
+  toolCalls: Array<{
+    toolName: string;
+    /** Raw tool input. Sanitiser only reads named fields per tool. */
+    toolInput: unknown;
+    toolUseId?: string;
+    outcome?: ToolObservationOutcome;
+  }>;
+}
+
+export interface ObserveToolBatchResult {
+  /** Number of `tool_observations` rows persisted in this batch. */
+  recorded: number;
+}
+
+export interface SaveContextInput {
+  sessionId: string;
+  projectPath?: string;
+  /**
+   * Either `turns` (raw user/assistant chunks — runtime extracts a
+   * deterministic digest, no paraphrase) or `digest` (caller-supplied
+   * text — runtime bound + leakage-scans before storing). Caller
+   * passes one or the other; passing both prefers `digest`.
+   */
+  turns?: Array<{ role: "user" | "assistant"; content: string }>;
+  digest?: string;
+}
+
+export interface SaveContextResult {
+  /** Stored project_facts row id, or null on no-op (empty / leakage / TTL). */
+  factId: string | null;
+}
+
+export interface Runtime {
+  /**
+   * SDK equivalent of Claude Code's `UserPromptSubmit` hook.
+   * Recalls TRACE + MEMORY + same-session CONTEXT facts, runs the
+   * tool-loop detector against the previous turn's
+   * `tool_observations`, emits BadgeEvents to `onBadge`, and returns
+   * the additional context for the wrapper to inject.
+   */
+  beforeRun(input: BeforeRunInput): Promise<BeforeRunResult>;
+
+  /**
+   * SDK equivalent of `Stop`. Best-effort, async — returns
+   * immediately to the caller; the actual capture runs on the
+   * runtime's queue. Use `flush()` to wait in tests / enterprise
+   * shutdown.
+   */
+  afterRun(input: AfterRunInput): Promise<void>;
+
+  /**
+   * SDK equivalent of `PostToolBatch`. Persists one
+   * `tool_observations` row per call in a single SQLite transaction
+   * after sanitising each `tool_input` through the per-tool
+   * projection. Never reads `tool_response`.
+   */
+  observeToolBatch(input: ObserveToolBatchInput): Promise<ObserveToolBatchResult>;
+
+  /**
+   * SDK equivalent of `PreCompact`. Stores a session-scoped digest
+   * with TTL so the next `beforeRun` in the same session can recall
+   * across the compaction boundary.
+   */
+  saveContext(input: SaveContextInput): Promise<SaveContextResult>;
+
+  /**
+   * Wait for queued capture jobs and any pending sync attempt to
+   * resolve. Idempotent. Tests rely on this. Enterprise shutdown
+   * paths should call it before exit.
+   */
+  flush(): Promise<void>;
+
+  /**
+   * Release the SQLite handle and clear sync timers. Idempotent.
+   * Subsequent runtime method calls reject with a clear error.
+   */
+  close(): Promise<void>;
+}
+
+// ============================================================================
 // Analytics events (Pillar 4) — append-only log records
 //
 // Emitted to a JSONL sink; aggregated into SQL views by the analytics

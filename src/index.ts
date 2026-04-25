@@ -296,6 +296,23 @@ export type {
   ProjectFactStatus,
   ProjectFactSource,
   StoreProjectFactInput,
+  // 0.5.3 tool observations (L6 substrate for TB TOOL / TB LOOP)
+  ToolObservation,
+  ToolObservationOutcome,
+  RecordToolObservationInput,
+  // 0.5.4 SDK runtime — framework-neutral five-capability surface
+  BadgeEvent,
+  BadgeEventKind,
+  RuntimeSource,
+  CreateRuntimeOptions,
+  Runtime,
+  BeforeRunInput,
+  BeforeRunResult,
+  AfterRunInput,
+  ObserveToolBatchInput,
+  ObserveToolBatchResult,
+  SaveContextInput,
+  SaveContextResult,
   // v2 analytics events
   AnalyticsEvent,
   RetrievalEvent,
