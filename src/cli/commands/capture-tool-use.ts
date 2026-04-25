@@ -61,6 +61,7 @@ import {
   observeToolBatch,
   type ObserveToolBatchCall,
 } from "../../runtime/observe-tools.js";
+import { ensureManagedHooksCurrent } from "../hook-self-heal.js";
 import type { ToolObservationOutcome } from "../../types.js";
 
 // ---------------------------------------------------------------------------
@@ -195,6 +196,13 @@ export function runCaptureToolUse(
 
     const basePath = resolveBasePath(opts.path, parsed);
     if (!basePath || !isInitialized(basePath)) return emptyEnvelope();
+
+    // 0.5.6 — throttled hook self-heal. See inject-context call site.
+    try {
+      ensureManagedHooksCurrent(basePath, "claude-code");
+    } catch {
+      // best-effort
+    }
 
     const salt = getOrMintWorkspaceSalt(basePath);
     if (!salt) return emptyEnvelope();

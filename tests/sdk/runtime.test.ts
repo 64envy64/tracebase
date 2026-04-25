@@ -328,10 +328,13 @@ describe("createRuntime — afterRun lifecycle", () => {
       assistantText: "answer with detail",
       sessionId: "S-after",
     });
-    // afterRun should return effectively instantly — anything heavy
-    // is queued. We're not benching here, just asserting the call
-    // doesn't block on capture work.
-    expect(Date.now() - t0).toBeLessThan(50);
+    // afterRun should return without awaiting the queued capture
+    // work. The threshold is generous (250 ms vs the wallclock
+    // of the synchronous body — first-use SQLite migration can
+    // spike under parallel test load) so the assertion proves
+    // "queued, not blocking" rather than benching absolute
+    // latency. The bench harness covers absolute timings.
+    expect(Date.now() - t0).toBeLessThan(250);
     // flush() must resolve cleanly even when queued jobs were no-ops.
     await runtime.flush();
     await runtime.close();

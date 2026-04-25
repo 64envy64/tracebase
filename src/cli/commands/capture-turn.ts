@@ -52,6 +52,7 @@ import { existsSync, readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { BlockStore } from "../../core/block-store.js";
 import { findProjectRoot, isInitialized, loadConfig } from "../../core/config.js";
+import { ensureManagedHooksCurrent } from "../hook-self-heal.js";
 import { boundField, detectLeakageExtended, isRepoRelative } from "../../core/guard.js";
 import {
   storeReasoningPattern,
@@ -182,6 +183,13 @@ export function runCaptureTurn(
     if (!basePath || !isInitialized(basePath)) {
       // Uninitialised project → quiet no-op, same UX as inject-context.
       return wrapEnvelope("", formatStatus({ kind: "no-pattern", factCount: 0 }, mode));
+    }
+
+    // 0.5.6 — throttled hook self-heal. See inject-context call site.
+    try {
+      ensureManagedHooksCurrent(basePath, "claude-code");
+    } catch {
+      // best-effort
     }
 
     const transcriptPath = stdin.transcript_path ?? stdin.transcriptPath ?? null;

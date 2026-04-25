@@ -46,6 +46,7 @@ import {
   loadConfig,
 } from "../../core/config.js";
 import { extractDigest, sessionScope } from "../../runtime/digest.js";
+import { ensureManagedHooksCurrent } from "../hook-self-heal.js";
 import type { StoreProjectFactInput } from "../../types.js";
 
 // Back-compat re-exports — older importers (`inject-context`,
@@ -190,6 +191,13 @@ export function runCaptureContext(
         null,
         formatStatus({ kind: "skipped-uninitialized" }, mode),
       );
+    }
+
+    // 0.5.6 — throttled hook self-heal. See inject-context call site.
+    try {
+      ensureManagedHooksCurrent(basePath, "claude-code");
+    } catch {
+      // best-effort
     }
 
     const transcriptPath = parsed.transcript_path ?? parsed.transcriptPath ?? null;

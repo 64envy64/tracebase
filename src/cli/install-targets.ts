@@ -687,6 +687,131 @@ export function removeAgentHookConfig(basePath: string, agent: InstallAgent): Cl
   return removeClaudeHookConfig(basePath);
 }
 
+// ---------------------------------------------------------------------------
+// 0.5.6 — zero-friction hook self-heal
+//
+// Existing `writeAgentHookConfig` is the explicit `init`-time write
+// path: errors out on customised entries so the user can opt into
+// `--force`. The self-heal path is the OPPOSITE policy: it never
+// errors and never overwrites customised entries, only:
+//
+//   1. adds missing managed-event entries (no `--force` semantics —
+//      events that don't exist were never user-touched), and
+//   2. upgrades legacyDefaults shapes to the current canonical
+//      (deepEqual trust boundary, same as the explicit path).
+//
+// Customised TraceBase entries (loose `isOurs` match but not
+// canonical AND not a known legacy shape) are LEFT ALONE — the
+// caller is told via `skippedCustom` so doctor can WARN. Foreign
+// hooks are never touched. This is the function the runtime hook
+// commands call after `isInitialized` succeeds.
+// ---------------------------------------------------------------------------
+
+export interface SelfHealHookResult {
+  /** Per-event names the self-heal walked through. */
+  checked: HookEventName[];
+  /** Events whose entry was added or upgraded. */
+  updated: HookEventName[];
+  /** Events skipped because the existing entry is user-customised. */
+  skippedCustom: HookEventName[];
+  /** True iff this call wrote to `.claude/settings.json`. */
+  fileWritten: boolean;
+  /** Surface a fatal failure (parse error, write failure). Optional. */
+  error?: string;
+}
+
+/**
+ * Best-effort, throttled self-heal. Returns a result object even
+ * on every failure — the caller (runtime hook command) treats this
+ * as a side-channel and keeps going regardless. NEVER throws.
+ *
+ * Caller is responsible for the throttle gate via
+ * `src/cli/hook-self-heal.ts` (`ensureManagedHooksCurrent`); this
+ * function does the actual JSON-rewrite work.
+ */
+export function selfHealClaudeHookConfig(basePath: string): SelfHealHookResult {
+  const filePath = join(basePath, CLAUDE_HOOKS_FILE_REL);
+  const checked: HookEventName[] = CLAUDE_HOOK_SPECS.map((s) => s.eventName);
+  const updated: HookEventName[] = [];
+  const skippedCustom: HookEventName[] = [];
+
+  // No `.claude/settings.json` at all → nothing to heal here. The
+  // caller decides whether to materialise the file from scratch
+  // (today: only `tracebase init`, never the runtime path).
+  if (!existsSync(filePath)) {
+    return { checked, updated, skippedCustom, fileWritten: false };
+  }
+
+  let settings: Record<string, unknown>;
+  try {
+    settings = JSON.parse(readFileSync(filePath, "utf-8")) as Record<string, unknown>;
+  } catch (err) {
+    return {
+      checked,
+      updated,
+      skippedCustom,
+      fileWritten: false,
+      error: `parse: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const hooks = (settings.hooks as Record<string, unknown> | undefined) ?? {};
+  let anyChanged = false;
+
+  for (const spec of CLAUDE_HOOK_SPECS) {
+    const existing = (hooks[spec.eventName] as unknown[] | undefined) ?? [];
+    const idx = existing.findIndex(spec.isOurs);
+    if (idx >= 0) {
+      const current = existing[idx];
+      if (deepEqual(current, spec.canonical)) {
+        // Already canonical — no-op for this event.
+        hooks[spec.eventName] = existing;
+        continue;
+      }
+      const isLegacy = spec.legacyDefaults.some((shape) => deepEqual(current, shape));
+      if (isLegacy) {
+        existing[idx] = spec.canonical;
+        anyChanged = true;
+        updated.push(spec.eventName);
+      } else {
+        // User-customised TraceBase entry. Self-heal NEVER overwrites
+        // it — the user opted into the customisation, the trust
+        // boundary preserves it, and `tracebase init --force` is the
+        // explicit upgrade path.
+        skippedCustom.push(spec.eventName);
+      }
+      hooks[spec.eventName] = existing;
+    } else {
+      // Event missing entirely → add the canonical entry. This is
+      // the load-bearing line: a project that ran `init` before
+      // PostToolBatch existed gains the spec without manual rerun.
+      existing.push(spec.canonical);
+      hooks[spec.eventName] = existing;
+      anyChanged = true;
+      updated.push(spec.eventName);
+    }
+  }
+  settings.hooks = hooks;
+
+  if (!anyChanged) {
+    return { checked, updated, skippedCustom, fileWritten: false };
+  }
+
+  try {
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, JSON.stringify(settings, null, 2) + "\n");
+    return { checked, updated, skippedCustom, fileWritten: true };
+  } catch (err) {
+    return {
+      checked,
+      updated: [],
+      skippedCustom,
+      fileWritten: false,
+      error: `write: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
 function writeClaudeHookConfig(basePath: string, force: boolean): StepResult {
   const filePath = join(basePath, CLAUDE_HOOKS_FILE_REL);
   let settings: Record<string, unknown> = {};

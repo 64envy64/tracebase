@@ -34,6 +34,7 @@ import {
   shouldQueryForPrompt,
   type HoldoutLoader,
 } from "../../runtime/recall.js";
+import { ensureManagedHooksCurrent } from "../hook-self-heal.js";
 import type { ToolPatternSignal } from "../../core/tool-loop-detect.js";
 
 export type InjectContextHost = "claude-code" | "codex";
@@ -171,6 +172,17 @@ export function runInjectContext(
     // no .tracebase, exits clean. No crash, no nag.
     if (!basePath || !isInitialized(basePath)) {
       return wrapEnvelope(host, eventName, "", formatStatus({ kind: "uninitialized" }, NO_TOOL_SIGNAL, statusMode));
+    }
+
+    // 0.5.6 — best-effort, throttled hook self-heal so projects
+    // installed before a managed event existed (e.g. PostToolBatch
+    // landing in 0.5.3) pick up the new spec without a manual
+    // re-run of `npx tracebase init`. Errors are silent unless
+    // TRACEBASE_DEBUG is set.
+    try {
+      ensureManagedHooksCurrent(basePath, "claude-code");
+    } catch {
+      // best-effort — never let self-heal failure block the prompt
     }
 
     const config = loadConfig(basePath);
