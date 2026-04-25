@@ -124,6 +124,47 @@ export interface UsageIntegrity {
   outcomesWithoutRetrieval: number;
 }
 
+/**
+ * 0.5.4 §6 — TB TOOL / TB LOOP aggregates. Counts only; the
+ * matched substring is never surfaced. `toolFamilyCounts` ships
+ * under the eight-family normalised vocabulary
+ * (`read` / `search` / `shell` / `edit` / `write` / `web` / `task`
+ * / `other`) — literal Claude tool names never reach the wire.
+ *
+ * `errorClassCounts` is a finite enumerable set
+ * (`abs-path-posix` / `abs-path-windows` / `bearer-token` /
+ * `api-key-anthropic` / `api-key-github` / `api-key-sk` /
+ * `env-line`) — slot names are descriptive labels, not user
+ * content.
+ *
+ * Privacy invariant: the cloud allowlist forbids every other field
+ * on `tool_observations` rows from reaching the wire. These
+ * aggregates are the only TB TOOL / TB LOOP signal that ships.
+ */
+export interface UsageToolBatch {
+  duplicateCount: number;
+  loopCount: number;
+  toolFamilyCounts: {
+    read: number;
+    search: number;
+    shell: number;
+    edit: number;
+    write: number;
+    web: number;
+    task: number;
+    other: number;
+  };
+  errorClassCounts: {
+    "abs-path-posix": number;
+    "abs-path-windows": number;
+    "bearer-token": number;
+    "api-key-anthropic": number;
+    "api-key-github": number;
+    "api-key-sk": number;
+    "env-line": number;
+  };
+}
+
 export interface UsageMetrics {
   /**
    * Granularity tag. Phase 1 emits `"workspace"` exclusively because
@@ -153,6 +194,13 @@ export interface UsageMetrics {
    */
   causal?: UsageCausal;
   integrity: UsageIntegrity;
+  /**
+   * 0.5.4 §6 — TB TOOL / TB LOOP aggregates. Optional: present only
+   * when `tool_observations` rows exist for the window. Aggregate
+   * counts only; never the literal arg_summary / arg_key / tool
+   * names.
+   */
+  toolBatch?: UsageToolBatch;
 }
 
 export interface UsageCohort {

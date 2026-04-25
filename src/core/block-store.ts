@@ -1757,6 +1757,54 @@ export class BlockStore {
     return row.c;
   }
 
+  /**
+   * 0.5.4 §6 — aggregate counts over `tool_observations` for the
+   * given window. Returns the per-(session_id, arg_key) buckets
+   * the auto-sync coordinator turns into TB TOOL / TB LOOP cloud
+   * counts. Caller does the family normalisation + bucket
+   * thresholds; this method only joins on the index and emits
+   * raw counts so it stays cheap.
+   *
+   * Window is `[afterTs, beforeTs)` — half-open like the rest of
+   * the analytics aggregator.
+   */
+  toolObservationStats(
+    afterTs: number,
+    beforeTs: number,
+  ): { totalRows: number; perKey: Map<string, { sessionId: string; toolName: string; count: number }> } {
+    const totalRow = this.db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM tool_observations
+         WHERE ts >= ? AND ts < ?`,
+      )
+      .get(afterTs, beforeTs) as { c: number };
+
+    const perKey = new Map<
+      string,
+      { sessionId: string; toolName: string; count: number }
+    >();
+    if (totalRow.c === 0) {
+      return { totalRows: 0, perKey };
+    }
+    type Row = { session_id: string; arg_key: string; tool_name: string; n: number };
+    const rows = this.db
+      .prepare(
+        `SELECT session_id, arg_key, tool_name, COUNT(*) AS n
+         FROM tool_observations
+         WHERE ts >= ? AND ts < ?
+         GROUP BY session_id, arg_key, tool_name`,
+      )
+      .all(afterTs, beforeTs) as Row[];
+    for (const r of rows) {
+      perKey.set(`${r.session_id}:${r.arg_key}`, {
+        sessionId: r.session_id,
+        toolName: r.tool_name,
+        count: r.n,
+      });
+    }
+    return { totalRows: totalRow.c, perKey };
+  }
+
   // -------------------------------------------------------------------------
   // Internal helpers
   // -------------------------------------------------------------------------

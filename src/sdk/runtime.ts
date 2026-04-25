@@ -52,6 +52,7 @@ import {
 } from "../runtime/recall.js";
 import { observeToolBatch } from "../runtime/observe-tools.js";
 import { extractDigest, sessionScope } from "../cli/commands/capture-context.js";
+import { createSyncCoordinator, type SyncCoordinator } from "./sync-coordinator.js";
 import type { ReasoningLayer } from "../core/engine.js";
 import type {
   AfterRunInput,
@@ -111,12 +112,21 @@ export function createRuntime(
   const enableLoop = options.enableLoop !== false;
   const detectorEnabled = enableTool || enableLoop;
 
-  // Auto-sync coordinator integration lands in §8.8. The factory
-  // accepts the options now so callers don't need to refactor when
-  // it lights up. For 0.5.4-§8.6 these fields are inert.
-  void options.autoSync;
-  void options.syncDebounceMs;
-  void options.syncMaxIntervalMs;
+  // 0.5.4 §8.8 — auto-sync coordinator. Materialises lazily on
+  // first markDirty so a runtime created with `autoSync: false`
+  // never holds a timer.
+  let syncCoordinator: SyncCoordinator | null = null;
+  function getCoordinator(): SyncCoordinator | null {
+    if (options.autoSync === false) return null;
+    if (!syncCoordinator) {
+      syncCoordinator = createSyncCoordinator(layer, options);
+    }
+    return syncCoordinator;
+  }
+  function markDirty(reason: string): void {
+    const coord = getCoordinator();
+    if (coord) coord.markDirty(reason);
+  }
 
   // Connection cached by basePath so repeated calls against the
   // same project reuse the SQLite handle. Different projectPaths
@@ -316,6 +326,7 @@ export function createRuntime(
     if (toolEvent) events.push(toolEvent);
 
     for (const ev of events) emitBadge(ev);
+    if (events.length > 0) markDirty("beforeRun");
 
     return {
       additionalContext: recall.hasContent ? recall.payload.text : "",
@@ -350,6 +361,7 @@ export function createRuntime(
       workspaceSalt,
       toolCalls: input.toolCalls,
     });
+    if (result.recorded > 0) markDirty("observeToolBatch");
     return { recorded: result.recorded };
   }
 
@@ -451,12 +463,22 @@ export function createRuntime(
     while (pendingJobs.size > 0) {
       await Promise.allSettled(Array.from(pendingJobs));
     }
+    // Drain the coordinator's pending sync attempt too — tests +
+    // enterprise shutdown rely on this to confirm the cloud has
+    // received the latest aggregates before the process exits.
+    if (syncCoordinator) {
+      await syncCoordinator.flush();
+    }
   }
 
   async function close(): Promise<void> {
     if (closed) return;
     closed = true;
     await flush();
+    if (syncCoordinator) {
+      syncCoordinator.close();
+      syncCoordinator = null;
+    }
     if (connection) {
       try {
         connection.store.close();

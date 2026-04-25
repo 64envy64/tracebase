@@ -61,6 +61,52 @@ const USAGE_COHORT_SPEC: AllowlistSpec = {
 };
 
 /**
+ * Eight-family normalised tool vocabulary the cloud allowlist
+ * permits. Literal Claude tool names (`Read`, `Grep`, `Bash`, …)
+ * are mapped LOCALLY (`src/runtime/tool-family.ts`) before any
+ * count is added to this aggregate; an unknown family slot in the
+ * input is dropped at sanitiser time.
+ */
+const TOOL_FAMILY_SPEC: AllowlistSpec = {
+  read: true,
+  search: true,
+  shell: true,
+  edit: true,
+  write: true,
+  web: true,
+  task: true,
+  other: true,
+};
+
+/**
+ * Finite enumerable error-class set — names mirror
+ * `LEAKAGE_PATTERNS_EXTENDED` in `src/core/guard.ts`. Counts only;
+ * the matched substring is never read by the aggregator and never
+ * reaches the wire.
+ */
+const ERROR_CLASS_SPEC: AllowlistSpec = {
+  "abs-path-posix": true,
+  "abs-path-windows": true,
+  "bearer-token": true,
+  "api-key-anthropic": true,
+  "api-key-github": true,
+  "api-key-sk": true,
+  "env-line": true,
+};
+
+/**
+ * 0.5.4 §6 — TB TOOL / TB LOOP aggregate spec. Counts only; never
+ * `arg_key` / `arg_summary` / `tool_use_id` / `session_id` / raw
+ * tool names.
+ */
+const USAGE_TOOL_BATCH_SPEC: AllowlistSpec = {
+  duplicateCount: true,
+  loopCount: true,
+  toolFamilyCounts: TOOL_FAMILY_SPEC,
+  errorClassCounts: ERROR_CLASS_SPEC,
+};
+
+/**
  * The single allowlist tracebase-ai cloud sync writes against. Every
  * other path that hits the hosted API should pipe its payload through
  * `sanitizeForCloud(payload, USAGE_SAMPLE_ALLOWLIST)` before sending.
@@ -114,6 +160,9 @@ export const USAGE_SAMPLE_ALLOWLIST: AllowlistSpec = {
       shadowControlMismatches: true,
       outcomesWithoutRetrieval: true,
     },
+    // 0.5.4 — TB TOOL / TB LOOP aggregates. Optional: only
+    // present when `tool_observations` rows exist for the window.
+    toolBatch: USAGE_TOOL_BATCH_SPEC,
   },
 };
 
