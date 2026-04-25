@@ -40,6 +40,8 @@ export {
 export { wrapAgent } from "./middleware/generic.js";
 export { wrapOpenAI } from "./middleware/openai.js";
 export { wrapAnthropic } from "./middleware/anthropic.js";
+// 0.5.4 — framework-neutral runtime + onBadge surface (PLAN-0.5.4 §3, §8.6)
+export { createRuntime } from "./sdk/runtime.js";
 export { performRecall, injectIntoOpenAIMessages, injectIntoAnthropicSystem } from "./middleware/recall-inject.js";
 
 // Knowledge Base utilities
