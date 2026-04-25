@@ -1363,6 +1363,19 @@ export interface RetrievalEvent extends EventBase {
    * back-compat.
    */
   controlReason?: "shadow" | "holdout";
+  /**
+   * 0.5.7 §C — token cost of the additionalContext that landed on
+   * this query. Sum across the analytics window equals the total
+   * injection-side tokens spent in the period; the dashboard +
+   * `tracebase impact` subtract this from `causal.tokensLift.value`
+   * to compute `netTokenImpact` — the honest "is the layer
+   * arithmetically positive?" metric.
+   *
+   * Optional. Absent on legacy retrieval events; absent when the
+   * payload had no content (`hasContent === false`); 0 is also a
+   * valid value when nothing matched the gate.
+   */
+  injectedTokensEstimate?: number;
 }
 
 export interface InjectionEvent extends EventBase {

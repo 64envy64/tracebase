@@ -26,6 +26,7 @@ import { reportCommand } from "../src/cli/commands/report.js";
 import { usageCommand } from "../src/cli/commands/usage.js";
 import { experimentCommand } from "../src/cli/commands/experiment.js";
 import { memoryCommand } from "../src/cli/commands/memory.js";
+import { impactCommand } from "../src/cli/commands/impact.js";
 import { isInitialized } from "../src/core/config.js";
 
 // Read version from package.json at runtime
@@ -68,6 +69,7 @@ program.addCommand(captureTurnCommand);
 program.addCommand(captureContextCommand);
 program.addCommand(captureToolUseCommand);
 program.addCommand(memoryCommand);
+program.addCommand(impactCommand);
 
 // No args → guided quickstart instead of generic help
 if (process.argv.length <= 2) {

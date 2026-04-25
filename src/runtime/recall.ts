@@ -202,6 +202,12 @@ function recordRecallEvents(
     ...(result.facts.length > 0
       ? { factCandidates: result.facts.map((h) => ({ factId: h.fact.id, score: h.score })) }
       : {}),
+    // 0.5.7 §C — record the injection-side token cost so the
+    // analytics window can compute netTokenImpact = tokensLift -
+    // sum(injectedTokensEstimate). Only meaningful when the
+    // payload actually carried content; 0 captures "gate cleared
+    // nothing".
+    injectedTokensEstimate: payload.hasContent ? payload.tokensEstimate : 0,
   });
 
   const visibleBlocks = new Set(payload.blockIds);

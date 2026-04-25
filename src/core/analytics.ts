@@ -397,6 +397,14 @@ export interface RetrievalSplit {
   total: number;
   shadow: number;
   treatment: number;
+  /**
+   * 0.5.7 §C — sum of `injectedTokensEstimate` across every
+   * retrieval event in the window. Used by `computeUsageMetrics`
+   * to compute `netTokenImpact = tokensLift.value -
+   * totalInjectedTokensEstimate`. Always finite; 0 when no
+   * retrievals happened or none cleared the budget.
+   */
+  totalInjectedTokensEstimate: number;
 }
 
 export interface OutcomeSplit {
@@ -619,6 +627,13 @@ export function computeAggregates(
     factInjection: 0, factAgentUsed: 0,
   };
 
+  // 0.5.7 §C — running sum of injection-side token estimates.
+  // Each retrieval event carries an `injectedTokensEstimate` that
+  // captures the token cost of `additionalContext` for that
+  // query; total across the window is the input-side spend that
+  // `netTokenImpact` subtracts from `tokensLift.value`.
+  let totalInjectedTokensEstimate = 0;
+
   // Indexes.
   const shadowByQuery = new Map<string, boolean>();
   const injectionsByQuery = new Map<string, Set<string>>();  // queryId → blockIds
@@ -649,6 +664,13 @@ export function computeAggregates(
         controlReasonByQuery.set(ev.queryId, ev.controlReason);
         if (ev.shadow) retrievalShadow.add(ev.queryId);
         else retrievalTreatment.add(ev.queryId);
+        // 0.5.7 §C — tally injection cost. Legacy events without
+        // the field contribute 0; treating undefined as 0 keeps
+        // mixed-version stores honest (we under-count rather than
+        // hallucinating cost).
+        if (typeof ev.injectedTokensEstimate === "number") {
+          totalInjectedTokensEstimate += ev.injectedTokensEstimate;
+        }
         eligibleQueries.add(ev.queryId);
         const anyCandidates =
           ev.candidates.length > 0 || (ev.factCandidates?.length ?? 0) > 0;
@@ -916,6 +938,7 @@ export function computeAggregates(
       total: retrievalTreatment.size + retrievalShadow.size,
       shadow: retrievalShadow.size,
       treatment: retrievalTreatment.size,
+      totalInjectedTokensEstimate,
     },
     outcome: outcomeSplit,
     rates,

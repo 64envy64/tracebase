@@ -201,6 +201,29 @@ export interface UsageMetrics {
    * names.
    */
   toolBatch?: UsageToolBatch;
+  /**
+   * 0.5.7 §C — net token impact in the window.
+   *
+   *   netTokenImpact = causal.tokensLift.value − totalInjectedTokensEstimate
+   *
+   * `null` when `causal.tokensLift.value === null` (cohort below
+   * threshold) — refusing to render a fabricated net on a small
+   * sample. Positive = injection arithmetically positive; negative
+   * = the layer cost more tokens than it saved over the window.
+   *
+   * The honest "is this layer paying for itself" metric. Surfaced
+   * one-line by `tracebase impact`; cloud allowlist treats it as
+   * a primitive leaf.
+   */
+  netTokenImpact?: number | null;
+  /**
+   * Window-total of injection-side token spend
+   * (`sum(retrieval.injectedTokensEstimate)`). Always present and
+   * always non-negative — appears as the second term of
+   * `netTokenImpact` and as the input-side cost the dashboard
+   * subtracts from `tokensLift.value`.
+   */
+  totalInjectedTokensEstimate: number;
 }
 
 export interface UsageCohort {
@@ -295,6 +318,16 @@ export function computeUsageMetrics(
 
   const causal = computeCausal(agg, minCausalCohort);
 
+  // 0.5.7 §C — netTokenImpact: tokensLift.value minus the window's
+  // total injection-side token spend. Null whenever the lift
+  // itself is null (cohort < threshold), since subtracting a
+  // known cost from an unknown lift produces a junk number.
+  const totalInjectedTokensEstimate = agg.retrieval.totalInjectedTokensEstimate;
+  const netTokenImpact =
+    causal && typeof causal.tokensLift.value === "number"
+      ? causal.tokensLift.value - totalInjectedTokensEstimate
+      : null;
+
   return {
     scope,
     window,
@@ -318,6 +351,8 @@ export function computeUsageMetrics(
       shadowControlMismatches: integrity.shadowControlMismatches,
       outcomesWithoutRetrieval: integrity.outcomesWithoutRetrieval,
     },
+    netTokenImpact,
+    totalInjectedTokensEstimate,
   };
 }
 

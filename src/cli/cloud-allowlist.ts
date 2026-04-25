@@ -163,6 +163,12 @@ export const USAGE_SAMPLE_ALLOWLIST: AllowlistSpec = {
     // 0.5.4 — TB TOOL / TB LOOP aggregates. Optional: only
     // present when `tool_observations` rows exist for the window.
     toolBatch: USAGE_TOOL_BATCH_SPEC,
+    // 0.5.7 §C — token-economy primitives. Both are integers
+    // (counts), never user content. `netTokenImpact` may be `null`
+    // when cohort < threshold; the sanitiser treats `null` as a
+    // valid primitive leaf.
+    netTokenImpact: true,
+    totalInjectedTokensEstimate: true,
   },
 };
 

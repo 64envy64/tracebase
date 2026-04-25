@@ -392,12 +392,20 @@ describe("sanitizeForCloud — edge cases", () => {
       "causal",
       "estimated",
       "integrity",
+      // 0.5.7 §C — net token impact in the window:
+      //   tokensLift.value − totalInjectedTokensEstimate.
+      // Primitive leaf; null when cohort < threshold.
+      "netTokenImpact",
       "observed",
       "scope",
       // 0.5.4 §6 — TB TOOL / TB LOOP aggregates. Counts only;
       // family vocabulary normalised (`read` / `search` / `shell`
       // / etc.) — never literal Claude tool names.
       "toolBatch",
+      // 0.5.7 §C — window-total injection-side token spend.
+      // Primitive leaf; appears as the second term of
+      // `netTokenImpact`.
+      "totalInjectedTokensEstimate",
       "window",
     ]);
   });
