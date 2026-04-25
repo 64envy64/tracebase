@@ -205,6 +205,19 @@ export interface TraceBaseConfig {
    * before 0.5.3 — present-from-init for new ones.
    */
   workspaceSalt?: string;
+  /**
+   * 0.5.9 §3 — optional LLM pricing for `tracebase impact`'s
+   * dollar render. The CLI flags (`--price-input-per-1m`,
+   * `--price-output-per-1m`) take precedence; this field is the
+   * "set once, never type again" path.
+   *
+   * Both prices in USD per 1M tokens. When BOTH are present
+   * `tracebase impact` shows an estimated dollar savings using a
+   * 50/50 blend (input/output split is not tracked per-event).
+   * When neither is present, dollars are NEVER inferred from a
+   * model name — only token counts ship.
+   */
+  pricing?: PricingConfig;
   /** Embedding provider configuration */
   embeddings?: EmbeddingConfig;
   /** Maximum traces to store (0 = unlimited, default: 100_000) */
@@ -285,6 +298,21 @@ export interface HoldoutConfig {
   createdAt: string;
   /** ISO timestamp of the last enable / disable state change. */
   updatedAt: string;
+}
+
+/**
+ * 0.5.9 §3 — optional pricing config for `tracebase impact`'s
+ * dollar-savings render. Both fields are USD per 1M tokens.
+ * The render shows dollars ONLY when both fields resolve to
+ * positive numbers (CLI flags win over config; neither set →
+ * tokens-only render). Token counts always ship; dollars
+ * never come from a model-name lookup.
+ */
+export interface PricingConfig {
+  /** USD cost per 1,000,000 input (prompt) tokens. */
+  inputPer1mTokens?: number;
+  /** USD cost per 1,000,000 output (completion) tokens. */
+  outputPer1mTokens?: number;
 }
 
 export type InstallAgent = "claude-code" | "cursor" | "codex";
