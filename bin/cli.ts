@@ -6,6 +6,7 @@ import { initCommand } from "../src/cli/commands/init.js";
 import { injectContextCommand } from "../src/cli/commands/inject-context.js";
 import { captureTurnCommand } from "../src/cli/commands/capture-turn.js";
 import { captureContextCommand } from "../src/cli/commands/capture-context.js";
+import { captureToolUseCommand } from "../src/cli/commands/capture-tool-use.js";
 import { removeCommand } from "../src/cli/commands/remove.js";
 import { recallCommand } from "../src/cli/commands/recall.js";
 import { searchCommand } from "../src/cli/commands/search.js";
@@ -64,6 +65,7 @@ program.addCommand(experimentCommand);
 program.addCommand(injectContextCommand);
 program.addCommand(captureTurnCommand);
 program.addCommand(captureContextCommand);
+program.addCommand(captureToolUseCommand);
 
 // No args → guided quickstart instead of generic help
 if (process.argv.length <= 2) {
