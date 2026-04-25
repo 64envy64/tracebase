@@ -177,11 +177,13 @@ export function extractDigestFromTurns(
 // ---------------------------------------------------------------------------
 
 function firstLineStripped(content: string): string {
-  // Skip Claude Code meta wrappers (command caveats, tracebase
-  // injections, system reminders). These are NOT real user input.
+  // Skip Claude Code meta wrappers — NOT real user input. The
+  // list is kept in lock-step with `extractUserText` in
+  // `capture-turn.ts` (0.5.6 §5 added local-command-stdout /
+  // local-command-output).
   const trimmed = content.trim();
   if (!trimmed) return "";
-  if (/^<(command-name|local-command-caveat|system-reminder|tracebase)[\s>]/.test(trimmed)) {
+  if (/^<(command-name|local-command-caveat|local-command-stdout|local-command-output|system-reminder|tracebase)[\s>]/.test(trimmed)) {
     return "";
   }
   const firstLine = trimmed.split("\n", 1)[0]!.trim();

@@ -306,6 +306,77 @@ describe("runDoctor — Claude Code hook health", () => {
   });
 });
 
+describe("runDoctor — hook-health (0.5.6 self-heal)", () => {
+  it("PASSes idle when no hook-health.json exists", async () => {
+    const { writeAgentHookConfig, writeAgentInstructionFile } = await import(
+      "../../src/cli/install-targets.js"
+    );
+    initConfig(dir);
+    writeClaudeSettings(dir, false);
+    writeAgentInstructionFile(dir, "claude-code");
+    writeAgentHookConfig(dir, "claude-code", false);
+
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "hook-health")!;
+    expect(c).toBeDefined();
+    expect(c.level).toBe("pass");
+    expect(c.message).toMatch(/auto-heal idle/);
+  });
+
+  it("WARNs when hook-health.json reports a customised entry", async () => {
+    const { writeAgentHookConfig, writeAgentInstructionFile } = await import(
+      "../../src/cli/install-targets.js"
+    );
+    initConfig(dir);
+    writeClaudeSettings(dir, false);
+    writeAgentInstructionFile(dir, "claude-code");
+    writeAgentHookConfig(dir, "claude-code", false);
+
+    // Seed the marker as if self-heal already ran and skipped a custom entry.
+    writeFileSync(
+      join(dir, ".tracebase", "hook-health.json"),
+      JSON.stringify({
+        lastSelfHealAt: Date.now(),
+        lastSeenPackageVersion: "0.5.6",
+        lastSkippedCustom: ["UserPromptSubmit"],
+      }),
+    );
+
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "hook-health")!;
+    expect(c.level).toBe("warn");
+    expect(c.message).toMatch(/UserPromptSubmit/);
+    expect(c.fix).toMatch(/--force/);
+  });
+
+  it("PASSes with a recent-update note when hook-health.json reports a recent write", async () => {
+    const { writeAgentHookConfig, writeAgentInstructionFile } = await import(
+      "../../src/cli/install-targets.js"
+    );
+    initConfig(dir);
+    writeClaudeSettings(dir, false);
+    writeAgentInstructionFile(dir, "claude-code");
+    writeAgentHookConfig(dir, "claude-code", false);
+
+    writeFileSync(
+      join(dir, ".tracebase", "hook-health.json"),
+      JSON.stringify({
+        lastSelfHealAt: Date.now() - 1_000,
+        lastSeenPackageVersion: "0.5.6",
+        lastSkippedCustom: [],
+        lastWrittenAt: Date.now() - 1_000,
+        lastUpdated: ["PostToolBatch"],
+      }),
+    );
+
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "hook-health")!;
+    expect(c.level).toBe("pass");
+    expect(c.message).toMatch(/recently/);
+    expect(c.message).toMatch(/PostToolBatch/);
+  });
+});
+
 describe("runDoctor — workspace salt", () => {
   it("PASSes after a fresh init (initConfig mints the salt eagerly)", () => {
     initConfig(dir);

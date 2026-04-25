@@ -466,12 +466,37 @@ function extractUserText(content: unknown): string {
   // Meta wrappers that Claude Code emits internally:
   //   <command-name>...</command-name>
   //   <local-command-caveat>...</local-command-caveat>
+  //   <local-command-stdout>...</local-command-stdout>     (0.5.6 §5)
+  //   <local-command-output>...</local-command-output>     (0.5.6 §5)
   //   <system-reminder>...</system-reminder>
   //   <tracebase queryId=...>...</tracebase>
-  if (/^<(command-name|local-command-caveat|system-reminder|tracebase)[\s>]/.test(trimmed)) {
+  // Whole-turn match: the message IS one of these and nothing else.
+  if (/^<(command-name|local-command-caveat|local-command-stdout|local-command-output|system-reminder|tracebase)[\s>]/.test(trimmed)) {
     return "";
   }
-  return trimmed;
+  // Inline match (0.5.6 §4): user turn contains a meta wrapper
+  // mid-content (e.g. someone pastes the output of a slash command
+  // alongside their actual prompt). Strip the wrapper so the
+  // length gate sees the substantive part only — turns that were
+  // 80% local-command-stdout don't get stored as patterns.
+  return stripInlineMetaWrappers(trimmed);
+}
+
+const META_WRAPPER_TAGS = [
+  "command-name",
+  "local-command-caveat",
+  "local-command-stdout",
+  "local-command-output",
+  "system-reminder",
+  "tracebase",
+] as const;
+const META_WRAPPER_RE = new RegExp(
+  `<(${META_WRAPPER_TAGS.join("|")})\\b[^>]*>[\\s\\S]*?</\\1>`,
+  "g",
+);
+
+function stripInlineMetaWrappers(text: string): string {
+  return text.replace(META_WRAPPER_RE, " ").replace(/\s{2,}/g, " ").trim();
 }
 
 function extractAssistantText(content: unknown): string {
@@ -521,10 +546,15 @@ export function extractPattern(
   const mechanism = paragraphs[0]!.slice(0, MAX_FIELD);
   if (mechanism.length < MIN_MECHANISM_CHARS) return null;
 
+  // 0.5.6 §4 — drop the mechanism.slice fallback. It produced a
+  // degenerate "unlock" that was just the back half of the
+  // mechanism, which surfaced as noisy reasoning_blocks where
+  // mechanism + unlock told the same story. A real reusable
+  // pattern needs an action line OR a distinct second paragraph;
+  // turns missing both are not pattern-shaped.
   const unlock =
     findActionLine(cleaned) ??
-    (paragraphs[1] ? paragraphs[1]!.slice(0, MAX_FIELD) : null) ??
-    (mechanism.length > MIN_UNLOCK_CHARS + 20 ? mechanism.slice(MIN_UNLOCK_CHARS) : null);
+    (paragraphs[1] ? paragraphs[1]!.slice(0, MAX_FIELD) : null);
   if (!unlock || unlock.length < MIN_UNLOCK_CHARS) return null;
 
   const verification =

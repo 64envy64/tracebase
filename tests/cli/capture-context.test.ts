@@ -200,6 +200,60 @@ describe("extractDigest — deterministic, bounded", () => {
     expect(extractDigest(transcript)).toBeNull();
   });
 
+  it("0.5.6 §5 — skips <local-command-stdout> / <local-command-output> meta-wrapper user lines", () => {
+    // Two user turns: one is a legit question, the other is a
+    // local slash-command output that shouldn't surface in the
+    // digest's "Recent user questions:" section.
+    const transcript =
+      JSON.stringify({
+        type: "user",
+        message: {
+          role: "user",
+          content:
+            "<local-command-stdout>Login successful</local-command-stdout>",
+        },
+      }) +
+      "\n" +
+      JSON.stringify({
+        type: "user",
+        message: {
+          role: "user",
+          content:
+            "<local-command-output>some captured shell output that we definitely don't want in our digest</local-command-output>",
+        },
+      }) +
+      "\n" +
+      JSON.stringify({
+        type: "user",
+        message: {
+          role: "user",
+          content: "What's the right way to wire the migration runner here on a fresh clone?",
+        },
+      }) +
+      "\n" +
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text:
+                "## Diagnosis\n\nThe migration runner expects a clean schema baseline.\n\n## Fix\n\n- Drop the legacy users table\n- Apply 0042_user_schema\n\n## Verify\n\nRun the migration test suite end to end.",
+            },
+          ],
+        },
+      });
+    const digest = extractDigest(transcript)!;
+    expect(digest).not.toBeNull();
+    expect(digest).toContain("migration runner");
+    // Must NOT mention the meta-wrapper outputs.
+    expect(digest).not.toContain("Login successful");
+    expect(digest).not.toContain("captured shell output");
+    expect(digest).not.toContain("local-command-stdout");
+    expect(digest).not.toContain("local-command-output");
+  });
+
   it("rejects digests that contain API-key shapes", () => {
     const transcript = JSON.stringify({
       type: "user",

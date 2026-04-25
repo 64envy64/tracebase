@@ -21,6 +21,7 @@ import type { TraceBaseConfig } from "../../types.js";
 import {
   getAgentTargetMeta,
   hookEventsForAgent,
+  // 0.5.6 — auto-heal hook-health marker
   inspectAgentHookConfig,
   inspectAgentInstructionFile,
   inspectAgentMcpConfig,
@@ -29,6 +30,7 @@ import {
   type HookEventState,
   type InstallAgent,
 } from "../install-targets.js";
+import { readHookHealth } from "../hook-self-heal.js";
 
 export type DoctorLevel = "pass" | "warn" | "fail";
 
@@ -774,6 +776,50 @@ function appendAgentIntegrationChecks(
         level: "pass",
         message: `${displayName} hooks canonical (${stateSummary})`,
       });
+    }
+
+    // 0.5.6 — hook-health surface. Companion to the existing
+    // hook check; reports on the self-heal marker without
+    // re-walking settings.json. Three states:
+    //   PASS — last self-heal saw nothing customised + ran
+    //          recently (or hasn't run yet on a fresh canonical
+    //          install — no marker, no problem)
+    //   WARN — at least one event is user-customised so
+    //          self-heal is leaving it alone; user must
+    //          decide whether to keep the customisation or
+    //          re-init with --force
+    //   INFO/PASS — recently wrote → noted in the message
+    if (agent === "claude-code") {
+      const health = readHookHealth(projectRoot);
+      const customised = health.lastSkippedCustom ?? [];
+      const lastWritten = health.lastWrittenAt;
+      const lastUpdated = health.lastUpdated ?? [];
+
+      if (customised.length > 0) {
+        checks.push({
+          name: "hook-health",
+          level: "warn",
+          message:
+            `auto-heal skipped customised entries: ${customised.join(", ")}`,
+          fix:
+            `Self-heal preserves user-customised TraceBase hooks. Re-run ` +
+            `\`${initCommand} --force\` to overwrite back to canonical, ` +
+            `or keep the customisation and ignore this warning.`,
+        });
+      } else if (lastWritten && Date.now() - lastWritten < 24 * 60 * 60 * 1000) {
+        const updates = lastUpdated.length > 0 ? ` (${lastUpdated.join(", ")})` : "";
+        checks.push({
+          name: "hook-health",
+          level: "pass",
+          message: `auto-heal updated recently${updates}; throttle armed`,
+        });
+      } else {
+        checks.push({
+          name: "hook-health",
+          level: "pass",
+          message: "auto-heal idle (no customised entries; throttle armed)",
+        });
+      }
     }
   }
 }

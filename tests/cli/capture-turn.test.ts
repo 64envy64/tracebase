@@ -393,6 +393,69 @@ Verify by running pytest --collect-only.`,
     expect(p!.unlock.length).toBeGreaterThan(0);
     expect(p!.verification.length).toBeGreaterThan(0);
   });
+
+  // 0.5.6 §4 — noise-reduction tightenings.
+  it("returns null when a single-paragraph assistant has no action line (degenerate unlock fallback)", () => {
+    // Long enough to clear MIN_OUTCOME_CHARS but only ONE
+    // paragraph — used to produce an "unlock" that was just the
+    // back half of the mechanism. Now correctly rejected.
+    const userText = "we keep hitting the same issue with the migration runner across every fresh clone of this repo apparently";
+    const oneBigParagraph =
+      "The migration runner keeps tripping over the legacy users table that was supposed to be dropped two releases ago. Several teammates have hit this; the symptom is the same — a duplicate-column error from the runner's first ALTER. Nobody picked an action item, the issue keeps coming back, and the runner doesn't dry-run cleanly. The mechanism appears to be a stale schema baseline rather than the runner itself but no concrete next step has been identified yet.";
+    expect(extractPattern(userText, oneBigParagraph)).toBeNull();
+  });
+});
+
+describe("extractUserText — meta-wrapper handling (0.5.6 §4 / §5)", () => {
+  // Internal helper isn't exported; we exercise it through
+  // parseTranscript above. This describe block's value is
+  // documenting the gate intent, with one focused regression
+  // case wired through the runtime.
+  it("strips inline <local-command-stdout> wrappers from user text before length gate", async () => {
+    // A user paste that would clear MIN_TASK_CHARS on raw length
+    // but degrades to a short prompt once the meta wrapper is
+    // stripped. The pattern extractor should NOT fire.
+    const userTextWithWrapper =
+      "ok\n<local-command-stdout>" +
+      "x".repeat(500) +
+      "</local-command-stdout>\nplease continue";
+    // The wrapper-stripped form is "ok please continue" → 18 chars
+    // → below MIN_TASK_CHARS. extractPattern receives the cleaned
+    // text from extractUserText, so we test through parseTranscript
+    // by running a transcript JSONL through the public surface.
+    const { parseTranscript } = await import("../../src/cli/commands/capture-turn.js");
+    const transcript = [
+      JSON.stringify({
+        type: "user",
+        message: { role: "user", content: userTextWithWrapper },
+      }),
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text:
+                "First paragraph mechanism that's substantial enough to clear MIN_OUTCOME_CHARS so we know the gate is firing on the user text length, not the assistant text length. " +
+                "Adding more body so the assistant clears all gates. " +
+                "Even more body to be safe. " +
+                "And one more sentence so we definitely have 300+ chars in the assistant slot.\n\n" +
+                "Run npm test to verify the fix.",
+            },
+          ],
+        },
+      }),
+    ].join("\n");
+    const summary = parseTranscript(transcript);
+    expect(summary).not.toBeNull();
+    // After stripping the <local-command-stdout> wrapper, the user
+    // text is short — extractPattern called with this user text
+    // should reject.
+    const cleanedUserText = summary!.lastUserText;
+    expect(cleanedUserText).not.toMatch(/local-command-stdout/);
+    expect(cleanedUserText.length).toBeLessThan(80);
+  });
 });
 
 describe("parseStdinPayload — collapses errors to {}", () => {
