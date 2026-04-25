@@ -1,6 +1,6 @@
 {
   "name": "tracebase-ai",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "description": "Reasoning layer for AI agents — institutional memory so your agents never solve the same problem twice",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
