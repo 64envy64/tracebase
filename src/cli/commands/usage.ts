@@ -27,36 +27,19 @@
  * because the server schema requires one; the scope tag in the
  * payload is the authoritative signal to downstream readers.
  */
-import { existsSync, readFileSync } from "node:fs";
 import { Command } from "commander";
 import pc from "picocolors";
 import Database from "better-sqlite3";
-import { findConfigDir, loadConfig } from "../../core/config.js";
+import { findConfigDir } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
-import { computeAggregates } from "../../core/analytics.js";
-import { computeUsageMetrics, type UsageMetrics } from "../../analytics/usage-metrics.js";
-import { loadCloudCredential, normalizeApiUrl } from "../cloud.js";
-import { sanitizeForCloud } from "../cloud-allowlist.js";
+import {
+  buildWindowPayload,
+  checkSyncReadiness,
+  pushSampleToCloud,
+} from "../../sdk/usage-payload.js";
 import { parseSince } from "./events.js";
-import { join } from "node:path";
-
-interface PushResult {
-  ok: boolean;
-  status: number;
-  body: string;
-}
 
 const DAY_MS = 86_400_000;
-
-function packageVersion(): string {
-  try {
-    const pkgPath = join(__dirname, "..", "..", "package.json");
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { version?: string };
-    return pkg.version ?? "unknown";
-  } catch {
-    return "unknown";
-  }
-}
 
 export const usageCommand = new Command("usage")
   .description("Push rolled-up UsageMetrics to the hosted control plane")
@@ -75,39 +58,28 @@ export const usageCommand = new Command("usage")
         apiKey?: string;
         dryRun?: boolean;
       }) => {
+        // 0.5.5 §1 / §2 — CLI delegates to `checkSyncReadiness` so
+        // the manual sync path uses the same validation + payload
+        // assembly the auto-sync coordinator does. The `dryRun`
+        // flag flows in as `allowMissingApiKey` so a workspace
+        // without a key can still preview a sample.
         const configDir = findConfigDir(opts.path);
-        if (!configDir) {
-          console.error(pc.yellow("⚠ Not initialized. ") + "Run " + pc.cyan("npx tracebase init") + " first.");
+        const readiness = checkSyncReadiness(opts.path, {
+          apiUrlOverride: opts.apiUrl,
+          apiKeyOverride: opts.apiKey,
+          allowMissingApiKey: opts.dryRun,
+        });
+        if (!readiness.ok) {
+          renderReadinessError(readiness.reason);
+          if (readiness.reason === "no-storage") {
+            // Same UX as the previous "no memory.db yet" path — we
+            // exit cleanly with a note rather than a 1.
+            return;
+          }
           process.exitCode = 1;
           return;
         }
-        const cfg = loadConfig(opts.path);
-        if (!cfg.cloud?.workspaceId) {
-          console.error(pc.yellow("⚠ No cloud link on this project. ") + "Re-run " + pc.cyan("npx tracebase init") + " with cloud credentials.");
-          process.exitCode = 1;
-          return;
-        }
-
-        const primaryInstallationId =
-          cfg.cloud.installationIds?.[cfg.install?.agents?.[0] ?? "claude-code"] ??
-          cfg.cloud.installationId;
-        if (!primaryInstallationId) {
-          console.error(pc.yellow("⚠ This project has no installationId yet. ") + "Re-run " + pc.cyan("npx tracebase init") + " to register with the control plane.");
-          process.exitCode = 1;
-          return;
-        }
-
-        const apiUrl = normalizeApiUrl(opts.apiUrl ?? cfg.cloud.apiUrl);
-        const apiKey =
-          opts.apiKey?.trim() ||
-          process.env.TRACEBASE_API_KEY?.trim() ||
-          loadCloudCredential(apiUrl, cfg.cloud.workspaceId) ||
-          "";
-        if (!apiKey && !opts.dryRun) {
-          console.error(pc.yellow("⚠ No API key for this workspace. ") + "Set " + pc.cyan("TRACEBASE_API_KEY") + " or re-run " + pc.cyan("init") + " to obtain one.");
-          process.exitCode = 1;
-          return;
-        }
+        const { apiUrl, installationId, storagePath, cliVersion } = readiness.readiness;
 
         // Time range: clamp `since` to a UTC day boundary so each bucket
         // is exactly one day. `parseSince` accepts "30d" / ISO / epoch ms.
@@ -126,63 +98,58 @@ export const usageCommand = new Command("usage")
         console.log(pc.bold("TraceBase usage sync"));
         console.log(pc.dim(`  project      ${configDir}`));
         console.log(pc.dim(`  api          ${apiUrl}`));
-        console.log(pc.dim(`  installation ${primaryInstallationId} (primary; scope=workspace)`));
+        console.log(pc.dim(`  installation ${installationId} (primary; scope=workspace)`));
         console.log(pc.dim(`  window       ${new Date(afterTs).toISOString()} → ${new Date(nowTs).toISOString()} (${days.length} bucket${days.length === 1 ? "" : "s"})`));
         console.log(pc.dim(`  scope        workspace — project-level rollup. Per-adapter attribution ships in Phase 2.`));
         console.log();
 
-        // No store file yet = no activity yet. Keep the command honest:
-        // exit cleanly with a note instead of a SQLite cant-open error.
-        if (!existsSync(cfg.storagePath)) {
-          console.log(pc.dim("  no memory.db yet — nothing to sync. Run an agent turn first."));
-          console.log();
-          return;
-        }
-
-        // Open the local event store once; iterate buckets against it.
-        const db = new Database(cfg.storagePath, { readonly: true });
+        // Open the local event store once; iterate buckets against
+        // it via the shared `buildWindowPayload` helper.
+        const db = new Database(storagePath, { readonly: true });
         const store = new BlockStore(db, { skipMigrate: true });
-        const cliVersion = packageVersion();
 
         let pushed = 0;
         let skipped = 0;
         try {
           for (const bucket of days) {
-            const agg = computeAggregates(store, {
-              afterTs: bucket.startMs,
-              beforeTs: bucket.endMs,
-            });
-            const metrics: UsageMetrics = computeUsageMetrics(agg);
-            // Skip buckets with no activity — no point writing an
-            // all-zero sample and spamming the dashboard with empty rows.
-            if (metrics.observed.eligibleRuns === 0) {
+            const built = buildWindowPayload(
+              readiness.readiness,
+              store,
+              bucket.startMs,
+              bucket.endMs,
+            );
+            if (!built.ok) {
               skipped++;
               continue;
             }
+            const { metrics } = built.input;
             if (opts.dryRun) {
               console.log(pc.dim(`  ~ ${bucket.start} `) + `eligible=${metrics.observed.eligibleRuns} injected=${metrics.observed.injectedRuns} helpful=${metrics.observed.helpfulRuns}`);
               pushed++;
               continue;
             }
-            const result = await pushSample({
-              apiUrl,
-              apiKey,
-              installationId: primaryInstallationId,
+            const result = await pushSampleToCloud({
+              ...built.input,
+              // Daily windows use the bucket boundaries; override
+              // the helper's literal-window timestamps so the
+              // dedupe key matches the CLI's traditional shape.
               windowStart: bucket.start,
               windowEnd: bucket.end,
-              metrics,
-              cliVersion,
             });
             if (result.ok) {
               pushed++;
               console.log(pc.green(`  + ${bucket.start} `) + pc.dim(`eligible=${metrics.observed.eligibleRuns} injected=${metrics.observed.injectedRuns} helpful=${metrics.observed.helpfulRuns}`));
             } else {
-              console.log(pc.red(`  ! ${bucket.start} `) + pc.dim(`push failed (${result.status}): ${truncate(result.body, 140)}`));
+              console.log(pc.red(`  ! ${bucket.start} `) + pc.dim(`push failed (${result.status}): ${truncate(result.reason ?? "", 140)}`));
             }
           }
         } finally {
           store.close();
         }
+        // Suppress unused-var warning while we no longer reference cliVersion
+        // directly here (it's captured inside built.input from
+        // `buildWindowPayload`).
+        void cliVersion;
 
         console.log();
         const summary = opts.dryRun ? "Dry run" : "Pushed";
@@ -190,6 +157,52 @@ export const usageCommand = new Command("usage")
         console.log();
       }),
   );
+
+function renderReadinessError(reason: string): void {
+  switch (reason) {
+    case "not-initialized":
+      console.error(
+        pc.yellow("⚠ Not initialized. ") +
+          "Run " +
+          pc.cyan("npx tracebase init") +
+          " first.",
+      );
+      return;
+    case "no-cloud-link":
+      console.error(
+        pc.yellow("⚠ No cloud link on this project. ") +
+          "Re-run " +
+          pc.cyan("npx tracebase init") +
+          " with cloud credentials.",
+      );
+      return;
+    case "no-installation-id":
+      console.error(
+        pc.yellow("⚠ This project has no installationId yet. ") +
+          "Re-run " +
+          pc.cyan("npx tracebase init") +
+          " to register with the control plane.",
+      );
+      return;
+    case "no-api-key":
+      console.error(
+        pc.yellow("⚠ No API key for this workspace. ") +
+          "Set " +
+          pc.cyan("TRACEBASE_API_KEY") +
+          " or re-run " +
+          pc.cyan("init") +
+          " to obtain one.",
+      );
+      return;
+    case "no-storage":
+      console.log();
+      console.log(pc.bold("TraceBase usage sync"));
+      console.log();
+      console.log(pc.dim("  no memory.db yet — nothing to sync. Run an agent turn first."));
+      console.log();
+      return;
+  }
+}
 
 interface DayBucket {
   /** UTC midnight at the start of the day, ISO. */
@@ -212,48 +225,6 @@ function buildDayBuckets(afterTs: number, nowTs: number): DayBucket[] {
     });
   }
   return out;
-}
-
-async function pushSample(input: {
-  apiUrl: string;
-  apiKey: string;
-  installationId: string;
-  windowStart: string;
-  windowEnd: string;
-  metrics: UsageMetrics;
-  cliVersion: string;
-}): Promise<PushResult> {
-  try {
-    // Defense in depth: pipe the payload through `sanitizeForCloud`
-    // before it leaves the machine, so any field that sneaks into the
-    // usage sample outside the PLAN-0.5 §7 allowlist (future schema
-    // drift, accidental inclusion) is dropped here. Today's payload
-    // already conforms; the sanitizer guarantees it stays that way.
-    const rawBody = {
-      installationId: input.installationId,
-      windowStart: input.windowStart,
-      windowEnd: input.windowEnd,
-      metrics: input.metrics,
-      cliVersion: input.cliVersion,
-    };
-    const safeBody = sanitizeForCloud(rawBody);
-    const res = await fetch(`${input.apiUrl}/api/control-plane/usage-samples`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${input.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(safeBody),
-    });
-    const body = await res.text();
-    return { ok: res.ok, status: res.status, body };
-  } catch (error) {
-    return {
-      ok: false,
-      status: 0,
-      body: error instanceof Error ? error.message : String(error),
-    };
-  }
 }
 
 function truncate(s: string, n: number): string {

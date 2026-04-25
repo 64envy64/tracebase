@@ -38,6 +38,7 @@
 import type { ReasoningLayer } from "../core/engine.js";
 import type { UsageMetrics } from "../analytics/usage-metrics.js";
 import type { CreateRuntimeOptions } from "../types.js";
+import { buildSendInputForWindow } from "./usage-payload.js";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -77,11 +78,27 @@ export interface CreateSyncCoordinatorDeps {
    */
   now?: () => number;
   /**
-   * The actual sender. Production wires this to `pushSampleToCloud`
-   * below; tests stub it to track call shapes without firing real
-   * fetches.
+   * The actual sender. Production defaults to `pushSampleToCloud`
+   * from `usage-payload.ts`; tests stub it to track call shapes
+   * without firing real fetches.
    */
   send?: SyncSender;
+  /**
+   * Callback that returns the current project root the coordinator
+   * should sync from, or null when no project is bound yet. Called
+   * inside runSync so the coordinator picks up the runtime's
+   * lazily-resolved basePath without mutating its own state.
+   *
+   * Returning null is treated identically to an unlinked-cloud
+   * project: the coordinator silently no-ops and clears dirty.
+   */
+  resolveBasePath?: () => string | null;
+  /**
+   * Override the payload builder for tests. Production uses
+   * `buildSendInputForWindow` from `usage-payload.ts` against the
+   * resolved basePath + current-UTC-day window.
+   */
+  buildInput?: (basePath: string) => Promise<SyncSendInput | null>;
 }
 
 export interface SyncSendInput {
@@ -129,8 +146,10 @@ export function createSyncCoordinator(
 
   const debounceMs = options.syncDebounceMs ?? DEFAULT_DEBOUNCE_MS;
   const maxIntervalMs = options.syncMaxIntervalMs ?? DEFAULT_MAX_INTERVAL_MS;
-  const send: SyncSender = deps.send ?? noopSender;
+  const send: SyncSender = deps.send ?? defaultSender;
   const now = deps.now ?? Date.now;
+  const resolveBasePath = deps.resolveBasePath ?? (() => null);
+  const buildInput = deps.buildInput ?? defaultBuildInput;
   const enabled = options.autoSync !== false;
 
   let dirty = false;
@@ -188,7 +207,18 @@ export function createSyncCoordinator(
       const reasons = dirtyReasons.slice();
       dirtyReasons = [];
       try {
-        const input = await buildSendInput();
+        const basePath = resolveBasePath();
+        if (!basePath) {
+          // No project bound yet — clear dirty silently. The runtime
+          // marks dirty before the connection is materialised on a
+          // first call sometimes; the next markDirty cycle will
+          // catch it.
+          dirty = false;
+          dirtySince = null;
+          backoffAttempt = 0;
+          return;
+        }
+        const input = await buildInput(basePath);
         if (!input) {
           // Cloud not linked (or initialised): nothing to do. Clear
           // dirty so we don't keep retrying when the user has
@@ -303,72 +333,45 @@ export function createSyncCoordinator(
 // Internal — sender + payload builder
 // ---------------------------------------------------------------------------
 
-/**
- * Build the send input from the project's `.tracebase/config.json`
- * + the local store. Returns `null` when the project is not linked
- * to a cloud workspace — the coordinator no-ops cleanly in that
- * case, no warning needed.
- *
- * The actual aggregator implementation lives in 0.5.4-§8.8's
- * follow-up wiring; this helper currently surfaces the gating
- * question only and returns null until the production aggregator
- * is plumbed in. Tests stub the `send` dependency directly so the
- * full state-machine coverage works without depending on this
- * being live.
- */
-async function buildSendInput(): Promise<SyncSendInput | null> {
-  // §8.8 follow-up: implement live aggregator. For 0.5.4-§8.8
-  // initial commit, the coordinator state machine is in place and
-  // tested via dependency-injected `send`. The production POST is
-  // wired through `tracebase usage sync --once` until a
-  // self-contained aggregator lands here.
-  return null;
-}
-
-const noopSender: SyncSender = async () => ({ ok: true, status: 0 });
-
 // ---------------------------------------------------------------------------
-// HTTP sender (production)
+// Default payload builder + sender (production wiring)
 // ---------------------------------------------------------------------------
 
+const DAY_MS = 86_400_000;
+
 /**
- * Default production sender. Posts to
- * `${apiUrl}/api/control-plane/usage-samples` with the same shape
- * `tracebase usage sync --once` uses; the server-side dedupe key
- * is `installationId + windowStart + windowEnd`.
+ * Default payload builder. Computes the **current UTC day's
+ * window** and asks `buildSendInputForWindow` to assemble a
+ * `SyncSendInput` against it. UTC-day-aligned windows mean every
+ * fire on the same calendar day produces an identical
+ * `(windowStart, windowEnd)` pair, which is exactly the
+ * server-side dedupe key — multiple coordinator firings within
+ * the same day collapse into a single dashboard row.
  *
- * Available for callers who want to wire a custom coordinator with
- * the production sender (e.g. `createSyncCoordinator(layer,
- * options, { send: pushSampleToCloud })`).
+ * Returns null when:
+ *   - the project isn't initialised, OR
+ *   - cloud isn't linked, OR
+ *   - no installationId / apiKey, OR
+ *   - the storage file doesn't exist yet, OR
+ *   - the window has zero eligible runs.
+ *
+ * In every case the coordinator no-ops silently — no warning
+ * spam in the user's terminal.
  */
-export const pushSampleToCloud: SyncSender = async (input) => {
-  try {
-    // Late-imported to keep the coordinator browser-buildable —
-    // browser bundles don't need the cloud allowlist or the fetch
-    // call wired at startup. Production users get it eagerly via
-    // first dispatch.
-    const { sanitizeForCloud } = await import("../cli/cloud-allowlist.js");
-    const safeBody = sanitizeForCloud({
-      installationId: input.installationId,
-      windowStart: input.windowStart,
-      windowEnd: input.windowEnd,
-      metrics: input.metrics,
-      cliVersion: input.cliVersion,
-    });
-    const res = await fetch(`${input.apiUrl}/api/control-plane/usage-samples`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${input.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(safeBody),
-    });
-    return { ok: res.ok, status: res.status };
-  } catch (err) {
-    return {
-      ok: false,
-      status: 0,
-      reason: err instanceof Error ? err.message : String(err),
-    };
-  }
+const defaultBuildInput = async (basePath: string): Promise<SyncSendInput | null> => {
+  const nowMs = Date.now();
+  const dayStart = Math.floor(nowMs / DAY_MS) * DAY_MS;
+  const dayEnd = dayStart + DAY_MS;
+  return buildSendInputForWindow(basePath, dayStart, dayEnd);
+};
+
+/**
+ * Default production sender. Late-imports to keep the coordinator
+ * browser-buildable — browser bundles don't need the cloud
+ * allowlist or `fetch` wired at startup; Node imports it eagerly
+ * on first dispatch.
+ */
+const defaultSender: SyncSender = async (input) => {
+  const { pushSampleToCloud } = await import("./usage-payload.js");
+  return pushSampleToCloud(input);
 };

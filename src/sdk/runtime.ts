@@ -115,11 +115,19 @@ export function createRuntime(
   // 0.5.4 §8.8 — auto-sync coordinator. Materialises lazily on
   // first markDirty so a runtime created with `autoSync: false`
   // never holds a timer.
+  //
+  // 0.5.5 §1: the coordinator now calls into
+  // `buildSendInputForWindow` which reads `.tracebase/config.json`
+  // + queries the local store. The runtime supplies a
+  // `resolveBasePath` callback so the coordinator picks up
+  // whichever project the most recent runtime call bound to.
   let syncCoordinator: SyncCoordinator | null = null;
   function getCoordinator(): SyncCoordinator | null {
     if (options.autoSync === false) return null;
     if (!syncCoordinator) {
-      syncCoordinator = createSyncCoordinator(layer, options);
+      syncCoordinator = createSyncCoordinator(layer, options, {
+        resolveBasePath: () => connection?.basePath ?? null,
+      });
     }
     return syncCoordinator;
   }
