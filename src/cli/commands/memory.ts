@@ -3,23 +3,40 @@
  *
  * Subcommand `prune` re-applies the 0.5.7 §A quality gate
  * (`isPatternShapedSituation` from `capture-turn.ts`) as a
- * classifier against existing active reasoning_blocks. Blocks
- * whose `trig_situation` no longer passes the gate are
- * candidates — they were stored under the older length-only
- * gate before 0.5.7 tightened the heuristic.
+ * classifier against existing active reasoning_blocks. The
+ * trust boundary differs from capture: prune is destructive
+ * (status retired), so it MUST have higher precision than the
+ * capture gate. False retire is worse than false keep.
+ *
+ * 0.5.8 split — two confidence bands:
+ *
+ *   HIGH-confidence (default candidates):
+ *     - `meta-wrap-lead`            — Claude Code session-
+ *       continuation / `<command-name>` / etc. leaks
+ *     - `project-management-lead`   — release/approval/scheduling
+ *       leads ("Plan approved", "Start 0.5.x", "Yes, schedule",
+ *       RU equivalents). These are operationally always noise.
+ *
+ *   LOW-confidence (omitted by default; `--include-low-confidence`
+ *   adds them):
+ *     - `no-problem-signal`         — situation has no `?` and
+ *       no error/bug/regression vocabulary. Captures patterns
+ *       like "Installer owns a multi-field entry…" or
+ *       "Optional array parameter calls map/filter/reduce…"
+ *       which ARE legitimate reusable patterns even though they
+ *       never had a literal `?`. Only retired with explicit opt-in.
  *
  * Two modes:
  *
- *   * `--dry-run` (DEFAULT) — print the candidates and exit.
- *     Nothing in the store changes. Safe to run anywhere.
+ *   * `--dry-run` (DEFAULT) — print candidates and exit. Nothing
+ *     in the store changes. Safe everywhere.
  *
- *   * `--apply` — retire each candidate (status: active →
- *     retired). Reversible: `retired` is a status, not a delete;
- *     re-promotion via `BlockStore.updateBlockStatus` is
- *     possible if a block was retired in error.
+ *   * `--apply` — retire each HIGH-confidence candidate
+ *     (status: active → retired). Reversible: status update,
+ *     not delete. Combine with `--include-low-confidence` to
+ *     also retire low-confidence blocks (still reversible).
  *
- * Never runs from runtime hooks. Manual / explicit only — the
- * destructive path needs a human eyeball on the candidate list.
+ * Never runs from runtime hooks. Manual / explicit only.
  */
 
 import { Command } from "commander";
@@ -39,6 +56,15 @@ interface PruneOptions {
   apply?: boolean;
   // `--dry-run` defaults true; explicit `--apply` toggles.
   dryRun?: boolean;
+  /**
+   * 0.5.8 — opt-in to retire `no-problem-signal` blocks too.
+   * The capture gate rejects them at write time, but for
+   * EXISTING active blocks they include legitimate reusable
+   * patterns like "Installer owns a multi-field entry…" that
+   * happen not to use a literal `?` or "error" word. Off by
+   * default; users review the LOW-confidence list first.
+   */
+  includeLowConfidence?: boolean;
 }
 
 export const memoryCommand = new Command("memory")
@@ -47,16 +73,24 @@ export const memoryCommand = new Command("memory")
     new Command("prune")
       .description(
         "Sweep active reasoning_blocks against the current quality gate. " +
-          "--dry-run by default; pass --apply to retire candidates.",
+          "--dry-run by default; pass --apply to retire HIGH-confidence " +
+          "candidates. Low-confidence blocks (no problem signal but " +
+          "potentially valid reusable patterns) are listed separately and " +
+          "only retired with --include-low-confidence.",
       )
       .option("-p, --path <path>", "project root", process.cwd())
       .option(
         "--apply",
-        "retire candidates (active → retired). Without this flag, prune is read-only.",
+        "retire HIGH-confidence candidates (active → retired). Without this flag, prune is read-only.",
       )
       .option(
         "--dry-run",
         "(default) list candidates without changing anything",
+      )
+      .option(
+        "--include-low-confidence",
+        "ALSO consider blocks with no explicit problem signal as candidates. " +
+          "Off by default — false retire of a real reusable pattern is worse than keeping noise.",
       )
       .action(async (opts: PruneOptions) => {
         const result = runMemoryPrune(opts);
@@ -69,21 +103,46 @@ export const memoryCommand = new Command("memory")
 // Pure helper — exported for tests.
 // ---------------------------------------------------------------------------
 
+export type PruneRejectReason =
+  | "meta-wrap-lead"
+  | "project-management-lead"
+  | "no-problem-signal";
+
+/**
+ * 0.5.8 — confidence band a candidate falls into.
+ *   HIGH: always-noise classes. Default-retired by `--apply`.
+ *   LOW : "no-problem-signal" — may include legit reusable
+ *         patterns; only retired with `--include-low-confidence`.
+ */
+export type PruneConfidence = "high" | "low";
+
 export interface PruneCandidate {
   blockId: string;
   trigSituation: string;
-  /** Best-guess reason why the gate rejects this block. */
-  reason: "meta-wrap-lead" | "project-management-lead" | "no-problem-signal";
+  reason: PruneRejectReason;
+  confidence: PruneConfidence;
 }
 
 export interface MemoryPruneOutcome {
   /** Total active blocks scanned. */
   scanned: number;
+  /**
+   * High-confidence candidates: meta-wrap-lead +
+   * project-management-lead. Always retired by `--apply`.
+   */
   candidates: PruneCandidate[];
+  /**
+   * Low-confidence candidates: `no-problem-signal`. Listed
+   * for review; retired only when `--include-low-confidence`
+   * is set.
+   */
+  lowConfidenceCandidates: PruneCandidate[];
   /** Block ids that were actually retired (only when `--apply`). */
   retired: string[];
   /** True iff this run wrote to the store. */
   applied: boolean;
+  /** True iff `--include-low-confidence` was set on this run. */
+  includedLowConfidence: boolean;
   /** Project root resolved from `--path` / cwd. */
   projectRoot: string | null;
   /** Set when the command failed before scanning could complete. */
@@ -96,14 +155,17 @@ export function runMemoryPrune(opts: PruneOptions): MemoryPruneOutcome {
   // `--apply` and `--dry-run` are mutually exclusive — if both
   // were passed the user is confused; prefer the safer dry-run.
   const effectiveApply = apply && !explicitDryRun;
+  const includedLowConfidence = opts.includeLowConfidence === true;
 
   const projectRoot = resolveBasePath(opts.path);
   if (!projectRoot) {
     return {
       scanned: 0,
       candidates: [],
+      lowConfidenceCandidates: [],
       retired: [],
       applied: false,
+      includedLowConfidence,
       projectRoot: null,
       error: "not initialized — run `npx tracebase init` first",
     };
@@ -113,8 +175,10 @@ export function runMemoryPrune(opts: PruneOptions): MemoryPruneOutcome {
     return {
       scanned: 0,
       candidates: [],
+      lowConfidenceCandidates: [],
       retired: [],
       applied: false,
+      includedLowConfidence,
       projectRoot,
       error: "not initialized — run `npx tracebase init` first",
     };
@@ -125,8 +189,10 @@ export function runMemoryPrune(opts: PruneOptions): MemoryPruneOutcome {
     return {
       scanned: 0,
       candidates: [],
+      lowConfidenceCandidates: [],
       retired: [],
       applied: false,
+      includedLowConfidence,
       projectRoot,
     };
   }
@@ -134,21 +200,24 @@ export function runMemoryPrune(opts: PruneOptions): MemoryPruneOutcome {
   const db = new Database(config.storagePath);
   const store = new BlockStore(db);
   try {
-    // Walk all active blocks. The 0.5.7 quality gate operates on
-    // the user-text (trig_situation) — we re-classify each
-    // existing situation using the SAME predicate the live
-    // capture-turn path uses. New tweaks to the gate land in
-    // exactly one place; this command picks them up automatically.
     const active = store.listBlocks({ status: "active", limit: 100_000 });
     const candidates: PruneCandidate[] = [];
+    const lowConfidenceCandidates: PruneCandidate[] = [];
     for (const block of active) {
       const reason = classifyReject(block.trigger.situation);
-      if (reason !== null) {
-        candidates.push({
-          blockId: block.id,
-          trigSituation: block.trigger.situation,
-          reason,
-        });
+      if (reason === null) continue;
+      const confidence: PruneConfidence =
+        reason === "no-problem-signal" ? "low" : "high";
+      const candidate: PruneCandidate = {
+        blockId: block.id,
+        trigSituation: block.trigger.situation,
+        reason,
+        confidence,
+      };
+      if (confidence === "high") {
+        candidates.push(candidate);
+      } else {
+        lowConfidenceCandidates.push(candidate);
       }
     }
 
@@ -156,14 +225,25 @@ export function runMemoryPrune(opts: PruneOptions): MemoryPruneOutcome {
       return {
         scanned: active.length,
         candidates,
+        lowConfidenceCandidates,
         retired: [],
         applied: false,
+        includedLowConfidence,
         projectRoot,
       };
     }
 
+    // Apply path. Always retires HIGH candidates; ALSO retires
+    // LOW candidates only when `--include-low-confidence` is
+    // explicitly set. False retire of a real reusable pattern
+    // is the failure mode we're guarding against — keep this
+    // gate explicit at every call site.
+    const toRetire = includedLowConfidence
+      ? candidates.concat(lowConfidenceCandidates)
+      : candidates;
+
     const retired: string[] = [];
-    for (const candidate of candidates) {
+    for (const candidate of toRetire) {
       try {
         const updated = store.updateBlockStatus(candidate.blockId, "retired");
         if (updated) retired.push(candidate.blockId);
@@ -180,8 +260,10 @@ export function runMemoryPrune(opts: PruneOptions): MemoryPruneOutcome {
     return {
       scanned: active.length,
       candidates,
+      lowConfidenceCandidates,
       retired,
       applied: true,
+      includedLowConfidence,
       projectRoot,
     };
   } finally {
@@ -260,6 +342,9 @@ function renderPruneReport(result: MemoryPruneOutcome): void {
   console.log(
     pc.dim(`  mode      ${result.applied ? "apply (retiring candidates)" : "dry-run (read-only)"}`),
   );
+  if (result.includedLowConfidence) {
+    console.log(pc.dim(`            --include-low-confidence (low-confidence candidates ALSO retired)`));
+  }
   console.log();
 
   if (result.error) {
@@ -274,32 +359,81 @@ function renderPruneReport(result: MemoryPruneOutcome): void {
     return;
   }
 
+  const high = result.candidates.length;
+  const low = result.lowConfidenceCandidates.length;
+
   console.log(pc.dim(`  scanned   ${result.scanned} active block(s)`));
-  console.log(pc.dim(`  matches   ${result.candidates.length} candidate(s) for retirement`));
+  console.log(
+    pc.dim(`  matches   ${high} high-confidence candidate(s) for retirement`),
+  );
+  if (low > 0) {
+    const lowSuffix = result.includedLowConfidence
+      ? " (--include-low-confidence: also retired)"
+      : " (not selected by default)";
+    console.log(pc.dim(`            ${low} low-confidence candidate(s)${lowSuffix}`));
+  }
   console.log();
 
-  if (result.candidates.length === 0) {
+  if (high === 0 && low === 0) {
     console.log(pc.green("  ✓ store is clean — no candidates match the current quality gate"));
     console.log();
     return;
   }
 
-  for (const candidate of result.candidates) {
-    const wasRetired = result.retired.includes(candidate.blockId);
-    const marker = result.applied ? (wasRetired ? pc.yellow("retired") : pc.red("skipped")) : pc.cyan("would retire");
-    const reason = pc.dim(`(${candidate.reason})`);
-    const id = pc.dim(candidate.blockId.slice(0, 8) + "…");
-    const line = candidate.trigSituation.slice(0, 100);
-    console.log(`  ${marker} ${reason} ${id} ${line}`);
+  if (high > 0) {
+    console.log(pc.bold("  HIGH-confidence candidates (always-noise classes):"));
+    for (const candidate of result.candidates) {
+      const wasRetired = result.retired.includes(candidate.blockId);
+      const marker = result.applied ? (wasRetired ? pc.yellow("retired") : pc.red("skipped")) : pc.cyan("would retire");
+      const reason = pc.dim(`(${candidate.reason})`);
+      const id = pc.dim(candidate.blockId.slice(0, 8) + "…");
+      const line = candidate.trigSituation.slice(0, 100);
+      console.log(`    ${marker} ${reason} ${id} ${line}`);
+    }
+    console.log();
   }
-  console.log();
+
+  if (low > 0) {
+    console.log(
+      pc.bold("  LOW-confidence (no-problem-signal — review before retiring):"),
+    );
+    for (const candidate of result.lowConfidenceCandidates) {
+      const wasRetired = result.retired.includes(candidate.blockId);
+      let marker: string;
+      if (!result.applied) {
+        marker = result.includedLowConfidence
+          ? pc.cyan("would retire")
+          : pc.dim("not selected");
+      } else if (result.includedLowConfidence) {
+        marker = wasRetired ? pc.yellow("retired") : pc.red("skipped");
+      } else {
+        marker = pc.dim("not selected");
+      }
+      const reason = pc.dim(`(${candidate.reason})`);
+      const id = pc.dim(candidate.blockId.slice(0, 8) + "…");
+      const line = candidate.trigSituation.slice(0, 100);
+      console.log(`    ${marker} ${reason} ${id} ${line}`);
+    }
+    console.log();
+  }
 
   if (!result.applied) {
     console.log(
       pc.dim(
-        "  Pass " + pc.cyan("--apply") + " to retire candidates (status active → retired; reversible).",
+        "  Pass " +
+          pc.cyan("--apply") +
+          " to retire HIGH-confidence candidates (status active → retired; reversible).",
       ),
     );
+    if (low > 0 && !result.includedLowConfidence) {
+      console.log(
+        pc.dim(
+          "  Add " +
+            pc.cyan("--include-low-confidence") +
+            " to ALSO consider low-confidence blocks. Review the list above first — false retire of a real reusable pattern is worse than keeping noise.",
+        ),
+      );
+    }
     console.log();
   } else {
     console.log(pc.dim(`  ${result.retired.length} block(s) retired.`));

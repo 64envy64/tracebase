@@ -102,7 +102,7 @@ const REAL_BUG_BLOCK: StoreBlockInput = {
 };
 
 describe("runMemoryPrune — dry-run (default)", () => {
-  it("flags noisy blocks WITHOUT mutating their status", () => {
+  it("flags HIGH-confidence noise WITHOUT mutating status", () => {
     const noiseId = seedActiveBlock(NOISE_BLOCK);
     const bugId = seedActiveBlock(REAL_BUG_BLOCK);
 
@@ -111,14 +111,15 @@ describe("runMemoryPrune — dry-run (default)", () => {
     expect(result.applied).toBe(false);
     expect(result.candidates.map((c) => c.blockId)).toEqual([noiseId]);
     expect(result.candidates[0]!.reason).toBe("project-management-lead");
+    expect(result.candidates[0]!.confidence).toBe("high");
+    expect(result.lowConfidenceCandidates).toEqual([]);
     expect(result.retired).toEqual([]);
 
-    // Status check — both still active (dry-run never writes).
     expect(readBlockStatus(noiseId)).toBe("active");
     expect(readBlockStatus(bugId)).toBe("active");
   });
 
-  it("classifies meta-wrap leaks as `meta-wrap-lead`", () => {
+  it("classifies meta-wrap leaks as `meta-wrap-lead` (HIGH)", () => {
     const id = seedActiveBlock({
       ...NOISE_BLOCK,
       provenance: { ...NOISE_BLOCK.provenance, sourceTaskId: "meta-1" },
@@ -131,9 +132,11 @@ describe("runMemoryPrune — dry-run (default)", () => {
     const result = runMemoryPrune({ path: projectDir });
     expect(result.candidates.map((c) => c.blockId)).toEqual([id]);
     expect(result.candidates[0]!.reason).toBe("meta-wrap-lead");
+    expect(result.candidates[0]!.confidence).toBe("high");
+    expect(result.lowConfidenceCandidates).toEqual([]);
   });
 
-  it("classifies non-problem prompts as `no-problem-signal`", () => {
+  it("0.5.8 — `no-problem-signal` blocks land in LOW-confidence, not HIGH", () => {
     const id = seedActiveBlock({
       ...NOISE_BLOCK,
       provenance: { ...NOISE_BLOCK.provenance, sourceTaskId: "feat-1" },
@@ -144,34 +147,163 @@ describe("runMemoryPrune — dry-run (default)", () => {
       },
     });
     const result = runMemoryPrune({ path: projectDir });
-    expect(result.candidates.map((c) => c.blockId)).toEqual([id]);
-    expect(result.candidates[0]!.reason).toBe("no-problem-signal");
+    expect(result.candidates).toEqual([]);
+    expect(result.lowConfidenceCandidates.map((c) => c.blockId)).toEqual([id]);
+    expect(result.lowConfidenceCandidates[0]!.confidence).toBe("low");
+    expect(result.lowConfidenceCandidates[0]!.reason).toBe("no-problem-signal");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 0.5.8 — regression: known-useful patterns must NOT be HIGH candidates.
+// These are real entries from the local DB that the 0.5.7 prune over-flagged.
+// ---------------------------------------------------------------------------
+
+describe("runMemoryPrune — known-useful patterns are NOT default candidates (0.5.8 regression)", () => {
+  it("installer multi-field entry pattern (no `?`, no error word) → LOW only", () => {
+    // 4490c4ab-style situation from the local DB — legitimate
+    // reusable pattern about installer canonical-shape upgrades.
+    const id = seedActiveBlock({
+      ...NOISE_BLOCK,
+      provenance: { ...NOISE_BLOCK.provenance, sourceTaskId: "installer-pattern" },
+      trigger: {
+        situation:
+          "Installer owns a multi-field entry in a user-facing config file (e.g. .claude/settings.json, .cursor/mcp.json) and the canonical shape evolves across releases.",
+        invariants: { language: "typescript" },
+      },
+    });
+    const result = runMemoryPrune({ path: projectDir });
+    // MUST NOT be a default candidate — false retire of this is
+    // exactly the regression 0.5.8 is fixing.
+    expect(result.candidates.map((c) => c.blockId)).not.toContain(id);
+    // Lands in LOW-confidence so the user can review with
+    // --include-low-confidence if they want.
+    expect(result.lowConfidenceCandidates.map((c) => c.blockId)).toContain(id);
+  });
+
+  it("optional array map/filter/reduce pattern → LOW only", () => {
+    // 3195e06e-style situation: the pattern is about TS optional
+    // array params hitting `undefined.map`. No literal `?`, but
+    // a real reusable bug pattern.
+    const id = seedActiveBlock({
+      ...NOISE_BLOCK,
+      provenance: { ...NOISE_BLOCK.provenance, sourceTaskId: "opt-array-map" },
+      trigger: {
+        situation:
+          "A function takes an optional array parameter and calls Array.prototype method (map/filter/reduce/forEach) on it without guarding for undefined.",
+        invariants: { language: "typescript" },
+      },
+    });
+    const result = runMemoryPrune({ path: projectDir });
+    expect(result.candidates.map((c) => c.blockId)).not.toContain(id);
+    expect(result.lowConfidenceCandidates.map((c) => c.blockId)).toContain(id);
+  });
+
+  it("project-management leads (Plan approved / Schedule / Start 0.5.x) STILL HIGH", () => {
+    const planId = seedActiveBlock({
+      ...NOISE_BLOCK,
+      provenance: { ...NOISE_BLOCK.provenance, sourceTaskId: "pm-plan" },
+      trigger: {
+        situation:
+          "Plan approved with required amendments before implementation — start §1 today and re-review on Tuesday.",
+        invariants: { language: "typescript" },
+      },
+    });
+    const scheduleId = seedActiveBlock({
+      ...NOISE_BLOCK,
+      provenance: { ...NOISE_BLOCK.provenance, sourceTaskId: "pm-schedule" },
+      trigger: {
+        situation:
+          "Yes, schedule a follow-up smoke for ~24h after 0.5.5 publish. The smoke covers fresh init + doctor + bench:sdk.",
+        invariants: { language: "typescript" },
+      },
+    });
+    const result = runMemoryPrune({ path: projectDir });
+    const highIds = result.candidates.map((c) => c.blockId);
+    expect(highIds).toContain(planId);
+    expect(highIds).toContain(scheduleId);
   });
 });
 
 describe("runMemoryPrune — --apply", () => {
-  it("retires candidates (status: active → retired); leaves real bugs alone", () => {
+  it("retires HIGH candidates only (default); leaves LOW + real bugs alone", () => {
     const noiseId = seedActiveBlock(NOISE_BLOCK);
+    const lowId = seedActiveBlock({
+      ...NOISE_BLOCK,
+      provenance: { ...NOISE_BLOCK.provenance, sourceTaskId: "low-1" },
+      trigger: {
+        situation:
+          "Installer owns a multi-field entry in a user-facing config file and the canonical shape evolves across releases.",
+        invariants: { language: "typescript" },
+      },
+    });
     const bugId = seedActiveBlock(REAL_BUG_BLOCK);
 
     const result = runMemoryPrune({ path: projectDir, apply: true });
     expect(result.applied).toBe(true);
+    expect(result.includedLowConfidence).toBe(false);
     expect(result.retired).toEqual([noiseId]);
-    expect(result.candidates).toHaveLength(1);
 
     expect(readBlockStatus(noiseId)).toBe("retired");
+    expect(readBlockStatus(lowId)).toBe("active"); // PRESERVED
     expect(readBlockStatus(bugId)).toBe("active");
+  });
+
+  it("--include-low-confidence + --apply ALSO retires LOW candidates", () => {
+    const noiseId = seedActiveBlock(NOISE_BLOCK);
+    const lowId = seedActiveBlock({
+      ...NOISE_BLOCK,
+      provenance: { ...NOISE_BLOCK.provenance, sourceTaskId: "low-2" },
+      trigger: {
+        situation:
+          "Refactor the authentication middleware so it can mount cleanly on multiple routes.",
+        invariants: { language: "typescript" },
+      },
+    });
+
+    const result = runMemoryPrune({
+      path: projectDir,
+      apply: true,
+      includeLowConfidence: true,
+    });
+    expect(result.applied).toBe(true);
+    expect(result.includedLowConfidence).toBe(true);
+    expect(result.retired.sort()).toEqual([lowId, noiseId].sort());
+
+    expect(readBlockStatus(noiseId)).toBe("retired");
+    expect(readBlockStatus(lowId)).toBe("retired");
+  });
+
+  it("--include-low-confidence WITHOUT --apply still surfaces LOW (dry-run with widened scope)", () => {
+    const lowId = seedActiveBlock({
+      ...NOISE_BLOCK,
+      provenance: { ...NOISE_BLOCK.provenance, sourceTaskId: "low-3" },
+      trigger: {
+        situation:
+          "Refactor the authentication middleware so it can mount cleanly on multiple routes.",
+        invariants: { language: "typescript" },
+      },
+    });
+    const result = runMemoryPrune({
+      path: projectDir,
+      includeLowConfidence: true,
+    });
+    expect(result.applied).toBe(false);
+    expect(result.includedLowConfidence).toBe(true);
+    expect(result.retired).toEqual([]);
+    expect(readBlockStatus(lowId)).toBe("active");
+    expect(result.lowConfidenceCandidates.map((c) => c.blockId)).toContain(lowId);
   });
 
   it("a clean store is a clean no-op", () => {
     seedActiveBlock(REAL_BUG_BLOCK);
     const result = runMemoryPrune({ path: projectDir, apply: true });
     expect(result.candidates).toEqual([]);
+    expect(result.lowConfidenceCandidates).toEqual([]);
     expect(result.retired).toEqual([]);
   });
 
   it("empty store (no memory.db yet) returns scanned=0, no error", () => {
-    // initConfig but no blocks → memory.db doesn't exist yet.
     const result = runMemoryPrune({ path: projectDir, apply: true });
     expect(result.scanned).toBe(0);
     expect(result.applied).toBe(false);
