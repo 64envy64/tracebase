@@ -112,6 +112,108 @@ const wrapped = wrapAgent(
 const { output, priorSolutions, traceId } = await wrapped("Fix the bug in auth.ts");
 ```
 
+### LangGraph (via wrapGeneric)
+
+LangGraph nodes are async functions over a state object. The same
+`wrapGeneric` shape works — pull the prompt out of state and write
+the runtime's `additionalContext` into a known slot the next node
+reads.
+
+```ts
+import { StateGraph } from "@langchain/langgraph";
+import { ReasoningLayer, createRuntime, wrapGeneric } from "tracebase-ai";
+
+interface AgentState {
+  messages: { role: "user" | "assistant"; content: string }[];
+  priorContext?: string;
+}
+
+const layer = new ReasoningLayer();
+const runtime = createRuntime(layer, {
+  source: "langgraph",
+  sessionId: "user-123",
+  onBadge: (ev) => console.log(ev.label),
+});
+
+async function plannerNode(state: AgentState): Promise<AgentState> {
+  // your planner LLM call ...
+  return { ...state, messages: [...state.messages, { role: "assistant", content: "..." }] };
+}
+
+const wrappedPlanner = wrapGeneric(layer, plannerNode, {
+  source: "langgraph",
+  sessionId: "user-123",
+  runtime,                                    // share one runtime across nodes
+  extractPrompt: (s) => s.messages.at(-1)?.content ?? "",
+  injectContext: (s, ctx) => ({ ...s, priorContext: ctx }),
+  extractOutput: (s) => s.messages.at(-1)?.content ?? "",
+});
+
+const graph = new StateGraph<AgentState>({ /* ... */ })
+  .addNode("planner", wrappedPlanner)
+  .addEdge(/* ... */);
+```
+
+**TB TOOL / TB LOOP for LangGraph** — wire `runtime.observeToolBatch`
+to your tool-end callback handler (see the LangChain example
+below); the runtime handles cross-node detection automatically
+because all nodes share the same `sessionId`.
+
+Don't forget `await runtime.flush()` and `await runtime.close()` at
+graph teardown so the auto-sync coordinator drains cleanly.
+
+### Claude Agent SDK style
+
+The Claude Agent SDK exposes a session-oriented async loop. Wrap
+each turn through the runtime; tool calls observed by the SDK
+flow into `observeToolBatch`.
+
+```ts
+import { ReasoningLayer, createRuntime } from "tracebase-ai";
+
+const layer = new ReasoningLayer();
+const runtime = createRuntime(layer, {
+  source: "claude-agent-sdk",
+  sessionId: session.id,
+  onBadge: (ev) => session.log(ev.label),
+});
+
+for await (const turn of session.turns()) {
+  // BEFORE the model call — recall + emit BadgeEvents
+  const before = await runtime.beforeRun({ prompt: turn.userMessage });
+  if (before.additionalContext) {
+    turn.system = (turn.system ?? "") + "\n\n" + before.additionalContext;
+  }
+
+  const response = await turn.run();
+
+  // AFTER — record observed tool calls + queue capture
+  if (response.toolCalls.length > 0) {
+    await runtime.observeToolBatch({
+      sessionId: session.id,
+      toolCalls: response.toolCalls.map((t) => ({
+        toolName: t.name,
+        toolInput: t.input,
+        toolUseId: t.id,
+        outcome: t.error ? "error" : "ok",
+      })),
+    });
+  }
+  await runtime.afterRun({
+    userText: turn.userMessage,
+    assistantText: response.text,
+    sessionId: session.id,
+  });
+}
+
+await runtime.flush();
+await runtime.close();
+```
+
+The Claude Agent SDK has no mandatory peer dep — userland imports
+the SDK; TraceBase only needs the per-turn input/output shapes the
+example destructures.
+
 ### LangChain (via wrapGeneric)
 
 ```ts
