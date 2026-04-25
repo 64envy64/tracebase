@@ -26,19 +26,15 @@ import { Command } from "commander";
 import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { BlockStore } from "../../core/block-store.js";
-import { BlockServer, type RecallV2Result } from "../../core/block-serving.js";
-import {
-  buildInjectionPayload,
-  type InjectionPayload,
-} from "../../core/build-injection-payload.js";
+import { BlockServer } from "../../core/block-serving.js";
 import { loadBlockCalibrator } from "../../lifecycle/calibrator.js";
 import { findProjectRoot, isInitialized, loadConfig, readHoldoutConfig } from "../../core/config.js";
-import { runReasoningPatternsRecall } from "../../server/reasoning-patterns-entry.js";
-import { sessionScope as sessionScopeFor } from "./capture-context.js";
 import {
-  detectToolPattern,
-  type ToolPatternSignal,
-} from "../../core/tool-loop-detect.js";
+  recallForPrompt,
+  shouldQueryForPrompt,
+  type HoldoutLoader,
+} from "../../runtime/recall.js";
+import type { ToolPatternSignal } from "../../core/tool-loop-detect.js";
 
 export type InjectContextHost = "claude-code" | "codex";
 
@@ -115,7 +111,6 @@ export interface InjectContextOutcome {
 }
 
 const STDIN_BYTE_LIMIT = 256 * 1024; // 256 KiB — well above any realistic hook payload
-const MIN_PROMPT_CHARS = 40; // skip "hi", "thanks", trivial chatter
 
 export const injectContextCommand = new Command("inject-context")
   .description(
@@ -167,7 +162,7 @@ export function runInjectContext(
     // Skip trivial chatter so analytics aren't drowned in retrieval
     // events for "hi" and "thanks". The MCP tool path is still
     // available if the agent really wants patterns mid-thread.
-    if (!shouldQuery(eventName, prompt)) {
+    if (!shouldQueryForPrompt(prompt, eventName)) {
       return wrapEnvelope(host, eventName, "", formatStatus({ kind: "trivial" }, NO_TOOL_SIGNAL, statusMode));
     }
 
@@ -180,55 +175,31 @@ export function runInjectContext(
 
     const config = loadConfig(basePath);
     const sessionId = stdin.session_id ?? stdin.sessionId;
-    // When the host gives us a session id we narrow fact recall to
-    // `project.session.<hash>`. Hierarchical scope resolution in
-    // BlockStore (`expandScopeHierarchy`) will still surface
-    // `project`-level facts (TB MEMORY file_semantic) and `global`
-    // facts via prefix-walk; sibling sessions' digests stay isolated
-    // because `project.session.A` is not a prefix of
-    // `project.session.B`.
-    const recallScope = sessionId ? sessionScopeFor(sessionId) : "project";
-    let toolSignal: ToolPatternSignal = NO_TOOL_SIGNAL;
-    const payload = withBlockServer(config.storagePath, basePath, (server, store, holdoutLoader) => {
-      // 0.5.3 TB TOOL / TB LOOP — read the previous turn's tool
-      // observations off the same connection we already opened for
-      // recall. Detector failure is silent: a missing
-      // `tool_observations` table on a half-migrated DB or a
-      // transient SELECT error must not block the agent's prompt.
-      if (sessionId) {
-        try {
-          const recent = store.recentToolObservations(sessionId, 6);
-          toolSignal = detectToolPattern(recent);
-        } catch {
-          // detector is non-load-bearing on the prompt path — swallow
-        }
-      }
-      const result = runReasoningPatternsRecall(
-        server,
-        { problem: prompt, scope: recallScope },
-        { readHoldoutConfig: holdoutLoader },
-      );
-      const built = buildInjectionPayload(result, { tokenBudget: budget });
-      recordHookRecallEvents(store, result, built);
-      return built;
-    });
+    const recall = withBlockServer(config.storagePath, basePath, (server, store, holdoutLoader) =>
+      recallForPrompt(server, store, holdoutLoader, {
+        prompt,
+        basePath,
+        sessionId: sessionId ?? null,
+        tokenBudget: budget,
+      }),
+    );
 
     // `hasContent` encodes the full gate chain: query ran, something
     // cleared the gate, something fit the budget. Anything else — no
     // matches, all shadow, everything cut by the budget — lands as
     // "checked · no match" so the user sees the hook ran.
-    if (!payload.hasContent) {
-      return wrapEnvelope(host, eventName, "", formatStatus({ kind: "no-match" }, toolSignal, statusMode));
+    if (!recall.hasContent) {
+      return wrapEnvelope(host, eventName, "", formatStatus({ kind: "no-match" }, recall.signal, statusMode));
     }
 
     const situation: InjectSituation = {
       kind: "match",
-      queryId: payload.queryId,
-      patterns: payload.blockIds.length,
-      facts: payload.factIds.length,
-      tokens: payload.tokensEstimate,
+      queryId: recall.queryId,
+      patterns: recall.payload.blockIds.length,
+      facts: recall.payload.factIds.length,
+      tokens: recall.payload.tokensEstimate,
     };
-    return wrapEnvelope(host, eventName, payload.text, formatStatus(situation, toolSignal, statusMode));
+    return wrapEnvelope(host, eventName, recall.payload.text, formatStatus(situation, recall.signal, statusMode));
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     process.stderr.write(`tracebase inject-context: ${reason}\n`);
@@ -466,21 +437,6 @@ function resolveBasePath(explicit: string | undefined, stdin: HookStdin): string
   return findProjectRoot(process.cwd()) ?? process.cwd();
 }
 
-function shouldQuery(eventName: string, prompt: string): boolean {
-  // SessionStart fires once per session and may have no prompt.
-  // We still want to warm context (e.g. on `/compact`), but only
-  // if the project is initialised — handled upstream — and we use
-  // the most recent user message if the host gave us one. If the
-  // host didn't, we have nothing to query, so skip.
-  if (eventName === "SessionStart") {
-    return prompt.length >= MIN_PROMPT_CHARS;
-  }
-  // UserPromptSubmit fires on every user turn. Skip greetings and
-  // trivial follow-ups; analytics get noisy fast otherwise, and the
-  // gate would reject these anyway.
-  return prompt.length >= MIN_PROMPT_CHARS;
-}
-
 function parseBudget(raw: string | number | undefined): number {
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return 1200;
@@ -526,7 +482,7 @@ function withBlockServer<T>(
   fn: (
     server: BlockServer,
     store: BlockStore,
-    holdoutLoader: () => ReturnType<typeof readHoldoutConfig>,
+    holdoutLoader: HoldoutLoader,
   ) => T,
 ): T {
   const db = new Database(storagePath);
@@ -537,63 +493,10 @@ function withBlockServer<T>(
       emitEvents: false,
       gateThreshold: 0,
     });
-    const holdoutLoader = () => readHoldoutConfig(basePath);
+    const holdoutLoader: HoldoutLoader = () => readHoldoutConfig(basePath);
     return fn(server, store, holdoutLoader);
   } finally {
     store.close();
   }
 }
 
-/**
- * The generic BlockServer emits injection events for every above-gate
- * hit. Silent hooks add a stricter budget after recall, so they must
- * emit only the ids that survived into `additionalContext`; otherwise
- * `record_reasoning_outcome({ usedPattern: true })` would credit
- * patterns the agent never saw.
- */
-function recordHookRecallEvents(
-  store: BlockStore,
-  result: RecallV2Result,
-  payload: InjectionPayload,
-): void {
-  let ts = Date.now();
-  const nextTs = () => ts++;
-
-  store.appendEvent({
-    ts: nextTs(),
-    queryId: result.queryId,
-    event: "retrieval",
-    candidates: result.blocks.map((h) => ({ blockId: h.block.id, score: h.score })),
-    shadow: result.shadow,
-    ...(result.controlReason ? { controlReason: result.controlReason } : {}),
-    ...(result.facts.length > 0
-      ? { factCandidates: result.facts.map((h) => ({ factId: h.fact.id, score: h.score })) }
-      : {}),
-  });
-
-  const visibleBlocks = new Set(payload.blockIds);
-  for (const hit of result.blocks) {
-    if (!visibleBlocks.has(hit.block.id)) continue;
-    store.appendEvent({
-      ts: nextTs(),
-      queryId: result.queryId,
-      event: "injection",
-      blockId: hit.block.id,
-      score: hit.score,
-      calibratedProb: hit.calibratedProb,
-    });
-  }
-
-  const visibleFacts = new Set(payload.factIds);
-  for (const hit of result.facts) {
-    if (!visibleFacts.has(hit.fact.id)) continue;
-    store.appendEvent({
-      ts: nextTs(),
-      queryId: result.queryId,
-      event: "fact_injection",
-      factId: hit.fact.id,
-      score: hit.score,
-      calibratedProb: hit.calibratedProb,
-    });
-  }
-}
