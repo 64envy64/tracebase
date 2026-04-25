@@ -51,6 +51,7 @@ import {
   type HoldoutLoader,
 } from "../runtime/recall.js";
 import { observeToolBatch } from "../runtime/observe-tools.js";
+import { captureTurnFromTexts } from "../runtime/capture-turn.js";
 import { extractDigestFromTurns, sessionScope } from "../runtime/digest.js";
 import { createSyncCoordinator, type SyncCoordinator } from "./sync-coordinator.js";
 import type { ReasoningLayer } from "../core/engine.js";
@@ -434,22 +435,26 @@ export function createRuntime(
 
     const job = (async () => {
       try {
-        // Bound + leakage-scan the texts so a forgotten direct
-        // store write (today, none; tomorrow, after §8.5) sees
-        // already-bounded inputs.
+        // Bound the texts so the heuristic distiller sees inputs
+        // within the same caps the CLI hook applies. Leakage
+        // scanning happens DOWNSTREAM inside `storeReasoningPattern`
+        // (gold-truth scanner) and `BlockStore.storeFact`
+        // (extended-leakage scanner) — running it again here would
+        // double-reject content the canonical store paths are
+        // designed to handle.
         const userBounded = boundField(input.userText, 8000, "userText").value;
         const assistantBounded = boundField(input.assistantText, 8000, "assistantText").value;
-        if (
-          userBounded.length === 0 ||
-          assistantBounded.length === 0 ||
-          detectLeakageExtended(userBounded) ||
-          detectLeakageExtended(assistantBounded)
-        ) {
-          return;
+        if (userBounded.length === 0 || assistantBounded.length === 0) return;
+        const result = captureTurnFromTexts(conn.store, {
+          userText: userBounded,
+          assistantText: assistantBounded,
+        });
+        // markDirty so the next coordinator cycle sees the new
+        // analytics events even if the user only calls afterRun
+        // (no beforeRun / observeToolBatch on this turn).
+        if (result.blockId || result.factCount > 0) {
+          markDirty("afterRun");
         }
-        // §8.5 will add: distill candidate, validate, store via the
-        // BlockStore + analytics_events path. For now we exit
-        // cleanly so the runtime contract stands.
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
         try {
