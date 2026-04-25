@@ -286,7 +286,7 @@ describe("runDoctor — Claude Code hook health", () => {
     expect(hookCheck.message).toMatch(/not installed/);
   });
 
-  it("PASSes when all three managed hooks (UserPromptSubmit + Stop + PreCompact) are canonical", async () => {
+  it("PASSes when all four managed hooks (UserPromptSubmit + Stop + PreCompact + PostToolBatch) are canonical", async () => {
     const { writeAgentHookConfig, writeAgentInstructionFile } = await import(
       "../../src/cli/install-targets.js"
     );
@@ -302,6 +302,37 @@ describe("runDoctor — Claude Code hook health", () => {
     expect(hookCheck.message).toMatch(/UserPromptSubmit:ok/);
     expect(hookCheck.message).toMatch(/Stop:ok/);
     expect(hookCheck.message).toMatch(/PreCompact:ok/);
+    expect(hookCheck.message).toMatch(/PostToolBatch:ok/);
+  });
+});
+
+describe("runDoctor — workspace salt", () => {
+  it("PASSes after a fresh init (initConfig mints the salt eagerly)", () => {
+    initConfig(dir);
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "workspace-salt")!;
+    expect(c).toBeDefined();
+    expect(c.level).toBe("pass");
+    expect(c.message).toMatch(/HMAC key/);
+  });
+
+  it("WARNs (not FAIL) on a legacy config that lacks workspaceSalt", () => {
+    // Simulate a 0.5.2-or-earlier install: write a config without
+    // `workspaceSalt`. Doctor must surface this so users know the
+    // salt will lazy-mint, but it's never a FAIL — the runtime
+    // recovers automatically on the next PostToolBatch fire.
+    mkdirSync(join(dir, ".tracebase"), { recursive: true });
+    writeFileSync(
+      join(dir, ".tracebase", "config.json"),
+      JSON.stringify({
+        workspaceId: "11111111-2222-3333-4444-555555555555",
+        storagePath: join(dir, ".tracebase", "memory.db"),
+      }),
+    );
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "workspace-salt")!;
+    expect(c.level).toBe("warn");
+    expect(c.fix).toMatch(/lazily generated|tracebase init/);
   });
 });
 

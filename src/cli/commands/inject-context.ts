@@ -35,6 +35,10 @@ import { loadBlockCalibrator } from "../../lifecycle/calibrator.js";
 import { findProjectRoot, isInitialized, loadConfig, readHoldoutConfig } from "../../core/config.js";
 import { runReasoningPatternsRecall } from "../../server/reasoning-patterns-entry.js";
 import { sessionScope as sessionScopeFor } from "./capture-context.js";
+import {
+  detectToolPattern,
+  type ToolPatternSignal,
+} from "../../core/tool-loop-detect.js";
 
 export type InjectContextHost = "claude-code" | "codex";
 
@@ -59,6 +63,7 @@ type InjectSituation =
   | { kind: "trivial" }
   | { kind: "uninitialized" }
   | { kind: "failure" };
+
 
 /**
  * Hook event shapes we recognise. Claude Code spells the field
@@ -163,14 +168,14 @@ export function runInjectContext(
     // events for "hi" and "thanks". The MCP tool path is still
     // available if the agent really wants patterns mid-thread.
     if (!shouldQuery(eventName, prompt)) {
-      return wrapEnvelope(host, eventName, "", formatStatus({ kind: "trivial" }, statusMode));
+      return wrapEnvelope(host, eventName, "", formatStatus({ kind: "trivial" }, NO_TOOL_SIGNAL, statusMode));
     }
 
     // Project may not be initialised — that's fine, we emit empty.
     // First-run UX is: user types something, hook fires, hook sees
     // no .tracebase, exits clean. No crash, no nag.
     if (!basePath || !isInitialized(basePath)) {
-      return wrapEnvelope(host, eventName, "", formatStatus({ kind: "uninitialized" }, statusMode));
+      return wrapEnvelope(host, eventName, "", formatStatus({ kind: "uninitialized" }, NO_TOOL_SIGNAL, statusMode));
     }
 
     const config = loadConfig(basePath);
@@ -183,7 +188,21 @@ export function runInjectContext(
     // because `project.session.A` is not a prefix of
     // `project.session.B`.
     const recallScope = sessionId ? sessionScopeFor(sessionId) : "project";
+    let toolSignal: ToolPatternSignal = NO_TOOL_SIGNAL;
     const payload = withBlockServer(config.storagePath, basePath, (server, store, holdoutLoader) => {
+      // 0.5.3 TB TOOL / TB LOOP — read the previous turn's tool
+      // observations off the same connection we already opened for
+      // recall. Detector failure is silent: a missing
+      // `tool_observations` table on a half-migrated DB or a
+      // transient SELECT error must not block the agent's prompt.
+      if (sessionId) {
+        try {
+          const recent = store.recentToolObservations(sessionId, 6);
+          toolSignal = detectToolPattern(recent);
+        } catch {
+          // detector is non-load-bearing on the prompt path — swallow
+        }
+      }
       const result = runReasoningPatternsRecall(
         server,
         { problem: prompt, scope: recallScope },
@@ -199,7 +218,7 @@ export function runInjectContext(
     // matches, all shadow, everything cut by the budget — lands as
     // "checked · no match" so the user sees the hook ran.
     if (!payload.hasContent) {
-      return wrapEnvelope(host, eventName, "", formatStatus({ kind: "no-match" }, statusMode));
+      return wrapEnvelope(host, eventName, "", formatStatus({ kind: "no-match" }, toolSignal, statusMode));
     }
 
     const situation: InjectSituation = {
@@ -209,54 +228,110 @@ export function runInjectContext(
       facts: payload.factIds.length,
       tokens: payload.tokensEstimate,
     };
-    return wrapEnvelope(host, eventName, payload.text, formatStatus(situation, statusMode));
+    return wrapEnvelope(host, eventName, payload.text, formatStatus(situation, toolSignal, statusMode));
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     process.stderr.write(`tracebase inject-context: ${reason}\n`);
-    return wrapEnvelope(host, eventName, "", formatStatus({ kind: "failure" }, statusMode));
+    return wrapEnvelope(host, eventName, "", formatStatus({ kind: "failure" }, NO_TOOL_SIGNAL, statusMode));
   }
 }
 
+const NO_TOOL_SIGNAL: ToolPatternSignal = { kind: "none", count: 0 };
+
 /**
  * Single source of truth for the inject-side badge. Silent mode hard-
- * suppresses. Trivial / uninitialized emit nothing. On a match the
- * badge composes a TB TRACE half (pattern count) and a TB MEMORY half
- * (fact count); either half is omitted when its count is zero, so the
- * output never carries a dangling separator.
+ * suppresses. Composes up to three independent fragments separated
+ * by " · ":
  *
- * Every emitted badge is capped under 100 characters by construction:
- *   `▣ TB TRACE recalled 4 pattern(s)` (30 chars) +
- *   ` · ▣ TB MEMORY recalled 4 fact(s)` (34 chars) +
- *   ` · #abcdef12 · 2200t` (20 chars) = 84 chars max.
+ *   - TB TRACE — reasoning-pattern recall result, or `checked · no
+ *     match` / `skipped · unavailable` for the corresponding
+ *     non-match cases.
+ *   - TB MEMORY — fact recall count (only on match with facts > 0).
+ *   - TB TOOL / TB LOOP — 0.5.3 detector output for the previous
+ *     turn's tool calls. Surfaces even when the prompt was trivial
+ *     or recall returned no match, because it warns about the
+ *     agent's own behaviour, not the user's prompt.
  *
- * Separation of TB TRACE (reasoning reuse) and TB MEMORY (semantic
- * project facts) is the 0.5 namespace split — see PLAN-0.5 §2.
+ * Trivial prompts with no tool signal still suppress entirely —
+ * `null` keeps the host's transcript clean for genuine chatter.
+ * Uninitialized projects always emit `null` (we can't trust any
+ * fragment without a DB).
+ *
+ * Every emitted badge stays under ~150 characters by construction.
  */
-function formatStatus(situation: InjectSituation, mode: HookStatusMode): string | null {
+function formatStatus(
+  situation: InjectSituation,
+  signal: ToolPatternSignal,
+  mode: HookStatusMode,
+): string | null {
   if (mode === "silent") return null;
+  if (situation.kind === "uninitialized") return null;
+
+  const fragments: string[] = [];
   switch (situation.kind) {
-    case "trivial":
-    case "uninitialized":
-      return null;
     case "match": {
-      const shortId = situation.queryId.slice(0, 8);
-      const parts: string[] = [];
       if (situation.patterns > 0) {
-        parts.push(`▣ TB TRACE  recalled ${situation.patterns} pattern(s)`);
+        fragments.push(`▣ TB TRACE  recalled ${situation.patterns} pattern(s)`);
       }
       if (situation.facts > 0) {
-        parts.push(`▣ TB MEMORY  recalled ${situation.facts} fact(s)`);
+        fragments.push(`▣ TB MEMORY  recalled ${situation.facts} fact(s)`);
       }
-      // hasContent is true by construction for "match", so `parts` is
-      // never empty — but guard anyway so a future refactor can't
-      // accidentally emit the tail (`· #id · Tt`) alone.
-      if (parts.length === 0) return null;
-      return `${parts.join(" · ")} · #${shortId} · ${situation.tokens}t`;
+      break;
     }
     case "no-match":
-      return "▣ TB TRACE  checked · no match";
+      fragments.push("▣ TB TRACE  checked · no match");
+      break;
     case "failure":
-      return "▣ TB TRACE  skipped · unavailable";
+      fragments.push("▣ TB TRACE  skipped · unavailable");
+      break;
+    case "trivial":
+      // No TB TRACE fragment — but the tool fragment may still fire
+      // below for a trivial prompt issued mid-loop.
+      break;
+  }
+
+  // Tool / loop fragment: composes onto every situation EXCEPT
+  // failure (we can't trust a fresh DB read after an exception
+  // bubbled out of the recall).
+  if (situation.kind !== "failure") {
+    const toolFragment = formatToolFragment(signal);
+    if (toolFragment) fragments.push(toolFragment);
+  }
+
+  if (fragments.length === 0) return null;
+
+  // Tail: queryId + token count, only on a real match. Other
+  // situations don't have a queryId to reference.
+  const tail =
+    situation.kind === "match"
+      ? ` · #${situation.queryId.slice(0, 8)} · ${situation.tokens}t`
+      : "";
+  return fragments.join(" · ") + tail;
+}
+
+/**
+ * One-line label for a TB TOOL / TB LOOP signal. `straight` and
+ * `pingpong` use the louder TB LOOP brand because the agent is
+ * actively repeating itself; `duplicate` uses the softer TB TOOL
+ * label because the same call merely appeared twice in a window
+ * with other work between.
+ */
+function formatToolFragment(signal: ToolPatternSignal): string | null {
+  switch (signal.kind) {
+    case "none":
+      return null;
+    case "straight":
+      return signal.toolName
+        ? `▣ TB LOOP  straight × ${signal.count} (${signal.toolName})`
+        : `▣ TB LOOP  straight × ${signal.count}`;
+    case "pingpong":
+      return signal.toolName
+        ? `▣ TB LOOP  ping-pong (${signal.toolName})`
+        : "▣ TB LOOP  ping-pong";
+    case "duplicate":
+      return signal.toolName
+        ? `▣ TB TOOL  repeated ${signal.count}× (${signal.toolName})`
+        : `▣ TB TOOL  repeated ${signal.count}×`;
   }
 }
 

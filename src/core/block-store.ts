@@ -34,6 +34,9 @@ import type {
   ProjectFactSource,
   StoreProjectFactInput,
   AnalyticsEvent,
+  RecordToolObservationInput,
+  ToolObservation,
+  ToolObservationOutcome,
 } from "../types.js";
 import { detectLeakage } from "./block.js";
 
@@ -41,7 +44,7 @@ import { detectLeakage } from "./block.js";
 // Schema
 // ---------------------------------------------------------------------------
 
-const V2_SCHEMA_VERSION = 7;
+const V2_SCHEMA_VERSION = 8;
 
 const V2_SCHEMA = `
 CREATE TABLE IF NOT EXISTS reasoning_blocks (
@@ -256,6 +259,39 @@ CREATE INDEX IF NOT EXISTS idx_events_query  ON analytics_events(query_id);
 CREATE INDEX IF NOT EXISTS idx_events_block  ON analytics_events(block_id);
 CREATE INDEX IF NOT EXISTS idx_events_fact   ON analytics_events(fact_id);
 CREATE INDEX IF NOT EXISTS idx_events_run    ON analytics_events(run_id);
+
+-- Tool observations (L6, 0.5.3 TB TOOL substrate).
+--
+-- One row per completed tool call seen via Claude Code's
+-- PostToolBatch hook. Bodies are NEVER stored — tool_input is
+-- pre-sanitised at the hook into an allowlisted-fields-only
+-- arg_summary + an HMAC arg_key; tool_response is ignored.
+-- The next UserPromptSubmit reads the recent rows to detect
+-- duplicate / ping-pong / straight-loop tool sequences and
+-- surface a TB TOOL / TB LOOP badge alongside TB TRACE.
+--
+-- Privacy invariant: rows here NEVER ship to the cloud allowlist.
+-- Only aggregates (duplicate_count / loop_count / family_counts)
+-- are eligible — and even those need an explicit nested allowlist
+-- spec before they reach the wire.
+CREATE TABLE IF NOT EXISTS tool_observations (
+  id            TEXT PRIMARY KEY,
+  ts            INTEGER NOT NULL,
+  session_id    TEXT NOT NULL,
+  batch_id      TEXT,
+  batch_order   INTEGER NOT NULL DEFAULT 0,
+  tool_use_id   TEXT,
+  tool_name     TEXT NOT NULL,
+  arg_summary   TEXT NOT NULL,
+  arg_key       TEXT NOT NULL,
+  outcome       TEXT NOT NULL DEFAULT 'unknown' CHECK(outcome IN ('ok','error','unknown')),
+  redundant_of  TEXT,
+  created_at    INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_obs_session_ts ON tool_observations(session_id, ts);
+CREATE INDEX IF NOT EXISTS idx_tool_obs_argkey_ts  ON tool_observations(arg_key, ts);
+CREATE INDEX IF NOT EXISTS idx_tool_obs_use_id     ON tool_observations(tool_use_id);
 
 CREATE TABLE IF NOT EXISTS v2_schema_meta (
   key    TEXT PRIMARY KEY,
@@ -526,6 +562,30 @@ const V2_MIGRATIONS: Record<number, string[]> = {
        INSERT INTO project_facts_fts(rowid, statement) VALUES (new.rowid, new.statement);
      END`,
     `INSERT INTO project_facts_fts(project_facts_fts) VALUES('rebuild')`,
+  ],
+  // v7 → v8: 0.5.3 TB TOOL lands. Adds the additive `tool_observations`
+  // table + its three indexes. Pure additive — no rewrite of existing
+  // rows, no CHECK widening, no FTS mirror. The `IF NOT EXISTS` shape
+  // keeps this idempotent on DBs that may have been hand-bootstrapped
+  // by a future helper before reaching the migration walker.
+  8: [
+    `CREATE TABLE IF NOT EXISTS tool_observations (
+      id            TEXT PRIMARY KEY,
+      ts            INTEGER NOT NULL,
+      session_id    TEXT NOT NULL,
+      batch_id      TEXT,
+      batch_order   INTEGER NOT NULL DEFAULT 0,
+      tool_use_id   TEXT,
+      tool_name     TEXT NOT NULL,
+      arg_summary   TEXT NOT NULL,
+      arg_key       TEXT NOT NULL,
+      outcome       TEXT NOT NULL DEFAULT 'unknown' CHECK(outcome IN ('ok','error','unknown')),
+      redundant_of  TEXT,
+      created_at    INTEGER NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_tool_obs_session_ts ON tool_observations(session_id, ts)`,
+    `CREATE INDEX IF NOT EXISTS idx_tool_obs_argkey_ts  ON tool_observations(arg_key, ts)`,
+    `CREATE INDEX IF NOT EXISTS idx_tool_obs_use_id     ON tool_observations(tool_use_id)`,
   ],
 };
 
@@ -1616,6 +1676,88 @@ export class BlockStore {
   }
 
   // -------------------------------------------------------------------------
+  // Tool observations (0.5.3 TB TOOL substrate)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Record a batch of tool observations in a single transaction.
+   * Caller is responsible for sanitising `argSummary` / `argKey` —
+   * this method NEVER inspects argument content, just persists what
+   * the per-tool sanitiser produced. Returns the inserted ids in
+   * input order.
+   *
+   * Empty input is a no-op that returns `[]`. The PostToolBatch hook
+   * already filters empty `tool_calls` arrays upstream, but the guard
+   * here keeps the contract symmetrical with the rest of the store.
+   */
+  recordToolObservations(inputs: RecordToolObservationInput[]): string[] {
+    if (inputs.length === 0) return [];
+    const now = this.now();
+    const ids: string[] = [];
+    const insert = this.db.prepare(`
+      INSERT INTO tool_observations (
+        id, ts, session_id, batch_id, batch_order, tool_use_id,
+        tool_name, arg_summary, arg_key, outcome, redundant_of, created_at
+      ) VALUES (
+        @id, @ts, @session_id, @batch_id, @batch_order, @tool_use_id,
+        @tool_name, @arg_summary, @arg_key, @outcome, @redundant_of, @created_at
+      )
+    `);
+    const tx = this.db.transaction((rows: RecordToolObservationInput[]) => {
+      for (const row of rows) {
+        const id = randomUUID();
+        ids.push(id);
+        insert.run({
+          id,
+          ts: now,
+          session_id: row.sessionId,
+          batch_id: row.batchId ?? null,
+          batch_order: row.batchOrder,
+          tool_use_id: row.toolUseId ?? null,
+          tool_name: row.toolName,
+          arg_summary: row.argSummary,
+          arg_key: row.argKey,
+          outcome: row.outcome ?? "unknown",
+          redundant_of: null,
+          created_at: now,
+        });
+      }
+    });
+    tx(inputs);
+    return ids;
+  }
+
+  /**
+   * Last `limit` observations for a session, oldest-first so
+   * detection logic walks them in the order they happened. The
+   * PostToolBatch hook only writes here; the UserPromptSubmit hook
+   * only reads. The (session_id, ts) index keeps the lookup
+   * sub-millisecond even on long sessions.
+   */
+  recentToolObservations(sessionId: string, limit: number = 6): ToolObservation[] {
+    if (limit <= 0) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM tool_observations
+         WHERE session_id = ?
+         ORDER BY ts DESC, rowid DESC
+         LIMIT ?`,
+      )
+      .all(sessionId, limit) as ToolObservationRow[];
+    return rows.map((r) => this.rowToToolObservation(r)).reverse();
+  }
+
+  /** Test / diagnostic helper. Total observations recorded for a session. */
+  countToolObservations(sessionId: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM tool_observations WHERE session_id = ?`,
+      )
+      .get(sessionId) as { c: number };
+    return row.c;
+  }
+
+  // -------------------------------------------------------------------------
   // Internal helpers
   // -------------------------------------------------------------------------
 
@@ -1782,6 +1924,23 @@ export class BlockStore {
     };
   }
 
+  private rowToToolObservation(r: ToolObservationRow): ToolObservation {
+    return {
+      id: r.id,
+      ts: r.ts,
+      sessionId: r.session_id,
+      batchId: r.batch_id ?? null,
+      batchOrder: r.batch_order,
+      toolUseId: r.tool_use_id ?? null,
+      toolName: r.tool_name,
+      argSummary: r.arg_summary,
+      argKey: r.arg_key,
+      outcome: (r.outcome as ToolObservationOutcome) ?? "unknown",
+      redundantOf: r.redundant_of ?? null,
+      createdAt: r.created_at,
+    };
+  }
+
   private rowToFact(r: FactRow): ProjectFact {
     const src: ProjectFactSource = {
       origin: r.src_origin as ProjectFactSource["origin"],
@@ -1942,4 +2101,19 @@ interface FactRow {
   status: string;
   ttl_until_at: number | null;
   dedupe_key: string;
+}
+
+interface ToolObservationRow {
+  id: string;
+  ts: number;
+  session_id: string;
+  batch_id: string | null;
+  batch_order: number;
+  tool_use_id: string | null;
+  tool_name: string;
+  arg_summary: string;
+  arg_key: string;
+  outcome: string;
+  redundant_of: string | null;
+  created_at: number;
 }

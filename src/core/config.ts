@@ -139,23 +139,31 @@ export function initConfig(
   const dir = join(basePath, CONFIG_DIR);
   mkdirSync(dir, { recursive: true });
 
-  // Pick up any existing workspaceId so re-init doesn't rotate it.
+  // Pick up any existing workspaceId / workspaceSalt so re-init
+  // doesn't rotate them. Salt rotation would invalidate every
+  // `arg_key` recorded in `tool_observations`, breaking duplicate /
+  // loop detection across the boundary; identity stability wins.
   const existing = readExistingConfig(dir);
   const preservedWorkspaceId = existing?.workspaceId;
+  const preservedWorkspaceSalt = existing?.workspaceSalt;
 
   const config: TraceBaseConfig = {
     ...defaultConfig(basePath),
     ...existing,
     workspaceId: preservedWorkspaceId ?? overrides?.workspaceId ?? randomUUID(),
+    workspaceSalt:
+      preservedWorkspaceSalt ?? overrides?.workspaceSalt ?? generateWorkspaceSalt(),
     ...overrides,
   };
   // `overrides` above may include workspaceId explicitly (tests); if the
   // existing file already had one, keep that — stable identity wins.
   if (preservedWorkspaceId) config.workspaceId = preservedWorkspaceId;
+  if (preservedWorkspaceSalt) config.workspaceSalt = preservedWorkspaceSalt;
 
   const configFile = join(dir, CONFIG_FILE);
   const serializable: Record<string, unknown> = {
     workspaceId: config.workspaceId,
+    workspaceSalt: config.workspaceSalt,
     storagePath: config.storagePath,
     maxTraces: config.maxTraces,
     pruneThreshold: config.pruneThreshold,
@@ -479,4 +487,53 @@ function generateHoldoutSalt(): string {
   // `shouldHoldOut` unpredictable per-workspace; no cryptographic
   // strength requirement beyond "not guessable across workspaces".
   return randomBytes(16).toString("hex");
+}
+
+// ---------------------------------------------------------------------------
+// 0.5.3 — workspace salt (HMAC key for tool_observations.arg_key)
+// ---------------------------------------------------------------------------
+
+/** 32 random bytes hex-encoded — 256 bits of entropy for HMAC keys. */
+function generateWorkspaceSalt(): string {
+  return randomBytes(32).toString("hex");
+}
+
+/**
+ * Read the workspace salt for the project rooted at `basePath`. Lazy-
+ * mints + persists if missing (legacy installs written before 0.5.3).
+ *
+ * Returns `null` when:
+ *   - the project is not initialized (no `.tracebase/config.json`), or
+ *   - the file exists but is unreadable / unparseable, or
+ *   - mint succeeded but the persistence write failed (caller falls
+ *     back to a deterministic in-memory key — the salt is mostly a
+ *     local-clustering helper, not a security boundary, and a hook
+ *     that briefly can't write must not crash).
+ *
+ * Stable across calls within the same install; never rotates.
+ */
+export function getOrMintWorkspaceSalt(basePath: string): string | null {
+  const configFile = join(basePath, CONFIG_DIR, CONFIG_FILE);
+  if (!existsSync(configFile)) return null;
+
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(readFileSync(configFile, "utf-8")) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  const stored = raw.workspaceSalt;
+  if (typeof stored === "string" && stored.length > 0) return stored;
+
+  const minted = generateWorkspaceSalt();
+  raw.workspaceSalt = minted;
+  try {
+    writeFileSync(configFile, JSON.stringify(raw, null, 2) + "\n");
+  } catch {
+    // Read-only filesystem or transient I/O — caller decides whether
+    // to fail the operation or continue with the in-memory salt.
+    return null;
+  }
+  return minted;
 }

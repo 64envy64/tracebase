@@ -1,130 +1,174 @@
 /**
- * `tracebase capture-tool-use` — Claude Code `PostToolBatch` (default)
- * / `PostToolUse` (compat) hook backend.
+ * `tracebase capture-tool-use` — Claude Code `PostToolBatch` hook
+ * backend (0.5.3 TB TOOL substrate).
  *
- * Ships in 0.5.3 as a **dump-first scaffold** mirroring the
- * 0.5.2 capture-context approach. Today this command has two modes:
+ * Runs after a batch of tool calls completes. Reads the
+ * PostToolBatch stdin, sanitises each `tool_input` down to an
+ * allowlisted projection per tool, computes an HMAC bucket id
+ * (`arg_key`), and persists one row per call into the
+ * `tool_observations` table (V2_MIGRATIONS[8]). The next
+ * `UserPromptSubmit` reads recent rows and surfaces a TB TOOL /
+ * TB LOOP badge if a duplicate / loop / ping-pong is detected.
  *
- *   1. `--dump-stdin` (dev-only diagnostic): prints the parsed
- *      stdin payload to stderr, writes the raw bytes to
- *      `~/.tracebase/posttoolbatch-dumps/<ts>-<session>.jsonl`,
- *      emits an empty host envelope, and returns. Purpose: lock
- *      the real PostToolBatch stdin shape against ground truth
- *      *before* the parser, the `tool_observations` table
- *      (V2_MIGRATIONS[8]), and the duplicate / loop detector are
- *      written.
+ * Hard rules (enforced in `src/core/tool-arg.ts`):
  *
- *   2. Default: emits a valid empty envelope and does nothing
- *      else. Explicit no-op so the command is safe to install as
- *      a PostToolBatch hook today without shipping speculative
- *      logic against an assumed shape.
+ *   - NEVER reads `tool_response` — the field is ignored at the
+ *     parser boundary; the per-tool projection helpers in
+ *     `tool-arg.ts` only read named fields off `tool_input`.
+ *   - NEVER stores raw `tool_input` content. File paths land
+ *     repo-relative or `arg-hidden`; Bash keeps only the binary
+ *     name; Edit / Write / TodoWrite / WebFetch / Task all
+ *     collapse to `arg-hidden`.
+ *   - NEVER ships `arg_key`, `arg_summary`, `tool_use_id`,
+ *     `session_id`, or `batch_id` to the cloud allowlist (see
+ *     `cloud-allowlist.ts` — primitive-only leaves enforce this).
  *
- * 0.5.3 follow-up — once a real PostToolBatch payload has been
- * captured and the shape locked — replaces the default mode with:
- *   - hard guard on `!tool_calls || tool_calls.length === 0`
- *   - allowlisted-fields-only `arg_summary` per tool (Read,
- *     Grep, Glob, Bash; everything else collapses to "tool_name(arg-hidden)")
- *   - `arg_key = HMAC(workspaceSalt, canonical(allowlistedFields))`
- *   - one SQLite transaction inserting N rows into
- *     `tool_observations` (V2_MIGRATIONS[8])
- *   - signal computation deferred to next UserPromptSubmit
- *   - `▣ TB TOOL` / `▣ TB LOOP` badges only emitted on next
- *     UserPromptSubmit, never from this hook directly
+ * Modes:
  *
- * Invariants this scaffold already commits to (enforced when the
- * real path lands, not yet here):
+ *   - Default: observe → sanitise → write batch in one
+ *     transaction. No badge from this hook (per user directive
+ *     and PLAN-0.5 §5.3) — the badge is computed and surfaced on
+ *     the next UserPromptSubmit.
  *
- *   - NEVER store `tool_input` or `tool_response` body content.
- *   - NEVER ship `arg_key`, `arg_summary`, `tool_use_id`,
- *     `session_id`, or `batch_id` to the cloud allowlist — only
- *     aggregate `duplicate_count` / `loop_count` /
- *     `tool_family_counts` / latency buckets / error class counts.
- *   - PreToolUse remains opt-in only via `TRACEBASE_PRETOOLUSE=on`
- *     at install time.
- *   - PostToolUse is manual user compat only via
- *     `npx tracebase init --compat=posttooluse`. No auto-switchover.
+ *   - `--capture off` (env: `TRACEBASE_CAPTURE_TOOL=off`): pure
+ *     no-op for users who want to opt out of the substrate.
+ *
+ *   - `--dump-stdin` (dev-only): writes the parsed stdin to
+ *     stderr and the raw bytes to
+ *     `~/.tracebase/posttoolbatch-dumps/`, then returns. NEVER in
+ *     the canonical installed hook command — the installer in
+ *     `install-targets.ts` writes the plain capture form.
  *
  * Never throws. The PostToolBatch hook fires after the agent has
- * finished a tool batch — a crash here can't block the agent's
- * forward progress, but a non-zero exit still surfaces red in the
- * transcript. Every failure mode collapses to a clean empty
+ * already finished its tool batch — a crash here can't block the
+ * agent's forward progress, but a non-zero exit still surfaces red
+ * in the transcript. Every failure mode collapses to a clean empty
  * envelope.
  */
 import { Command } from "commander";
+import Database from "better-sqlite3";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { BlockStore } from "../../core/block-store.js";
+import {
+  findProjectRoot,
+  getOrMintWorkspaceSalt,
+  isInitialized,
+  loadConfig,
+} from "../../core/config.js";
+import { sanitizeToolArgs } from "../../core/tool-arg.js";
+import type {
+  RecordToolObservationInput,
+  ToolObservationOutcome,
+} from "../../types.js";
 
 // ---------------------------------------------------------------------------
-// Hook shape + CLI options (pre-lockdown — TOLERANT, NOT NORMATIVE)
+// Hook shape + CLI options
 // ---------------------------------------------------------------------------
 
 /**
- * Speculative shape of the `PostToolBatch` (and fallback `PostToolUse`)
- * stdin envelope. Real fields land in a follow-up release after the
- * dump-first sequence captures a live payload. Anything we don't
- * recognise is preserved by the tolerant parser, so nothing is lost
- * at this stage.
+ * Live `PostToolBatch` stdin shape, locked against the dump captured
+ * in the 0.5.3 dump-first sequence:
+ *
+ *   {
+ *     hook_event_name: "PostToolBatch",
+ *     session_id: "<uuid>",
+ *     transcript_path: "/abs/path/to/transcript.jsonl",
+ *     cwd: "/abs/workspace/root",
+ *     permission_mode: "default",
+ *     tool_calls: [
+ *       {
+ *         tool_name: "Read",
+ *         tool_input: { file_path: "/abs/path" },
+ *         tool_use_id: "toolu_...",
+ *         tool_response: "<full output body — IGNORED>"
+ *       },
+ *       …
+ *     ]
+ *   }
+ *
+ * Notable absences from the live shape: no `turn_index`, no
+ * `batch_id`, no `trigger`, no per-call `outcome`. We accept the
+ * camelCase variants too in case Claude Code spells them
+ * differently in a future release.
  */
 export interface ToolBatchHookStdin {
   hook_event_name?: string;
   hookEventName?: string;
-  /** Stable identifier for the Claude Code session. */
   session_id?: string;
   sessionId?: string;
-  /** Workspace root the user's Claude Code session is rooted at. */
   cwd?: string;
-  /** Path to the conversation transcript JSONL Claude Code maintains. */
   transcript_path?: string;
   transcriptPath?: string;
-  /** PostToolBatch: array of completed tool calls. */
+  /** Stored only for telemetry; never persisted. */
+  permission_mode?: string;
   tool_calls?: unknown[];
-  /** PostToolUse fallback: single tool call fields at the top level. */
+  // PostToolUse fallback (manual user opt-in only) — single tool call
+  // fields at the top level instead of wrapped in an array.
   tool_use_id?: string;
   tool_name?: string;
-  /** NOT parsed for content — only inspected for shape during dump. */
   tool_input?: unknown;
   tool_response?: unknown;
   outcome?: string;
 }
 
+/** `compact` writes; `silent` writes; `off` pure no-op. No visible badge difference today. */
+export type CaptureToolMode = "compact" | "silent" | "off";
+
 export interface RunCaptureToolUseOptions {
   host?: string;
   path?: string;
   /**
-   * Dev-only diagnostic. When set, the command writes the parsed
-   * stdin JSON to stderr and the raw bytes to
-   * `~/.tracebase/posttoolbatch-dumps/` then returns before any
-   * detection / observation work. NEVER in the canonical installed
-   * hook command.
+   * `compact` (default) | `silent` | `off`. Env override:
+   * `TRACEBASE_CAPTURE_TOOL=off|compact|silent` wins over this flag.
+   * `off` is the only behaviourally distinct mode — it skips both
+   * the sanitiser and the SQLite write entirely.
+   */
+  capture?: string;
+  /**
+   * Dev-only diagnostic. NEVER in the canonical installed hook
+   * command. Writes raw bytes to `~/.tracebase/posttoolbatch-dumps/`.
    */
   dumpStdin?: boolean;
 }
 
 export interface CaptureToolUseOutcome {
-  /** One-line JSON envelope for the host to consume. */
+  /** One-line JSON envelope for the host. */
   envelope: string;
+  /** Number of tool_observations rows the hook wrote on this call. */
+  recorded: number;
   /** True iff the dump mode wrote a file on this invocation. */
   dumped: boolean;
-  /** Absolute path of the dump file (dump mode only). */
   dumpPath: string | null;
 }
 
-const STDIN_BYTE_LIMIT = 256 * 1024; // 256 KiB — well above any realistic hook stdin
-const DUMP_BYTE_CAP = 4 * 1024 * 1024; // 4 MiB — same cap capture-context uses
+const STDIN_BYTE_LIMIT = 256 * 1024;
+const DUMP_BYTE_CAP = 4 * 1024 * 1024;
+/**
+ * Hard ceiling on the per-batch observation count. Real Claude
+ * Code batches are <10 calls; anything above 64 is almost
+ * certainly a malformed payload or a denial-of-service probe and
+ * gets the tail dropped.
+ */
+const MAX_CALLS_PER_BATCH = 64;
 
 export const captureToolUseCommand = new Command("capture-tool-use")
   .description(
-    "Internal: Claude Code PostToolBatch (default) / PostToolUse (compat) hook " +
-      "backend (0.5.3 dump-first scaffold). Use --dump-stdin to capture real hook " +
-      "payloads; default mode is an intentional no-op until the parser, " +
-      "tool_observations schema (V2_MIGRATIONS[8]), and detection logic land in a " +
-      "follow-up release.",
+    "Internal: Claude Code PostToolBatch hook backend. Sanitises each tool call " +
+      "down to an allowlisted projection, computes an HMAC arg_key keyed by the " +
+      "local workspace salt, and writes one row per call into tool_observations. " +
+      "The detector and TB TOOL / TB LOOP badge live on the next UserPromptSubmit.",
   )
   .option("--host <host>", "host shaping the JSON envelope: claude-code (default)", "claude-code")
   .option(
+    "--capture <mode>",
+    "capture behaviour: compact (default) | silent | off (skips write). Env: TRACEBASE_CAPTURE_TOOL.",
+    "compact",
+  )
+  .option(
     "--dump-stdin",
-    "dev: write parsed hook stdin to stderr + raw bytes to ~/.tracebase/posttoolbatch-dumps/ for offline parser lockdown",
+    "dev: write parsed hook stdin to stderr + raw bytes to ~/.tracebase/posttoolbatch-dumps/",
   )
   .option("-p, --path <path>", "project root override")
   .action(async (opts: RunCaptureToolUseOptions) => {
@@ -134,35 +178,166 @@ export const captureToolUseCommand = new Command("capture-tool-use")
   });
 
 /**
- * Pure helper. Same "never throws, always emits a parseable envelope"
- * contract as inject-context / capture-turn / capture-context.
- *
- * In dump mode, writes the raw bytes to a per-invocation file under
- * `~/.tracebase/posttoolbatch-dumps/`. Lives in the user's home
- * rather than the project because PostToolBatch fires from Claude
- * Code's session root, which may not correspond to a TraceBase-
- * initialised project — and dumps should not depend on `.tracebase/`
- * existing.
+ * Pure helper. Same "never throws, always emits a parseable
+ * envelope" contract as the sibling 0.5.x hook commands.
  */
 export function runCaptureToolUse(
   opts: RunCaptureToolUseOptions,
   rawStdin: Buffer,
 ): CaptureToolUseOutcome {
+  if (opts.dumpStdin) {
+    return handleDump(rawStdin, parseStdinPayload(rawStdin));
+  }
+
+  const mode = resolveCaptureMode(opts.capture);
+  if (mode === "off") return emptyEnvelope();
+
   try {
-    if (opts.dumpStdin) {
-      const parsed = parseStdinPayload(rawStdin);
-      return handleDump(rawStdin, parsed);
+    const parsed = parseStdinPayload(rawStdin);
+    const calls = collectToolCalls(parsed);
+    if (calls.length === 0) return emptyEnvelope();
+
+    const basePath = resolveBasePath(opts.path, parsed);
+    if (!basePath || !isInitialized(basePath)) return emptyEnvelope();
+
+    const salt = getOrMintWorkspaceSalt(basePath);
+    if (!salt) return emptyEnvelope();
+
+    const sessionId = stringField(parsed.session_id ?? parsed.sessionId, "unknown-session");
+    const cwd = stringField(parsed.cwd, basePath);
+
+    const inputs: RecordToolObservationInput[] = [];
+    for (let i = 0; i < calls.length && inputs.length < MAX_CALLS_PER_BATCH; i++) {
+      const call = calls[i]!;
+      const { argSummary, argKey } = sanitizeToolArgs({
+        toolName: call.toolName,
+        toolInput: call.toolInput,
+        cwd,
+        workspaceSalt: salt,
+      });
+      inputs.push({
+        sessionId,
+        batchOrder: i,
+        toolUseId: call.toolUseId,
+        toolName: call.toolName,
+        argSummary,
+        argKey,
+        outcome: call.outcome,
+      });
     }
-    // Default: no-op envelope. The real detection / observation
-    // pipeline lands in the next patch after the dump path has
-    // produced ground-truth payloads. Until then, installing this
-    // hook is safe but inert.
-    return { envelope: JSON.stringify({}), dumped: false, dumpPath: null };
+
+    if (inputs.length === 0) return emptyEnvelope();
+
+    const config = loadConfig(basePath);
+    const recorded = withBlockStore(config.storagePath, (store) => {
+      const ids = store.recordToolObservations(inputs);
+      return ids.length;
+    });
+
+    return {
+      envelope: JSON.stringify({}),
+      recorded,
+      dumped: false,
+      dumpPath: null,
+    };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     process.stderr.write(`tracebase capture-tool-use: ${reason}\n`);
-    return { envelope: JSON.stringify({}), dumped: false, dumpPath: null };
+    return emptyEnvelope();
   }
+}
+
+function emptyEnvelope(): CaptureToolUseOutcome {
+  return { envelope: JSON.stringify({}), recorded: 0, dumped: false, dumpPath: null };
+}
+
+// ---------------------------------------------------------------------------
+// Tool-call extraction
+// ---------------------------------------------------------------------------
+
+interface ExtractedCall {
+  toolName: string;
+  toolInput: unknown;
+  toolUseId: string | null;
+  outcome: ToolObservationOutcome;
+}
+
+/**
+ * Collect tool calls from either the PostToolBatch shape (array
+ * under `tool_calls`) or the PostToolUse fallback shape (single
+ * call at the root). Anything else collapses to `[]` and the hook
+ * no-ops without writing.
+ */
+function collectToolCalls(parsed: ToolBatchHookStdin): ExtractedCall[] {
+  if (Array.isArray(parsed.tool_calls)) {
+    const out: ExtractedCall[] = [];
+    for (const raw of parsed.tool_calls) {
+      const call = extractCall(raw);
+      if (call) out.push(call);
+    }
+    return out;
+  }
+  // PostToolUse fallback — fields live at the root.
+  const root = extractCall({
+    tool_name: parsed.tool_name,
+    tool_input: parsed.tool_input,
+    tool_use_id: parsed.tool_use_id,
+    outcome: parsed.outcome,
+  });
+  return root ? [root] : [];
+}
+
+function extractCall(raw: unknown): ExtractedCall | null {
+  if (!raw || typeof raw !== "object") return null;
+  const c = raw as Record<string, unknown>;
+  const toolName = typeof c.tool_name === "string" ? c.tool_name : null;
+  if (!toolName) return null;
+  return {
+    toolName,
+    toolInput: c.tool_input,
+    toolUseId: typeof c.tool_use_id === "string" ? c.tool_use_id : null,
+    outcome: parseOutcome(c.outcome),
+  };
+}
+
+function parseOutcome(raw: unknown): ToolObservationOutcome {
+  if (typeof raw !== "string") return "unknown";
+  const v = raw.trim().toLowerCase();
+  if (v === "ok" || v === "success") return "ok";
+  if (v === "error" || v === "failure" || v === "failed") return "error";
+  return "unknown";
+}
+
+// ---------------------------------------------------------------------------
+// Mode + path resolution
+// ---------------------------------------------------------------------------
+
+function resolveCaptureMode(raw: string | undefined): CaptureToolMode {
+  const fromEnv = normaliseMode(process.env.TRACEBASE_CAPTURE_TOOL);
+  if (fromEnv) return fromEnv;
+  const fromFlag = normaliseMode(raw);
+  if (fromFlag) return fromFlag;
+  return "compact";
+}
+
+function normaliseMode(raw: string | undefined): CaptureToolMode | null {
+  const v = raw?.trim().toLowerCase();
+  if (v === "off") return "off";
+  if (v === "silent") return "silent";
+  if (v === "compact") return "compact";
+  return null;
+}
+
+function resolveBasePath(explicit: string | undefined, stdin: ToolBatchHookStdin): string | null {
+  if (explicit) return explicit;
+  if (typeof stdin.cwd === "string" && stdin.cwd) {
+    return findProjectRoot(stdin.cwd) ?? stdin.cwd;
+  }
+  return findProjectRoot(process.cwd()) ?? process.cwd();
+}
+
+function stringField(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.length > 0 ? value : fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,10 +356,8 @@ export function readStdinBytes(): Buffer {
 
 /**
  * Tolerant parser. Any malformed / oversized / primitive / array
- * input collapses to `{}`. Callers treat that as "no payload, emit
- * empty envelope". Unknown fields are preserved verbatim so the
- * dump captures every byte the host actually sent — that's the
- * whole point of the dump-first sequence.
+ * input collapses to `{}`. Unknown fields are preserved verbatim
+ * so the dump path captures every byte the host actually sent.
  */
 export function parseStdinPayload(raw: Buffer | string): ToolBatchHookStdin {
   const buf = typeof raw === "string" ? Buffer.from(raw) : raw;
@@ -202,13 +375,24 @@ export function parseStdinPayload(raw: Buffer | string): ToolBatchHookStdin {
 }
 
 // ---------------------------------------------------------------------------
+// BlockStore lifecycle
+// ---------------------------------------------------------------------------
+
+function withBlockStore<T>(storagePath: string, fn: (store: BlockStore) => T): T {
+  const db = new Database(storagePath);
+  const store = new BlockStore(db);
+  try {
+    return fn(store);
+  } finally {
+    store.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // --dump-stdin dev-only path (never in the canonical installed hook)
 // ---------------------------------------------------------------------------
 
 function handleDump(raw: Buffer, parsed: ToolBatchHookStdin): CaptureToolUseOutcome {
-  // Echo the parsed form to stderr for quick inspection in a Claude
-  // Code transcript. Stdout is reserved for the host envelope; stderr
-  // shows up in the hook's error surface without breaking the event.
   try {
     const stderrDump = JSON.stringify(parsed, null, 2);
     process.stderr.write("tracebase capture-tool-use (dump): parsed stdin:\n");
@@ -230,8 +414,6 @@ function handleDump(raw: Buffer, parsed: ToolBatchHookStdin): CaptureToolUseOutc
     writeFileSync(dumpPath, payload);
     process.stderr.write(`tracebase capture-tool-use (dump): raw bytes written to ${dumpPath}\n`);
   } catch (err) {
-    // Dumping is dev-only. A write failure must not break the hook —
-    // worst case we lost one sample, not the user's tool flow.
     const reason = err instanceof Error ? err.message : String(err);
     process.stderr.write(`tracebase capture-tool-use (dump): write failed: ${reason}\n`);
     dumpPath = null;
@@ -239,17 +421,12 @@ function handleDump(raw: Buffer, parsed: ToolBatchHookStdin): CaptureToolUseOutc
 
   return {
     envelope: JSON.stringify({}),
+    recorded: 0,
     dumped: dumpPath !== null,
     dumpPath,
   };
 }
 
-/**
- * Per-invocation dump filenames must be filesystem-safe. PostToolBatch
- * fires every assistant turn that has tool calls — multiple per
- * session — so we lean on millisecond timestamps to disambiguate
- * between dumps in the same session.
- */
 function sanitiseTag(raw: string): string {
   const cleaned = raw.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 40);
   return cleaned.length > 0 ? cleaned : "unknown";

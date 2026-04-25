@@ -193,6 +193,18 @@ export interface TraceBaseConfig {
    * without a separate enrollment step. Core logic never reads it.
    */
   workspaceId?: string;
+  /**
+   * Local-only HMAC key for tool-argument bucketing (0.5.3 TB TOOL).
+   * 32 random bytes, hex-encoded. Used as the secret in
+   * `arg_key = HMAC(workspaceSalt, canonical(allowlistedFields))`
+   * so the same Read of the same file collides into the same bucket
+   * across tool calls — without making the bucket id linkable across
+   * workspaces. NEVER leaves the local machine: the cloud allowlist
+   * forbids `arg_key`, `arg_summary`, `tool_use_id`, `session_id`, and
+   * `batch_id`. Generated lazily on first read for installs created
+   * before 0.5.3 — present-from-init for new ones.
+   */
+  workspaceSalt?: string;
   /** Embedding provider configuration */
   embeddings?: EmbeddingConfig;
   /** Maximum traces to store (0 = unlimited, default: 100_000) */
@@ -1007,6 +1019,63 @@ export interface StoreProjectFactInput {
    * `0` / negative / undefined = no expiry.
    */
   ttlDays?: number;
+}
+
+// ============================================================================
+// ToolObservation — 0.5.3 TB TOOL / TB LOOP substrate.
+//
+// One row per completed tool call observed via Claude Code's
+// `PostToolBatch` hook. Bodies are NEVER stored (tool_input is
+// sanitised down to allowlisted fields; tool_response is ignored).
+// `arg_key` is the HMAC bucket the next UserPromptSubmit hook reads
+// to detect duplicate calls / loops / ping-pong without ever seeing
+// the literal arguments.
+//
+// Privacy invariant (enforced by the cloud allowlist):
+//   `tool_observations` rows NEVER ship to the control plane.
+//   Aggregates (duplicate_count / loop_count / family_counts) may.
+// ============================================================================
+
+export type ToolObservationOutcome = "ok" | "error" | "unknown";
+
+export interface ToolObservation {
+  id: string;
+  /** Wall-clock ms when the observation was recorded. */
+  ts: number;
+  /** Stable Claude Code session id (dedup window scope). */
+  sessionId: string;
+  /**
+   * Optional batch correlation id. Live PostToolBatch payloads do
+   * not carry one today, so this stays null in practice — kept on
+   * the schema for forward-compat.
+   */
+  batchId: string | null;
+  /** 0-indexed position within the originating tool batch. */
+  batchOrder: number;
+  /** Claude Code's per-call id (`toolu_…`); used for dedup. */
+  toolUseId: string | null;
+  /** "Read", "Grep", "Bash", … */
+  toolName: string;
+  /** Human-readable, allowlisted-fields-only normalisation. */
+  argSummary: string;
+  /** HMAC(workspaceSalt, canonical(allowlistedFields)). */
+  argKey: string;
+  /** Outcome class; "unknown" when the host doesn't surface one. */
+  outcome: ToolObservationOutcome;
+  /** Pointer to a prior observation that subsumes this one (future use). */
+  redundantOf: string | null;
+  createdAt: number;
+}
+
+export interface RecordToolObservationInput {
+  sessionId: string;
+  batchId?: string | null;
+  batchOrder: number;
+  toolUseId?: string | null;
+  toolName: string;
+  argSummary: string;
+  argKey: string;
+  outcome?: ToolObservationOutcome;
 }
 
 // ============================================================================

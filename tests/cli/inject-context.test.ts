@@ -570,3 +570,126 @@ describe("runInjectContext — session-scoped fact recall (TB CONTEXT)", () => {
     expect(ctx).toContain("tests/cli");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 0.5.3 — TB TOOL / TB LOOP detector composes into the badge.
+//
+// The detector reads tool_observations rows the previous turn's
+// PostToolBatch hook wrote. We seed the rows directly here to avoid
+// taking a dependency on the capture-tool-use code path.
+// ---------------------------------------------------------------------------
+
+describe("runInjectContext — TB TOOL / TB LOOP composite badges", () => {
+  it("flags a straight loop with `▣ TB LOOP  straight × N (Tool)`", () => {
+    const cfg = initConfig(projectDir);
+    const db = new Database(cfg.storagePath);
+    const store = new BlockStore(db);
+    // Three identical Reads in the session — straight loop.
+    store.recordToolObservations([
+      { sessionId: "S-loop", batchOrder: 0, toolName: "Read", argSummary: "Read(src/a.ts)", argKey: "kA" },
+      { sessionId: "S-loop", batchOrder: 1, toolName: "Read", argSummary: "Read(src/a.ts)", argKey: "kA" },
+      { sessionId: "S-loop", batchOrder: 2, toolName: "Read", argSummary: "Read(src/a.ts)", argKey: "kA" },
+    ]);
+    store.close();
+
+    const out = runInjectContext(
+      { path: projectDir },
+      {
+        prompt: "ok now what about the database connection — anything to know?",
+        session_id: "S-loop",
+      },
+    );
+    const sys = envelope(out).systemMessage ?? "";
+    expect(sys).toMatch(/▣ TB LOOP\s+straight × 3 \(Read\)/);
+  });
+
+  it("flags ping-pong with `▣ TB LOOP  ping-pong (Tool)`", () => {
+    const cfg = initConfig(projectDir);
+    const db = new Database(cfg.storagePath);
+    const store = new BlockStore(db);
+    store.recordToolObservations([
+      { sessionId: "S-pp", batchOrder: 0, toolName: "Read", argSummary: "x", argKey: "kA" },
+      { sessionId: "S-pp", batchOrder: 1, toolName: "Edit", argSummary: "y", argKey: "kB" },
+      { sessionId: "S-pp", batchOrder: 2, toolName: "Read", argSummary: "x", argKey: "kA" },
+      { sessionId: "S-pp", batchOrder: 3, toolName: "Edit", argSummary: "y", argKey: "kB" },
+    ]);
+    store.close();
+
+    const out = runInjectContext(
+      { path: projectDir },
+      {
+        prompt: "ok next let me ask about the migration runner instead",
+        session_id: "S-pp",
+      },
+    );
+    const sys = envelope(out).systemMessage ?? "";
+    expect(sys).toMatch(/▣ TB LOOP\s+ping-pong/);
+  });
+
+  it("flags weak duplicates with the softer `▣ TB TOOL  repeated`", () => {
+    const cfg = initConfig(projectDir);
+    const db = new Database(cfg.storagePath);
+    const store = new BlockStore(db);
+    store.recordToolObservations([
+      { sessionId: "S-dup", batchOrder: 0, toolName: "Grep", argSummary: 'Grep("x")', argKey: "kA" },
+      { sessionId: "S-dup", batchOrder: 1, toolName: "Read", argSummary: "Read(b)", argKey: "kB" },
+      { sessionId: "S-dup", batchOrder: 2, toolName: "Read", argSummary: "Read(c)", argKey: "kC" },
+      { sessionId: "S-dup", batchOrder: 3, toolName: "Grep", argSummary: 'Grep("x")', argKey: "kA" },
+    ]);
+    store.close();
+
+    const out = runInjectContext(
+      { path: projectDir },
+      {
+        prompt: "ok so what's the plan for fixing the failing migration script?",
+        session_id: "S-dup",
+      },
+    );
+    const sys = envelope(out).systemMessage ?? "";
+    expect(sys).toMatch(/▣ TB TOOL\s+repeated 2× \(Grep\)/);
+  });
+
+  it("emits the TB LOOP fragment even on a no-match prompt", () => {
+    const cfg = initConfig(projectDir);
+    const db = new Database(cfg.storagePath);
+    const store = new BlockStore(db);
+    store.recordToolObservations([
+      { sessionId: "S-nm", batchOrder: 0, toolName: "Read", argSummary: "x", argKey: "kA" },
+      { sessionId: "S-nm", batchOrder: 1, toolName: "Read", argSummary: "x", argKey: "kA" },
+      { sessionId: "S-nm", batchOrder: 2, toolName: "Read", argSummary: "x", argKey: "kA" },
+    ]);
+    store.close();
+    // No blocks / facts — recall returns no-match, but the TB LOOP
+    // fragment still composes because detection is independent.
+    const out = runInjectContext(
+      { path: projectDir },
+      {
+        prompt: "completely unrelated topic that wont match any pattern in the empty store",
+        session_id: "S-nm",
+      },
+    );
+    const sys = envelope(out).systemMessage ?? "";
+    expect(sys).toMatch(/▣ TB TRACE\s+checked · no match/);
+    expect(sys).toMatch(/▣ TB LOOP\s+straight × 3/);
+  });
+
+  it("silent mode hard-suppresses the TB LOOP fragment", () => {
+    const cfg = initConfig(projectDir);
+    const db = new Database(cfg.storagePath);
+    const store = new BlockStore(db);
+    store.recordToolObservations([
+      { sessionId: "S-silent", batchOrder: 0, toolName: "Read", argSummary: "x", argKey: "kA" },
+      { sessionId: "S-silent", batchOrder: 1, toolName: "Read", argSummary: "x", argKey: "kA" },
+      { sessionId: "S-silent", batchOrder: 2, toolName: "Read", argSummary: "x", argKey: "kA" },
+    ]);
+    store.close();
+    const out = runInjectContext(
+      { path: projectDir, status: "silent" },
+      {
+        prompt: "again unrelated long enough prompt to pass the gate but silent mode",
+        session_id: "S-silent",
+      },
+    );
+    expect(envelope(out).systemMessage).toBeUndefined();
+  });
+});

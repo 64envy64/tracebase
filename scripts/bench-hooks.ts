@@ -39,6 +39,7 @@ const BUDGETS: Budget[] = [
   { hook: "inject-context", target_ms: 150, release_gate: true },
   { hook: "capture-turn", target_ms: 500, release_gate: true },
   { hook: "capture-context", target_ms: 2000, release_gate: true },
+  { hook: "capture-tool-use", target_ms: 200, release_gate: true },
 ];
 
 interface FixtureResult {
@@ -373,6 +374,118 @@ function fixtureCaptureContext(): FixtureResult {
   }
 }
 
+/**
+ * Fixture: PostToolBatch (capture-tool-use) on an 8-call batch
+ * matching the live PostToolBatch shape. Target: p95 < 200 ms per
+ * PLAN-0.5 §3. The hot path here is per-tool sanitisation +
+ * HMAC-SHA256 keying + a single 8-row INSERT transaction; no FTS
+ * mirror to update, no transcript file to read.
+ */
+function fixtureCaptureToolUse(): FixtureResult {
+  const projectDir = mkdtempSync(join(tmpdir(), "tb-bench-tool-"));
+  try {
+    mkdirSync(join(projectDir, ".tracebase"), { recursive: true });
+    writeFileSync(
+      join(projectDir, ".tracebase", "config.json"),
+      JSON.stringify({
+        workspaceId: "bench-workspace",
+        // Match the eager-mint pattern initConfig uses on a fresh
+        // 0.5.3 install. Without it, capture-tool-use lazy-mints —
+        // which is the same code path, just with one extra
+        // writeFileSync per first-run; bench measures the steady
+        // state.
+        workspaceSalt:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        storagePath: join(projectDir, ".tracebase", "memory.db"),
+      }),
+    );
+
+    const toolCalls = [
+      {
+        tool_name: "Read",
+        tool_input: { file_path: join(projectDir, "src/foo.ts") },
+        tool_use_id: "toolu_01",
+        tool_response: "x".repeat(2000),
+      },
+      {
+        tool_name: "Read",
+        tool_input: { file_path: join(projectDir, "src/bar.ts") },
+        tool_use_id: "toolu_02",
+        tool_response: "y".repeat(2000),
+      },
+      {
+        tool_name: "Grep",
+        tool_input: { pattern: "function.*export", path: "src" },
+        tool_use_id: "toolu_03",
+        tool_response: "src/foo.ts:1: export function x()",
+      },
+      {
+        tool_name: "Glob",
+        tool_input: { pattern: "**/*.test.ts" },
+        tool_use_id: "toolu_04",
+        tool_response: "tests/cli/init.test.ts",
+      },
+      {
+        tool_name: "Bash",
+        tool_input: { command: "npm run build" },
+        tool_use_id: "toolu_05",
+        tool_response: "ok",
+      },
+      {
+        tool_name: "Edit",
+        tool_input: { file_path: join(projectDir, "src/foo.ts"), old_string: "...", new_string: "..." },
+        tool_use_id: "toolu_06",
+        tool_response: "edited",
+      },
+      {
+        tool_name: "Write",
+        tool_input: { file_path: join(projectDir, "src/baz.ts"), content: "..." },
+        tool_use_id: "toolu_07",
+        tool_response: "wrote",
+      },
+      {
+        tool_name: "TodoWrite",
+        tool_input: { todos: [{ content: "x", status: "pending" }] },
+        tool_use_id: "toolu_08",
+        tool_response: "ok",
+      },
+    ];
+
+    const stdin = JSON.stringify({
+      hook_event_name: "PostToolBatch",
+      session_id: "bench-tool-session",
+      transcript_path: join(projectDir, "transcript.jsonl"),
+      cwd: projectDir,
+      permission_mode: "default",
+      tool_calls: toolCalls,
+    });
+
+    const durations = measure(
+      "capture-tool-use",
+      ["capture-tool-use", "--host", "claude-code", "--capture", "silent"],
+      stdin,
+      projectDir,
+      {},
+    );
+    const sorted = [...durations].sort((a, b) => a - b);
+    const budget = BUDGETS.find((b) => b.hook === "capture-tool-use")!;
+    const p95 = quantile(sorted, 0.95);
+    return {
+      hook: "capture-tool-use",
+      target_ms: budget.target_ms,
+      release_gate: budget.release_gate,
+      runs: durations.length,
+      p50_ms: round2(quantile(sorted, 0.5)),
+      p95_ms: round2(p95),
+      p99_ms: round2(quantile(sorted, 0.99)),
+      max_ms: round2(sorted[sorted.length - 1] ?? 0),
+      exceedsBudget: p95 > budget.target_ms,
+    };
+  } finally {
+    rmSync(projectDir, { recursive: true, force: true });
+  }
+}
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -392,6 +505,7 @@ function main(): void {
   results.push(fixtureInjectContext());
   results.push(fixtureCaptureTurn());
   results.push(fixtureCaptureContext());
+  results.push(fixtureCaptureToolUse());
 
   for (const r of results) {
     const status = r.exceedsBudget ? (r.release_gate ? "FAIL" : "warn") : "pass";

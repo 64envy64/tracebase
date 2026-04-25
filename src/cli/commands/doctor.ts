@@ -141,6 +141,26 @@ export function runDoctor(invocationPath: string): DoctorReport {
       message: `parseable, workspaceId ${cfg.workspaceId.slice(0, 8)}…`,
     });
   }
+
+  // 0.5.3 — workspaceSalt is the HMAC key for `tool_observations.arg_key`.
+  // Missing on legacy installs created before 0.5.3; the runtime
+  // lazy-mints on first read, so this is informational, never a FAIL.
+  if (!cfg.workspaceSalt) {
+    checks.push({
+      name: "workspace-salt",
+      level: "warn",
+      message: "config.json parseable but workspaceSalt is missing",
+      fix:
+        "Will be lazily generated on the first PostToolBatch hook fire. " +
+        "Re-run `npx tracebase init` to mint one eagerly.",
+    });
+  } else {
+    checks.push({
+      name: "workspace-salt",
+      level: "pass",
+      message: "present (local-only HMAC key for tool-observation buckets)",
+    });
+  }
   cfg = resolvedCfg;
 
   const configuredAgents = normalizeInstallAgents(cfg.install);

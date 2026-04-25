@@ -390,6 +390,8 @@ export const HOOKS_CAPTURE_COMMAND =
   "npx -y tracebase-ai@latest capture-turn --host claude-code --capture compact";
 export const HOOKS_PRECOMPACT_COMMAND =
   "npx -y tracebase-ai@latest capture-context --host claude-code --capture compact";
+export const HOOKS_POSTTOOLBATCH_COMMAND =
+  "npx -y tracebase-ai@latest capture-tool-use --host claude-code --capture compact";
 const CLAUDE_HOOKS_FILE_REL = ".claude/settings.json";
 
 /** Compact-mode static status for UserPromptSubmit (silent injection). */
@@ -398,6 +400,15 @@ const TRACEBASE_INJECT_STATIC_STATUS = "▣ TB TRACE  checking";
 const TRACEBASE_CAPTURE_STATIC_STATUS = "▣ TB TRACE  capturing";
 /** Compact-mode static status for PreCompact (session digest). */
 const TRACEBASE_PRECOMPACT_STATIC_STATUS = "▣ TB CONTEXT  capturing";
+/**
+ * Compact-mode static status for PostToolBatch (tool observation
+ * recording). Stays in the present-progressive ("observing") to
+ * stay clearly distinct from the *detection* badges that fire on
+ * the next UserPromptSubmit (`▣ TB TOOL  repeated 3×`,
+ * `▣ TB LOOP  straight × 4`). The PostToolBatch hook itself never
+ * emits the detection badges — it only writes rows.
+ */
+const TRACEBASE_POSTTOOLBATCH_STATIC_STATUS = "▣ TB TOOL  observing";
 
 /**
  * Canonical `UserPromptSubmit` entry. Runs before every user turn:
@@ -471,13 +482,40 @@ const TRACEBASE_PRECOMPACT_ENTRY = {
 };
 
 /**
+ * Canonical `PostToolBatch` entry. Runs after every batch of tool
+ * calls Claude Code completes. Sanitises each call down to an
+ * allowlisted projection, computes an HMAC arg_key keyed by the
+ * local workspace salt, and writes one row per call into
+ * `tool_observations`. Never reads `tool_response`; never stores
+ * raw `tool_input` content.
+ *
+ * `--dump-stdin` is intentionally ABSENT from the canonical
+ * command — production hooks never leave dump files in users'
+ * home dirs.
+ *
+ * `timeout: 5` seconds — PostToolBatch is a 200 ms p95 budget per
+ * PLAN-0.5 §3 with comfortable headroom for cold-start npx fetch
+ * on a fresh machine.
+ */
+const TRACEBASE_POSTTOOLBATCH_ENTRY = {
+  hooks: [
+    {
+      type: "command" as const,
+      command: HOOKS_POSTTOOLBATCH_COMMAND,
+      timeout: 5,
+      statusMessage: TRACEBASE_POSTTOOLBATCH_STATIC_STATUS,
+    },
+  ],
+};
+
+/**
  * Spec for one managed event. A single orchestrator (`writeClaudeHookConfig`,
  * `inspectClaudeHookConfig`, `removeClaudeHookConfig`) walks over the
  * full list, so adding a new event (SessionStart, PostCompact, …)
  * means dropping a new spec here — nothing else changes.
  */
 interface HookEventSpec {
-  eventName: "UserPromptSubmit" | "Stop" | "PreCompact";
+  eventName: "UserPromptSubmit" | "Stop" | "PreCompact" | "PostToolBatch";
   canonical: unknown;
   /**
    * Previous canonical shapes we auto-upgrade without `--force`. The
@@ -563,10 +601,24 @@ const PRECOMPACT_EVENT_SPEC: HookEventSpec = {
     innerCommandIncludes(entry, "tracebase-ai", "capture-context"),
 };
 
+const POSTTOOLBATCH_EVENT_SPEC: HookEventSpec = {
+  eventName: "PostToolBatch",
+  canonical: TRACEBASE_POSTTOOLBATCH_ENTRY,
+  // 0.5.3 ships PostToolBatch for the first time. Empty list per
+  // PLAN-0.5 §6 — every new spec ships its slot with `legacyDefaults:
+  // []` from day one so the *next* release's reshape lands as a
+  // silent upgrade via deepEqual without forcing every user through
+  // `--force`.
+  legacyDefaults: [],
+  isOurs: (entry: unknown) =>
+    innerCommandIncludes(entry, "tracebase-ai", "capture-tool-use"),
+};
+
 const CLAUDE_HOOK_SPECS: HookEventSpec[] = [
   INJECT_EVENT_SPEC,
   CAPTURE_EVENT_SPEC,
   PRECOMPACT_EVENT_SPEC,
+  POSTTOOLBATCH_EVENT_SPEC,
 ];
 
 function innerCommandIncludes(entry: unknown, ...needles: string[]): boolean {
@@ -596,7 +648,7 @@ export function writeAgentHookConfig(
 }
 
 /** Per-event state for a host's managed hook entries. */
-export type HookEventName = "UserPromptSubmit" | "Stop" | "PreCompact";
+export type HookEventName = "UserPromptSubmit" | "Stop" | "PreCompact" | "PostToolBatch";
 export type HookEventState = "missing" | "non-canonical" | "canonical";
 
 export interface HookInspection {
@@ -705,6 +757,7 @@ function inspectClaudeHookConfig(basePath: string): HookInspection {
     UserPromptSubmit: "missing",
     Stop: "missing",
     PreCompact: "missing",
+    PostToolBatch: "missing",
   };
   if (!existsSync(filePath)) {
     return { supported: true, present: false, canonical: false, events: emptyEvents };
