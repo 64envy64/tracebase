@@ -343,7 +343,13 @@ describe("runCaptureContext — default compact mode writes the digest", () => {
     );
     expect(out.captured).toBe(true);
     expect(out.factId).toBeTruthy();
-    expect(envelope(out).systemMessage).toMatch(/^▣ TB CONTEXT  digest saved · \d+t$/);
+    // 0.7.0-rc.6 hardening 2 — the substantive transcript now
+    // produces chunks too, so the composite badge appends
+    // `· folded N turns` after the digest token count. Both
+    // shapes are valid: digest-only (no chunks) and digest+chunks.
+    expect(envelope(out).systemMessage).toMatch(
+      /^▣ TB CONTEXT  digest saved · \d+t( · folded \d+ turns)?$/,
+    );
 
     // Round-trip the fact: scope, factType, TTL all set as designed.
     const cfg = loadConfig(projectDir);
@@ -380,6 +386,127 @@ describe("runCaptureContext — default compact mode writes the digest", () => {
     );
     expect(out.captured).toBe(false);
     expect(envelope(out).systemMessage).toBe("▣ TB CONTEXT  skipped · no content");
+  });
+
+  // 0.7.0-rc.6 hardening 2 — P2.3 regression. The PreCompact
+  // status badge must reflect what ACTUALLY landed in the txn,
+  // not always claim "digest saved · 0t" on a fall-through.
+  // Four states:
+  //   1. digest+chunks → "digest saved · Nt · folded N turns"
+  //   2. chunks-only   → "folded N turns"
+  //   3. digest-only   → "digest saved · Nt"
+  //   4. nothing       → "skipped · no content"
+  it("status: chunks-only outcome reports `folded N turns` (no fake digest claim)", () => {
+    initConfig(projectDir);
+    // Make legacy `extractDigest` return null while turns still
+    // parse + produce chunks. The extractor skips:
+    //   - user-line first-line outside [12, 200] chars
+    //   - assistant text with no `^#+\s` headers AND no `^[-*•]\s`
+    //     bullets
+    // Long-line single-token user content (300 chars on one line)
+    // exceeds 200 → userQuestions empty. Assistant text is
+    // continuous prose with no markdown headers or bullets →
+    // assistantHeaders / assistantBullets empty. extractDigest →
+    // returns null.
+    const lines: Array<Record<string, unknown>> = [];
+    const longUserLine = "ok ".repeat(120); // 360 chars, single line
+    const noStructureProse =
+      "Continuous assistant prose without any markdown structure, no headers no bullets, " +
+      "just paragraph content that goes on long enough to fold into chunks reliably ".repeat(4);
+    for (let i = 0; i < 16; i++) {
+      lines.push(
+        i % 2 === 0
+          ? {
+              type: "user",
+              message: { role: "user", content: longUserLine },
+            }
+          : {
+              type: "assistant",
+              message: {
+                role: "assistant",
+                content: [{ type: "text", text: noStructureProse }],
+              },
+            },
+      );
+    }
+    writeFileSync(transcriptPath, lines.map((l) => JSON.stringify(l)).join("\n"));
+
+    const out = runCaptureContext(
+      { path: projectDir },
+      Buffer.from(
+        JSON.stringify({
+          hook_event_name: "PreCompact",
+          transcript_path: transcriptPath,
+          session_id: "sess-folded-only",
+          cwd: projectDir,
+        }),
+      ),
+    );
+    // factId is null (digest path didn't write), but the badge
+    // MUST honestly report the chunk fold outcome.
+    expect(out.factId).toBeNull();
+    expect(envelope(out).systemMessage).toMatch(
+      /^▣ TB CONTEXT  folded \d+ turns$/,
+    );
+    // And session_chunks did land for this session.
+    const cfg = loadConfig(projectDir);
+    const db = new Database(cfg.storagePath, { readonly: true });
+    const store = new BlockStore(db, { skipMigrate: true });
+    try {
+      expect(store.countSessionChunks("sess-folded-only")).toBeGreaterThanOrEqual(1);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("status: digest+chunks outcome reports both 'digest saved · Nt · folded N turns'", () => {
+    initConfig(projectDir);
+    writeSubstantiveTranscript();
+    const out = runCaptureContext(
+      { path: projectDir },
+      Buffer.from(
+        JSON.stringify({
+          hook_event_name: "PreCompact",
+          transcript_path: transcriptPath,
+          session_id: "sess-both-paths",
+          cwd: projectDir,
+        }),
+      ),
+    );
+    expect(out.factId).toBeTruthy();
+    expect(envelope(out).systemMessage).toMatch(
+      /^▣ TB CONTEXT  digest saved · \d+t · folded \d+ turns$/,
+    );
+  });
+
+  it("status: re-running on identical transcript no-ops cleanly (no false 'folded' claim)", () => {
+    // Pre-hardening 2 risk: the second run could claim "folded N
+    // turns" even though INSERT OR IGNORE accepted 0 new rows.
+    // The hardening tracks `inserted` from recordSessionChunks
+    // honestly so the badge only mentions chunks the txn actually
+    // wrote.
+    initConfig(projectDir);
+    writeSubstantiveTranscript();
+    const env = (sid: string) => ({
+      hook_event_name: "PreCompact",
+      transcript_path: transcriptPath,
+      session_id: sid,
+      cwd: projectDir,
+    });
+    runCaptureContext(
+      { path: projectDir },
+      Buffer.from(JSON.stringify(env("sess-idem"))),
+    );
+    const second = runCaptureContext(
+      { path: projectDir },
+      Buffer.from(JSON.stringify(env("sess-idem"))),
+    );
+    // Second run inserts 0 new chunks (same turn_hash) AND
+    // storeFact dedupes the digest, so factId may be present
+    // or null depending on dedupe behaviour. Either way, the
+    // badge must NOT claim a fresh fold count.
+    const msg = envelope(second).systemMessage;
+    expect(msg).not.toMatch(/folded [1-9]\d* turns/);
   });
 
   // 0.7.0-rc.6 hardening — P2.1 regression. Chunk fold MUST run

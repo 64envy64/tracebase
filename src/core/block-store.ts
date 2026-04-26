@@ -2509,10 +2509,20 @@ export class BlockStore {
     tokensAfter: number;
   }> {
     if (limit <= 0) return [];
-    // Pull more than `limit` so the score-based ranking has
-    // headroom; cap at 32 to avoid pathological long-session
-    // walks.
-    const fetchCap = Math.min(32, Math.max(limit * 4, 8));
+    // 0.7.0-rc.6 hardening 2 — score ALL same-session chunks, not
+    // a recency-capped pre-fetch. Pre-hardening this query was
+    // `LIMIT 32`, which silently dropped older folded topics from
+    // ever resurfacing in a long session — leaving the recall
+    // partly recency-bound even though scoring ran.
+    //
+    // session_chunks rows are bounded per workspace by the
+    // 14-day TTL (`expires_at`) the PreCompact path stamps at
+    // write time, so a "no LIMIT" walk stays small enough to
+    // score in JS without I/O concerns. The hard ceiling below
+    // is a defense-in-depth — pathological 100k-row sessions
+    // still get capped, but the cap is set well above any
+    // realistic single-workspace fold count.
+    const HARD_CEILING = 4_096;
     const rows = this.db
       .prepare(
         `SELECT chunk_start_turn, chunk_end_turn, summary,
@@ -2522,7 +2532,7 @@ export class BlockStore {
           ORDER BY chunk_end_turn DESC, rowid DESC
           LIMIT ?`,
       )
-      .all(sessionId, fetchCap) as Array<{
+      .all(sessionId, HARD_CEILING) as Array<{
       chunk_start_turn: number;
       chunk_end_turn: number;
       summary: string;

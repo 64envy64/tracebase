@@ -579,6 +579,95 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
     });
   });
 
+  // 0.7.0-rc.6 hardening 2 — P1.3 regression. The pre-hardening
+  // pre-fetch capped at 32 chunks before scoring, so an oldest
+  // chunk (idx 0) in a long >32-chunk session was unrecoverable
+  // even when its summary was the best Jaccard match for the
+  // prompt. Post-hardening, scoring runs over all same-session
+  // rows.
+  it("prompt-aware recall surfaces the OLDEST chunk in a >32-chunk session when it matches", async () => {
+    const { foldTurns } = await import("../../src/core/context-fold.js");
+    withFreshStore((store, server, basePath) => {
+      const sessionId = "S-long";
+
+      // Plant 50 chunks. Chunk 0 carries the unique token "kerberos"
+      // (matches the prompt); chunks 1-49 carry non-overlapping
+      // filler vocabulary so they never score against the prompt.
+      const fillerTopics = [
+        "webhook",
+        "scheduler",
+        "indexer",
+        "metrics",
+        "billing",
+        "reports",
+        "payouts",
+        "dashboards",
+        "alerts",
+        "ledger",
+      ];
+      const buildTurns = (
+        prefix: string,
+        startTurn: number,
+      ): Array<{ role: "user" | "assistant"; content: string }> => {
+        const out: Array<{ role: "user" | "assistant"; content: string }> = [];
+        for (let i = 0; i < 8; i++) {
+          out.push({
+            role: (startTurn + i) % 2 === 0 ? "user" : "assistant",
+            content: `${prefix} content turn ${startTurn + i} padding `.repeat(5),
+          });
+        }
+        return out;
+      };
+
+      // Chunk 0 = kerberos.
+      let allTurns = buildTurns("kerberos auth helper", 0);
+      // Chunks 1..49 = rotating filler topics.
+      for (let i = 0; i < 49; i++) {
+        const topic = fillerTopics[i % fillerTopics.length]! + `-variant-${i}`;
+        allTurns = allTurns.concat(buildTurns(topic, (i + 1) * 8));
+      }
+
+      // Fold one chunk at a time so all 50 land with distinct
+      // chunk_end_turn values (and therefore distinct recency).
+      let watermark = -1;
+      for (let chunkIdx = 0; chunkIdx < 50; chunkIdx++) {
+        const startIdx = 0;
+        const endIdx = (chunkIdx + 1) * 8;
+        const folded = foldTurns({
+          sessionId,
+          turns: allTurns.slice(startIdx, endIdx),
+          existingWatermark: watermark,
+        });
+        store.recordSessionChunks(folded.chunks);
+        if (folded.chunks.length > 0) {
+          watermark = folded.chunks[folded.chunks.length - 1]!.chunkEndTurn;
+        }
+      }
+
+      expect(store.countSessionChunks(sessionId)).toBe(50);
+
+      const out = recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "How does the kerberos auth helper sign tokens",
+        basePath,
+        sessionId,
+      });
+
+      // Pre-hardening 2: pre-fetch capped at 32 newest, so chunk 0
+      // (oldest) was structurally unreachable and the recall
+      // surfaced filler chunks from positions 17-19 (newest 32).
+      // Post-hardening 2: chunk 0 is scored against the prompt
+      // along with everything else, wins the Jaccard match, and
+      // surfaces in the contextFoldRanges output.
+      const surfaced = out.payload.contextFoldRanges;
+      expect(surfaced.length).toBeGreaterThan(0);
+      const chunk0Surfaced = surfaced.some((r) => r.start === 0 && r.end === 7);
+      expect(
+        chunk0Surfaced,
+        `chunk 0 must surface from a 50-chunk session; got ranges ${JSON.stringify(surfaced)}`,
+      ).toBe(true);
+    });
+  });
+
   it("missing sessionId on options → no chunk recall, no <context_fold> in payload", async () => {
     const { foldTurns } = await import("../../src/core/context-fold.js");
     withFreshStore((store, server, basePath) => {

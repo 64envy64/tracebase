@@ -123,7 +123,19 @@ export interface CaptureContextOutcome {
  * pattern in the sibling commands.
  */
 type ContextSituation =
-  | { kind: "saved"; tokens: number }
+  // 0.7.0-rc.6 hardening 2 — track BOTH digest write outcome AND
+  // chunk fold outcome so the badge reflects what actually
+  // landed. Pre-hardening, `digest saved · 0t` was emitted
+  // whenever the function reached its happy path, even if
+  // digest=null and the chunk fold inserted nothing.
+  //
+  // States:
+  //   - digest+chunks: `▣ TB CONTEXT  digest saved · Nt · folded N turns`
+  //   - chunks-only:   `▣ TB CONTEXT  folded N turns`
+  //   - digest-only:   `▣ TB CONTEXT  digest saved · Nt`
+  //   - all-skipped:   `▣ TB CONTEXT  skipped · no content`
+  | { kind: "saved"; tokens: number; chunkTurns: number }
+  | { kind: "folded-only"; chunkTurns: number }
   | { kind: "skipped-no-content" }
   | { kind: "skipped-uninitialized" }
   | { kind: "unavailable" }
@@ -248,6 +260,9 @@ export function runCaptureContext(
 
     const sessionId = parsed.session_id ?? parsed.sessionId ?? "unknown";
     const config = loadConfig(basePath);
+    // 0.7.0-rc.6 hardening 2 — track BOTH outcomes inside the
+    // BlockStore txn so the badge can report what actually landed.
+    let chunkTurnsInserted = 0;
     const factId = withBlockStore(config.storagePath, (store) => {
       // ---- Chunk fold path (independent of digest) ----
       try {
@@ -259,7 +274,19 @@ export function runCaptureContext(
             existingWatermark: watermark,
           });
           if (folded.chunks.length > 0) {
-            store.recordSessionChunks(folded.chunks);
+            const inserted = store.recordSessionChunks(folded.chunks);
+            // Sum the inclusive turn counts ONLY over chunks the
+            // INSERT OR IGNORE actually accepted. Re-fold of
+            // identical content produces inserted=0 → badge does
+            // NOT claim "folded N turns" on a no-op call.
+            if (inserted > 0) {
+              const acceptedTail = folded.chunks.slice(
+                folded.chunks.length - inserted,
+              );
+              for (const c of acceptedTail) {
+                chunkTurnsInserted += c.chunkEndTurn - c.chunkStartTurn + 1;
+              }
+            }
           }
           for (const s of folded.skipped) {
             try {
@@ -302,12 +329,58 @@ export function runCaptureContext(
       }
     });
 
-    const approxTokens = digest ? Math.ceil(digest.length / 4) : 0;
+    // 0.7.0-rc.6 hardening 2 — pick the situation by what actually
+    // landed in the txn above. Pre-hardening this always emitted
+    // `digest saved · 0t` even when digest=null and zero chunks
+    // were inserted.
+    const digestSaved = factId !== null;
+    const chunksLanded = chunkTurnsInserted > 0;
+    if (digestSaved && chunksLanded) {
+      return wrapEnvelope(
+        factId,
+        false,
+        null,
+        formatStatus(
+          {
+            kind: "saved",
+            tokens: Math.ceil((digest ?? "").length / 4),
+            chunkTurns: chunkTurnsInserted,
+          },
+          mode,
+        ),
+      );
+    }
+    if (digestSaved) {
+      return wrapEnvelope(
+        factId,
+        false,
+        null,
+        formatStatus(
+          {
+            kind: "saved",
+            tokens: Math.ceil((digest ?? "").length / 4),
+            chunkTurns: 0,
+          },
+          mode,
+        ),
+      );
+    }
+    if (chunksLanded) {
+      return wrapEnvelope(
+        null,
+        false,
+        null,
+        formatStatus({ kind: "folded-only", chunkTurns: chunkTurnsInserted }, mode),
+      );
+    }
+    // Reached the BlockStore txn but neither path wrote anything —
+    // collapse to skipped-no-content so the operator sees the hook
+    // ran without a misleading "saved".
     return wrapEnvelope(
-      factId,
+      null,
       false,
       null,
-      formatStatus({ kind: "saved", tokens: approxTokens }, mode),
+      formatStatus({ kind: "skipped-no-content" }, mode),
     );
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
@@ -343,8 +416,16 @@ function formatStatus(s: ContextSituation, mode: CaptureContextMode): string | n
   switch (s.kind) {
     case "off":
       return null;
-    case "saved":
-      return `▣ TB CONTEXT  digest saved · ${s.tokens}t`;
+    case "saved": {
+      // 0.7.0-rc.6 hardening 2 — append the chunk-fold count
+      // whenever the rc.6 path also wrote rows. Chunk-only
+      // outcome lives on its own kind below.
+      const tail =
+        s.chunkTurns > 0 ? ` · folded ${s.chunkTurns} turns` : "";
+      return `▣ TB CONTEXT  digest saved · ${s.tokens}t${tail}`;
+    }
+    case "folded-only":
+      return `▣ TB CONTEXT  folded ${s.chunkTurns} turns`;
     case "skipped-no-content":
       return "▣ TB CONTEXT  skipped · no content";
     case "skipped-uninitialized":
