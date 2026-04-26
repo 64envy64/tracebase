@@ -392,6 +392,12 @@ export const HOOKS_PRECOMPACT_COMMAND =
   "npx -y tracebase-ai@latest capture-context --host claude-code --capture compact";
 export const HOOKS_POSTTOOLBATCH_COMMAND =
   "npx -y tracebase-ai@latest capture-tool-use --host claude-code --capture compact";
+// 0.7.0-rc.4 — PreToolUse fires per-call BEFORE the tool runs.
+// Reads ONLY the warm cache (.tracebase/cache/rtools.bin); never
+// opens SQLite on the hot path. Default mode is `warn` — strict
+// is config-only opt-in.
+export const HOOKS_PRETOOLUSE_COMMAND =
+  "npx -y tracebase-ai@latest capture-pre-tool-use --host claude-code --capture warn";
 const CLAUDE_HOOKS_FILE_REL = ".claude/settings.json";
 
 /** Compact-mode static status for UserPromptSubmit (silent injection). */
@@ -409,6 +415,7 @@ const TRACEBASE_PRECOMPACT_STATIC_STATUS = "▣ TB CONTEXT  capturing";
  * emits the detection badges — it only writes rows.
  */
 const TRACEBASE_POSTTOOLBATCH_STATIC_STATUS = "▣ TB TOOL  observing";
+const TRACEBASE_PRETOOLUSE_STATIC_STATUS = "▣ TB TOOL  guarding";
 
 /**
  * Canonical `UserPromptSubmit` entry. Runs before every user turn:
@@ -509,13 +516,38 @@ const TRACEBASE_POSTTOOLBATCH_ENTRY = {
 };
 
 /**
+ * Canonical `PreToolUse` entry (0.7.0-rc.4 — PLAN-0.7 §rc.4).
+ *
+ * Runs BEFORE every tool call. Reads ONLY the warm
+ * `.tracebase/cache/rtools.bin` — SQLite never opens on the hot
+ * path; the spec target is p95 ≤ 50 ms warm. Default `warn` mode
+ * emits a `▣ TB TOOL  duplicate Read · already in window (×N)`
+ * systemMessage on a duplicate hit; strict mode (config-only) adds
+ * `decision: "block"` for safe-read tools (Read / Glob / Grep).
+ *
+ * `timeout: 2` seconds — half the PostToolBatch budget because the
+ * hot path is bounded by the cache I/O alone, not a full SQLite
+ * write transaction.
+ */
+const TRACEBASE_PRETOOLUSE_ENTRY = {
+  hooks: [
+    {
+      type: "command" as const,
+      command: HOOKS_PRETOOLUSE_COMMAND,
+      timeout: 2,
+      statusMessage: TRACEBASE_PRETOOLUSE_STATIC_STATUS,
+    },
+  ],
+};
+
+/**
  * Spec for one managed event. A single orchestrator (`writeClaudeHookConfig`,
  * `inspectClaudeHookConfig`, `removeClaudeHookConfig`) walks over the
  * full list, so adding a new event (SessionStart, PostCompact, …)
  * means dropping a new spec here — nothing else changes.
  */
 interface HookEventSpec {
-  eventName: "UserPromptSubmit" | "Stop" | "PreCompact" | "PostToolBatch";
+  eventName: "UserPromptSubmit" | "Stop" | "PreCompact" | "PostToolBatch" | "PreToolUse";
   canonical: unknown;
   /**
    * Previous canonical shapes we auto-upgrade without `--force`. The
@@ -614,11 +646,24 @@ const POSTTOOLBATCH_EVENT_SPEC: HookEventSpec = {
     innerCommandIncludes(entry, "tracebase-ai", "capture-tool-use"),
 };
 
+const PRETOOLUSE_EVENT_SPEC: HookEventSpec = {
+  eventName: "PreToolUse",
+  canonical: TRACEBASE_PRETOOLUSE_ENTRY,
+  // 0.7.0-rc.4 ships PreToolUse for the first time. Empty list per
+  // PLAN-0.5 §6 / PLAN-0.7 §rc.4 — same `legacyDefaults: []` from
+  // day one discipline so the next release's reshape lands as a
+  // silent upgrade.
+  legacyDefaults: [],
+  isOurs: (entry: unknown) =>
+    innerCommandIncludes(entry, "tracebase-ai", "capture-pre-tool-use"),
+};
+
 const CLAUDE_HOOK_SPECS: HookEventSpec[] = [
   INJECT_EVENT_SPEC,
   CAPTURE_EVENT_SPEC,
   PRECOMPACT_EVENT_SPEC,
   POSTTOOLBATCH_EVENT_SPEC,
+  PRETOOLUSE_EVENT_SPEC,
 ];
 
 function innerCommandIncludes(entry: unknown, ...needles: string[]): boolean {
@@ -648,7 +693,12 @@ export function writeAgentHookConfig(
 }
 
 /** Per-event state for a host's managed hook entries. */
-export type HookEventName = "UserPromptSubmit" | "Stop" | "PreCompact" | "PostToolBatch";
+export type HookEventName =
+  | "UserPromptSubmit"
+  | "Stop"
+  | "PreCompact"
+  | "PostToolBatch"
+  | "PreToolUse";
 export type HookEventState = "missing" | "non-canonical" | "canonical";
 
 export interface HookInspection {
@@ -883,6 +933,7 @@ function inspectClaudeHookConfig(basePath: string): HookInspection {
     Stop: "missing",
     PreCompact: "missing",
     PostToolBatch: "missing",
+    PreToolUse: "missing",
   };
   if (!existsSync(filePath)) {
     return { supported: true, present: false, canonical: false, events: emptyEvents };

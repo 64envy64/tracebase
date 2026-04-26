@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "session-deadbeef-0008",
+  "cwd": "/work/repo",
+  "tool_name": "WebFetch",
+  "tool_input": {
+    "url": "https://docs.example.com/api/v1",
+    "prompt": "Extract the auth section"
+  }
+}

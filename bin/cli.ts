@@ -7,6 +7,7 @@ import { injectContextCommand } from "../src/cli/commands/inject-context.js";
 import { captureTurnCommand } from "../src/cli/commands/capture-turn.js";
 import { captureContextCommand } from "../src/cli/commands/capture-context.js";
 import { captureToolUseCommand } from "../src/cli/commands/capture-tool-use.js";
+import { capturePreToolUseCommand } from "../src/cli/commands/capture-pre-tool-use.js";
 import { removeCommand } from "../src/cli/commands/remove.js";
 import { recallCommand } from "../src/cli/commands/recall.js";
 import { searchCommand } from "../src/cli/commands/search.js";
@@ -71,6 +72,7 @@ program.addCommand(injectContextCommand);
 program.addCommand(captureTurnCommand);
 program.addCommand(captureContextCommand);
 program.addCommand(captureToolUseCommand);
+program.addCommand(capturePreToolUseCommand);
 program.addCommand(memoryCommand);
 program.addCommand(impactCommand);
 

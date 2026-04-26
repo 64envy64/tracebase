@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "session-deadbeef-0006",
+  "cwd": "/work/repo",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "/work/repo/src/new-feature.ts",
+    "content": "export const placeholder = 1;\n"
+  }
+}

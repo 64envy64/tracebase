@@ -1,0 +1,13 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "session-deadbeef-0007",
+  "cwd": "/work/repo",
+  "tool_name": "MultiEdit",
+  "tool_input": {
+    "file_path": "/work/repo/src/auth.ts",
+    "edits": [
+      { "old_string": "fooBar", "new_string": "foo_bar" },
+      { "old_string": "bazQux", "new_string": "baz_qux" }
+    ]
+  }
+}

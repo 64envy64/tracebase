@@ -137,6 +137,45 @@ describe("writeAgentHookConfig — Claude Code", () => {
     expect(writeAgentHookConfig(dir, "codex", false)).toBeNull();
   });
 
+  // 0.7.0-rc.4 — PreToolUse hook (PLAN-0.7 §rc.4).
+  it("installs a PreToolUse hook alongside the others pointing at capture-pre-tool-use", () => {
+    const res = writeAgentHookConfig(dir, "claude-code", false);
+    expect(res?.ok).toBe(true);
+
+    const settings = JSON.parse(
+      readFileSync(join(dir, ".claude", "settings.json"), "utf-8"),
+    ) as {
+      hooks?: {
+        UserPromptSubmit?: Array<{ hooks?: Array<{ command?: string }> }>;
+        Stop?: Array<{ hooks?: Array<{ command?: string }> }>;
+        PreCompact?: Array<{ hooks?: Array<{ command?: string }> }>;
+        PostToolBatch?: Array<{ hooks?: Array<{ command?: string }> }>;
+        PreToolUse?: Array<{
+          hooks?: Array<{ command?: string; statusMessage?: string; timeout?: number }>;
+        }>;
+      };
+    };
+    // All five managed events present.
+    expect(settings.hooks?.UserPromptSubmit?.length).toBe(1);
+    expect(settings.hooks?.Stop?.length).toBe(1);
+    expect(settings.hooks?.PreCompact?.length).toBe(1);
+    expect(settings.hooks?.PostToolBatch?.length).toBe(1);
+    expect(settings.hooks?.PreToolUse?.length).toBe(1);
+
+    const inner = settings.hooks?.PreToolUse?.[0]?.hooks?.[0];
+    expect(inner?.command).toContain("tracebase-ai");
+    expect(inner?.command).toContain("capture-pre-tool-use");
+    expect(inner?.command).toContain("--host claude-code");
+    expect(inner?.command).toContain("--capture warn");
+    // Production hook NEVER carries --dump-only — dev-only diagnostic.
+    expect(inner?.command).not.toContain("--dump-only");
+    expect(inner?.statusMessage).toBe("▣ TB TOOL  guarding");
+    // PreToolUse is the tightest budget — bench target ≤ 50 ms warm.
+    // Hook timeout (in seconds) is set tight at 2s; SQLite never
+    // opens on the hot path so we can afford the small ceiling.
+    expect(inner?.timeout).toBeLessThanOrEqual(3);
+  });
+
   it("re-running init is idempotent", () => {
     writeAgentHookConfig(dir, "claude-code", false);
     const second = writeAgentHookConfig(dir, "claude-code", false);

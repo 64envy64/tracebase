@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "session-deadbeef-0005",
+  "cwd": "/work/repo",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/work/repo/src/auth.ts",
+    "old_string": "export function authenticate()",
+    "new_string": "export async function authenticate()"
+  }
+}

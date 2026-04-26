@@ -1,0 +1,12 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "session-deadbeef-0009",
+  "cwd": "/work/repo",
+  "tool_name": "FuturisticMystery",
+  "tool_input": {
+    "weird_field": "value",
+    "nested": { "more": [1, 2, 3] }
+  },
+  "future_hook_field": "added in some 2027 Claude Code release",
+  "tool_use_id": "toolu_future_xyz"
+}

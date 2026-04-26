@@ -145,3 +145,179 @@ describe("privacy: no-tool-input-bodies — end-to-end audit", () => {
     expect(summary).not.toContain("~/.aws/credentials");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 0.7.0-rc.4 §rc.4 — PreToolUse hook privacy invariants.
+//
+// PreToolUse fires per-call BEFORE the tool runs. The hot path:
+//   parse stdin → sanitiseToolArgs → cache hydrate → detect →
+//   emit envelope. Real persistence stays at PostToolBatch.
+//
+// The privacy invariants the hook MUST honour:
+//   - raw `tool_input` (planted secret_arg, full command, full
+//     authorization header) NEVER lands in any analytics_events
+//     row written by the PreToolUse hook.
+//   - the warm cache file `.tracebase/cache/rtools.bin` carries
+//     only argKey HMAC + toolName + sessionId + ts — never raw
+//     paths or commands.
+//   - tool_warn_dedupe carries argKey only.
+// ---------------------------------------------------------------------------
+
+describe("privacy: no-tool-input-bodies — PreToolUse hot path (0.7.0-rc.4)", () => {
+  it("PreToolUse never persists raw tool_input bodies into analytics_events", async () => {
+    // Use a real workspace with TraceBase initialized so the
+    // PreToolUse hook can find a salt + storage path.
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), "tb-prehook-priv-"));
+    try {
+      const { initConfig, getOrMintWorkspaceSalt, loadConfig } = await import(
+        "../../src/core/config.js"
+      );
+      initConfig(work);
+
+      // Pre-warm the schema by creating a v2 store so analytics_events
+      // exists when we walk it.
+      const Database = (await import("better-sqlite3")).default;
+      const cfgPre = loadConfig(work);
+      {
+        const db = new Database(cfgPre.storagePath);
+        const s = new BlockStore(db);
+        try {
+          // No-op — just ensures schema is initialised.
+          s.appendEvent({
+            ts: 1,
+            queryId: "warmup",
+            event: "store.injection_rejected",
+            surface: "block",
+            patternName: "role-override",
+          });
+          // Drop the warmup row so we can grep cleanly afterwards.
+          s.rawDb.prepare("DELETE FROM analytics_events").run();
+        } finally {
+          s.close();
+        }
+      }
+      // Force the salt to mint.
+      void getOrMintWorkspaceSalt(work);
+
+      const { runCapturePreToolUse } = await import(
+        "../../src/cli/commands/capture-pre-tool-use.js"
+      );
+
+      const planted = JSON.stringify({
+        hook_event_name: "PreToolUse",
+        session_id: "sess-priv",
+        cwd: "/work/repo",
+        tool_name: "Bash",
+        tool_input: {
+          command: `curl -H 'X-Secret: ${PLANTED_INPUT_SECRET}' https://api.example/dump`,
+          description: "fetch with planted secret",
+        },
+      });
+      runCapturePreToolUse({ path: work }, Buffer.from(planted));
+
+      // Walk every analytics row.
+      const cfg = loadConfig(work);
+      const db = new Database(cfg.storagePath);
+      try {
+        const rows = db
+          .prepare("SELECT payload FROM analytics_events")
+          .all() as Array<{ payload: string }>;
+        for (const r of rows) {
+          expect(r.payload).not.toContain(PLANTED_INPUT_SECRET);
+          expect(r.payload).not.toContain("X-Secret");
+          expect(r.payload).not.toContain("https://api.example/dump");
+        }
+      } finally {
+        db.close();
+      }
+    } finally {
+      fs.rmSync(work, { recursive: true, force: true });
+    }
+  });
+
+  it("PreToolUse warm cache (.tracebase/cache/rtools.bin) carries argKey HMAC only — never raw paths", async () => {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), "tb-prehook-cache-priv-"));
+    try {
+      const { initConfig } = await import("../../src/core/config.js");
+      initConfig(work);
+      const { RecentToolCache, cacheFilePath } = await import(
+        "../../src/runtime/recent-tool-cache.js"
+      );
+      const c = new RecentToolCache();
+      // Plant an argKey that's an HMAC-shaped string. The cache MUST
+      // accept this as-is and not invent a way to surface raw paths.
+      c.append({
+        sessionId: "sess-priv",
+        argKey: "hmac:abcdef0123456789",
+        toolName: "Read",
+        ts: Date.now(),
+      });
+      c.flush(work);
+      const raw = fs.readFileSync(cacheFilePath(work), "utf-8");
+      // Cache file format is locked: short keys s/k/n/t. None of
+      // them carry tool_input fields like file_path / command /
+      // url / authorization.
+      expect(raw).not.toContain("file_path");
+      expect(raw).not.toContain("command");
+      expect(raw).not.toContain("authorization");
+      expect(raw).not.toContain("url");
+      // Sanity: the canonical short keys are present.
+      expect(raw).toContain('"k"');
+      expect(raw).toContain('"n"');
+    } finally {
+      fs.rmSync(work, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 0.7.0-rc.4 §rc.4 — PreToolUse warm-path bench shape
+//
+// The spec target is p95 ≤ 50ms warm. This test isn't a real bench
+// (vitest startup costs dominate), but it asserts the right
+// ORDER-OF-MAGNITUDE: even on cache miss + duplicate detection,
+// the runCapturePreToolUse helper completes 100 dispatches in
+// well under 5 seconds (50ms × 100 = 5s ceiling).
+// ---------------------------------------------------------------------------
+
+describe("PreToolUse warm-path budget (0.7.0-rc.4 §rc.4)", () => {
+  it("100 synthetic dispatches stay under the 50ms × 100 = 5s ceiling", async () => {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), "tb-prehook-bench-"));
+    try {
+      const { initConfig } = await import("../../src/core/config.js");
+      initConfig(work);
+      const { runCapturePreToolUse } = await import(
+        "../../src/cli/commands/capture-pre-tool-use.js"
+      );
+      const planted = Buffer.from(
+        JSON.stringify({
+          hook_event_name: "PreToolUse",
+          session_id: "sess-bench",
+          cwd: "/work/repo",
+          tool_name: "Read",
+          tool_input: { file_path: "/work/repo/src/auth.ts" },
+        }),
+      );
+      const start = Date.now();
+      for (let i = 0; i < 100; i++) {
+        runCapturePreToolUse({ path: work }, planted);
+      }
+      const elapsed = Date.now() - start;
+      // Generous ceiling — this is order-of-magnitude, not a real
+      // bench. The bench gate in §0.7.0-stable will pin the p95
+      // under 50ms specifically.
+      expect(elapsed).toBeLessThan(5000);
+    } finally {
+      fs.rmSync(work, { recursive: true, force: true });
+    }
+  });
+});

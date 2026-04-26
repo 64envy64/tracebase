@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "session-deadbeef-0003",
+  "cwd": "/work/repo",
+  "tool_name": "Glob",
+  "tool_input": {
+    "pattern": "src/**/*.test.ts"
+  }
+}

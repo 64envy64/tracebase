@@ -32,6 +32,7 @@ import {
   HOOKS_CAPTURE_COMMAND,
   HOOKS_PRECOMPACT_COMMAND,
   HOOKS_POSTTOOLBATCH_COMMAND,
+  HOOKS_PRETOOLUSE_COMMAND,
   selfHealClaudeHookConfig,
 } from "../../src/cli/install-targets.js";
 
@@ -98,13 +99,16 @@ describe("ensureManagedHooksCurrent — stale 0.5.2 config", () => {
     });
     expect(result.attempted).toBe(true);
     expect(result.selfHeal?.fileWritten).toBe(true);
-    expect(result.selfHeal?.updated).toEqual(["PostToolBatch"]);
+    // 0.7.0-rc.4 — PreToolUse is also added on first heal because
+    // the rc.2/rc.3 stale-config doesn't carry it yet.
+    expect(result.selfHeal?.updated).toEqual(["PostToolBatch", "PreToolUse"]);
     expect(result.selfHeal?.skippedCustom).toEqual([]);
 
     const settings = readSettings();
     const hooks = settings.hooks as Record<string, unknown[]>;
     expect(hooks.UserPromptSubmit).toHaveLength(1);
     expect(hooks.PostToolBatch).toHaveLength(1);
+    expect(hooks.PreToolUse).toHaveLength(1);
     const postEntry = (hooks.PostToolBatch as Array<{ hooks: Array<{ command: string }> }>)[0];
     expect(postEntry.hooks[0].command).toBe(HOOKS_POSTTOOLBATCH_COMMAND);
   });
@@ -117,6 +121,7 @@ describe("ensureManagedHooksCurrent — stale 0.5.2 config", () => {
 
 describe("ensureManagedHooksCurrent — fully canonical", () => {
   it("does not rewrite the file when every event is current", () => {
+    // 0.7.0-rc.4 — fully canonical includes PreToolUse now.
     writeSettings({
       UserPromptSubmit: [
         canonicalEntryFor(HOOKS_INJECT_COMMAND, "▣ TB TRACE  checking", 5),
@@ -129,6 +134,9 @@ describe("ensureManagedHooksCurrent — fully canonical", () => {
       ],
       PostToolBatch: [
         canonicalEntryFor(HOOKS_POSTTOOLBATCH_COMMAND, "▣ TB TOOL  observing", 5),
+      ],
+      PreToolUse: [
+        canonicalEntryFor(HOOKS_PRETOOLUSE_COMMAND, "▣ TB TOOL  guarding", 2),
       ],
     });
     const before = readFileSync(join(projectDir, ".claude", "settings.json"), "utf-8");
@@ -167,12 +175,14 @@ describe("ensureManagedHooksCurrent — legacy default upgrade", () => {
       packageVersion: "0.5.6",
     });
     expect(result.selfHeal?.fileWritten).toBe(true);
-    // UserPromptSubmit upgraded + Stop / PreCompact / PostToolBatch added.
+    // UserPromptSubmit upgraded + Stop / PreCompact / PostToolBatch /
+    // PreToolUse added (rc.4 ships PreToolUse).
     expect(result.selfHeal?.updated).toEqual([
       "UserPromptSubmit",
       "Stop",
       "PreCompact",
       "PostToolBatch",
+      "PreToolUse",
     ]);
     const hooks = readSettings().hooks as Record<string, Array<{ hooks: Array<{ command: string; statusMessage?: string }> }>>;
     const upd = hooks.UserPromptSubmit[0]!.hooks[0]!;
@@ -209,6 +219,7 @@ describe("ensureManagedHooksCurrent — customised entry preserved", () => {
     expect(result.selfHeal?.updated).toContain("Stop");
     expect(result.selfHeal?.updated).toContain("PreCompact");
     expect(result.selfHeal?.updated).toContain("PostToolBatch");
+    expect(result.selfHeal?.updated).toContain("PreToolUse");
     expect(result.selfHeal?.updated).not.toContain("UserPromptSubmit");
     // The user's customised entry is byte-identical after the heal.
     const hooks = readSettings().hooks as Record<string, Array<{ hooks: Array<{ timeout: number }> }>>;
@@ -410,6 +421,7 @@ describe("selfHealClaudeHookConfig — direct call", () => {
       "Stop",
       "PreCompact",
       "PostToolBatch",
+      "PreToolUse",
     ]);
     expect(result.fileWritten).toBe(false);
     expect(result.updated).toEqual([]);
