@@ -95,6 +95,19 @@ export interface InjectionPayload {
   bytesAvoided: number;
   /** Rough token estimate (chars / 4, ceiled). 0 when text is empty. */
   tokensEstimate: number;
+  /**
+   * 0.7.0-rc.3 hardening — token cost of the `<file_memory>`
+   * section ONLY (tags + lines), separate from the full payload's
+   * `tokensEstimate`. The recall path uses this — not the payload
+   * total — when emitting `file_memory.recalled.tokensInjected`,
+   * so the per-mechanism metric isn't inflated by the cost of
+   * blocks / facts / `<prior_fix>` segments. Equals 0 when no
+   * file lines made it past the budget.
+   *
+   * Required for rc.7 `file_memory_avoided = size_bytes/4 -
+   * tokensInjected` to compute against the correct denominator.
+   */
+  fileMemoryTokensEstimate: number;
 }
 
 const DEFAULT_TOKEN_BUDGET = 1200;
@@ -137,14 +150,35 @@ export function buildInjectionPayload(
     fileIds: [],
     bytesAvoided: 0,
     tokensEstimate: 0,
+    fileMemoryTokensEstimate: 0,
   };
 
-  if (!result.shouldInject) return empty;
+  // 0.7.0-rc.3 hardening — file memory MUST inject independently
+  // of block/fact recall. `shouldInject` is computed from blocks +
+  // facts only, so a recall where indexed files match but no
+  // procedural pattern hits would never render the
+  // `<file_memory>` section pre-hardening.
+  //
+  // Honest gate now:
+  //   - `result.shadow` is the holdout / diagnostic-shadow flag —
+  //     in that arm we MUST stay silent across all sections, file
+  //     memory included, otherwise we leak treatment-side context
+  //     into the control cohort.
+  //   - When not shadow, files render even if shouldInject is
+  //     false; blocks and facts still respect their own gate.
+  if (result.shadow) return empty;
 
   // Gate contract: items below the gate live in `result` for
-  // inspection but never reach the prompt.
-  const gatedBlocks = result.blocks.filter((h) => h.passesGate).slice(0, maxBlocks);
-  const gatedFacts = result.facts.filter((h) => h.passesGate).slice(0, maxFacts);
+  // inspection but never reach the prompt. Block + fact slots
+  // continue to honor `shouldInject` so a clean-but-low-confidence
+  // hit doesn't leak into the prompt.
+  const blockFactGateOpen = result.shouldInject;
+  const gatedBlocks = blockFactGateOpen
+    ? result.blocks.filter((h) => h.passesGate).slice(0, maxBlocks)
+    : [];
+  const gatedFacts = blockFactGateOpen
+    ? result.facts.filter((h) => h.passesGate).slice(0, maxFacts)
+    : [];
   // 0.7.0-rc.3 §rc.3 — file memory hits feed in directly from the
   // caller's recallFiles(). They have no per-item gate (the file
   // indexer's leakage / injection scans gate at write-time), so
@@ -258,6 +292,20 @@ export function buildInjectionPayload(
   parts.push(close);
 
   const text = parts.join("\n");
+  // 0.7.0-rc.3 hardening — per-section token accounting. The
+  // file-memory section's cost is the wrap tags + each kept file
+  // line's chars (with newlines), NOT the full payload total.
+  // Used by recallForPrompt to populate
+  // `file_memory.recalled.tokensInjected` honestly.
+  const fileMemoryChars =
+    keptFiles.length === 0
+      ? 0
+      : fileTagOpen.length +
+        1 +
+        keptFiles.reduce((acc, k) => acc + k.line.length + 1, 0) +
+        fileTagClose.length;
+  const fileMemoryTokensEstimate =
+    fileMemoryChars > 0 ? Math.ceil(fileMemoryChars / CHARS_PER_TOKEN) : 0;
   return {
     text,
     hasContent: true,
@@ -267,6 +315,7 @@ export function buildInjectionPayload(
     fileIds: keptFiles.map((k) => k.hit.relPath),
     bytesAvoided: keptFiles.reduce((acc, k) => acc + (k.hit.sizeBytes ?? 0), 0),
     tokensEstimate: Math.ceil(text.length / CHARS_PER_TOKEN),
+    fileMemoryTokensEstimate,
   };
 }
 

@@ -172,7 +172,14 @@ export function recallForPrompt(
         queryId: payload.queryId,
         event: "file_memory.recalled",
         fileIds: [...payload.fileIds],
-        tokensInjected: payload.tokensEstimate,
+        // 0.7.0-rc.3 hardening — per-section cost only. Pre-
+        // hardening this was `payload.tokensEstimate`, the full
+        // payload total (blocks + facts + prior_fix + file_memory),
+        // which over-counted the file mechanism's cost. The rc.7
+        // `file_memory_avoided = size_bytes/4 - tokensInjected`
+        // metric depends on this being the file section's cost
+        // alone.
+        tokensInjected: payload.fileMemoryTokensEstimate,
         bytesAvoided: payload.bytesAvoided,
       });
     } catch {

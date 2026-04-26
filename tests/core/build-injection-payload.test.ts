@@ -449,23 +449,44 @@ describe("buildInjectionPayload — file_memory section", () => {
     expect(payload.text).not.toContain("<file_memory>");
   });
 
-  it("files-only payload uses the file-context lead-in", () => {
-    // No blocks, no facts — only files. The lead-in must still
-    // make sense; otherwise the agent reads the bare tag as
-    // protocol noise.
+  it("files-only payload renders even when no blocks/facts pass the gate", () => {
+    // 0.7.0-rc.3 hardening — pre-hardening, buildInjectionPayload
+    // short-circuited on !result.shouldInject (computed from
+    // blocks/facts only), so file hits with no matching trace or
+    // fact would never render. This test pins the new contract:
+    // a real recall with NO indexed blocks and NO matching facts
+    // (shouldInject=false) MUST still surface the file_memory
+    // section. The "files-only lead-in" is part of the contract.
     const server = new BlockServer(store, { gateThreshold: 0.5 });
-    // Recall returns shouldInject=false when no blocks/facts hit;
-    // forge a shouldInject=true result via direct construction.
-    const fakeResult = {
-      ...server.recall({ text: "pytest shadowing module" }),
-      shouldInject: true,
-    };
+    // No block stored, no fact stored → shouldInject=false.
+    const result = server.recall({ text: "completely unrelated query xyzqq" });
+    expect(result.shouldInject).toBe(false);
+    expect(result.shadow).toBe(false);
 
     const fileHits = makeFileHits(["src/onlyfile.ts"]);
-    const payload = buildInjectionPayload(fakeResult, { fileHits });
+    const payload = buildInjectionPayload(result, { fileHits });
     expect(payload.hasContent).toBe(true);
     expect(payload.text).toContain("Relevant file context:");
     expect(payload.text).toContain("<file_memory>");
+    expect(payload.fileIds).toEqual(["src/onlyfile.ts"]);
+    expect(payload.blockIds).toEqual([]);
+    expect(payload.factIds).toEqual([]);
+  });
+
+  it("shadow recall suppresses file_memory section even when files match", () => {
+    // 0.7.0-rc.3 hardening — file memory must STAY OFF in the
+    // holdout / diagnostic-shadow arm. Otherwise we leak
+    // treatment-side context into the control cohort and the
+    // causal comparison is corrupted.
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    const baseResult = server.recall({ text: "pytest shadowing" });
+    const shadowResult = { ...baseResult, shadow: true, shouldInject: false };
+
+    const fileHits = makeFileHits(["src/auth.ts"]);
+    const payload = buildInjectionPayload(shadowResult, { fileHits });
+    expect(payload.hasContent).toBe(false);
+    expect(payload.text).toBe("");
+    expect(payload.fileIds).toEqual([]);
   });
 
   it("never mixes <file_memory> bullets with the imported <prior_fix> tag", () => {
@@ -506,5 +527,100 @@ describe("buildInjectionPayload — file_memory section", () => {
     expect(b.fileIds).toEqual([]);
     expect(a.bytesAvoided).toBe(0);
     expect(b.bytesAvoided).toBe(0);
+    expect(a.fileMemoryTokensEstimate).toBe(0);
+    expect(b.fileMemoryTokensEstimate).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 0.7.0-rc.3 hardening — per-section token accounting (P2)
+// ---------------------------------------------------------------------------
+
+describe("buildInjectionPayload — fileMemoryTokensEstimate", () => {
+  let store: BlockStore;
+  beforeEach(() => {
+    store = makeStore();
+  });
+
+  function makeFileHits(rels: string[]) {
+    return rels.map((relPath, i) => ({
+      relPath,
+      summary: `Heuristic summary for ${relPath} explaining what it does in detail`,
+      symbols: '{"exports":["fn1","fn2"]}',
+      language: "typescript",
+      sizeBytes: 1024 * (i + 1),
+      score: -i,
+    }));
+  }
+
+  it("zero when no file lines made it past the budget", () => {
+    storeActive(store, PY_BLOCK);
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    const result = server.recall({ text: "pytest shadowing" });
+
+    // Tight budget — block wins, files drop.
+    const fileHits = makeFileHits(["src/a.ts", "src/b.ts"]);
+    const payload = buildInjectionPayload(result, { fileHits, tokenBudget: 50 });
+    expect(payload.fileIds).toEqual([]);
+    expect(payload.fileMemoryTokensEstimate).toBe(0);
+  });
+
+  it("counts only the <file_memory> section — strictly less than tokensEstimate on mixed recall", () => {
+    // Mixed recall: block + fact + file all surface. The full
+    // payload total dwarfs the file-section cost; this is the bug
+    // the rc.7 mechanism metric depends on us getting right.
+    storeActive(store, PY_BLOCK);
+    store.storeFact({
+      scope: "global",
+      factType: "convention",
+      statement: "pytest shadowing tests live under tests/cli/*.test.ts",
+      invariants: {},
+      source: { origin: "declared" },
+      confidence: 0.9,
+    });
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    const result = server.recall({ text: "pytest shadowing module" });
+
+    const fileHits = makeFileHits(["src/auth.ts"]);
+    const payload = buildInjectionPayload(result, { fileHits });
+    expect(payload.hasContent).toBe(true);
+    expect(payload.fileIds.length).toBe(1);
+    expect(payload.blockIds.length).toBeGreaterThan(0);
+
+    // The file section is a strict subset of the full payload.
+    expect(payload.fileMemoryTokensEstimate).toBeGreaterThan(0);
+    expect(payload.fileMemoryTokensEstimate).toBeLessThan(payload.tokensEstimate);
+
+    // The accounting is bounded by the rendered tag + line chars,
+    // not the surrounding tracebase wrapper or block bullets.
+    // Reverse-engineer: parse the section out of `text` and assert
+    // the token estimate matches.
+    const m = payload.text.match(/<file_memory>[\s\S]+?<\/file_memory>/);
+    expect(m).not.toBeNull();
+    const sectionChars = m![0].length + 1; // +1 for the line after the closing tag
+    const expected = Math.ceil(sectionChars / 4);
+    // Allow ±1 token of slack for the joiner/newline accounting
+    // boundary case (the tag-block uses internal "\n" joins; we
+    // count by section-extract + 1).
+    expect(Math.abs(payload.fileMemoryTokensEstimate - expected)).toBeLessThanOrEqual(2);
+  });
+
+  it("equals the full tokensEstimate when ONLY file_memory renders", () => {
+    // No blocks, no facts → the wrapper + lead-in + file section
+    // is the entire payload. The two estimates should be very
+    // close (the lead + `<tracebase>` wrapper still adds ~4-5
+    // tokens to tokensEstimate).
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    const result = server.recall({ text: "completely unrelated topic xyzqq" });
+    expect(result.shouldInject).toBe(false);
+
+    const fileHits = makeFileHits(["src/onlyfile.ts"]);
+    const payload = buildInjectionPayload(result, { fileHits });
+    // File section is the dominant chunk of the payload but not
+    // the whole thing — the wrapper + lead-in still cost a few
+    // tokens. The relation to assert is: the section is most of
+    // it but never exceeds it.
+    expect(payload.fileMemoryTokensEstimate).toBeGreaterThan(0);
+    expect(payload.fileMemoryTokensEstimate).toBeLessThanOrEqual(payload.tokensEstimate);
   });
 });

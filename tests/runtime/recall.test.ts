@@ -288,6 +288,124 @@ describe("recallForPrompt — file memory integration", () => {
       expect(events.length).toBe(0);
     });
   });
+
+  // 0.7.0-rc.3 hardening — P1 regression. File memory must inject
+  // even when no block/fact recall hits, as long as the recall
+  // isn't in the holdout/shadow arm.
+  it("renders file_memory section when ONLY indexed files match (no blocks, no facts)", () => {
+    withFreshStore((store, server, basePath) => {
+      // No block seeded — shouldInject will be false.
+      mkdirSync(join(basePath, "src"), { recursive: true });
+      writeFileSync(
+        join(basePath, "src", "auth.ts"),
+        "/** Authentication middleware for the gateway */\nexport function authenticate() {}\n",
+      );
+      indexWorkspace(store, { root: basePath });
+
+      const result = recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "How does our authentication middleware sign requests at the gateway?",
+        basePath,
+        sessionId: null,
+      });
+
+      // No block recall hit → blockIds empty, factIds empty, but
+      // fileIds populated and the section renders.
+      expect(result.payload.blockIds).toEqual([]);
+      expect(result.payload.factIds).toEqual([]);
+      expect(result.payload.fileIds).toContain("src/auth.ts");
+      expect(result.payload.hasContent).toBe(true);
+      expect(result.payload.text).toContain("<file_memory>");
+      expect(result.payload.text).toContain("Relevant file context:");
+
+      // file_memory.recalled DOES fire even though shouldInject
+      // was false at the block/fact layer.
+      const events = store.readEvents({ eventType: "file_memory.recalled" });
+      expect(events.length).toBe(1);
+      if (events[0]!.event !== "file_memory.recalled") return;
+      expect(events[0]!.fileIds).toContain("src/auth.ts");
+      // file-only payload — the per-section token cost equals or
+      // is just below the full payload total.
+      expect(events[0]!.tokensInjected).toBeGreaterThan(0);
+    });
+  });
+
+  // 0.7.0-rc.3 hardening — P2 regression. tokensInjected on the
+  // file_memory.recalled event MUST be the section-only cost,
+  // not the full payload total. Verify with a mixed recall where
+  // both a block AND a file land.
+  it("file_memory.recalled.tokensInjected counts only the file section, not blocks", () => {
+    withFreshStore((store, server, basePath) => {
+      seedBlock(store, PYTEST_BLOCK);
+
+      mkdirSync(join(basePath, "src"), { recursive: true });
+      writeFileSync(
+        join(basePath, "src", "shadowing.ts"),
+        "/** sys.path shadow detection */\nexport function fn() {}\n",
+      );
+      indexWorkspace(store, { root: basePath });
+
+      const result = recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "Pytest collects the wrong package — sys.path shadow on a fresh clone",
+        basePath,
+        sessionId: null,
+      });
+
+      // Mixed recall: block + file both surface.
+      expect(result.payload.blockIds.length).toBeGreaterThan(0);
+      expect(result.payload.fileIds.length).toBeGreaterThan(0);
+
+      const events = store.readEvents({ eventType: "file_memory.recalled" });
+      expect(events.length).toBe(1);
+      if (events[0]!.event !== "file_memory.recalled") return;
+      // Section cost MUST be strictly less than the full payload
+      // tokens — pre-hardening this was equal because we wrote
+      // payload.tokensEstimate to the event.
+      expect(events[0]!.tokensInjected).toBeGreaterThan(0);
+      expect(events[0]!.tokensInjected).toBeLessThan(result.payload.tokensEstimate);
+    });
+  });
+
+  // 0.7.0-rc.3 hardening — shadow recalls suppress file_memory
+  // even when files match. Holdout cohort must stay clean.
+  //
+  // Note: BlockServer's holdout assignment requires
+  // `wouldInjectAbsentShadow` — i.e. at least one block/fact
+  // would have passed the gate. We seed a matching block to
+  // drive that condition, then 100% holdout-rate forces every
+  // fingerprint into the control arm.
+  it("holdout/shadow recall suppresses file_memory section + emits no event", () => {
+    withFreshStore((store, server, basePath) => {
+      seedBlock(store, PYTEST_BLOCK);
+
+      mkdirSync(join(basePath, "src"), { recursive: true });
+      writeFileSync(
+        join(basePath, "src", "shadowing.ts"),
+        "/** sys.path shadow detection */\nexport function fn() {}\n",
+      );
+      indexWorkspace(store, { root: basePath });
+
+      const FORCED_SHADOW: HoldoutLoader = () => ({
+        enabled: true,
+        rate: 1, // 100% — every fingerprint lands in the cohort
+        salt: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      });
+
+      const result = recallForPrompt(server, store, FORCED_SHADOW, {
+        prompt: "Pytest collects the wrong package — sys.path shadow on a fresh clone",
+        basePath,
+        sessionId: null,
+      });
+
+      expect(result.raw.shadow).toBe(true);
+      expect(result.payload.fileIds).toEqual([]);
+      expect(result.payload.text).toBe("");
+      expect(result.payload.hasContent).toBe(false);
+      const events = store.readEvents({ eventType: "file_memory.recalled" });
+      expect(events.length).toBe(0);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
