@@ -161,12 +161,23 @@ export function recallForPrompt(
   let recentObservations: Awaited<
     ReturnType<typeof store.recentToolObservations>
   > = [];
+  // 0.7.0-rc.5 hardening — keep both shapes around. When the
+  // SECOND (intent_key-keyed) detector pass produces the signal,
+  // the resolver MUST dedupe on intent_key, not raw argKey —
+  // otherwise cross-alias rotations (`grep` → `rg` → `ag` → ...)
+  // present the same anchor over and over because each rotation
+  // brings a fresh raw argKey that bypasses loop_redirect_dedupe.
+  // We track which observation list to hand to the resolver via
+  // `observationsForResolver`.
+  let observationsForResolver: typeof recentObservations = [];
   if (opts.sessionId && opts.enableToolDetection !== false) {
     try {
       recentObservations = store.recentToolObservations(
         opts.sessionId,
         opts.toolWindowSize ?? 6,
       );
+      observationsForResolver = recentObservations;
+
       // First pass: argKey-keyed detector (rc.4 substrate).
       // Catches duplicate / straight / pingpong on the literal
       // sanitised arg shape.
@@ -183,7 +194,12 @@ export function recallForPrompt(
           argKey: normalizeIntentKey(o.argSummary, o.toolName),
         }));
         const semanticSignal = detectToolPattern(semantic);
-        if (semanticSignal.kind !== "none") signal = semanticSignal;
+        if (semanticSignal.kind !== "none") {
+          signal = semanticSignal;
+          // Hand the semantic shape to the resolver so its
+          // dedupe row keys on intent_key, not raw argKey.
+          observationsForResolver = semantic;
+        }
       }
     } catch {
       // detector is non-load-bearing on the prompt path — swallow
@@ -194,13 +210,17 @@ export function recallForPrompt(
   // signal fired; never throws (resolver is wrapped). Surfaces
   // a `matched` anchor or a static `fallback`. Wrappers read
   // `loopRedirect.label` for the badge text.
-  if (signal.kind !== "none" && opts.sessionId && recentObservations.length > 0) {
+  if (
+    signal.kind !== "none" &&
+    opts.sessionId &&
+    observationsForResolver.length > 0
+  ) {
     try {
       loopRedirect = resolveLoopRedirect({
         store,
         server,
         signal,
-        observations: recentObservations,
+        observations: observationsForResolver,
         sessionId: opts.sessionId,
         basePath: opts.basePath,
       });

@@ -409,6 +409,217 @@ describe("recallForPrompt — file memory integration", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 0.7.0-rc.5 hardening — semantic-loop dedupe keys on intent_key
+// ---------------------------------------------------------------------------
+
+describe("recallForPrompt — semantic-loop dedupe (P1 hardening)", () => {
+  it("cross-alias rotation: grep → rg with same intent_key triggers anti-self-loop", () => {
+    withFreshStore((store, server, basePath) => {
+      // Seed a block whose situation/keywords match the
+      // auth_token search query.
+      seedBlock(store, {
+        trigger: {
+          situation: "search for the auth_token symbol across the codebase",
+          invariants: { language: "typescript" },
+        },
+        body: {
+          mechanism: "auth token symbol lives in src/auth.ts",
+          deadEnds: [],
+          unlock: "open src/auth.ts and grep export instead of re-running",
+          verification: "confirm src/auth.ts is the canonical source",
+        },
+        provenance: {
+          sourceTaskId: "auth-1",
+          extractedFrom: "trajectory",
+          distilledBy: "llm",
+        },
+      });
+
+      const sessionId = "S-cross-alias";
+      // Plant 3 grep observations: same argSummary shape (so they
+      // also collapse under the FIRST argKey-keyed detector pass
+      // — this exercises the dedupe path that matches anyway, then
+      // re-asserts on rotation that the dedupe now keys on
+      // intent_key per the fix).
+      //
+      // To get the SECOND pass (intent_key-keyed) firing, the
+      // alias variants must have DIFFERENT argKeys but the SAME
+      // intent_key. We force this by recording observations whose
+      // argSummary differs (Grep vs rg form) but normalises
+      // identically.
+      store.recordToolObservations([
+        {
+          sessionId,
+          batchId: null,
+          batchOrder: 0,
+          toolUseId: null,
+          toolName: "Grep",
+          argSummary: "Grep('auth_token')",
+          argKey: "k_grep_1",
+          outcome: "ok",
+        },
+        {
+          sessionId,
+          batchId: null,
+          batchOrder: 1,
+          toolUseId: null,
+          toolName: "Grep",
+          argSummary: "Grep('auth-token')",
+          argKey: "k_grep_2",
+          outcome: "ok",
+        },
+        {
+          sessionId,
+          batchId: null,
+          batchOrder: 2,
+          toolUseId: null,
+          toolName: "Grep",
+          argSummary: "Grep('auth.token')",
+          argKey: "k_grep_3",
+          outcome: "ok",
+        },
+      ]);
+
+      // First call: 3 grep observations, all distinct argKeys but
+      // identical intent_keys → first-pass detector misses (3
+      // distinct argKeys), second-pass (intent_key) catches the
+      // straight signal. Resolver fires matched.
+      const first = recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "Long enough prompt about the auth token search loop",
+        basePath,
+        sessionId,
+      });
+      expect(first.signal.kind).not.toBe("none");
+      expect(first.loopRedirect?.kind).toBe("matched");
+      expect(first.loopRedirect?.anchorKind).toBe("block");
+
+      // Now rotate: simulate the agent doing one more attempt with
+      // a DIFFERENT alias (rg). New argKey, same intent_key.
+      store.recordToolObservations([
+        {
+          sessionId,
+          batchId: null,
+          batchOrder: 3,
+          toolUseId: null,
+          toolName: "ripgrep",
+          argSummary: "rg('auth[_-]token')",
+          argKey: "k_rg_1",
+          outcome: "ok",
+        },
+      ]);
+
+      const second = recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "Long enough prompt about the auth token search loop",
+        basePath,
+        sessionId,
+      });
+      expect(second.signal.kind).not.toBe("none");
+      // Pre-fix: resolver dedupes on raw argKey (k_rg_1, never seen
+      // before) → fires matched again. Post-fix: resolver dedupes
+      // on intent_key → seen on the first call → falls back with
+      // anti-self-loop reason.
+      expect(second.loopRedirect?.kind).toBe("fallback");
+      expect(second.loopRedirect?.fallbackReason).toBe("anti-self-loop");
+
+      // Third rotation with yet another alias — still anti-self-loop.
+      store.recordToolObservations([
+        {
+          sessionId,
+          batchId: null,
+          batchOrder: 4,
+          toolUseId: null,
+          toolName: "ag",
+          argSummary: "ag('auth.token')",
+          argKey: "k_ag_1",
+          outcome: "ok",
+        },
+      ]);
+      const third = recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "Long enough prompt about the auth token search loop",
+        basePath,
+        sessionId,
+      });
+      expect(third.loopRedirect?.kind).toBe("fallback");
+      expect(third.loopRedirect?.fallbackReason).toBe("anti-self-loop");
+    });
+  });
+
+  it("dedupe still scoped per-session: the same intent_key in a fresh session matches", () => {
+    withFreshStore((store, server, basePath) => {
+      seedBlock(store, {
+        trigger: {
+          situation: "search for the auth_token symbol across the codebase",
+          invariants: { language: "typescript" },
+        },
+        body: {
+          mechanism: "auth token symbol lives in src/auth.ts",
+          deadEnds: [],
+          unlock: "open src/auth.ts and grep export instead of re-running",
+          verification: "confirm src/auth.ts is the canonical source",
+        },
+        provenance: {
+          sourceTaskId: "auth-2",
+          extractedFrom: "trajectory",
+          distilledBy: "llm",
+        },
+      });
+
+      const seed = (sessionId: string) => {
+        store.recordToolObservations([
+          {
+            sessionId,
+            batchId: null,
+            batchOrder: 0,
+            toolUseId: null,
+            toolName: "Grep",
+            argSummary: "Grep('auth_token')",
+            argKey: `k1-${sessionId}`,
+            outcome: "ok",
+          },
+          {
+            sessionId,
+            batchId: null,
+            batchOrder: 1,
+            toolUseId: null,
+            toolName: "Grep",
+            argSummary: "Grep('auth-token')",
+            argKey: `k2-${sessionId}`,
+            outcome: "ok",
+          },
+          {
+            sessionId,
+            batchId: null,
+            batchOrder: 2,
+            toolUseId: null,
+            toolName: "Grep",
+            argSummary: "Grep('auth.token')",
+            argKey: `k3-${sessionId}`,
+            outcome: "ok",
+          },
+        ]);
+      };
+
+      seed("S-A");
+      const a = recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "Long enough prompt about the auth token search loop",
+        basePath,
+        sessionId: "S-A",
+      });
+      expect(a.loopRedirect?.kind).toBe("matched");
+
+      // Different session → dedupe must NOT carry over.
+      seed("S-B");
+      const b = recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "Long enough prompt about the auth token search loop",
+        basePath,
+        sessionId: "S-B",
+      });
+      expect(b.loopRedirect?.kind).toBe("matched");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 0.7.0-rc.2 hardening — recall-path drain budget cap
 // ---------------------------------------------------------------------------
 
