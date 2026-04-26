@@ -580,6 +580,132 @@ describe("runInjectContext — session-scoped fact recall (TB CONTEXT)", () => {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
+// 0.7.0-rc.6 hardening 3 — JSON envelope shape regression.
+//
+// The envelope MUST be a single-line JSON string (no pretty-print)
+// AND MUST round-trip cleanly through JSON.parse, even when the
+// embedded additionalContext carries multi-line content (the
+// rendered <tracebase> block, <file_memory>, <context_fold>
+// sections all use real newlines internally).
+//
+// Pre-hardening this was structurally correct (`JSON.stringify`
+// with no spacer arg defaults to single-line), but no test pinned
+// it — a stray `JSON.stringify(obj, null, 2)` in a future
+// refactor would have shipped pretty-printed envelopes that
+// some hosts may parse but most won't.
+// ---------------------------------------------------------------------------
+
+describe("runInjectContext — JSON envelope shape", () => {
+  it("envelope is single-line JSON (no pretty-print) and round-trips through JSON.parse", async () => {
+    // Plant enough state to make additionalContext multi-line:
+    //   - one block (forces a `<tracebase>` block bullet)
+    //   - one fact (forces a Project facts: section)
+    //   - one session chunk (forces a `<context_fold>` section)
+    const config = initConfig(projectDir);
+    const db = new Database(config.storagePath);
+    const store = new BlockStore(db);
+    const { sessionScope } = await import("../../src/cli/commands/capture-context.js");
+    // Block.
+    const b = createBlock({
+      trigger: {
+        situation: "Pytest collects the wrong package due to sys.path shadow",
+        invariants: { language: "python", framework: "pytest" },
+      },
+      body: {
+        mechanism: "an earlier sys.path entry shadows the intended package",
+        deadEnds: [],
+        unlock: "rename the shadowing module or remove its directory from sys.path",
+        verification: "pytest --collect-only shows the intended package",
+      },
+      provenance: {
+        sourceTaskId: "envelope-1",
+        extractedFrom: "trajectory",
+        distilledBy: "llm",
+      },
+    } satisfies StoreBlockInput);
+    b.status = "candidate";
+    store.storeBlock(b);
+    store.attachCaseRef({
+      blockId: b.id,
+      traceId: "trace-envelope-1",
+      role: "origin",
+      evidenceQuality: "strong",
+    });
+    store.updateBlockStatus(b.id, "active");
+    // Fact.
+    store.storeFact({
+      scope: sessionScope("S-envelope"),
+      factType: "session_digest",
+      statement: "Recent: pytest sys.path shadow troubleshooting in this codebase",
+      invariants: {},
+      source: { origin: "observed", reference: "S-envelope" },
+      ttlDays: 14,
+    });
+    // Session chunk.
+    const { foldTurns } = await import("../../src/core/context-fold.js");
+    const turns: Array<{ role: "user" | "assistant"; content: string }> = [];
+    for (let i = 0; i < 16; i++) {
+      turns.push({
+        role: i % 2 === 0 ? "user" : "assistant",
+        content: `pytest sys.path shadow turn ${i} content padding `.repeat(5),
+      });
+    }
+    const folded = foldTurns({
+      sessionId: "S-envelope",
+      turns,
+      existingWatermark: -1,
+    });
+    store.recordSessionChunks(folded.chunks);
+    store.close();
+
+    const out = runInjectContext(
+      { path: projectDir },
+      {
+        prompt:
+          "Continue helping me with the pytest sys.path shadow troubleshooting from before",
+        session_id: "S-envelope",
+      },
+    );
+
+    // 1) Single-line: no pretty-print indentation. The serialized
+    //    string must not contain `\n  "` (two-space indent) or
+    //    `\n    "` (four-space) — those are the canonical
+    //    pretty-print shapes a stray `JSON.stringify(obj, null, 2)`
+    //    would emit.
+    expect(out.envelope).not.toMatch(/\n\s{2,}"/);
+    // The envelope ALSO must not start with "{\n" — pretty-print
+    // always breaks the line right after the opening brace.
+    expect(out.envelope).not.toMatch(/^\{\s*\n/);
+
+    // 2) Parses cleanly via JSON.parse — no extraneous bytes,
+    //    quotes balanced, escapes intact.
+    let parsed: unknown;
+    expect(() => {
+      parsed = JSON.parse(out.envelope);
+    }).not.toThrow();
+    expect(parsed).toBeDefined();
+    expect(typeof parsed).toBe("object");
+    const env = parsed as {
+      hookSpecificOutput?: { additionalContext?: string };
+      systemMessage?: string;
+    };
+
+    // 3) The multi-line additionalContext survives the
+    //    stringify→parse round-trip. Internal `\n` in the
+    //    rendered <tracebase> block becomes `\\n` in the JSON
+    //    string, and JSON.parse decodes them back to real
+    //    newlines.
+    const ctx = env.hookSpecificOutput?.additionalContext;
+    expect(typeof ctx).toBe("string");
+    expect(ctx).toContain("\n"); // real newline, post-parse
+    expect(ctx).toContain("<tracebase queryId=");
+    // And the embedded sections show up because we seeded all three.
+    expect(ctx).toContain("Project facts:");
+    expect(ctx).toContain("<context_fold>");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 0.7.0-rc.6 hardening — TB CONTEXT badge surfaces in Claude Code's
 // composite systemMessage when <context_fold> was injected.
 // ---------------------------------------------------------------------------
