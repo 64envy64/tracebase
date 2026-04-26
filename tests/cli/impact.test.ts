@@ -498,3 +498,154 @@ describe("renderImpactLine — ready state (mocked metrics)", () => {
     expect(line).toMatch(/estimated latency saved/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 0.7.0-rc.7 — estimated mechanism savings block
+// ---------------------------------------------------------------------------
+
+describe("runImpact — mechanism savings (0.7.0-rc.7)", () => {
+  function seedContextFold(opts: {
+    queryId: string;
+    tokensBefore: number;
+    tokensAfter: number;
+    ts?: number;
+  }): void {
+    const cfg = loadConfig(projectDir);
+    const store = new BlockStore(cfg.storagePath);
+    store.appendEvent({
+      ts: opts.ts ?? Date.now(),
+      queryId: opts.queryId,
+      event: "context.folded",
+      sessionId: "s1",
+      chunkRange: "0-7",
+      tokensBefore: opts.tokensBefore,
+      tokensAfter: opts.tokensAfter,
+      summarizer: "heuristic",
+    });
+    store.close();
+  }
+
+  function seedFileMemory(opts: {
+    queryId: string;
+    bytesAvoided: number;
+    tokensInjected: number;
+    ts?: number;
+  }): void {
+    const cfg = loadConfig(projectDir);
+    const store = new BlockStore(cfg.storagePath);
+    store.appendEvent({
+      ts: opts.ts ?? Date.now(),
+      queryId: opts.queryId,
+      event: "file_memory.recalled",
+      fileIds: ["src/a.ts"],
+      tokensInjected: opts.tokensInjected,
+      bytesAvoided: opts.bytesAvoided,
+    });
+    store.close();
+  }
+
+  function seedToolSuppressed(opts: {
+    queryId: string;
+    toolName: string;
+    ts?: number;
+  }): void {
+    const cfg = loadConfig(projectDir);
+    const store = new BlockStore(cfg.storagePath);
+    store.appendEvent({
+      ts: opts.ts ?? Date.now(),
+      queryId: opts.queryId,
+      event: "tool_supervision.suppressed",
+      argKey: "k",
+      toolName: opts.toolName,
+    });
+    store.close();
+  }
+
+  function seedCacheHit(opts: {
+    queryId: string;
+    surface: "anthropic" | "openai";
+    tokensSaved: number;
+    ts?: number;
+  }): void {
+    const cfg = loadConfig(projectDir);
+    const store = new BlockStore(cfg.storagePath);
+    store.appendEvent({
+      ts: opts.ts ?? Date.now(),
+      queryId: opts.queryId,
+      event: "cache.prompt_hit",
+      surface: opts.surface,
+      tokensSaved: opts.tokensSaved,
+    });
+    store.close();
+  }
+
+  it("populates report.mechanisms when any component is non-zero", () => {
+    initConfig(projectDir);
+    seedContextFold({ queryId: "f1", tokensBefore: 1000, tokensAfter: 200 });
+    seedCacheHit({ queryId: "c1", surface: "anthropic", tokensSaved: 1500 });
+    const r = runImpact({ path: projectDir });
+    expect(r.mechanisms).not.toBeNull();
+    expect(r.mechanisms?.contextCompressionSaved).toBe(800);
+    expect(r.mechanisms?.promptCacheSaved).toBe(1500);
+    expect(r.mechanisms?.total).toBe(800 + 1500);
+  });
+
+  it("report.mechanisms is null when no mechanism events landed", () => {
+    initConfig(projectDir);
+    // Just a retrieval — no fold / file-memory / tool-supervision / cache hit.
+    seedRetrieval({ queryId: "q1", shadow: false, injectedTokens: 100 });
+    const r = runImpact({ path: projectDir });
+    expect(r.mechanisms).toBeNull();
+  });
+
+  it("renderImpactLine appends an 'estimated mechanisms' line when mechanisms present", () => {
+    initConfig(projectDir);
+    seedRetrieval({ queryId: "q1", shadow: false, injectedTokens: 100 });
+    seedContextFold({ queryId: "f1", tokensBefore: 5000, tokensAfter: 1000 });
+    seedFileMemory({ queryId: "fm1", bytesAvoided: 12_000, tokensInjected: 200 });
+    seedToolSuppressed({ queryId: "t1", toolName: "Read" });
+    seedCacheHit({ queryId: "c1", surface: "openai", tokensSaved: 600 });
+    const r = runImpact({ path: projectDir });
+    const line = renderImpactLine(r);
+    // Line is multi-line: primary on line 1, mechanisms on line 2.
+    expect(line).toMatch(/\nestimated mechanisms:/);
+    // Each non-zero component must surface with its source label.
+    expect(line).toMatch(/context fold ≈ /);
+    expect(line).toMatch(/file memory ≈ /);
+    expect(line).toMatch(/tool supervision ≈ /);
+    expect(line).toMatch(/prompt cache ≈ /);
+    // Total uses "total estimated saved" — never "saved" alone.
+    expect(line).toMatch(/total estimated saved/);
+    // STRICT VOCAB CONTRACT: the mechanism block must NEVER claim
+    // verified savings or use the bare word "verified saved".
+    const mechSection = line.split("\nestimated mechanisms:")[1] ?? "";
+    expect(mechSection).not.toMatch(/verified/i);
+  });
+
+  it("does NOT render mechanism line when total is zero (clamped or no events)", () => {
+    initConfig(projectDir);
+    seedRetrieval({ queryId: "q1", shadow: false, injectedTokens: 100 });
+    // Pathological fold where summary is longer than original — clamps to 0.
+    seedContextFold({ queryId: "f1", tokensBefore: 100, tokensAfter: 200 });
+    const r = runImpact({ path: projectDir });
+    expect(r.mechanisms).toBeNull();
+    const line = renderImpactLine(r);
+    expect(line).not.toMatch(/estimated mechanisms:/);
+  });
+
+  it("mechanism block surfaces even on no-runs windows (mechanisms can fire outside causal-eligible runs)", () => {
+    initConfig(projectDir);
+    // No retrievals/outcomes — but a tool-supervision suppression
+    // happened. The user's mechanism savings are real even when
+    // no causal run landed, so the line should still appear.
+    seedToolSuppressed({ queryId: "t1", toolName: "Read" });
+    seedToolSuppressed({ queryId: "t2", toolName: "Read" });
+    const r = runImpact({ path: projectDir });
+    expect(r.readiness).toBe("no-runs");
+    expect(r.mechanisms).not.toBeNull();
+    const line = renderImpactLine(r);
+    expect(line).toMatch(/Not enough data yet/);
+    expect(line).toMatch(/\nestimated mechanisms:/);
+    expect(line).toMatch(/tool supervision ≈ /);
+  });
+});

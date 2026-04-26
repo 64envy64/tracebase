@@ -7,6 +7,13 @@ import {
   type InjectionResult,
 } from "./recall-inject.js";
 import { createRuntime } from "../sdk/runtime.js";
+import {
+  attachAnthropicCacheControl,
+  extractAnthropicCachedTokens,
+  isAnthropicCacheSupported,
+  isPromptCacheEnabled,
+  appendPromptCacheHit,
+} from "./prompt-cache.js";
 
 const WRAPPED = Symbol.for("tracebase.wrapped");
 
@@ -124,6 +131,26 @@ function makeApplyHandler(
       }
     }
 
+    // 0.7.0-rc.7 — prompt-cache attachment. Once injection (legacy
+    // path) and runtime additionalContext (rc.6+ path) have both
+    // had a chance to extend the system prefix, mark the last
+    // system block as cacheable on supported Anthropic models.
+    // Below the per-model minimum size the API silently no-ops, so
+    // attachment is safe to apply unconditionally on the allowlist.
+    if (isPromptCacheEnabled(layer)) {
+      const currentParams = modifiedArgs[0] as AnthropicParams | undefined;
+      if (
+        currentParams &&
+        isAnthropicCacheSupported(currentParams.model) &&
+        currentParams.system !== undefined
+      ) {
+        const cached = attachAnthropicCacheControl(currentParams);
+        if (cached !== currentParams) {
+          modifiedArgs = [cached, ...modifiedArgs.slice(1)];
+        }
+      }
+    }
+
     // --- Phase 2: Call LLM ---
     let result: unknown;
     try {
@@ -151,7 +178,12 @@ function makeApplyHandler(
 
     const response = result as {
       content?: Array<{ type: string; text?: string }>;
-      usage?: { input_tokens?: number; output_tokens?: number };
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_read_input_tokens?: number;
+        cache_creation_input_tokens?: number;
+      };
       stop_reason?: string;
       type?: string;
     };
@@ -173,6 +205,14 @@ function makeApplyHandler(
     // Emit token tracking event
     emitTokenUsage(layer, injection, response.usage, params?.model, durationMs);
 
+    // 0.7.0-rc.7 — provider-reported prompt cache hit. We only
+    // count `cache_read_input_tokens` (the savings side); the
+    // creation side is a one-time write the cache amortises away.
+    const cachedTokens = extractAnthropicCachedTokens(response.usage);
+    if (cachedTokens > 0) {
+      appendPromptCacheHit(layer, "anthropic", cachedTokens);
+    }
+
     return result;
   };
 }
@@ -184,7 +224,14 @@ function makeApplyHandler(
 interface AnthropicStreamEvent {
   type: string;
   delta?: { type?: string; text?: string; stop_reason?: string };
-  message?: { usage?: { input_tokens?: number; output_tokens?: number } };
+  message?: {
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+    };
+  };
   usage?: { output_tokens?: number };
 }
 
@@ -199,6 +246,7 @@ function wrapAnthropicStream(
   let content = "";
   let inputTokens = 0;
   let outputTokens = 0;
+  let cacheReadTokens = 0;
   let isError = false;
   let stored = false;
 
@@ -210,6 +258,12 @@ function wrapAnthropicStream(
     safeStore(layer, problemText, content.slice(0, maxChars),
       isError ? "failure" : "success",
       model, Date.now() - startTime, totalTokens || undefined, injection);
+    // 0.7.0-rc.7 — provider-reported prompt cache hit (stream).
+    // `message_start` carries the input usage including
+    // `cache_read_input_tokens` on supported models.
+    if (cacheReadTokens > 0) {
+      appendPromptCacheHit(layer, "anthropic", cacheReadTokens);
+    }
   };
 
   return new Proxy(stream, {
@@ -225,7 +279,10 @@ function wrapAnthropicStream(
               } else {
                 const event = result.value;
                 if (event.type === "content_block_delta" && event.delta?.text) content += event.delta.text;
-                if (event.type === "message_start" && event.message?.usage) inputTokens = event.message.usage.input_tokens ?? 0;
+                if (event.type === "message_start" && event.message?.usage) {
+                  inputTokens = event.message.usage.input_tokens ?? 0;
+                  cacheReadTokens = event.message.usage.cache_read_input_tokens ?? 0;
+                }
                 if (event.type === "message_delta") {
                   if (event.delta?.stop_reason === "error") isError = true;
                   if (event.usage?.output_tokens) outputTokens = event.usage.output_tokens;

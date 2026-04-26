@@ -52,6 +52,10 @@ import {
   DEFAULT_MIN_CAUSAL_COHORT,
   type UsageMetrics,
 } from "../../analytics/usage-metrics.js";
+import {
+  computeMechanismSavings,
+  type MechanismSavings,
+} from "../../analytics/mechanism-savings.js";
 
 interface ImpactOptions {
   path?: string;
@@ -68,7 +72,7 @@ export const impactCommand = new Command("impact")
   .description(
     "One-line, honest summary of measurable token / outcome impact. " +
       "Always shows assisted runs / resolved rate / injected token cost; " +
-      "appends tokens saved + net + latency only when the holdout cohort " +
+      "appends estimated + verified totals only when the holdout cohort " +
       "is large enough. No fabricated savings on small samples.",
   )
   .option("-p, --path <path>", "project root", process.cwd())
@@ -133,6 +137,14 @@ export interface ImpactReport {
     holdoutN: number;
     minCohortSize: number;
   } | null;
+  /**
+   * 0.7.0-rc.7 — estimated mechanism savings for the window. Four
+   * deterministic components (context compression, file memory,
+   * tool supervision, prompt cache) plus a total. Always rendered
+   * under "estimated" copy; NEVER conflated with verified causal
+   * lift. `null` when no events were recorded in the window.
+   */
+  mechanisms: MechanismSavings | null;
   error?: string;
 }
 
@@ -146,6 +158,7 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
       metrics: null,
       pricing: null,
       experiment: null,
+      mechanisms: null,
       error: "not initialized — run `npx tracebase init` first",
     };
   }
@@ -169,6 +182,7 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
             minCohortSize: DEFAULT_MIN_CAUSAL_COHORT,
           }
         : null,
+      mechanisms: null,
     };
   }
 
@@ -179,9 +193,14 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
   const store = new BlockStore(db, { skipMigrate: true });
   let metrics: UsageMetrics;
   let agg: EventAggregates;
+  let mechanisms: MechanismSavings;
   try {
     agg = computeAggregates(store, { afterTs, beforeTs });
     metrics = computeUsageMetrics(agg);
+    // 0.7.0-rc.7 — estimated mechanism savings (deterministic).
+    // Reads four event kinds directly off `analytics_events`;
+    // never overlaps with the causal block.
+    mechanisms = computeMechanismSavings(store, { afterTs, beforeTs });
   } finally {
     store.close();
   }
@@ -209,6 +228,7 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
       metrics,
       pricing,
       experiment,
+      mechanisms: mechanisms.total > 0 ? mechanisms : null,
     };
   }
 
@@ -236,6 +256,7 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
     metrics,
     pricing,
     experiment,
+    mechanisms: mechanisms.total > 0 ? mechanisms : null,
   };
 }
 
@@ -252,7 +273,13 @@ export function renderImpactLine(report: ImpactReport): string {
 
   const m = report.metrics;
   if (!m || report.readiness === "no-runs") {
-    return pc.dim("Not enough data yet — no eligible runs in the window.");
+    // Even with zero eligible runs, mechanism savings can fire
+    // (e.g. context fold + tool supervision can save tokens
+    // outside the causal-eligible run path). Render the mechanism
+    // line if any component landed.
+    const mech = renderMechanismLine(report);
+    const head = pc.dim("Not enough data yet — no eligible runs in the window.");
+    return mech ? `${head}\n${mech}` : head;
   }
 
   const windowDays = Math.max(
@@ -263,7 +290,49 @@ export function renderImpactLine(report: ImpactReport): string {
   // Always-on head: assisted runs · resolved rate · injected tokens.
   const head = renderHead(m);
   const tail = renderTail(report, windowDays);
-  return head + (tail ? " · " + tail : "");
+  const primary = head + (tail ? " · " + tail : "");
+  // 0.7.0-rc.7 — second line for the mechanism savings block.
+  // Always tagged "estimated mechanisms" so the reader cannot
+  // confuse it with the verified causal segment above. Skipped
+  // entirely when `report.mechanisms` is null (no events landed).
+  const mech = renderMechanismLine(report);
+  return mech ? `${primary}\n${mech}` : primary;
+}
+
+/**
+ * 0.7.0-rc.7 — render the estimated-mechanism block.
+ *
+ * Strict copy contract:
+ *   - The line ALWAYS leads with "estimated mechanisms" so it can
+ *     never be misread as a verified savings number.
+ *   - Each component (context fold / file memory / tool supervision
+ *     / prompt cache) is rendered with its source name, not as a
+ *     bare token figure.
+ *   - The total uses "≈ Tk total estimated saved" — never "saved"
+ *     alone, never "verified".
+ *   - Returns "" when nothing to show (no events in window).
+ */
+function renderMechanismLine(report: ImpactReport): string {
+  const mech = report.mechanisms;
+  if (!mech || mech.total <= 0) return "";
+
+  const parts: string[] = [];
+  if (mech.contextCompressionSaved > 0) {
+    parts.push(`context fold ≈ ${humanTokens(mech.contextCompressionSaved)}`);
+  }
+  if (mech.fileMemoryAvoided > 0) {
+    parts.push(`file memory ≈ ${humanTokens(mech.fileMemoryAvoided)}`);
+  }
+  if (mech.toolSupervisionAvoided > 0) {
+    parts.push(`tool supervision ≈ ${humanTokens(mech.toolSupervisionAvoided)}`);
+  }
+  if (mech.promptCacheSaved > 0) {
+    parts.push(`prompt cache ≈ ${humanTokens(mech.promptCacheSaved)}`);
+  }
+
+  const components = parts.length > 0 ? ` (${parts.join(" · ")})` : "";
+  const total = `≈ ${humanTokens(mech.total)} total estimated saved`;
+  return pc.dim(`estimated mechanisms: ${total}${components}`);
 }
 
 function renderHead(m: UsageMetrics): string {

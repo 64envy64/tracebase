@@ -263,6 +263,18 @@ export interface TraceBaseConfig {
    * turn it into an `ExperimentInput` for `BlockServer.recall`.
    */
   experiment?: ExperimentConfig;
+  /**
+   * 0.7.0-rc.7 — provider-side prompt-cache integration.
+   *
+   * Defaults to `{ enabled: true }`. Set `{ enabled: false }` to
+   * disable both the Anthropic `cache_control` attachment and the
+   * `cache.prompt_hit` event emission in `wrapAnthropic` /
+   * `wrapOpenAI`. The aggregator stays correct either way — it
+   * counts only what the provider's API actually reported.
+   */
+  promptCache?: {
+    enabled?: boolean;
+  };
 }
 
 /**

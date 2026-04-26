@@ -7,6 +7,10 @@ import {
   type InjectionResult,
 } from "./recall-inject.js";
 import { createRuntime } from "../sdk/runtime.js";
+import {
+  extractOpenAICachedTokens,
+  appendPromptCacheHit,
+} from "./prompt-cache.js";
 
 const WRAPPED = Symbol.for("tracebase.wrapped");
 
@@ -120,7 +124,13 @@ export function wrapOpenAI<T extends object>(
 
       const completion = result as {
         choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
-        usage?: { total_tokens?: number };
+        usage?: {
+          total_tokens?: number;
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          cached_tokens?: number;
+          prompt_tokens_details?: { cached_tokens?: number };
+        };
       };
       const responseText = completion.choices?.[0]?.message?.content;
       if (!responseText) return result;
@@ -135,6 +145,15 @@ export function wrapOpenAI<T extends object>(
 
       // Emit token tracking event
       emitTokenUsage(layer, injection, completion.usage, params?.model, durationMs);
+
+      // 0.7.0-rc.7 — provider-reported prompt cache hit. OpenAI
+      // auto-caches deterministic prefixes on supported models; the
+      // savings show up under `usage.prompt_tokens_details.
+      // cached_tokens`. We never estimate from message length.
+      const cachedTokens = extractOpenAICachedTokens(completion.usage);
+      if (cachedTokens > 0) {
+        appendPromptCacheHit(layer, "openai", cachedTokens);
+      }
 
       // 0.5.4 — runtime.afterRun queued; never blocks the return.
       if (runtime) {
@@ -189,7 +208,11 @@ interface StreamChunk {
     delta?: { content?: string };
     finish_reason?: string | null;
   }>;
-  usage?: { total_tokens?: number };
+  usage?: {
+    total_tokens?: number;
+    cached_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+  };
 }
 
 function wrapStream(
@@ -203,6 +226,7 @@ function wrapStream(
   let content = "";
   let finishReason: string | null = null;
   let totalTokens: number | undefined;
+  let cachedTokens = 0;
   let stored = false;
 
   const storeOnEnd = () => {
@@ -212,6 +236,13 @@ function wrapStream(
     const maxChars = layer.config.maxResponseChars ?? 500;
     safeStore(layer, problemText, content.slice(0, maxChars), outcome,
       model, Date.now() - startTime, totalTokens, injection);
+    // 0.7.0-rc.7 — provider-reported cache hit. The OpenAI streaming
+    // SDK delivers `usage` in the trailing chunk when
+    // `stream_options.include_usage` is on; if not requested,
+    // `cachedTokens` stays 0 and no event fires.
+    if (cachedTokens > 0) {
+      appendPromptCacheHit(layer, "openai", cachedTokens);
+    }
   };
 
   return new Proxy(stream, {
@@ -228,7 +259,11 @@ function wrapStream(
                 const chunk = result.value;
                 if (chunk.choices?.[0]?.delta?.content) content += chunk.choices[0].delta.content;
                 if (chunk.choices?.[0]?.finish_reason) finishReason = chunk.choices[0].finish_reason;
-                if (chunk.usage) totalTokens = chunk.usage.total_tokens;
+                if (chunk.usage) {
+                  totalTokens = chunk.usage.total_tokens;
+                  const seen = extractOpenAICachedTokens(chunk.usage);
+                  if (seen > 0) cachedTokens = seen;
+                }
               }
               return result;
             },
