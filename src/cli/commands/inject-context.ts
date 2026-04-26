@@ -55,7 +55,21 @@ export type HookStatusMode = "compact" | "silent";
  * a badge string, and the compact/silent flag flows through it.
  */
 type InjectSituation =
-  | { kind: "match"; queryId: string; patterns: number; facts: number; tokens: number }
+  | {
+      kind: "match";
+      queryId: string;
+      patterns: number;
+      facts: number;
+      tokens: number;
+      // 0.7.0-rc.6 hardening — file memory + chunk fold counters
+      // surface alongside the legacy patterns/facts. `formatStatus`
+      // composes one fragment per non-zero counter.
+      files: number;
+      bytesAvoided: number;
+      chunkTurns: number;
+      chunkTokensBefore: number;
+      chunkTokensAfter: number;
+    }
   | { kind: "no-match" }
   | { kind: "trivial" }
   | { kind: "uninitialized" }
@@ -204,12 +218,23 @@ export function runInjectContext(
       return wrapEnvelope(host, eventName, "", formatStatus({ kind: "no-match" }, recall.signal, statusMode));
     }
 
+    // 0.7.0-rc.6 hardening — derive chunkTurns from contextFoldRanges
+    // honestly (sum of inclusive turn counts).
+    const chunkTurns = recall.payload.contextFoldRanges.reduce(
+      (acc, r) => acc + (r.end - r.start + 1),
+      0,
+    );
     const situation: InjectSituation = {
       kind: "match",
       queryId: recall.queryId,
       patterns: recall.payload.blockIds.length,
       facts: recall.payload.factIds.length,
       tokens: recall.payload.tokensEstimate,
+      files: recall.payload.fileIds.length,
+      bytesAvoided: recall.payload.bytesAvoided,
+      chunkTurns,
+      chunkTokensBefore: recall.payload.contextFoldTokensBefore,
+      chunkTokensAfter: recall.payload.contextFoldTokensAfter,
     };
     return wrapEnvelope(host, eventName, recall.payload.text, formatStatus(situation, recall.signal, statusMode));
   } catch (err) {
@@ -258,6 +283,23 @@ function formatStatus(
       }
       if (situation.facts > 0) {
         fragments.push(`▣ TB MEMORY  recalled ${situation.facts} fact(s)`);
+      }
+      // 0.7.0-rc.6 hardening — file memory bullet, separate counter.
+      if (situation.files > 0) {
+        const kb = Math.round((situation.bytesAvoided ?? 0) / 1024);
+        const kbTag = kb > 0 ? ` · ${kb}kb avoided` : "";
+        fragments.push(`▣ TB MEMORY  recalled ${situation.files} file(s)${kbTag}`);
+      }
+      // 0.7.0-rc.6 hardening — TB CONTEXT bullet. Numbers come
+      // straight from the persisted chunk rows surfaced via the
+      // payload — never invented. Format mirrors the SDK badge:
+      //   ▣ TB CONTEXT  folded N turns · Xk→Yk
+      if (situation.chunkTurns > 0) {
+        const kBefore = Math.round((situation.chunkTokensBefore ?? 0) / 100) / 10;
+        const kAfter = Math.round((situation.chunkTokensAfter ?? 0) / 100) / 10;
+        fragments.push(
+          `▣ TB CONTEXT  folded ${situation.chunkTurns} turns · ${kBefore}k→${kAfter}k`,
+        );
       }
       break;
     }

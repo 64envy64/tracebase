@@ -382,6 +382,74 @@ describe("runCaptureContext — default compact mode writes the digest", () => {
     expect(envelope(out).systemMessage).toBe("▣ TB CONTEXT  skipped · no content");
   });
 
+  // 0.7.0-rc.6 hardening — P2.1 regression. Chunk fold MUST run
+  // even when the legacy digest extractor returns null. Pre-
+  // hardening, the chunk path was gated on `if (!digest) return`,
+  // so a transcript whose turns parse but produce no markdown-
+  // header digest left zero session_chunks rows.
+  it("chunk fold runs independently of digest: turns parse + no digest → chunks land", () => {
+    initConfig(projectDir);
+    // Write a transcript whose turns parse fine (user + assistant
+    // text blocks) but whose user content is too short for the
+    // legacy digest extractor's MIN length gate (12 chars). Combined
+    // with assistant text that has no markdown headers / bullets,
+    // extractDigest returns null. But the FoldTurns path should
+    // STILL produce ≥1 chunk because there's enough total content.
+    const lines: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < 16; i++) {
+      lines.push(
+        i % 2 === 0
+          ? {
+              type: "user",
+              message: { role: "user", content: "ok" + " padding".repeat(20) },
+            }
+          : {
+              type: "assistant",
+              message: {
+                role: "assistant",
+                content: [
+                  {
+                    type: "text",
+                    text:
+                      "Plain prose without markdown headers or bullets, just continuous content " +
+                      "that the legacy digest extractor will not extract any structured ".repeat(3),
+                  },
+                ],
+              },
+            },
+      );
+    }
+    writeFileSync(transcriptPath, lines.map((l) => JSON.stringify(l)).join("\n"));
+
+    const out = runCaptureContext(
+      { path: projectDir },
+      Buffer.from(
+        JSON.stringify({
+          hook_event_name: "PreCompact",
+          transcript_path: transcriptPath,
+          session_id: "sess-fold-only",
+          cwd: projectDir,
+        }),
+      ),
+    );
+    // Digest may or may not have written (depends on how much
+    // header / bullet structure the assistant text carries). The
+    // load-bearing assertion is that session_chunks rows exist
+    // for this session regardless.
+    const cfg = loadConfig(projectDir);
+    const db = new Database(cfg.storagePath, { readonly: true });
+    const store = new BlockStore(db, { skipMigrate: true });
+    try {
+      const chunkCount = store.countSessionChunks("sess-fold-only");
+      expect(chunkCount).toBeGreaterThanOrEqual(1);
+    } finally {
+      store.close();
+    }
+    // Envelope still resolves — captured may be false (digest path
+    // null) but the rc.6 capability landed.
+    void out;
+  });
+
   it("emits skipped · no content when transcript_path is missing or unreadable", () => {
     initConfig(projectDir);
     const out = runCaptureContext(

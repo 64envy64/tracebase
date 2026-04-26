@@ -2433,6 +2433,12 @@ export class BlockStore {
    * Empty array when the session has no chunks. Cross-session
    * recall is structurally impossible — the SQL filters on
    * `session_id`.
+   *
+   * Recency-only contract — used by callers that explicitly want
+   * "the last K chunks of this session" (the SDK
+   * `runtime.recallChunks` direct surface). The recall path that
+   * feeds `<context_fold>` injection uses the prompt-aware variant
+   * `recallSessionChunksForPrompt` instead.
    */
   recallSessionChunks(
     sessionId: string,
@@ -2470,6 +2476,113 @@ export class BlockStore {
         tokensAfter: r.tokens_after,
       }))
       .reverse();
+  }
+
+  /**
+   * 0.7.0-rc.6 hardening — prompt-aware chunk recall.
+   *
+   * Pre-hardening, the recall path reused `recallSessionChunks`
+   * which is recency-only. Long sessions with multiple folded
+   * topics surfaced the most recent K regardless of which topic
+   * the user just asked about — weakening the actual context-
+   * compression capability into a recency cache.
+   *
+   * Post-hardening, callers from `recallForPrompt` use this method
+   * instead. Scoring is Jaccard-style token overlap between the
+   * prompt and each chunk's `summary` (lowercased, metachar-
+   * stripped). Sort by score DESC, recency DESC as tiebreaker.
+   * Empty / too-short prompts fall back to recency-only ordering
+   * — same shape as the legacy method.
+   *
+   * Cross-session recall is structurally impossible (the SQL
+   * filters on `session_id`).
+   */
+  recallSessionChunksForPrompt(
+    sessionId: string,
+    prompt: string,
+    limit: number = 3,
+  ): Array<{
+    chunkStartTurn: number;
+    chunkEndTurn: number;
+    summary: string;
+    tokensBefore: number;
+    tokensAfter: number;
+  }> {
+    if (limit <= 0) return [];
+    // Pull more than `limit` so the score-based ranking has
+    // headroom; cap at 32 to avoid pathological long-session
+    // walks.
+    const fetchCap = Math.min(32, Math.max(limit * 4, 8));
+    const rows = this.db
+      .prepare(
+        `SELECT chunk_start_turn, chunk_end_turn, summary,
+                tokens_before, tokens_after
+           FROM session_chunks
+          WHERE session_id = ?
+          ORDER BY chunk_end_turn DESC, rowid DESC
+          LIMIT ?`,
+      )
+      .all(sessionId, fetchCap) as Array<{
+      chunk_start_turn: number;
+      chunk_end_turn: number;
+      summary: string;
+      tokens_before: number;
+      tokens_after: number;
+    }>;
+    if (rows.length === 0) return [];
+
+    const promptTokens = tokeniseForChunkRecall(prompt);
+    if (promptTokens.size === 0) {
+      // No usable signal in the prompt → fall back to recency,
+      // same shape as `recallSessionChunks`.
+      return rows
+        .slice(0, limit)
+        .map((r) => ({
+          chunkStartTurn: r.chunk_start_turn,
+          chunkEndTurn: r.chunk_end_turn,
+          summary: r.summary,
+          tokensBefore: r.tokens_before,
+          tokensAfter: r.tokens_after,
+        }))
+        .reverse();
+    }
+
+    // Score each row by token-overlap fraction against the prompt
+    // token set. Recency (chunk_end_turn DESC) is the tiebreaker.
+    const scored = rows.map((r, idx) => {
+      const summaryTokens = tokeniseForChunkRecall(r.summary);
+      let overlap = 0;
+      for (const t of promptTokens) if (summaryTokens.has(t)) overlap++;
+      const denom = Math.max(1, summaryTokens.size + promptTokens.size - overlap);
+      const score = overlap / denom; // Jaccard
+      return {
+        score,
+        idx,
+        row: r,
+      };
+    });
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      // Earlier idx == newer (rows came back chunk_end_turn DESC).
+      return a.idx - b.idx;
+    });
+    // If every score is zero, no token overlap found — fall back
+    // to recency. Otherwise pick the top-K by score+tiebreaker.
+    const anyHit = scored.some((s) => s.score > 0);
+    const picked = (anyHit ? scored : scored).slice(0, limit);
+
+    return picked
+      .map((s) => ({
+        chunkStartTurn: s.row.chunk_start_turn,
+        chunkEndTurn: s.row.chunk_end_turn,
+        summary: s.row.summary,
+        tokensBefore: s.row.tokens_before,
+        tokensAfter: s.row.tokens_after,
+      }))
+      // Final ordering for injection: oldest-first within the K-
+      // window so the prompt prefix reads chronologically when
+      // chunks share the same score.
+      .sort((a, b) => a.chunkStartTurn - b.chunkStartTurn);
   }
 
   /** Diagnostic count helper used by the doctor / tests. */
@@ -2756,6 +2869,41 @@ function maxOptional(a: number | undefined, b: number | undefined): number | und
   if (a === undefined) return b;
   if (b === undefined) return a;
   return Math.max(a, b);
+}
+
+/**
+ * 0.7.0-rc.6 hardening — tokenise prompt / chunk summary for
+ * chunk-recall scoring. Same lexical shape as `intentKeyTokens`
+ * in `src/core/intent-key.ts` (lowercase, regex-metachars stripped,
+ * `[_-]` and whitespace collapsed) so the scoring is stable
+ * across alias variants. Stop-words filter prevents trivial
+ * filler tokens (`the`, `and`, `for`, etc.) from inflating the
+ * Jaccard denominator.
+ */
+const CHUNK_RECALL_STOPWORDS = new Set<string>([
+  "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+  "and", "or", "but", "not", "if", "then", "else", "when", "while",
+  "of", "in", "on", "at", "by", "for", "with", "to", "from", "as",
+  "this", "that", "these", "those", "it", "its", "they", "them",
+  "what", "which", "who", "how", "why", "where",
+  "i", "we", "you", "he", "she",
+  "user", "asked", "assistant",
+]);
+
+function tokeniseForChunkRecall(s: string): Set<string> {
+  if (typeof s !== "string" || s.length === 0) return new Set();
+  const lowered = s
+    .toLowerCase()
+    .replace(/[*?[\]()\\^$+|.{}/#'"`]/g, " ")
+    .replace(/[_\-\s]+/g, " ")
+    .trim();
+  const out = new Set<string>();
+  for (const t of lowered.split(/\s+/)) {
+    if (t.length < 2) continue;
+    if (CHUNK_RECALL_STOPWORDS.has(t)) continue;
+    out.add(t);
+  }
+  return out;
 }
 
 /**

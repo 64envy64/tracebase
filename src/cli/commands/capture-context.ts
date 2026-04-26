@@ -225,8 +225,19 @@ export function runCaptureContext(
       );
     }
 
+    // 0.7.0-rc.6 hardening — extract turns ONCE, up-front. Both
+    // the chunk-fold path AND the legacy digest path read from
+    // here, so neither gates the other. If the legacy digest
+    // returns null we still try to fold + persist chunks.
+    const turns = extractTurnsFromJsonl(transcript);
     const digest = extractDigest(transcript);
-    if (!digest) {
+
+    // Skip-no-content fires only when BOTH paths have nothing to
+    // do. Pre-hardening, a digest=null transcript skipped the
+    // chunk path too — even if the turns parsed and would have
+    // folded valid chunks. Post-hardening, the chunk path runs
+    // whenever turns parsed, regardless of digest extractability.
+    if (!digest && turns.length === 0) {
       return wrapEnvelope(
         null,
         false,
@@ -238,27 +249,8 @@ export function runCaptureContext(
     const sessionId = parsed.session_id ?? parsed.sessionId ?? "unknown";
     const config = loadConfig(basePath);
     const factId = withBlockStore(config.storagePath, (store) => {
-      const input: StoreProjectFactInput = {
-        scope: sessionScope(sessionId),
-        factType: "session_digest",
-        statement: digest,
-        invariants: {},
-        source: {
-          origin: "observed",
-          reference: sessionId,
-        },
-        ttlDays: DIGEST_TTL_DAYS,
-      };
-      const fact = store.storeFact(input);
-
-      // 0.7.0-rc.6 §rc.6 — chunk-based context compression. Same-
-      // session only. Watermark via the existing
-      // `latestSessionChunkWatermark`; the folder walks turns past
-      // it and emits new chunks. Best-effort: any failure here
-      // never breaks the legacy digest path that the prior `if
-      // (!digest)` already accepted.
+      // ---- Chunk fold path (independent of digest) ----
       try {
-        const turns = extractTurnsFromJsonl(transcript);
         if (turns.length > 0) {
           const watermark = store.latestSessionChunkWatermark(sessionId);
           const folded = foldTurns({
@@ -269,9 +261,6 @@ export function runCaptureContext(
           if (folded.chunks.length > 0) {
             store.recordSessionChunks(folded.chunks);
           }
-          // Emit one `context.fold_skipped` per skipped chunk so
-          // the doctor surfaces leakage / injection / below-
-          // threshold drops.
           for (const s of folded.skipped) {
             try {
               store.appendEvent({
@@ -286,13 +275,34 @@ export function runCaptureContext(
           }
         }
       } catch {
-        // never break the digest path on a chunk-fold failure
+        // chunk fold is non-load-bearing — never break the hook
       }
 
-      return fact.id;
+      // ---- Legacy digest path (parallel write, not a gate) ----
+      if (!digest) return null;
+      try {
+        const input: StoreProjectFactInput = {
+          scope: sessionScope(sessionId),
+          factType: "session_digest",
+          statement: digest,
+          invariants: {},
+          source: {
+            origin: "observed",
+            reference: sessionId,
+          },
+          ttlDays: DIGEST_TTL_DAYS,
+        };
+        const fact = store.storeFact(input);
+        return fact.id;
+      } catch {
+        // storeFact may throw on leakage / injection / dedupe —
+        // chunk fold already ran, so the rc.6 capability is intact
+        // even if digest stored nothing.
+        return null;
+      }
     });
 
-    const approxTokens = Math.ceil(digest.length / 4);
+    const approxTokens = digest ? Math.ceil(digest.length / 4) : 0;
     return wrapEnvelope(
       factId,
       false,

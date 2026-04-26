@@ -164,11 +164,18 @@ export function recallForPrompt(
   // `<context_fold>` section. Cross-session recall is structurally
   // impossible (the SQL filters on session_id) and a missing
   // sessionId produces an empty list.
-  let chunkHits: ReturnType<typeof store.recallSessionChunks> = [];
+  // 0.7.0-rc.6 hardening — prompt-aware chunk recall. Pre-
+  // hardening this used `recallSessionChunks` (recency-only),
+  // which surfaced the most recent K chunks regardless of which
+  // topic the user just asked about. The new method scores each
+  // chunk's summary by token overlap against the prompt; recency
+  // becomes the tiebreaker.
+  let chunkHits: ReturnType<typeof store.recallSessionChunksForPrompt> = [];
   if (opts.sessionId) {
     try {
-      chunkHits = store.recallSessionChunks(
+      chunkHits = store.recallSessionChunksForPrompt(
         opts.sessionId,
+        opts.prompt,
         opts.chunkHitsK ?? CHUNK_HITS_DEFAULT_K,
       );
     } catch {

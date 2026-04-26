@@ -249,6 +249,7 @@ export function buildInjectionPayload(
     hasBlocks: gatedBlocks.length > 0,
     hasFacts: gatedFacts.length > 0,
     hasFiles: gatedFiles.length > 0,
+    hasChunks: gatedChunks.length > 0,
   });
 
   // 0.7.0-rc.3 §rc.3 — file_memory section is wrapped in an
@@ -421,11 +422,12 @@ function composeLead(opts: {
   hasBlocks: boolean;
   hasFacts: boolean;
   hasFiles: boolean;
+  hasChunks: boolean;
 }): string {
   // The lead phrasing focuses on whatever the agent will read MOST —
-  // patterns + facts dominate when present; file memory plays a
-  // supporting role and is folded into the lead when nothing else
-  // is there.
+  // patterns + facts dominate when present; file memory and folded
+  // session context play supporting roles and surface in the lead
+  // when nothing else is there.
   if (opts.hasBlocks && opts.hasFacts) {
     return "Relevant prior patterns and project facts from this codebase:";
   }
@@ -434,6 +436,17 @@ function composeLead(opts: {
   }
   if (opts.hasFacts) {
     return "Relevant project facts:";
+  }
+  // 0.7.0-rc.6 hardening — chunk-only / chunk-dominant payloads
+  // get a session-context lead instead of falling through to the
+  // file lead. Pre-hardening, a chunks-only payload was labelled
+  // "Relevant file context:" which mislabels session history as
+  // file context for the model and for debugging.
+  if (opts.hasChunks && !opts.hasFiles) {
+    return "Relevant prior session context:";
+  }
+  if (opts.hasChunks && opts.hasFiles) {
+    return "Relevant file context and prior session:";
   }
   // Files-only path — explicit lead-in so the agent doesn't read
   // the bare tag as protocol.

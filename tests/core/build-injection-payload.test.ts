@@ -449,6 +449,69 @@ describe("buildInjectionPayload — file_memory section", () => {
     expect(payload.text).not.toContain("<file_memory>");
   });
 
+  // 0.7.0-rc.6 hardening — P2.2 regression. Chunk-only payload
+  // must use a session-context lead, not the file-context one.
+  it("chunk-only payload uses 'Relevant prior session context:' lead, not file context", () => {
+    storeActive(store, PY_BLOCK);
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    // Recall returns shouldInject=true (block matches), but to
+    // exercise the chunk-ONLY branch we pretend no block / fact
+    // surfaces by using a result with empty blocks/facts and
+    // forging shouldInject=true.
+    const fakeResult = {
+      ...server.recall({ text: "completely unrelated topic xyzqq" }),
+      blocks: [],
+      facts: [],
+      shouldInject: true,
+    };
+    const chunkHits = [
+      {
+        chunkStartTurn: 0,
+        chunkEndTurn: 7,
+        summary: "User asked about the auth helper, assistant explained signing flow",
+        tokensBefore: 1200,
+        tokensAfter: 200,
+      },
+    ];
+    const payload = buildInjectionPayload(fakeResult, { chunkHits });
+    expect(payload.hasContent).toBe(true);
+    expect(payload.text).toContain("Relevant prior session context:");
+    expect(payload.text).not.toContain("Relevant file context:");
+    expect(payload.text).toContain("<context_fold>");
+  });
+
+  it("chunk + files payload uses the combined lead", () => {
+    storeActive(store, PY_BLOCK);
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    const fakeResult = {
+      ...server.recall({ text: "unrelated query" }),
+      blocks: [],
+      facts: [],
+      shouldInject: true,
+    };
+    const fileHits = [
+      {
+        relPath: "src/auth.ts",
+        summary: "Auth helper signing tokens",
+        symbols: '{"exports":["authenticate"]}',
+        language: "typescript",
+        sizeBytes: 1024,
+        score: 0,
+      },
+    ];
+    const chunkHits = [
+      {
+        chunkStartTurn: 0,
+        chunkEndTurn: 7,
+        summary: "Earlier session context",
+        tokensBefore: 1200,
+        tokensAfter: 200,
+      },
+    ];
+    const payload = buildInjectionPayload(fakeResult, { fileHits, chunkHits });
+    expect(payload.text).toContain("Relevant file context and prior session:");
+  });
+
   it("files-only payload renders even when no blocks/facts pass the gate", () => {
     // 0.7.0-rc.3 hardening — pre-hardening, buildInjectionPayload
     // short-circuited on !result.shouldInject (computed from

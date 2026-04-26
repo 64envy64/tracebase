@@ -579,6 +579,54 @@ describe("runInjectContext — session-scoped fact recall (TB CONTEXT)", () => {
 // taking a dependency on the capture-tool-use code path.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// 0.7.0-rc.6 hardening — TB CONTEXT badge surfaces in Claude Code's
+// composite systemMessage when <context_fold> was injected.
+// ---------------------------------------------------------------------------
+
+describe("runInjectContext — TB CONTEXT composite badge (rc.6 hardening)", () => {
+  it("composite systemMessage includes ▣ TB CONTEXT when chunks render", async () => {
+    const config = initConfig(projectDir);
+    const db = new Database(config.storagePath);
+    const store = new BlockStore(db);
+
+    // Seed 16 turns of meaty content for session S-ctx so two
+    // chunks fold + one would surface on the prompt-aware recall.
+    const { foldTurns } = await import("../../src/core/context-fold.js");
+    const turns: Array<{ role: "user" | "assistant"; content: string }> = [];
+    for (let i = 0; i < 16; i++) {
+      turns.push({
+        role: i % 2 === 0 ? "user" : "assistant",
+        content: `kerberos auth helper signing tokens turn ${i} padding `.repeat(5),
+      });
+    }
+    const folded = foldTurns({
+      sessionId: "S-ctx",
+      turns,
+      existingWatermark: -1,
+    });
+    store.recordSessionChunks(folded.chunks);
+    expect(store.countSessionChunks("S-ctx")).toBeGreaterThan(0);
+    store.close();
+
+    const out = runInjectContext(
+      { path: projectDir },
+      {
+        prompt: "Continue with the kerberos auth helper signing tokens",
+        session_id: "S-ctx",
+      },
+    );
+    const env = JSON.parse(out.envelope) as {
+      systemMessage?: string;
+      hookSpecificOutput?: { additionalContext?: string };
+    };
+    // Composite badge MUST include the TB CONTEXT bullet.
+    expect(env.systemMessage).toMatch(/▣ TB CONTEXT\s+folded \d+ turns/);
+    // And the additionalContext carries the chunk-fold section.
+    expect(env.hookSpecificOutput?.additionalContext).toContain("<context_fold>");
+  });
+});
+
 describe("runInjectContext — TB TOOL / TB LOOP composite badges", () => {
   it("flags a straight loop with `▣ TB LOOP  straight × N (Tool)`", () => {
     const cfg = initConfig(projectDir);

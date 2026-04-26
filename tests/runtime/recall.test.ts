@@ -509,6 +509,76 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
     });
   });
 
+  // 0.7.0-rc.6 hardening — P1.1 regression. Recall must score
+  // chunks against the prompt, not just return the most recent K.
+  it("prompt-aware chunk recall: chunk 0 with matching tokens beats newer chunks 3-5", async () => {
+    const { foldTurns } = await import("../../src/core/context-fold.js");
+    withFreshStore((store, server, basePath) => {
+      const sessionId = "S-prompt-aware";
+
+      // Plant 6 chunks. Chunk 0 carries the unique token
+      // "kerberos" matching the prompt; chunks 3-5 are newer but
+      // discuss totally unrelated topics.
+      const buildTurns = (
+        prefix: string,
+        startTurn: number,
+      ): Array<{ role: "user" | "assistant"; content: string }> => {
+        const out: Array<{ role: "user" | "assistant"; content: string }> = [];
+        for (let i = 0; i < 8; i++) {
+          out.push({
+            role: (startTurn + i) % 2 === 0 ? "user" : "assistant",
+            content: `${prefix} content turn ${startTurn + i} padding `.repeat(5),
+          });
+        }
+        return out;
+      };
+
+      // Topic 0: kerberos auth (unique token).
+      const t0 = buildTurns("kerberos auth helper", 0);
+      // Topics 1-5: filler with non-overlapping vocabulary.
+      const fillerTopics = ["webhook", "scheduler", "indexer", "metrics", "billing"];
+      let allTurns: Array<{ role: "user" | "assistant"; content: string }> = [...t0];
+      for (let i = 0; i < fillerTopics.length; i++) {
+        allTurns = allTurns.concat(buildTurns(fillerTopics[i]!, (i + 1) * 8));
+      }
+
+      let watermark = -1;
+      for (let chunkIdx = 0; chunkIdx < 6; chunkIdx++) {
+        const startIdx = chunkIdx * 8;
+        const chunkTurns = allTurns.slice(0, startIdx + 8);
+        const folded = foldTurns({
+          sessionId,
+          turns: chunkTurns,
+          existingWatermark: watermark,
+        });
+        store.recordSessionChunks(folded.chunks);
+        if (folded.chunks.length > 0) {
+          watermark =
+            folded.chunks[folded.chunks.length - 1]!.chunkEndTurn;
+        }
+      }
+
+      // Verify all 6 chunks landed.
+      expect(store.countSessionChunks(sessionId)).toBe(6);
+
+      const out = recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "How does the kerberos auth helper sign tokens",
+        basePath,
+        sessionId,
+      });
+
+      // Pre-hardening this would surface chunks 3-5 (recency-only).
+      // Post-hardening: chunk 0 wins by Jaccard score; recent
+      // chunks are ranked below it.
+      expect(out.payload.contextFoldRanges.length).toBeGreaterThan(0);
+      // Chunk 0 covers turns 0..7. Assert its range appears in the
+      // surfaced set.
+      const surfaced = out.payload.contextFoldRanges;
+      const chunk0Surfaced = surfaced.some((r) => r.start === 0 && r.end === 7);
+      expect(chunk0Surfaced, `chunk 0 should be surfaced; got ranges ${JSON.stringify(surfaced)}`).toBe(true);
+    });
+  });
+
   it("missing sessionId on options → no chunk recall, no <context_fold> in payload", async () => {
     const { foldTurns } = await import("../../src/core/context-fold.js");
     withFreshStore((store, server, basePath) => {
