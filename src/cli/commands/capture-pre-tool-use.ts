@@ -291,10 +291,31 @@ export function runCapturePreToolUse(
   const labelTool = toolName;
   const warnLabel = `▣ TB TOOL  duplicate ${labelTool} · already in window (×${signal.count})`;
 
+  // 0.7.0-rc.4 hardening — strict-mode block is INDEPENDENT of
+  // the warn-once-per-arg-per-session dedupe.
+  //
+  // Pre-hardening, the second duplicate Read in strict mode hit
+  // the `alreadyWarned` branch, emitted `tool_supervision.suppressed`,
+  // and returned an empty envelope. That LET THE DUPLICATE
+  // EXECUTE — exactly the failure strict mode is supposed to
+  // prevent. The dedupe guard's only purpose is to silence the
+  // analytics + badge spam, never the security decision.
+  //
+  // Post-hardening: the decision:"block" envelope fires every
+  // duplicate hit while strict + safe-read; dedupe controls only
+  // (warned vs suppressed) analytics + the visible badge text.
   let blocked = false;
   const envelopePayload: Record<string, unknown> = {};
+
+  if (strictAppliesToTool) {
+    envelopePayload.decision = "block";
+    envelopePayload.reason = warnLabel + " — strict mode blocks duplicate read tools.";
+    blocked = true;
+  }
+
   if (alreadyWarned) {
-    // Suppressed — emit silently, no badge.
+    // Suppressed — emit silently, no badge. Strict-mode decision
+    // (above) still stands for safe-read tools.
     appendAnalyticsEvent(config.storagePath, {
       event: "tool_supervision.suppressed",
       argKey,
@@ -307,13 +328,10 @@ export function runCapturePreToolUse(
       toolName,
       mode: strictAppliesToTool ? "block" : "warn",
     });
-    if (strictAppliesToTool) {
-      // Spec: Claude Code emits `decision: "block"` with a reason
-      // string the host surfaces to the user.
-      envelopePayload.decision = "block";
-      envelopePayload.reason = warnLabel + " — strict mode blocks duplicate read tools.";
-      blocked = true;
-    } else {
+    // Visible badge fires ONLY in warn mode — strict mode already
+    // surfaces the reason via the decision:"block" envelope, and
+    // doubling the channel would just spam the operator's view.
+    if (!strictAppliesToTool) {
       envelopePayload.systemMessage = warnLabel;
     }
     dedupe.add(dedupeKey);

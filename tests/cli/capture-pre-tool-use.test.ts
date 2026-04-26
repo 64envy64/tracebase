@@ -212,6 +212,66 @@ describe("capture-pre-tool-use — rc.4b warm cache", () => {
       expect(raw2.length).toBe(0);
     }
   });
+
+  // 0.7.0-rc.4 hardening — P1 regression. The PostToolBatch path
+  // MUST warm RecentToolCache. Pre-hardening, observeToolBatch
+  // recorded to SQLite but never wrote .tracebase/cache/rtools.bin,
+  // which left PreToolUse permanently cache-missing on real
+  // Claude Code sessions.
+  it("PostToolBatch (capture-tool-use) warms the cache; subsequent PreToolUse sees the duplicate", async () => {
+    // Drive 3 PostToolBatch invocations on the same Read shape via
+    // the canonical CLI hook surface. After this, the warm cache
+    // file must exist and contain the seeded argKey.
+    const { runCaptureToolUse } = await import(
+      "../../src/cli/commands/capture-tool-use.js"
+    );
+
+    const ptbStdin = Buffer.from(
+      JSON.stringify({
+        hook_event_name: "PostToolBatch",
+        session_id: "session-deadbeef-0001",
+        cwd: "/work/repo",
+        tool_calls: [
+          {
+            tool_name: "Read",
+            tool_input: { file_path: "/work/repo/src/auth.ts" },
+            tool_use_id: "tu-1",
+          },
+        ],
+      }),
+    );
+
+    // Three runs to push the duplicate detector past the
+    // STRAIGHT threshold (3 consecutive same-argKey calls).
+    runCaptureToolUse({ path: workDir }, ptbStdin);
+    runCaptureToolUse({ path: workDir }, ptbStdin);
+    runCaptureToolUse({ path: workDir }, ptbStdin);
+
+    // The cache file should now exist with the rc.4 short-key
+    // format. Verify by hydrating a fresh cache and querying.
+    expect(existsSync(cacheFilePath(workDir))).toBe(true);
+    const cache = new RecentToolCache();
+    cache.hydrate(workDir);
+    const window = cache.recent("session-deadbeef-0001", 6);
+    expect(window.length).toBeGreaterThanOrEqual(3);
+    expect(window.every((w) => w.toolName === "Read")).toBe(true);
+    // All three records share the same argKey (same path, same
+    // session, same workspace salt).
+    const argKeys = new Set(window.map((w) => w.argKey));
+    expect(argKeys.size).toBe(1);
+
+    // Now run PreToolUse on the same Read fixture — the warm
+    // cache should drive a duplicate signal.
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
+    expect(out.warned).toBe(true);
+    expect(out.signalKind === "duplicate" || out.signalKind === "straight").toBe(true);
+    const env = JSON.parse(out.envelope) as { systemMessage?: string };
+    expect(env.systemMessage).toMatch(/▣ TB TOOL\s+duplicate Read/);
+
+    const events = readEvents("tool_supervision.warned");
+    expect(events.length).toBe(1);
+    expect(events[0]!.toolName).toBe("Read");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -417,6 +477,70 @@ describe("capture-pre-tool-use — rc.4d strict mode", () => {
     const out = runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
     expect(out.blocked).toBe(false);
     expect(out.warned).toBe(true);
+  });
+
+  // 0.7.0-rc.4 hardening — P1 regression. Strict mode MUST block
+  // every duplicate read attempt, not just the first one. The
+  // warn-once-per-arg-per-session dedupe controls only analytics
+  // + visible badge text — the security decision (decision:"block")
+  // is independent of dedupe.
+  it("strict mode blocks every duplicate Read — dedupe does NOT silence the block decision", () => {
+    enableStrictViaConfig();
+    const argKey = readArgKeyFor("Read", { file_path: "/work/repo/src/auth.ts" });
+    seedCache([
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001" },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001" },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001" },
+    ]);
+
+    // First duplicate Read — block fires + warned event emits.
+    const first = runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
+    expect(first.blocked).toBe(true);
+    expect(JSON.parse(first.envelope).decision).toBe("block");
+    expect(first.warned).toBe(true);
+
+    // Second duplicate Read on the same argKey — dedupe says
+    // "we already warned about this", so the analytics event is
+    // SUPPRESSED, but the security decision MUST stay block.
+    const second = runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
+    expect(second.blocked, "second duplicate Read must still block in strict mode").toBe(true);
+    expect(JSON.parse(second.envelope).decision).toBe("block");
+    expect(second.warned).toBe(false); // dedupe silences the warned bit
+
+    // Third duplicate Read — same: still blocked.
+    const third = runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
+    expect(third.blocked).toBe(true);
+    expect(JSON.parse(third.envelope).decision).toBe("block");
+
+    // Analytics: ONE warned event, ONE suppressed event minimum
+    // (actual count of suppressed = total duplicate calls past
+    // the first). Importantly the dedupe never converts a block
+    // into a no-op envelope.
+    const warnedEvents = readEvents("tool_supervision.warned");
+    const suppressedEvents = readEvents("tool_supervision.suppressed");
+    expect(warnedEvents.length).toBe(1);
+    expect(suppressedEvents.length).toBeGreaterThanOrEqual(2);
+    expect(warnedEvents[0]!.mode).toBe("block");
+  });
+
+  it("strict mode in WARN-only mode does NOT keep firing systemMessage on suppressed (badge spam stays gated)", () => {
+    // Belt-and-braces: the warn-mode (non-strict) path must
+    // continue to suppress repeated badges. Only the strict-
+    // mode block decision is exempt from dedupe.
+    const argKey = readArgKeyFor("Read", { file_path: "/work/repo/src/auth.ts" });
+    seedCache([
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001" },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001" },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001" },
+    ]);
+
+    const first = runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
+    expect(JSON.parse(first.envelope).systemMessage).toMatch(/duplicate Read/);
+
+    const second = runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
+    // Suppressed — no systemMessage on the second hit.
+    expect(JSON.parse(second.envelope).systemMessage).toBeUndefined();
+    expect(second.blocked).toBe(false);
   });
 });
 

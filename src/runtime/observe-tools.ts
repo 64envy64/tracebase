@@ -27,6 +27,7 @@ import type { RecordToolObservationInput, ToolObservationOutcome } from "../type
 import { sanitizeToolArgs } from "../core/tool-arg.js";
 import { toRepoRelative } from "../core/guard.js";
 import { enqueuePending } from "../core/file-indexer.js";
+import { RecentToolCache, type CachedObservation } from "./recent-tool-cache.js";
 
 /**
  * 0.7.0-rc.2 §rc.2 — closed set of tool names that imply the file
@@ -81,6 +82,26 @@ export interface ObserveToolBatchOptions {
   toolCalls: ObserveToolBatchCall[];
   /** Optional batch correlation id. Defaults to null. */
   batchId?: string | null;
+  /**
+   * 0.7.0-rc.4 hardening — workspace path used to warm the
+   * `.tracebase/cache/rtools.bin` on-disk PreToolUse cache.
+   *
+   * Pre-hardening, observations landed in SQLite via
+   * `recordToolObservations` but the warm cache was never written.
+   * That left the rc.4 PreToolUse hook permanently cache-missing
+   * on real Claude Code sessions: only manual seeding or test
+   * fixtures put rows in the cache.
+   *
+   * When set, after recordToolObservations succeeds, the
+   * sanitised observations are batch-appended to the cache file.
+   * Best-effort — any failure is swallowed; PostToolBatch must
+   * never break because cache warming is being attempted.
+   *
+   * When omitted, behaviour matches pre-hardening (no cache
+   * warming). Tests that don't care about PreToolUse can keep
+   * passing observeToolBatch the legacy options.
+   */
+  workspacePath?: string;
 }
 
 export interface ObserveToolBatchOutcome {
@@ -136,6 +157,36 @@ export function observeToolBatch(
   }
 
   const ids = store.recordToolObservations(inputs);
+
+  // 0.7.0-rc.4 hardening — warm the PreToolUse cache. Without this
+  // step the rc.4 PreToolUse hook would permanently cache-miss on
+  // real Claude Code sessions; only test fixtures + manual seeds
+  // populated the cache. PostToolBatch is the canonical
+  // observation path, so wiring the warm here covers both the
+  // CLI hook and the SDK runtime call sites uniformly.
+  //
+  // Best-effort: any failure (read-only fs, full disk, etc.) is
+  // swallowed. Cache warming must NEVER break the agent's tool
+  // path; PostToolBatch already succeeded persisting to SQLite.
+  if (opts.workspacePath) {
+    try {
+      const cache = new RecentToolCache();
+      const tNow = Date.now();
+      const records: CachedObservation[] = [];
+      for (let i = 0; i < cap; i++) {
+        const input = inputs[i]!;
+        records.push({
+          sessionId: input.sessionId,
+          argKey: input.argKey,
+          toolName: input.toolName,
+          ts: tNow,
+        });
+      }
+      cache.appendBatchToDisk(opts.workspacePath, records);
+    } catch {
+      // never break PostToolBatch on cache warming failure
+    }
+  }
 
   // 0.7.0-rc.2 §rc.2 — opportunistic indexer enqueue. After the
   // observations land, scan the same batch for write-like tools and

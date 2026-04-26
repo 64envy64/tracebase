@@ -406,6 +406,11 @@ export function createRuntime(
       cwd,
       workspaceSalt,
       toolCalls: input.toolCalls,
+      // 0.7.0-rc.4 hardening — warm the PreToolUse cache. Same
+      // wiring as the CLI hook in capture-tool-use.ts; without
+      // this the SDK runtime path would also leave PreToolUse
+      // permanently cache-missing.
+      workspacePath: basePath,
     });
     if (result.recorded > 0) markDirty("observeToolBatch");
     return { recorded: result.recorded };

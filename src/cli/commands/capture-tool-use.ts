@@ -224,6 +224,9 @@ export function runCaptureToolUse(
         cwd,
         workspaceSalt: salt,
         toolCalls: observeCalls,
+        // 0.7.0-rc.4 hardening — warm the PreToolUse cache so the
+        // rc.4 hook actually has data to detect duplicates against.
+        workspacePath: basePath,
       }),
     );
 

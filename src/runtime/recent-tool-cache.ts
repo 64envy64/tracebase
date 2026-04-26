@@ -190,16 +190,34 @@ export class RecentToolCache {
    * on disk; `hydrate()` re-applies the cap on next read.
    */
   appendToDisk(workspacePath: string, obs: CachedObservation): void {
+    this.appendBatchToDisk(workspacePath, [obs]);
+  }
+
+  /**
+   * 0.7.0-rc.4 hardening — batched on-disk append. PostToolBatch
+   * receives up to MAX_CALLS_PER_BATCH observations at once;
+   * appendToDisk one-by-one would open/close the file per call.
+   * This variant opens once, writes all lines, closes once.
+   *
+   * Empty array is a no-op. Failure swallowed — cache warming is
+   * never load-bearing on the agent's tool path.
+   */
+  appendBatchToDisk(workspacePath: string, observations: CachedObservation[]): void {
+    if (observations.length === 0) return;
     const path = cacheFilePath(workspacePath);
     try {
       const dir = dirname(path);
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
       const fd = openSync(path, "a");
       try {
-        appendFileSync(
-          fd,
-          JSON.stringify({ s: obs.sessionId, k: obs.argKey, n: obs.toolName, t: obs.ts }) + "\n",
-        );
+        const payload = observations
+          .map(
+            (e) =>
+              JSON.stringify({ s: e.sessionId, k: e.argKey, n: e.toolName, t: e.ts }) +
+              "\n",
+          )
+          .join("");
+        appendFileSync(fd, payload);
       } finally {
         closeSync(fd);
       }
