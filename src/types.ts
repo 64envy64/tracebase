@@ -1730,6 +1730,18 @@ export interface ToolSupervisionSuppressedEvent extends EventBase {
   event: "tool_supervision.suppressed";
   argKey: string;
   toolName: string;
+  /**
+   * 0.7.0-rc.7 hardening — true iff the strict-mode block decision
+   * fired alongside this suppressed warn (safe-read families in
+   * strict mode). Suppressed events with `blocked: false` mean only
+   * the BADGE was deduped — the duplicate tool still executed, so
+   * mechanism-savings must NOT credit them as token savings.
+   *
+   * Optional for backward compatibility: pre-hardening events are
+   * read as `blocked === undefined` and the aggregator treats that
+   * as `false` (warn-mode dedupe = zero token savings).
+   */
+  blocked?: boolean;
 }
 
 /**

@@ -26,6 +26,7 @@
  *     (USAGE_MECHANISMS_SPEC in src/cli/cloud-allowlist.ts).
  */
 import type { BlockStore } from "../core/block-store.js";
+import { toolFamilyOf, type ToolFamily } from "../runtime/tool-family.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -76,20 +77,28 @@ export interface MechanismSavings {
 
 /**
  * Per-family token-cost estimates used by `toolSupervisionAvoided`.
- * Each suppressed tool call (the warn-once `tool_supervision.
- * suppressed` event from §rc.4) saves roughly this many tokens
- * because the agent didn't have to consume the duplicate tool's
- * output. The values are intentionally conservative: a typical
- * Read returns 1-3k tokens of file content; we estimate 1500 to
- * land mid-distribution.
+ * Each ACTUALLY-BLOCKED duplicate tool call saves roughly this many
+ * tokens because the agent didn't have to consume the duplicate
+ * tool's output. The values are intentionally conservative: a
+ * typical Read returns 1-3k tokens of file content; we estimate
+ * 1500 to land mid-distribution.
+ *
+ * Keyed by the canonical eight-family `ToolFamily` union from
+ * `src/runtime/tool-family.ts` — same vocabulary the cloud
+ * allowlist permits. Adding a new family there is a TypeScript
+ * compile error here until an explicit per-family estimate is
+ * declared. (Pre-rc.7-hardening this map was a free-form
+ * `Record<string, number>` mirror that drifted to `fetch` while
+ * the canonical was `web`; keying off `ToolFamily` prevents that
+ * drift class.)
  *
  * Exposed for the dashboard's tooltip. Keep this map in sync with
  * the rendered help text in `tracebase impact` and any docs.
  */
-export const TOOL_FAMILY_TOKEN_ESTIMATE: Record<string, number> = {
+export const TOOL_FAMILY_TOKEN_ESTIMATE: Record<ToolFamily, number> = {
   read: 1500,
   search: 800,
-  fetch: 2000,
+  web: 2000,
   shell: 300,
   edit: 500,
   write: 400,
@@ -155,27 +164,54 @@ export function computeMechanismSavings(
     // best-effort
   }
 
-  // ---- tool_supervision.suppressed ----
-  // The suppressed event carries argKey + toolName. We map
-  // toolName → family via the closed lookup table and weight by
-  // the per-family token-cost estimate. Family resolution is
-  // case-sensitive and falls back to "other" for unknown names —
-  // matching the toolFamily contract.
+  // ---- tool_supervision.* (block-mode only) ----
+  //
+  // 0.7.0-rc.7 hardening — count ONLY actual blocks, never the
+  // dedupe of warn-mode badges. The supervisor's two events:
+  //   - `tool_supervision.warned { mode: "warn" | "block" }`:
+  //     Counts only when `mode === "block"`. In warn mode the
+  //     duplicate Read still runs, so credit-as-saved would
+  //     overstate token savings for zero-config users.
+  //   - `tool_supervision.suppressed { blocked: boolean }`:
+  //     Counts only when `blocked === true`. The suppressed
+  //     event by itself just says "we already showed the badge
+  //     for this arg-key" — without the blocked decision the
+  //     tool ran. Pre-hardening events without a `blocked`
+  //     field are read as `undefined` → not counted.
+  //
+  // Each counted event weights its per-family token-cost
+  // estimate. Family resolution shares `toolFamilyOf` with the
+  // rest of the codebase, so the eight-family vocabulary lives
+  // in exactly one place and adding a new family is a
+  // TypeScript compile error in `TOOL_FAMILY_TOKEN_ESTIMATE`.
   try {
-    const events = store.readEvents({
+    const warned = store.readEvents({
+      eventType: "tool_supervision.warned",
+      ...(window.afterTs !== undefined ? { afterTs: window.afterTs } : {}),
+      ...(window.beforeTs !== undefined ? { beforeTs: window.beforeTs } : {}),
+      limit: 10_000,
+    });
+    for (const ev of warned) {
+      if (ev.event !== "tool_supervision.warned") continue;
+      if (ev.mode !== "block") continue; // warn-mode = duplicate still ran
+      const family = toolFamilyOf(ev.toolName);
+      toolSupervisionAvoided += TOOL_FAMILY_TOKEN_ESTIMATE[family];
+    }
+  } catch {
+    // best-effort
+  }
+  try {
+    const suppressed = store.readEvents({
       eventType: "tool_supervision.suppressed",
       ...(window.afterTs !== undefined ? { afterTs: window.afterTs } : {}),
       ...(window.beforeTs !== undefined ? { beforeTs: window.beforeTs } : {}),
       limit: 10_000,
     });
-    for (const ev of events) {
+    for (const ev of suppressed) {
       if (ev.event !== "tool_supervision.suppressed") continue;
-      const family = familyForToolName(ev.toolName);
-      const est =
-        TOOL_FAMILY_TOKEN_ESTIMATE[family] ??
-        TOOL_FAMILY_TOKEN_ESTIMATE.other ??
-        0;
-      toolSupervisionAvoided += est;
+      if (ev.blocked !== true) continue; // warn-mode dedupe = no avoided work
+      const family = toolFamilyOf(ev.toolName);
+      toolSupervisionAvoided += TOOL_FAMILY_TOKEN_ESTIMATE[family];
     }
   } catch {
     // best-effort
@@ -214,48 +250,3 @@ export function computeMechanismSavings(
   };
 }
 
-/**
- * Local mirror of the eight-family vocabulary from
- * `src/runtime/tool-family.ts`. Mirrored (not imported) so this
- * aggregator stays purely data-driven — adding a new tool name
- * to the family map there should NOT silently change the
- * mechanism savings number; it requires an explicit edit here
- * with a per-family token estimate.
- */
-function familyForToolName(toolName: string): string {
-  switch (toolName) {
-    case "Read":
-    case "Cat":
-    case "MultiRead":
-      return "read";
-    case "Grep":
-    case "Glob":
-    case "ripgrep":
-    case "ag":
-    case "findstr":
-      return "search";
-    case "Bash":
-    case "Shell":
-    case "Exec":
-    case "Run":
-      return "shell";
-    case "Edit":
-    case "MultiEdit":
-    case "NotebookEdit":
-    case "Patch":
-      return "edit";
-    case "Write":
-    case "Create":
-      return "write";
-    case "WebFetch":
-    case "WebSearch":
-    case "HttpGet":
-    case "HttpPost":
-      return "fetch";
-    case "Task":
-    case "Skill":
-      return "task";
-    default:
-      return "other";
-  }
-}

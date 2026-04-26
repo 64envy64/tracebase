@@ -6,8 +6,16 @@
  *     over `context.folded` events
  *   - file_memory_avoided       = Σ (bytesAvoided/4 - tokensInjected)
  *     over `file_memory.recalled` events, clamped to 0
- *   - tool_supervision_avoided  = Σ (per_family_estimate × count)
- *     over `tool_supervision.suppressed` events
+ *   - tool_supervision_avoided  = Σ per_family_estimate over
+ *     ACTUAL BLOCKS:
+ *       - `tool_supervision.warned { mode: "block" }` — first
+ *         duplicate hit in strict mode for safe-read families
+ *       - `tool_supervision.suppressed { blocked: true }` —
+ *         subsequent duplicate hits in strict mode (warn-once
+ *         dedupe + block decision both fire)
+ *     Warn-mode events (the duplicate Read still ran) contribute
+ *     ZERO — counting them would overstate savings for zero-config
+ *     users.
  *   - prompt_cache_saved        = Σ tokensSaved over `cache.prompt_hit`
  *     events (provider-reported only)
  *   - total                     = sum of the four
@@ -142,32 +150,92 @@ describe("computeMechanismSavings — file_memory.recalled", () => {
 // tool_supervision_avoided
 // ---------------------------------------------------------------------------
 
-describe("computeMechanismSavings — tool_supervision.suppressed", () => {
-  it("weights each suppression by the per-family token estimate", () => {
-    // 2× Read → 2 × 1500 = 3000
-    // 1× Grep → 1 × 800  = 800
-    // 1× Bash → 1 × 300  = 300
-    // 1× Edit → 1 × 500  = 500
-    // 1× WebFetch → 1 × 2000 = 2000
-    const events = [
-      { toolName: "Read" },
-      { toolName: "Read" },
-      { toolName: "Grep" },
-      { toolName: "Bash" },
-      { toolName: "Edit" },
-      { toolName: "WebFetch" },
-    ];
-    for (let i = 0; i < events.length; i++) {
-      store.appendEvent({
-        ts: 100 + i,
-        queryId: `q${i}`,
-        event: "tool_supervision.suppressed",
-        argKey: `k${i}`,
-        toolName: events[i]!.toolName,
-      });
-    }
+describe("computeMechanismSavings — tool_supervision (block-mode only)", () => {
+  it("counts `warned { mode: 'block' }` and `suppressed { blocked: true }` per-family", () => {
+    // First-block hits surface as warned(mode='block'). Repeat
+    // duplicates in strict mode surface as suppressed(blocked=true).
+    // Both represent ACTUAL blocked tool executions and are
+    // weighted by the per-family token estimate.
+    //
+    //   warned mode=block:
+    //     1× Read   → 1500
+    //     1× Grep   →  800
+    //   suppressed blocked=true:
+    //     1× Read   → 1500  (subsequent duplicate Read in strict)
+    //     1× WebFetch → 2000 (web family, was 'fetch' pre-hardening)
+    store.appendEvent({
+      ts: 100,
+      queryId: "q1",
+      event: "tool_supervision.warned",
+      argKey: "k1",
+      toolName: "Read",
+      mode: "block",
+    });
+    store.appendEvent({
+      ts: 110,
+      queryId: "q2",
+      event: "tool_supervision.warned",
+      argKey: "k2",
+      toolName: "Grep",
+      mode: "block",
+    });
+    store.appendEvent({
+      ts: 120,
+      queryId: "q3",
+      event: "tool_supervision.suppressed",
+      argKey: "k1",
+      toolName: "Read",
+      blocked: true,
+    });
+    store.appendEvent({
+      ts: 130,
+      queryId: "q4",
+      event: "tool_supervision.suppressed",
+      argKey: "k4",
+      toolName: "WebFetch",
+      blocked: true,
+    });
     const out = computeMechanismSavings(store);
-    expect(out.toolSupervisionAvoided).toBe(3000 + 800 + 300 + 500 + 2000);
+    expect(out.toolSupervisionAvoided).toBe(1500 + 800 + 1500 + 2000);
+  });
+
+  it("warn-mode events contribute ZERO (the duplicate tool still ran)", () => {
+    // warned with mode='warn' — duplicate Read still executed.
+    store.appendEvent({
+      ts: 100,
+      queryId: "q1",
+      event: "tool_supervision.warned",
+      argKey: "k1",
+      toolName: "Read",
+      mode: "warn",
+    });
+    // suppressed with blocked=false — duplicate Read still executed.
+    store.appendEvent({
+      ts: 110,
+      queryId: "q2",
+      event: "tool_supervision.suppressed",
+      argKey: "k1",
+      toolName: "Read",
+      blocked: false,
+    });
+    const out = computeMechanismSavings(store);
+    expect(out.toolSupervisionAvoided).toBe(0);
+  });
+
+  it("legacy suppressed events without `blocked` field are treated as warn-mode (zero savings)", () => {
+    // Pre-hardening DBs may carry suppressed events that don't
+    // have the `blocked` field. The aggregator must NOT credit
+    // them as savings — when in doubt, the honest answer is zero.
+    store.appendEvent({
+      ts: 100,
+      queryId: "q1",
+      event: "tool_supervision.suppressed",
+      argKey: "k1",
+      toolName: "Read",
+      // intentionally NO blocked field — simulates pre-hardening row
+    } as Parameters<typeof store.appendEvent>[0]);
+    const out = computeMechanismSavings(store);
+    expect(out.toolSupervisionAvoided).toBe(0);
   });
 
   it("unknown tool names map to the 'other' family", () => {
@@ -177,9 +245,29 @@ describe("computeMechanismSavings — tool_supervision.suppressed", () => {
       event: "tool_supervision.suppressed",
       argKey: "kA",
       toolName: "FuturisticMystery",
+      blocked: true,
     });
     const out = computeMechanismSavings(store);
     expect(out.toolSupervisionAvoided).toBe(TOOL_FAMILY_TOKEN_ESTIMATE.other);
+  });
+
+  it("WebFetch maps to the canonical 'web' family (not 'fetch')", () => {
+    // Pre-hardening, the local mirror keyed on 'fetch' while the
+    // canonical vocabulary said 'web'. This regression pins the
+    // alignment: WebFetch + the 'web' bucket value, not 'fetch'.
+    store.appendEvent({
+      ts: 100,
+      queryId: "q-web",
+      event: "tool_supervision.suppressed",
+      argKey: "kW",
+      toolName: "WebFetch",
+      blocked: true,
+    });
+    const out = computeMechanismSavings(store);
+    expect(out.toolSupervisionAvoided).toBe(TOOL_FAMILY_TOKEN_ESTIMATE.web);
+    // Sanity-check: the map carries 'web' not 'fetch'.
+    expect((TOOL_FAMILY_TOKEN_ESTIMATE as Record<string, unknown>).web).toBe(2000);
+    expect((TOOL_FAMILY_TOKEN_ESTIMATE as Record<string, unknown>).fetch).toBeUndefined();
   });
 });
 
@@ -258,6 +346,7 @@ describe("computeMechanismSavings — total + window", () => {
       event: "tool_supervision.suppressed",
       argKey: "kA",
       toolName: "Read",
+      blocked: true,
     });
     store.appendEvent({
       ts: 130,

@@ -316,10 +316,16 @@ export function runCapturePreToolUse(
   if (alreadyWarned) {
     // Suppressed — emit silently, no badge. Strict-mode decision
     // (above) still stands for safe-read tools.
+    //
+    // 0.7.0-rc.7 hardening — record whether the strict-mode block
+    // ALSO fired this hit. Mechanism-savings counts only blocked
+    // suppressions; warn-mode dedupe contributes zero (the
+    // duplicate Read still ran, so there are no avoided tokens).
     appendAnalyticsEvent(config.storagePath, {
       event: "tool_supervision.suppressed",
       argKey,
       toolName,
+      blocked,
     });
   } else {
     appendAnalyticsEvent(config.storagePath, {
@@ -560,7 +566,7 @@ function appendAnalyticsEvent(
   storagePath: string,
   payload:
     | { event: "tool_supervision.warned"; argKey: string; toolName: string; mode: "warn" | "block" }
-    | { event: "tool_supervision.suppressed"; argKey: string; toolName: string },
+    | { event: "tool_supervision.suppressed"; argKey: string; toolName: string; blocked: boolean },
 ): void {
   try {
     const db = new Database(storagePath);

@@ -557,6 +557,10 @@ describe("runImpact — mechanism savings (0.7.0-rc.7)", () => {
       event: "tool_supervision.suppressed",
       argKey: "k",
       toolName: opts.toolName,
+      // 0.7.0-rc.7 hardening — only blocked suppressions count
+      // toward mechanism savings. The impact test seeds these as
+      // strict-mode blocks to assert the renderer integration.
+      blocked: true,
     });
     store.close();
   }
