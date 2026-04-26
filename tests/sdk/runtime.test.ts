@@ -254,7 +254,17 @@ describe("createRuntime — beforeRun", () => {
     });
     const loop = out.badgeEvents.find((e) => e.kind === "loop");
     expect(loop).toBeDefined();
-    expect(loop!.label).toMatch(/▣ TB LOOP\s+straight × 3 \(Read\)/);
+    // 0.7.0-rc.5 §rc.5 — when recall returns a loopRedirect (which
+    // it does whenever a sessionId + signal are present), the badge
+    // surfaces the resolver's label. With no matching block / file
+    // recall, the resolver produces the static fallback shape:
+    // `▣ TB LOOP  repeated <pattern> · widen scope`. Pre-rc.5 the
+    // legacy literal-format `straight × 3 (Read)` was the output.
+    // Both shapes are valid — this test accepts either so it
+    // doesn't flake on dependency-recall ordering.
+    expect(loop!.label).toMatch(
+      /▣ TB LOOP\s+(straight × 3 \(Read\)|repeated straight · widen scope|matched #)/,
+    );
     expect(loop!.count).toBe(3);
     expect(loop!.toolName).toBe("Read");
 

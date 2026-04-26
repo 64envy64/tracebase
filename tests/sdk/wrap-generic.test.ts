@@ -81,7 +81,12 @@ describe("wrapGeneric — happy path", () => {
     await wrapped({ question: "ok how about the migration runner what should we do exactly" });
     const loop = events.find((e) => e.kind === "loop");
     expect(loop).toBeDefined();
-    expect(loop!.label).toMatch(/▣ TB LOOP\s+straight × 3 \(Read\)/);
+    // 0.7.0-rc.5 §rc.5 — loop badge label format extended to
+    // surface resolver output. Either legacy literal or rc.5
+    // resolver variants are valid.
+    expect(loop!.label).toMatch(
+      /▣ TB LOOP\s+(straight × 3 \(Read\)|repeated straight · widen scope|matched #)/,
+    );
     expect(loop!.source).toBe("langchain");
   });
 

@@ -214,15 +214,25 @@ export function createRuntime(
   function signalToBadgeEvent(
     signal: ToolPatternSignal,
     queryId: string | undefined,
+    redirectLabel?: string,
   ): BadgeEvent | null {
     const ts = Date.now();
     const baseSrc = source ? { source } : {};
+    // 0.7.0-rc.5 §rc.5 — when the resolver returned a label,
+    // surface it as the loop badge text. The resolver already
+    // produced "matched #<id> · <hint>" or
+    // "repeated <pattern> · widen scope", clamped at 100 chars
+    // and content-audited. The legacy literal-format branches
+    // below stay as fallbacks when the resolver wasn't available
+    // (e.g. the SDK runtime's loop-only path before recall).
     if (signal.kind === "straight" && enableLoop) {
       return {
         kind: "loop",
-        label: signal.toolName
-          ? `▣ TB LOOP  straight × ${signal.count} (${signal.toolName})`
-          : `▣ TB LOOP  straight × ${signal.count}`,
+        label:
+          redirectLabel ??
+          (signal.toolName
+            ? `▣ TB LOOP  straight × ${signal.count} (${signal.toolName})`
+            : `▣ TB LOOP  straight × ${signal.count}`),
         count: signal.count,
         ...(signal.toolName ? { toolName: signal.toolName } : {}),
         ...(queryId ? { queryId } : {}),
@@ -233,9 +243,11 @@ export function createRuntime(
     if (signal.kind === "pingpong" && enableLoop) {
       return {
         kind: "loop",
-        label: signal.toolName
-          ? `▣ TB LOOP  ping-pong (${signal.toolName})`
-          : "▣ TB LOOP  ping-pong",
+        label:
+          redirectLabel ??
+          (signal.toolName
+            ? `▣ TB LOOP  ping-pong (${signal.toolName})`
+            : "▣ TB LOOP  ping-pong"),
         count: signal.count,
         ...(signal.toolName ? { toolName: signal.toolName } : {}),
         ...(queryId ? { queryId } : {}),
@@ -368,7 +380,11 @@ export function createRuntime(
     if (recall.hasContent) {
       events.push(...recallToBadgeEvents(recall.payload, recall.queryId));
     }
-    const toolEvent = signalToBadgeEvent(recall.signal, recall.queryId);
+    const toolEvent = signalToBadgeEvent(
+      recall.signal,
+      recall.queryId,
+      recall.loopRedirect?.label,
+    );
     if (toolEvent) events.push(toolEvent);
 
     for (const ev of events) emitBadge(ev);

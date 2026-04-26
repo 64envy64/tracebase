@@ -45,12 +45,12 @@ import { detectPromptInjectionPatterns } from "./guard.js";
 // Schema
 // ---------------------------------------------------------------------------
 
-// 0.7.0-rc.3 bumps to 11 — file memory recall (PLAN-0.7 §rc.3)
-// needs FTS over indexed_files.summary + symbols. Adds the
-// `indexed_files_fts` virtual table + its three sync triggers,
-// mirroring the long-running pattern used by `reasoning_blocks_fts`
-// and `project_facts_fts`.
-const V2_SCHEMA_VERSION = 11;
+// 0.7.0-rc.5 bumps to 12 — loop redirect anti-self-loop guard
+// (PLAN-0.7 §rc.5). Adds `loop_redirect_dedupe(session_id,
+// anchor_id, arg_key, ts)` so the same anchor for the same
+// arg_key in the same session fires the redirect once. Same
+// migration framework as before.
+const V2_SCHEMA_VERSION = 12;
 
 const V2_SCHEMA = `
 CREATE TABLE IF NOT EXISTS reasoning_blocks (
@@ -418,6 +418,28 @@ CREATE TABLE IF NOT EXISTS indexer_pending (
 );
 
 CREATE INDEX IF NOT EXISTS idx_indexer_pending_kind ON indexer_pending(kind, enqueued_at);
+
+-- 0.7.0-rc.5 rc.5 — loop redirect anti-self-loop guard.
+--
+-- One row per (session_id, anchor_id, arg_key) the redirect
+-- resolver has already pointed the agent at. The next loop hit
+-- on the same arg_key in the same session checks this table; if
+-- the anchor is present, the resolver falls back to the static
+-- "widen scope" message instead of pointing at the same anchor
+-- twice in a row.
+--
+-- Privacy: anchor_id is either a block UUID or a repo-relative
+-- file path (the rc.3 indexed_files.rel_path). Both are local-
+-- only — the cloud allowlist drops every column.
+CREATE TABLE IF NOT EXISTS loop_redirect_dedupe (
+  session_id  TEXT NOT NULL,
+  anchor_id   TEXT NOT NULL,
+  arg_key     TEXT NOT NULL,
+  ts          INTEGER NOT NULL,
+  PRIMARY KEY (session_id, anchor_id, arg_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_loop_redirect_dedupe_ts ON loop_redirect_dedupe(ts);
 
 -- Calibrator models (Phase 5.2). Named JSON blobs so multiple named
 -- calibrators can coexist (e.g. per-cohort, per-deployment). Phase 5
@@ -834,6 +856,19 @@ const V2_MIGRATIONS: Record<number, MigrationStep[]> = {
        VALUES (new.rowid, new.summary, new.symbols);
      END`,
     `INSERT INTO indexed_files_fts(indexed_files_fts) VALUES('rebuild')`,
+  ],
+  // v11 → v12: 0.7.0-rc.5 loop redirect anti-self-loop guard
+  // (PLAN-0.7 §rc.5). Pure additive — one new table + one index.
+  // Idempotent via IF NOT EXISTS.
+  12: [
+    `CREATE TABLE IF NOT EXISTS loop_redirect_dedupe (
+       session_id  TEXT NOT NULL,
+       anchor_id   TEXT NOT NULL,
+       arg_key     TEXT NOT NULL,
+       ts          INTEGER NOT NULL,
+       PRIMARY KEY (session_id, anchor_id, arg_key)
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_loop_redirect_dedupe_ts ON loop_redirect_dedupe(ts)`,
   ],
 };
 

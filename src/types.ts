@@ -1659,10 +1659,19 @@ export interface ToolSupervisionSuppressedEvent extends EventBase {
   toolName: string;
 }
 
-/** rc.5 — loop redirect fired with a recall-backed anchor. */
+/**
+ * rc.5 — loop redirect fired with a recall-backed anchor.
+ *
+ * `signal` mirrors the existing `ToolPatternKind` vocabulary
+ * (`duplicate` / `straight` / `pingpong` / `none`) — same shape
+ * the detector returns, same shape the cloud allowlist accepts.
+ * `none` never lands here (the resolver only runs on non-`none`
+ * signals) but the union allows it for type-cleanliness so a
+ * future caller doesn't need a re-narrowing layer.
+ */
 export interface LoopRedirectedEvent extends EventBase {
   event: "loop.redirected";
-  signal: "duplicate" | "ping-pong" | "straight";
+  signal: "duplicate" | "pingpong" | "straight" | "none";
   anchorId: string;
   anchorKind: "block" | "file";
   confidence: number;
@@ -1671,7 +1680,7 @@ export interface LoopRedirectedEvent extends EventBase {
 /** rc.5 — loop signal saw no confident hit; static fallback emitted. */
 export interface LoopFallbackEvent extends EventBase {
   event: "loop.fallback";
-  signal: "duplicate" | "ping-pong" | "straight";
+  signal: "duplicate" | "pingpong" | "straight" | "none";
   reason: "no-hit" | "low-confidence" | "anti-self-loop";
 }
 

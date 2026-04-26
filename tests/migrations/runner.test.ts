@@ -87,6 +87,7 @@ describe("migrations — fresh DB", () => {
       "calibrator_models",
       "indexed_files",
       "indexer_pending",
+      "loop_redirect_dedupe",
     ]) {
       expect(tables).toContain(t);
     }
@@ -589,6 +590,85 @@ describe("migration #11 — indexed_files FTS5 mirror", () => {
       .all("widgets") as Array<{ rel_path: string }>;
     expect(hits.map((h) => h.rel_path)).toEqual(["src/a.ts"]);
 
+    store.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Migration #12 — loop_redirect_dedupe (PLAN-0.7 §rc.5)
+// ---------------------------------------------------------------------------
+
+describe("migration #12 — loop_redirect_dedupe", () => {
+  it("fresh init creates loop_redirect_dedupe with the documented composite PK", () => {
+    const store = new BlockStore(dbPath);
+    const db = store.rawDb;
+    const cols = (
+      db.prepare("PRAGMA table_info(loop_redirect_dedupe)").all() as Array<{
+        name: string;
+        pk: number;
+      }>
+    );
+    const colNames = cols.map((c) => c.name).sort();
+    expect(colNames).toEqual(["anchor_id", "arg_key", "session_id", "ts"]);
+    // Composite PK on (session_id, anchor_id, arg_key) — three pk
+    // columns flagged.
+    const pkCols = cols.filter((c) => c.pk > 0).map((c) => c.name).sort();
+    expect(pkCols).toEqual(["anchor_id", "arg_key", "session_id"]);
+    store.close();
+  });
+
+  it("UNIQUE constraint enforces the (session_id, anchor_id, arg_key) tuple", () => {
+    const store = new BlockStore(dbPath);
+    const db = store.rawDb;
+    const insert = db.prepare(
+      "INSERT INTO loop_redirect_dedupe(session_id, anchor_id, arg_key, ts) VALUES (?, ?, ?, ?)",
+    );
+    expect(() => insert.run("s1", "anchor-1", "k1", 1)).not.toThrow();
+    expect(() => insert.run("s1", "anchor-1", "k1", 2)).toThrow(
+      /UNIQUE|PRIMARY KEY/,
+    );
+    // Different anchor_id → distinct row, no throw.
+    expect(() => insert.run("s1", "anchor-2", "k1", 1)).not.toThrow();
+    // Different session_id → distinct row, no throw.
+    expect(() => insert.run("s2", "anchor-1", "k1", 1)).not.toThrow();
+    store.close();
+  });
+
+  it("upgrade from v=11: adds loop_redirect_dedupe without disturbing existing rows", () => {
+    // Stand up v=12, drop loop_redirect_dedupe, roll meta back to 11.
+    const seed = new BlockStore(dbPath);
+    seed.storeFact({
+      scope: "global",
+      factType: "convention",
+      statement: "tests live under tests/cli",
+      invariants: {},
+      source: { origin: "declared" },
+    });
+    seed.close();
+
+    const raw = new Database(dbPath);
+    raw.exec("DROP INDEX IF EXISTS idx_loop_redirect_dedupe_ts");
+    raw.exec("DROP TABLE IF EXISTS loop_redirect_dedupe");
+    raw.prepare("UPDATE v2_schema_meta SET value = '11' WHERE key = 'version'").run();
+    raw.prepare("DELETE FROM schema_version WHERE version >= 12").run();
+    raw.close();
+
+    const store = new BlockStore(dbPath);
+    const db = store.rawDb;
+    const meta = db
+      .prepare("SELECT value FROM v2_schema_meta WHERE key = 'version'")
+      .get() as { value: string };
+    expect(parseInt(meta.value, 10)).toBeGreaterThanOrEqual(12);
+    const fact = db
+      .prepare("SELECT statement FROM project_facts")
+      .get() as { statement: string };
+    expect(fact.statement).toBe("tests live under tests/cli");
+    const tables = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
+        name: string;
+      }>
+    ).map((r) => r.name);
+    expect(tables).toContain("loop_redirect_dedupe");
     store.close();
   });
 });

@@ -34,8 +34,11 @@ import type { readHoldoutConfig } from "../core/config.js";
 import { detectToolPattern } from "../core/tool-loop-detect.js";
 import { buildInjectionPayload } from "../core/build-injection-payload.js";
 import { drainIndexerPending, recallFiles } from "../core/file-indexer.js";
+import { normalizeIntentKey } from "../core/intent-key.js";
+import { resolveLoopRedirect, type LoopRedirectResult } from "../core/loop-redirect.js";
 import { runReasoningPatternsRecall } from "../server/reasoning-patterns-entry.js";
 import { sessionScope } from "./digest.js";
+import { randomUUID } from "node:crypto";
 
 /**
  * Match the signature `withBlockServer` already passes — a function
@@ -87,6 +90,14 @@ export interface RecallForPromptResult {
   payload: InjectionPayload;
   /** Tool-loop / repeat detector signal. `none` when no session id. */
   signal: ToolPatternSignal;
+  /**
+   * 0.7.0-rc.5 §rc.5 — loop redirect resolver result. Present when
+   * a tool-pattern signal fired AND the resolver returned either
+   * a confident anchor or a static fallback. Absent when signal
+   * was `none`. Wrappers surface `loopRedirect.label` as the TB
+   * LOOP badge text.
+   */
+  loopRedirect?: LoopRedirectResult;
   /** Convenience: `payload.queryId`. */
   queryId: string;
   /** Convenience: `payload.hasContent`. */
@@ -146,15 +157,56 @@ export function recallForPrompt(
   });
 
   let signal: ToolPatternSignal = { kind: "none", count: 0 };
+  let loopRedirect: LoopRedirectResult | undefined = undefined;
+  let recentObservations: Awaited<
+    ReturnType<typeof store.recentToolObservations>
+  > = [];
   if (opts.sessionId && opts.enableToolDetection !== false) {
     try {
-      const recent = store.recentToolObservations(
+      recentObservations = store.recentToolObservations(
         opts.sessionId,
         opts.toolWindowSize ?? 6,
       );
-      signal = detectToolPattern(recent);
+      // First pass: argKey-keyed detector (rc.4 substrate).
+      // Catches duplicate / straight / pingpong on the literal
+      // sanitised arg shape.
+      signal = detectToolPattern(recentObservations);
+
+      // 0.7.0-rc.5 §rc.5 — second pass: intent_key-keyed detector
+      // so cross-alias search loops collapse. `grep "auth_token"`
+      // and `rg "auth[_-]token"` have different argKeys but the
+      // same intent_key — without this layer the redirect would
+      // miss them.
+      if (signal.kind === "none" && recentObservations.length >= 2) {
+        const semantic = recentObservations.map((o) => ({
+          ...o,
+          argKey: normalizeIntentKey(o.argSummary, o.toolName),
+        }));
+        const semanticSignal = detectToolPattern(semantic);
+        if (semanticSignal.kind !== "none") signal = semanticSignal;
+      }
     } catch {
       // detector is non-load-bearing on the prompt path — swallow
+    }
+  }
+
+  // 0.7.0-rc.5 §rc.5 — loop redirect resolver. Runs only when a
+  // signal fired; never throws (resolver is wrapped). Surfaces
+  // a `matched` anchor or a static `fallback`. Wrappers read
+  // `loopRedirect.label` for the badge text.
+  if (signal.kind !== "none" && opts.sessionId && recentObservations.length > 0) {
+    try {
+      loopRedirect = resolveLoopRedirect({
+        store,
+        server,
+        signal,
+        observations: recentObservations,
+        sessionId: opts.sessionId,
+        basePath: opts.basePath,
+      });
+      emitLoopEvent(store, loopRedirect, signal, payload.queryId);
+    } catch {
+      // resolver is non-load-bearing — never break the recall path
     }
   }
 
@@ -213,9 +265,48 @@ export function recallForPrompt(
     raw,
     payload,
     signal,
+    ...(loopRedirect ? { loopRedirect } : {}),
     queryId: payload.queryId,
     hasContent: payload.hasContent,
   };
+}
+
+/**
+ * Emit `loop.redirected` (matched) or `loop.fallback` (no-hit /
+ * low-confidence / anti-self-loop) telemetry rows. Best-effort —
+ * telemetry must never break the recall path.
+ */
+function emitLoopEvent(
+  store: BlockStore,
+  redirect: LoopRedirectResult,
+  signal: ToolPatternSignal,
+  queryId: string,
+): void {
+  if (signal.kind === "none") return;
+  try {
+    const ts = Date.now();
+    if (redirect.kind === "matched") {
+      store.appendEvent({
+        ts,
+        queryId: queryId || `loop-redirect-${randomUUID()}`,
+        event: "loop.redirected",
+        signal: signal.kind,
+        anchorId: redirect.anchorId ?? "",
+        anchorKind: redirect.anchorKind ?? "block",
+        confidence: redirect.confidence ?? 0,
+      });
+    } else {
+      store.appendEvent({
+        ts,
+        queryId: queryId || `loop-fallback-${randomUUID()}`,
+        event: "loop.fallback",
+        signal: signal.kind,
+        reason: redirect.fallbackReason ?? "no-hit",
+      });
+    }
+  } catch {
+    // best-effort
+  }
 }
 
 /**
