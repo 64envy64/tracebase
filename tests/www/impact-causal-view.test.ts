@@ -33,9 +33,9 @@ describe("ImpactView — causal section markup", () => {
 
   it("absent state: renders 'No causal data yet' copy when metrics.causal is undefined", () => {
     expect(IMPACT_VIEW).toContain("No causal data yet");
-    // Points the user at the enable CLI — that's the honest next
-    // step, not "we'll compute anyway from shadow data".
-    expect(IMPACT_VIEW).toMatch(/tracebase experiment enable/);
+    // 0.6.1 — points at the init re-run path; the experiment
+    // command is no longer surfaced on the CLI.
+    expect(IMPACT_VIEW).toMatch(/tracebase init --holdout-rate/);
   });
 
   it("under-threshold state: keeps lift hidden and explains the waiting gate", () => {

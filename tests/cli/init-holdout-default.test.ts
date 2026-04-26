@@ -34,55 +34,53 @@ afterEach(() => {
   rmSync(projectDir, { recursive: true, force: true });
 });
 
-describe("applyHoldoutDefault — fresh init", () => {
-  it("enables holdout @ 0.1 when nothing exists and no opt-out is set", () => {
+describe("applyHoldoutDefault — fresh init (0.6.1 default reverted)", () => {
+  it("0.6.1 — does NOT enable holdout when nothing exists and no opt-in is set", () => {
     const result = applyHoldoutDefault(projectDir, {});
-    expect(result.state).toBe("enabled-fresh");
-    expect(result.rate).toBe(0.1);
-    expect(result.message).toMatch(/Impact measurement enabled/);
-    expect(result.message).toMatch(/10%/);
-
-    const onDisk = readHoldoutConfig(projectDir)!;
-    expect(onDisk.enabled).toBe(true);
-    expect(onDisk.rate).toBe(0.1);
-    expect(typeof onDisk.salt).toBe("string");
-    expect(onDisk.salt.length).toBeGreaterThan(0);
-  });
-
-  it("--holdout-rate <rate> writes the override", () => {
-    const result = applyHoldoutDefault(projectDir, { holdoutRateOverride: 0.25 });
-    expect(result.state).toBe("enabled-fresh");
-    expect(result.rate).toBe(0.25);
-    expect(result.message).toMatch(/25%/);
-
-    const onDisk = readHoldoutConfig(projectDir)!;
-    expect(onDisk.rate).toBe(0.25);
-  });
-
-  it("--no-holdout skips enabling and surfaces the enable hint", () => {
-    const result = applyHoldoutDefault(projectDir, { noHoldout: true });
-    expect(result.state).toBe("disabled-by-flag");
+    expect(result.state).toBe("disabled-default");
     expect(result.rate).toBeUndefined();
-    expect(result.message).toMatch(/Impact measurement: disabled/);
-    expect(result.message).toMatch(/tracebase experiment enable/);
+    expect(result.message).toMatch(/Estimated impact enabled by default/);
+    expect(result.message).toMatch(/Verified impact .* disabled/);
+    expect(result.message).toMatch(/tracebase init --holdout-rate/);
 
+    // Critical: no holdout config written → no withholding of memory.
     expect(readHoldoutConfig(projectDir)).toBeNull();
   });
 
-  it("TRACEBASE_HOLDOUT=off env skips enabling", () => {
+  it("--holdout-rate <rate> opts INTO verified mode at init time", () => {
+    const result = applyHoldoutDefault(projectDir, { holdoutRateOverride: 0.25 });
+    expect(result.state).toBe("enabled-fresh");
+    expect(result.rate).toBe(0.25);
+    expect(result.message).toMatch(/Verified impact enabled/);
+    expect(result.message).toMatch(/25%/);
+
+    const onDisk = readHoldoutConfig(projectDir)!;
+    expect(onDisk.enabled).toBe(true);
+    expect(onDisk.rate).toBe(0.25);
+  });
+
+  it("--no-holdout produces the same disk state as the new default (no config written)", () => {
+    const result = applyHoldoutDefault(projectDir, { noHoldout: true });
+    expect(result.state).toBe("disabled-by-flag");
+    expect(result.rate).toBeUndefined();
+    expect(readHoldoutConfig(projectDir)).toBeNull();
+  });
+
+  it("TRACEBASE_HOLDOUT=off env produces disabled-by-flag (back-compat)", () => {
     const result = applyHoldoutDefault(projectDir, { env: "off" });
     expect(result.state).toBe("disabled-by-flag");
     expect(readHoldoutConfig(projectDir)).toBeNull();
   });
 
-  it("TRACEBASE_HOLDOUT=OFF (case-insensitive) skips enabling", () => {
+  it("TRACEBASE_HOLDOUT=OFF (case-insensitive) → disabled-by-flag", () => {
     const result = applyHoldoutDefault(projectDir, { env: "OFF" });
     expect(result.state).toBe("disabled-by-flag");
   });
 
-  it("env values other than 'off' fall through to default-enable", () => {
+  it("env values other than 'off' fall through to the new no-op default", () => {
     const result = applyHoldoutDefault(projectDir, { env: "yes" });
-    expect(result.state).toBe("enabled-fresh");
+    expect(result.state).toBe("disabled-default");
+    expect(readHoldoutConfig(projectDir)).toBeNull();
   });
 });
 

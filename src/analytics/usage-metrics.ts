@@ -106,6 +106,26 @@ export interface UsageEstimate {
   formula: string;
 }
 
+/**
+ * 0.6.1 — heuristic estimated savings.
+ *
+ * Constants below are conservative defaults: each "helpful" run
+ * (injection ∧ agent_used ∧ outcome.resolved) is credited a
+ * fixed token-saved + latency-saved estimate. The number is
+ * always a number (never null), but the formula is rendered
+ * alongside it so the reader knows it's a heuristic-not-proof
+ * estimate. Override by passing `assumedTokensPerHelpful` /
+ * `assumedLatencyMsPerHelpful` to `computeUsageMetrics`.
+ *
+ * Why these defaults:
+ *   - 1000 tokens/helpful — order-of-magnitude conservative
+ *     for "agent recovered a prior solution it would have
+ *     otherwise re-derived". Tunable via config.
+ *   - 5000 ms/helpful — same logic for wall-clock.
+ */
+export const DEFAULT_ASSUMED_TOKENS_PER_HELPFUL = 1000;
+export const DEFAULT_ASSUMED_LATENCY_MS_PER_HELPFUL = 5_000;
+
 export interface UsageEstimated {
   /**
    * Per-run mean token reduction × injectedRuns. Not a causal lift —
@@ -117,6 +137,15 @@ export interface UsageEstimated {
    * Requires `OutcomeEvent.durationMs` to be recorded in both arms.
    */
   latencySavedMs: UsageEstimate;
+  /**
+   * 0.6.1 — heuristic-based always-on estimate. Computed as
+   * `helpfulRuns × DEFAULT_ASSUMED_TOKENS_PER_HELPFUL`. Rendered
+   * as "estimated saved" — never as just "saved" — to
+   * distinguish from the verified causal lift.
+   */
+  heuristicTokensSaved: UsageEstimate;
+  /** Same shape over latency. */
+  heuristicLatencySavedMs: UsageEstimate;
 }
 
 export interface UsageIntegrity {
@@ -294,6 +323,14 @@ export interface ComputeUsageMetricsOptions {
    * `DEFAULT_MIN_CAUSAL_COHORT` (30).
    */
   minCausalCohort?: number;
+  /**
+   * 0.6.1 — heuristic estimate scaling constants. Override to
+   * tune for a specific deployment / model class. Defaults are
+   * conservative and rendered alongside the estimate so the
+   * reader knows it's a heuristic.
+   */
+  assumedTokensPerHelpful?: number;
+  assumedLatencyMsPerHelpful?: number;
 }
 
 /**
@@ -315,6 +352,24 @@ export function computeUsageMetrics(
 
   const tokenDelta = perRunDelta(outcome.tokensShadow, outcome.tokensTreatment);
   const durationDelta = perRunDelta(outcome.durationsShadow, outcome.durationsTreatment);
+
+  // 0.6.1 — heuristic estimated savings.
+  // helpfulRuns × per-run constant. Conservative defaults
+  // (1000 tok / 5000ms) tunable via opts. Always populates so
+  // `tracebase impact` can show an "estimated saved" line on
+  // every install, no holdout / shadow runs required.
+  const tokensPerHelpful = opts.assumedTokensPerHelpful ?? DEFAULT_ASSUMED_TOKENS_PER_HELPFUL;
+  const latencyPerHelpful = opts.assumedLatencyMsPerHelpful ?? DEFAULT_ASSUMED_LATENCY_MS_PER_HELPFUL;
+  const heuristicTokensSaved: UsageEstimate = {
+    value: funnel.helpfulRuns * tokensPerHelpful,
+    sampleSize: funnel.helpfulRuns,
+    formula: `helpfulRuns × ${tokensPerHelpful} tokens (heuristic)`,
+  };
+  const heuristicLatencySavedMs: UsageEstimate = {
+    value: funnel.helpfulRuns * latencyPerHelpful,
+    sampleSize: funnel.helpfulRuns,
+    formula: `helpfulRuns × ${latencyPerHelpful} ms (heuristic)`,
+  };
 
   const causal = computeCausal(agg, minCausalCohort);
 
@@ -342,6 +397,8 @@ export function computeUsageMetrics(
     estimated: {
       tokensSaved: scaleEstimate(tokenDelta, funnel.injectedRuns, "tokens"),
       latencySavedMs: scaleEstimate(durationDelta, funnel.injectedRuns, "ms"),
+      heuristicTokensSaved,
+      heuristicLatencySavedMs,
     },
     // Optional: present only when the holdout arm has at least one
     // outcome on record. Absence is the honest "experiment not

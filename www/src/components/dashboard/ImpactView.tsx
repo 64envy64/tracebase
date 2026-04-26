@@ -360,11 +360,11 @@ function CausalSection({ causal }: { causal?: UsageCausal }) {
         <CausalHeader />
         <EmptyState
           title="No causal data yet"
-          body="Enable the deterministic holdout on a linked project with `npx tracebase experiment enable`. Once held-out runs record outcomes, this block renders assisted vs held-out lift."
+          body="Enable the deterministic holdout by re-running `npx tracebase init --holdout-rate 0.1`. Once held-out runs record outcomes, this block renders assisted vs held-out lift."
           hint={
             <>
-              See <span className="font-mono">npx tracebase experiment status</span> to inspect the
-              current state.
+              See <span className="font-mono">npx tracebase doctor</span> to inspect the
+              current impact-measurement state.
             </>
           }
         />

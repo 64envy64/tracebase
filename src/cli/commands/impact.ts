@@ -14,7 +14,7 @@
  *   no holdout configured:
  *     +32 runs assisted · 31% resolved · injected 929 tokens ·
  *     savings unavailable: enable holdout with
- *     `tracebase experiment enable --rate 0.1`
+ *     re-running `tracebase init --holdout-rate 0.1`
  *
  *   holdout exists but below cohort:
  *     +32 runs assisted · 31% resolved · injected 929 tokens ·
@@ -285,43 +285,94 @@ function renderHead(m: UsageMetrics): string {
 
 function renderTail(report: ImpactReport, windowDays: number): string {
   const m = report.metrics!;
+  // 0.6.1 — render is two explicit segments: estimated (always
+  // populates when helpful runs exist) and verified (separately
+  // tagged disabled / collecting / ready). Copy never says
+  // "saved" alone — always "estimated saved" or "verified saved"
+  // — so the reader can never confuse a heuristic estimate for
+  // a verified causal lift.
+  const estimated = renderEstimatedSegment(m, report.pricing);
+  const verified = renderVerifiedSegment(report, windowDays);
+  return [estimated, verified].filter((s) => s.length > 0).join(" · ");
+}
+
+/**
+ * Always-on estimated section. Heuristic-based: helpful runs
+ * × per-run constant. The formula is implicit in the
+ * `(n=N helpful)` tail; consumers who want the literal multiplier
+ * can read `metrics.estimated.heuristicTokensSaved.formula`.
+ */
+function renderEstimatedSegment(
+  m: UsageMetrics,
+  pricing: ImpactReport["pricing"],
+): string {
+  const heur = m.estimated.heuristicTokensSaved;
+  const helpfulN = heur.sampleSize;
+  if (helpfulN === 0 || typeof heur.value !== "number") {
+    // No helpful runs yet — be honest: there's nothing to
+    // estimate. The head already showed the injected token cost.
+    return pc.dim("estimated: collecting (no helpful runs in window yet)");
+  }
+  const tokens = heur.value;
+  const parts: string[] = [];
+  parts.push(pc.dim(`≈ ${humanTokens(tokens)} estimated saved (n=${helpfulN} helpful)`));
+  // Net after context cost — uses the heuristic-saved value
+  // since this segment is the always-on view that doesn't depend
+  // on holdout.
+  const injected = m.totalInjectedTokensEstimate ?? 0;
+  const netEst = tokens - injected;
+  parts.push(pc.dim(`net est ${humanSignedTokens(netEst)} after context cost`));
+  // Latency: heuristic-derived (helpful × 5s default).
+  const heurLat = m.estimated.heuristicLatencySavedMs;
+  if (typeof heurLat.value === "number" && heurLat.value > 0) {
+    parts.push(pc.dim(`≈ ${humanLatency(heurLat.value)} estimated latency saved`));
+  }
+  if (pricing) {
+    const blendedPer1m = (pricing.inputPer1mTokens + pricing.outputPer1mTokens) / 2;
+    const dollarsEst = (tokens * blendedPer1m) / 1_000_000;
+    parts.push(pc.dim(`≈ ${formatUsd(dollarsEst)} estimated`));
+    const dollarsNet = (netEst * blendedPer1m) / 1_000_000;
+    parts.push(pc.dim(`net est ≈ ${formatSignedUsd(dollarsNet)}`));
+  }
+  return parts.join(" · ");
+}
+
+/**
+ * Verified segment — three states keyed off readiness +
+ * experiment config:
+ *   - disabled   → tag with the enable command
+ *   - collecting → assisted=N / holdout=M progress
+ *   - ready      → "verified saved", net, latency, dollars
+ */
+function renderVerifiedSegment(
+  report: ImpactReport,
+  windowDays: number,
+): string {
+  const m = report.metrics!;
   switch (report.readiness) {
     case "no-holdout": {
-      // 0.6.0 — experiment may be ENABLED but have zero holdout
-      // outcomes recorded yet (just-init'd install). That's a
-      // "collecting" state, not "savings unavailable". Read the
-      // experiment field to decide which copy is honest.
       if (report.experiment?.enabled) {
         const exp = report.experiment;
         return pc.dim(
-          `collecting causal data — assisted=${exp.assistedN}, holdout=${exp.holdoutN} (need ≥ ${exp.minCohortSize} per arm)`,
+          `verified: collecting — assisted=${exp.assistedN}, holdout=${exp.holdoutN} (need ≥ ${exp.minCohortSize} per arm)`,
         );
       }
-      // 0.5.9 §4 — actionable, not just descriptive. The user
-      // gets the exact command to enable the experiment.
       return pc.dim(
-        `savings unavailable: enable holdout with \`tracebase experiment enable --rate ${formatRateForCli(report.experiment?.rate)}\``,
+        `verified: disabled (enable: re-run \`tracebase init --holdout-rate ${formatRateForCli(report.experiment?.rate)}\`)`,
       );
     }
     case "below-cohort": {
-      // 0.6.0 — same "collecting" copy when the experiment is
-      // enabled but the per-arm cohort is below threshold. The
-      // older "Not enough causal data yet" still fires when
-      // someone has explicitly disabled the experiment but
-      // historical data leaves residual causal numbers.
       const causal = m.causal!;
       const need = causal.minCohortSize;
       const haveA = causal.assisted.n;
       const haveH = causal.holdout.n;
-      const verb = report.experiment?.enabled
-        ? "collecting causal data"
-        : "Not enough causal data yet";
+      const verb = report.experiment?.enabled === false ? "disabled (collecting historical)" : "collecting";
       return pc.dim(
-        `${verb} — assisted=${haveA}, holdout=${haveH} (need ≥ ${need} per arm)`,
+        `verified: ${verb} — assisted=${haveA}, holdout=${haveH} (need ≥ ${need} per arm)`,
       );
     }
     case "ready": {
-      return renderReadyTail(m, windowDays, report.pricing);
+      return renderVerifiedReadyTail(m, windowDays, report.pricing);
     }
     default:
       return "";
@@ -334,7 +385,7 @@ function formatRateForCli(rate: number | undefined): string {
   return r.toString();
 }
 
-function renderReadyTail(
+function renderVerifiedReadyTail(
   m: UsageMetrics,
   windowDays: number,
   pricing: ImpactReport["pricing"],
@@ -350,35 +401,31 @@ function renderReadyTail(
     liftDeltaPp !== null
       ? ` (${liftDeltaPp >= 0 ? "+" : ""}${liftDeltaPp}pp vs holdout)`
       : "";
-  // The head already rendered "+N runs assisted · X% resolved";
-  // append the lift indicator before the tail begins.
-  const liftPart = resolvedDelta ? pc.green(resolvedDelta) : "";
-
   const parts: string[] = [];
   parts.push(
-    pc.dim(`≈ ${humanTokens(tokensLift)} tokens saved over ${windowDays}d (n=${tokensSampleSize})`),
+    pc.dim(
+      `≈ ${humanTokens(tokensLift)} verified saved over ${windowDays}d (n=${tokensSampleSize})${resolvedDelta}`,
+    ),
   );
   if (typeof m.netTokenImpact === "number") {
-    parts.push(pc.dim(`net ${humanSignedTokens(m.netTokenImpact)} after injection`));
+    parts.push(pc.dim(`net verified ${humanSignedTokens(m.netTokenImpact)} after context cost`));
   }
-  // 0.5.9 §2 — latency saved when the causal arm carries it.
+  // 0.5.9 §2 — verified latency saved when the causal arm carries
+  // it. Renamed from "latency saved" → "verified latency saved"
+  // to match the §5 copy rule.
   if (typeof causal.latencyLift?.value === "number") {
-    parts.push(pc.dim(`latency saved ${humanLatency(causal.latencyLift.value)}`));
+    parts.push(pc.dim(`verified latency saved ${humanLatency(causal.latencyLift.value)}`));
   }
-  // 0.5.9 §3 — pricing-gated dollar render. Only when BOTH
-  // input + output prices are configured. Tokens we save are a
-  // mix of input + output across queries; we render a 50/50
-  // blend with no pretence of model-aware accuracy.
   if (pricing) {
     const blendedPer1m = (pricing.inputPer1mTokens + pricing.outputPer1mTokens) / 2;
     const dollarsSaved = (tokensLift * blendedPer1m) / 1_000_000;
-    parts.push(pc.dim(`≈ ${formatUsd(dollarsSaved)} saved`));
+    parts.push(pc.dim(`≈ ${formatUsd(dollarsSaved)} verified`));
     if (typeof m.netTokenImpact === "number") {
       const dollarsNet = (m.netTokenImpact * blendedPer1m) / 1_000_000;
-      parts.push(pc.dim(`net ≈ ${formatSignedUsd(dollarsNet)}`));
+      parts.push(pc.dim(`net verified ≈ ${formatSignedUsd(dollarsNet)}`));
     }
   }
-  return liftPart.replace(/^ /, "") + (liftPart ? " · " : "") + parts.join(" · ");
+  return parts.join(" · ");
 }
 
 // ---------------------------------------------------------------------------

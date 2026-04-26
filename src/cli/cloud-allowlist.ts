@@ -147,6 +147,11 @@ export const USAGE_SAMPLE_ALLOWLIST: AllowlistSpec = {
     estimated: {
       tokensSaved: USAGE_ESTIMATE_SPEC,
       latencySavedMs: USAGE_ESTIMATE_SPEC,
+      // 0.6.1 — heuristic estimated savings. Counts × constant;
+      // never user content. The formula string is constructed
+      // from the constant and the function name only.
+      heuristicTokensSaved: USAGE_ESTIMATE_SPEC,
+      heuristicLatencySavedMs: USAGE_ESTIMATE_SPEC,
     },
     causal: {
       assisted: USAGE_COHORT_SPEC,

@@ -557,7 +557,14 @@ export type ApplyHoldoutState =
   | "enabled-fresh"
   | "preserved-existing-enabled"
   | "preserved-existing-disabled"
-  | "disabled-by-flag";
+  | "disabled-by-flag"
+  /**
+   * 0.6.1 — fresh install with no opt-in: holdout NOT written.
+   * Estimated impact (heuristic, no withholding) is the default;
+   * verified holdout-based impact is opt-in via
+   * `tracebase impact verify --rate 0.1`.
+   */
+  | "disabled-default";
 
 export interface ApplyHoldoutDefaultOptions {
   noHoldout?: boolean;
@@ -579,6 +586,7 @@ export function applyHoldoutDefault(
 ): ApplyHoldoutDefaultResult {
   const envOff = (opts.env ?? "").trim().toLowerCase() === "off";
   const optedOut = opts.noHoldout === true || envOff;
+  const explicitRate = opts.holdoutRateOverride;
 
   const existing = readHoldoutConfig(basePath);
   if (existing) {
@@ -589,44 +597,51 @@ export function applyHoldoutDefault(
         state: "preserved-existing-enabled",
         rate: existing.rate,
         message:
-          pc.dim("  Impact measurement: ") +
-          `enabled (${formatRate(existing.rate)} holdout, preserved)` +
-          pc.dim("\n  Disable any time with: ") +
-          pc.cyan("npx tracebase experiment disable"),
+          pc.dim("  Verified impact: ") +
+          `enabled (${formatRate(existing.rate)} holdout, preserved)`,
       };
     }
     return {
       state: "preserved-existing-disabled",
       rate: existing.rate,
       message:
-        pc.dim("  Impact measurement: ") +
+        pc.dim("  Verified impact: ") +
         "disabled (preserved)" +
         pc.dim("\n  Enable later with: ") +
-        pc.cyan(`npx tracebase experiment enable --rate ${formatRate(existing.rate)}`),
+        pc.cyan(`npx tracebase init --holdout-rate ${existing.rate}`),
     };
   }
 
-  if (optedOut) {
+  // 0.6.1 — fresh install, no opt-in. Default behaviour reverted:
+  // holdout is NOT enabled (no withholding of memory). Estimated
+  // impact (heuristic, no degradation) is always-on; users opt
+  // into verified holdout-based impact explicitly.
+  if (explicitRate !== undefined) {
+    enableHoldoutExperiment(basePath, { rate: explicitRate });
     return {
-      state: "disabled-by-flag",
+      state: "enabled-fresh",
+      rate: explicitRate,
       message:
-        pc.dim("  Impact measurement: ") +
-        "disabled" +
-        pc.dim("\n  Enable later with: ") +
-        pc.cyan(`npx tracebase experiment enable --rate ${formatRate(DEFAULT_HOLDOUT_RATE)}`),
+        pc.green("  Verified impact enabled: ") +
+        `${formatRate(explicitRate)} holdout`,
     };
   }
 
-  const rate = opts.holdoutRateOverride ?? DEFAULT_HOLDOUT_RATE;
-  enableHoldoutExperiment(basePath, { rate });
+  // `--no-holdout` / `TRACEBASE_HOLDOUT=off` and the new
+  // no-flag default produce the same disk state — no holdout
+  // config written. The state tag distinguishes them so a
+  // future telemetry pass can tell intentional opt-outs from
+  // first-run installs.
+  const state: ApplyHoldoutState = optedOut ? "disabled-by-flag" : "disabled-default";
   return {
-    state: "enabled-fresh",
-    rate,
+    state,
     message:
-      pc.green("  Impact measurement enabled: ") +
-      `${formatRate(rate)} holdout` +
-      pc.dim("\n  Disable any time with: ") +
-      pc.cyan("npx tracebase experiment disable"),
+      pc.green("  Estimated impact enabled by default") +
+      pc.dim(" (heuristic, no withholding).") +
+      pc.dim("\n  Verified impact (holdout-based): ") +
+      "disabled" +
+      pc.dim("\n  Enable verified mode with: ") +
+      pc.cyan(`npx tracebase init --holdout-rate ${DEFAULT_HOLDOUT_RATE}`),
   };
 }
 

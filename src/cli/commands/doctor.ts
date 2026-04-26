@@ -650,7 +650,7 @@ function appendImpactMeasurementCheck(
       message: "experiment block is not an object",
       fix:
         "Edit `.tracebase/config.json` and remove the malformed `experiment` field, " +
-        "then re-enable with `npx tracebase experiment enable --rate 0.1`.",
+        "then re-enable with `npx tracebase init --holdout-rate 0.1`.",
     });
     return;
   }
@@ -671,7 +671,7 @@ function appendImpactMeasurementCheck(
         level: "warn",
         message: "experiment.holdout block is malformed",
         fix:
-          "Run `npx tracebase experiment enable --rate 0.1` to rewrite it cleanly. " +
+          "Run `npx tracebase init --holdout-rate 0.1` to rewrite it cleanly. " +
           "The command preserves any salt + createdAt that survives the rewrite.",
       });
       return;
@@ -679,7 +679,7 @@ function appendImpactMeasurementCheck(
     checks.push({
       name: "impact-measurement",
       level: "info",
-      message: "disabled — enable with `npx tracebase experiment enable --rate 0.1`",
+      message: "disabled — enable with `npx tracebase init --holdout-rate 0.1`",
     });
     return;
   }
@@ -687,7 +687,7 @@ function appendImpactMeasurementCheck(
     checks.push({
       name: "impact-measurement",
       level: "info",
-      message: `disabled (rate ${cfg.rate}) — re-enable with \`npx tracebase experiment enable --rate ${cfg.rate}\``,
+      message: `disabled (rate ${cfg.rate}) — re-enable with \`npx tracebase init --holdout-rate ${cfg.rate}\``,
     });
     return;
   }
@@ -698,7 +698,7 @@ function appendImpactMeasurementCheck(
       name: "impact-measurement",
       level: "warn",
       message: `rate out of range: ${cfg.rate} (expected 0 < rate ≤ 1)`,
-      fix: "Re-run `npx tracebase experiment enable --rate 0.1` to reset to a valid value.",
+      fix: "Re-run `npx tracebase init --holdout-rate 0.1` to reset to a valid value.",
     });
     return;
   }

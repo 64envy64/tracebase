@@ -24,7 +24,10 @@ import { doctorCommand } from "../src/cli/commands/doctor.js";
 import { eventsCommand } from "../src/cli/commands/events.js";
 import { reportCommand } from "../src/cli/commands/report.js";
 import { usageCommand } from "../src/cli/commands/usage.js";
-import { experimentCommand } from "../src/cli/commands/experiment.js";
+// 0.6.1 — `experimentCommand` is no longer surfaced on the CLI.
+// Users opt INTO verified mode via `tracebase init --holdout-rate
+// <rate>`. The experiment-config helpers in `src/core/config.ts`
+// (enable / disable / read) stay exported for programmatic use.
 import { memoryCommand } from "../src/cli/commands/memory.js";
 import { impactCommand } from "../src/cli/commands/impact.js";
 import { isInitialized } from "../src/core/config.js";
@@ -63,7 +66,7 @@ program.addCommand(doctorCommand);
 program.addCommand(eventsCommand);
 program.addCommand(reportCommand);
 program.addCommand(usageCommand);
-program.addCommand(experimentCommand);
+// 0.6.1 — experimentCommand intentionally NOT registered (see import note above).
 program.addCommand(injectContextCommand);
 program.addCommand(captureTurnCommand);
 program.addCommand(captureContextCommand);

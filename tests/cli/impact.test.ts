@@ -52,9 +52,11 @@ function seedRetrieval(opts: {
   injectedTokens?: number;
   ts?: number;
 }): void {
+  // Use the path-constructor so BlockStore owns + closes the
+  // underlying handle. Multiple short-lived connections without
+  // WAL otherwise silently lose writes when run back-to-back.
   const cfg = loadConfig(projectDir);
-  const db = new Database(cfg.storagePath);
-  const store = new BlockStore(db);
+  const store = new BlockStore(cfg.storagePath);
   store.appendEvent({
     ts: opts.ts ?? Date.now(),
     queryId: opts.queryId,
@@ -75,9 +77,11 @@ function seedOutcome(opts: {
   control?: boolean;
   ts?: number;
 }): void {
+  // Use the path-constructor so BlockStore owns + closes the
+  // underlying handle. Multiple short-lived connections without
+  // WAL otherwise silently lose writes when run back-to-back.
   const cfg = loadConfig(projectDir);
-  const db = new Database(cfg.storagePath);
-  const store = new BlockStore(db);
+  const store = new BlockStore(cfg.storagePath);
   store.appendEvent({
     ts: opts.ts ?? Date.now(),
     queryId: opts.queryId,
@@ -94,9 +98,11 @@ function seedInjection(opts: {
   score?: number;
   ts?: number;
 }): void {
+  // Use the path-constructor so BlockStore owns + closes the
+  // underlying handle. Multiple short-lived connections without
+  // WAL otherwise silently lose writes when run back-to-back.
   const cfg = loadConfig(projectDir);
-  const db = new Database(cfg.storagePath);
-  const store = new BlockStore(db);
+  const store = new BlockStore(cfg.storagePath);
   store.appendEvent({
     ts: opts.ts ?? Date.now(),
     queryId: opts.queryId,
@@ -259,7 +265,7 @@ describe("renderImpactLine — head/tail composition", () => {
     expect(line).toMatch(/Not enough data yet/);
   });
 
-  it("0.5.9 — no-holdout (experiment NOT enabled): head + 'savings unavailable: enable holdout'", () => {
+  it("0.6.1 — no-holdout (experiment NOT enabled): head + 'verified: disabled' + init-rerun hint", () => {
     initConfig(projectDir);
     // No enableHoldoutExperiment() call → holdout config absent.
     seedRetrieval({ queryId: "a", shadow: false, injectedTokens: 500 });
@@ -268,9 +274,12 @@ describe("renderImpactLine — head/tail composition", () => {
     const line = renderImpactLine(r);
     expect(line).toMatch(/runs assisted/);
     expect(line).toMatch(/injected 929 tokens|injected 0\.9k tokens/);
-    expect(line).toMatch(/savings unavailable/);
-    expect(line).toMatch(/tracebase experiment enable --rate/);
+    // 0.6.1 — verified is a separate tagged segment; copy uses
+    // "verified: disabled" (not "savings unavailable").
+    expect(line).toMatch(/verified: disabled/);
+    expect(line).toMatch(/tracebase init --holdout-rate/);
     expect(line).not.toMatch(/Causal arm not configured/);
+    expect(line).not.toMatch(/savings unavailable/);
   });
 
   it("0.6.0 — experiment ENABLED but no holdout outcomes yet → 'collecting causal data'", () => {
@@ -295,12 +304,13 @@ describe("renderImpactLine — head/tail composition", () => {
     const line = renderImpactLine(r);
     expect(line).toMatch(/runs assisted/);
     expect(line).toMatch(/injected/);
-    expect(line).toMatch(/collecting causal data/);
+    // 0.6.1 — copy is "verified: collecting" (tagged segment).
+    expect(line).toMatch(/verified: collecting/);
     expect(line).toMatch(/assisted=2/);
     expect(line).toMatch(/holdout=0/);
     expect(line).toMatch(/need ≥ 30 per arm/);
     expect(line).not.toMatch(/savings unavailable/);
-    expect(line).not.toMatch(/tracebase experiment enable/);
+    expect(line).not.toMatch(/tracebase init --holdout-rate/);
   });
 
   it("0.6.0 — experiment enabled + below-cohort: 'collecting' replaces 'Not enough causal data yet'", () => {
@@ -320,7 +330,8 @@ describe("renderImpactLine — head/tail composition", () => {
     seedOutcome({ queryId: "a", resolved: true, control: false });
     const r = runImpact({ path: projectDir });
     const line = renderImpactLine(r);
-    expect(line).toMatch(/collecting causal data — assisted=1, holdout=1/);
+    // 0.6.1 — copy is "verified: collecting — ..." (tagged segment).
+    expect(line).toMatch(/verified: collecting — assisted=1, holdout=1/);
     expect(line).not.toMatch(/Not enough causal data yet/);
   });
 
@@ -344,7 +355,7 @@ describe("renderImpactLine — head/tail composition", () => {
     const line = renderImpactLine(r);
     expect(line).toMatch(/runs? assisted/);
     expect(line).toMatch(/injected/);
-    expect(line).toMatch(/collecting causal data/);
+    expect(line).toMatch(/verified: collecting/);
     expect(line).toMatch(/assisted=\d+/);
     expect(line).toMatch(/holdout=\d+/);
     expect(line).not.toMatch(/saved over \d+d/);
@@ -401,6 +412,10 @@ describe("renderImpactLine — ready state (mocked metrics)", () => {
         estimated: {
           tokensSaved: { value: opts.tokensLift, sampleSize: 47, formula: "..." },
           latencySavedMs: { value: opts.latencyLiftMs ?? 0, sampleSize: 47, formula: "..." },
+          // 0.6.1 — heuristic fields on the mocked metrics so the
+          // estimated segment renders alongside the verified one.
+          heuristicTokensSaved: { value: 39 * 1000, sampleSize: 39, formula: "helpfulRuns × 1000 tokens (heuristic)" },
+          heuristicLatencySavedMs: { value: 39 * 5_000, sampleSize: 39, formula: "helpfulRuns × 5000 ms (heuristic)" },
         },
         causal,
         integrity: { shadowControlMismatches: 0, outcomesWithoutRetrieval: 0 },
@@ -410,7 +425,7 @@ describe("renderImpactLine — ready state (mocked metrics)", () => {
     };
   }
 
-  it("renders tokens saved + net + latency when cohort is ready", () => {
+  it("renders estimated + verified saved + net + latency when cohort is ready", () => {
     const line = renderImpactLine(
       readyMetrics({
         tokensLift: 38_000,
@@ -422,16 +437,24 @@ describe("renderImpactLine — ready state (mocked metrics)", () => {
     );
     expect(line).toMatch(/runs assisted/);
     expect(line).toMatch(/83% resolved/);
-    expect(line).toMatch(/\+12pp vs holdout/);
     expect(line).toMatch(/injected 14\.0k tokens/);
-    expect(line).toMatch(/38\.0k tokens saved over 7d/);
-    expect(line).toMatch(/net \+24\.0k after injection/);
-    expect(line).toMatch(/latency saved 1\.2s/);
+    // 0.6.1 — both segments rendered. Estimated is heuristic
+    // (39 helpful × 1000 = 39k); verified is the causal lift.
+    expect(line).toMatch(/39\.0k estimated saved \(n=39 helpful\)/);
+    expect(line).toMatch(/net est .+ after context cost/);
+    expect(line).toMatch(/38\.0k verified saved over 7d/);
+    expect(line).toMatch(/\+12pp vs holdout/);
+    expect(line).toMatch(/net verified \+24\.0k after context cost/);
+    expect(line).toMatch(/verified latency saved 1\.2s/);
+    // §5 — never say "saved" alone. The positive assertions
+    // above already prove every "saved" token in this line is
+    // tagged as "estimated saved" / "verified saved" /
+    // "(estimated|verified) latency saved".
     // No dollars without pricing config.
     expect(line).not.toMatch(/\$/);
   });
 
-  it("0.5.9 — pricing config renders dollars; without it, dollars are absent", () => {
+  it("0.6.1 — pricing config renders dollars on BOTH estimated and verified; without it, no dollars", () => {
     const noPricing = renderImpactLine(
       readyMetrics({
         tokensLift: 1_000_000,
@@ -453,13 +476,14 @@ describe("renderImpactLine — ready state (mocked metrics)", () => {
       }),
       pricing: { inputPer1mTokens: 3, outputPer1mTokens: 15 },
     });
-    // 1M tokens at blended rate (3+15)/2 = $9 per 1M → $9 saved.
-    expect(withPricing).toMatch(/\$9\.00 saved/);
-    // 500k net at the same rate → $4.50 net.
-    expect(withPricing).toMatch(/net ≈ \+\$4\.50/);
+    // Verified: 1M tokens at blended rate (3+15)/2 = $9/1M → $9 verified.
+    expect(withPricing).toMatch(/\$9\.00 verified/);
+    expect(withPricing).toMatch(/net verified ≈ \+\$4\.50/);
+    // Estimated: 39k tokens (39 helpful × 1000) → ~$0.35 estimated.
+    expect(withPricing).toMatch(/\$\d+\.\d+ estimated/);
   });
 
-  it("0.5.9 — latency saved omitted when latencyLift.value is null", () => {
+  it("0.6.1 — verified latency omitted when causal.latencyLift.value is null", () => {
     const line = renderImpactLine(
       readyMetrics({
         tokensLift: 5_000,
@@ -469,6 +493,8 @@ describe("renderImpactLine — ready state (mocked metrics)", () => {
         resolvedLift: 0.05,
       }),
     );
-    expect(line).not.toMatch(/latency saved/);
+    expect(line).not.toMatch(/verified latency saved/);
+    // Estimated latency line still appears (heuristic always populates).
+    expect(line).toMatch(/estimated latency saved/);
   });
 });

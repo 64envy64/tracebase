@@ -396,7 +396,7 @@ describe("runDoctor — impact measurement (0.6.0)", () => {
     const c = byName(r.checks, "impact-measurement")!;
     expect(c.level).toBe("info");
     expect(c.message).toMatch(/disabled/);
-    expect(c.message).toMatch(/tracebase experiment enable --rate 0\.1/);
+    expect(c.message).toMatch(/tracebase init --holdout-rate 0\.1/);
   });
 
   it("INFO when holdout is explicitly disabled", async () => {
@@ -423,7 +423,7 @@ describe("runDoctor — impact measurement (0.6.0)", () => {
     const c = byName(r.checks, "impact-measurement")!;
     expect(c.level).toBe("warn");
     expect(c.message).toMatch(/holdout block is malformed/);
-    expect(c.fix).toMatch(/tracebase experiment enable/);
+    expect(c.fix).toMatch(/tracebase init --holdout-rate/);
   });
 
   it("WARN when rate is out of range", async () => {
