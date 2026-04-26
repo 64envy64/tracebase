@@ -544,6 +544,125 @@ describe("recallForPrompt — semantic-loop dedupe (P1 hardening)", () => {
     });
   });
 
+  // 0.7.0-rc.5 hardening 2 — P1 regression. Pre-fix the FIRST-pass
+  // (raw argKey) detector still fired on the older same-argKey
+  // entries when the agent rotated to an equivalent alias at the
+  // tail; the semantic-pass detector was skipped because raw !=
+  // none, and the resolver dedupe-keyed on the rotated raw
+  // argKey, surfacing the SAME matched anchor twice.
+  it("3 identical Grep calls matched, then ONE equivalent rg rotation triggers anti-self-loop", () => {
+    withFreshStore((store, server, basePath) => {
+      seedBlock(store, {
+        trigger: {
+          situation: "search for the auth_token symbol across the codebase",
+          invariants: { language: "typescript" },
+        },
+        body: {
+          mechanism: "auth token symbol lives in src/auth.ts",
+          deadEnds: [],
+          unlock: "open src/auth.ts and grep export instead of re-running",
+          verification: "confirm src/auth.ts is the canonical source",
+        },
+        provenance: {
+          sourceTaskId: "auth-3",
+          extractedFrom: "trajectory",
+          distilledBy: "llm",
+        },
+      });
+
+      const sessionId = "S-raw-then-alias";
+
+      // Step 1: 3 IDENTICAL Greps. Same argSummary, same raw argKey.
+      // The first-pass (raw) detector fires straight on these.
+      // Pre- and post-fix: matched anchor on first call.
+      store.recordToolObservations([
+        {
+          sessionId,
+          batchId: null,
+          batchOrder: 0,
+          toolUseId: null,
+          toolName: "Grep",
+          argSummary: "Grep('auth_token')",
+          argKey: "k_grep_identical",
+          outcome: "ok",
+        },
+        {
+          sessionId,
+          batchId: null,
+          batchOrder: 1,
+          toolUseId: null,
+          toolName: "Grep",
+          argSummary: "Grep('auth_token')",
+          argKey: "k_grep_identical",
+          outcome: "ok",
+        },
+        {
+          sessionId,
+          batchId: null,
+          batchOrder: 2,
+          toolUseId: null,
+          toolName: "Grep",
+          argSummary: "Grep('auth_token')",
+          argKey: "k_grep_identical",
+          outcome: "ok",
+        },
+      ]);
+
+      const first = recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "auth token search going in circles",
+        basePath,
+        sessionId,
+      });
+      expect(first.signal.kind).not.toBe("none");
+      expect(first.loopRedirect?.kind).toBe("matched");
+
+      // Step 2: append ONE rg call. Different raw argKey, same
+      // semantic intent_key as the Greps. The window now looks
+      // like [Grep, Grep, Grep, rg].
+      //
+      // Pre-fix flow:
+      //   - raw detector: walks back from rg → grep mismatch →
+      //     no straight; duplicate detector: Grep count=3 ≥ 2 →
+      //     fires duplicate signal (kind="duplicate", count=3,
+      //     toolName="Grep")
+      //   - signal != none → semantic detector SKIPPED
+      //   - resolver gets raw observations → lastObs.argKey =
+      //     "k_rg_new" (rotated, fresh) → dedupe miss → matched
+      //     fires AGAIN (BUG)
+      //
+      // Post-fix flow:
+      //   - raw detector: same as above, fires duplicate
+      //   - semantic detector ALSO runs (no longer gated on raw=none)
+      //   - semantic detector sees 4 same intent_keys in a row → straight
+      //   - semantic_signal != none → signal = semantic_signal AND
+      //     observationsForResolver = semantic obs
+      //   - resolver gets semantic observations → lastObs.argKey =
+      //     "search:auth token" (intent_key) → dedupe HIT (recorded
+      //     by first call) → fallback with anti-self-loop reason
+      store.recordToolObservations([
+        {
+          sessionId,
+          batchId: null,
+          batchOrder: 3,
+          toolUseId: null,
+          toolName: "ripgrep",
+          argSummary: "rg('auth[_-]token')",
+          argKey: "k_rg_new",
+          outcome: "ok",
+        },
+      ]);
+
+      const second = recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "auth token search going in circles",
+        basePath,
+        sessionId,
+      });
+      expect(second.signal.kind).not.toBe("none");
+      expect(second.loopRedirect?.kind).toBe("fallback");
+      expect(second.loopRedirect?.fallbackReason).toBe("anti-self-loop");
+    });
+  });
+
   it("dedupe still scoped per-session: the same intent_key in a fresh session matches", () => {
     withFreshStore((store, server, basePath) => {
       seedBlock(store, {

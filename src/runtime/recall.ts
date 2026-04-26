@@ -183,12 +183,28 @@ export function recallForPrompt(
       // sanitised arg shape.
       signal = detectToolPattern(recentObservations);
 
-      // 0.7.0-rc.5 §rc.5 — second pass: intent_key-keyed detector
-      // so cross-alias search loops collapse. `grep "auth_token"`
-      // and `rg "auth[_-]token"` have different argKeys but the
-      // same intent_key — without this layer the redirect would
-      // miss them.
-      if (signal.kind === "none" && recentObservations.length >= 2) {
+      // 0.7.0-rc.5 hardening — ALWAYS run the semantic
+      // (intent_key-keyed) detector, not just when raw returns
+      // none. Prefer the semantic result whenever it fires.
+      //
+      // Why: a session that did 3 identical Greps and then one
+      // equivalent `rg` rotation has a window like
+      //   [Grep, Grep, Grep, rg]
+      // The raw detector still fires (`duplicate` on Grep
+      // count=3), so under "only run semantic when raw is none"
+      // the semantic pass is skipped, the resolver gets raw obs,
+      // and its dedupe row keys on the FRESH `rg` argKey rather
+      // than the intent_key already seen on the first matched
+      // call. Result: same anchor surfaces twice in a row across
+      // a cross-alias rotation.
+      //
+      // Always-run-semantic + prefer-semantic-when-it-fires fixes
+      // this. Semantic is a strict superset of raw (same
+      // argSummary → same normalized intent_key, never the
+      // reverse), so we never lose a raw-only signal — the
+      // semantic detector catches the same loop AND the cross-
+      // alias rotation.
+      if (recentObservations.length >= 2) {
         const semantic = recentObservations.map((o) => ({
           ...o,
           argKey: normalizeIntentKey(o.argSummary, o.toolName),
