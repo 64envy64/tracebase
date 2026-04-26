@@ -42,8 +42,31 @@ export const DEFAULT_BUDGET: WalkBudget = {
 };
 
 export interface WalkOptions {
-  /** Root directory to walk (absolute path). */
+  /**
+   * Root directory to walk. Doubles as both BFS start point AND
+   * the basis for repo-relative `relPath` resolution UNLESS
+   * `baseRoot` is provided separately.
+   */
   root: string;
+  /**
+   * 0.7.0-rc.2 hardening — repo-base override.
+   *
+   * When `drainIndexerPending` re-walks a queued sub-directory
+   * (`kind='dir'`), the BFS START is the sub-directory but the
+   * repo-relative `relPath` for any yielded file MUST still be
+   * computed against the original project root — otherwise
+   * `src/deep/target.ts` ends up persisted as `target.ts`,
+   * breaking the `indexed_files.rel_path UNIQUE` contract and
+   * silently corrupting recall.
+   *
+   * Contract: when omitted, `baseRoot === root` and behaviour is
+   * identical to pre-hardening. When set, BFS starts at `root`
+   * but every yielded file's `relPath` is `path.relative(baseRoot, abs)`.
+   * Caller is responsible for ensuring `root` is inside `baseRoot`;
+   * the walker doesn't validate this (an out-of-base path would
+   * surface as `..`-prefixed and fail the repo-rel guard cleanly).
+   */
+  baseRoot?: string;
   /** Optional budget override. Missing fields fall back to DEFAULT_BUDGET. */
   budget?: Partial<WalkBudget>;
   /**
@@ -143,6 +166,12 @@ export function walkWorkspace(opts: WalkOptions): WalkResult {
   const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
   const now = opts.now ?? Date.now;
   const start = now();
+  // 0.7.0-rc.2 hardening — `baseRoot` is the repo-relative pivot;
+  // `startRoot` is the BFS entry point. Pre-hardening they were
+  // collapsed into a single `root`. Defaulting `baseRoot` to
+  // `root` keeps every existing call site byte-identical.
+  const baseRoot = opts.baseRoot ?? opts.root;
+  const startRoot = opts.root;
 
   const files: WalkedFile[] = [];
   const skipped: SkippedFile[] = [];
@@ -158,14 +187,16 @@ export function walkWorkspace(opts: WalkOptions): WalkResult {
   // BFS so the budget hits the shallowest unexplored prefix first
   // (which is the most useful `pendingDirs` shape — nearer-the-root
   // dirs unlock the most files when re-walked).
-  const queue: string[] = [opts.root];
+  const queue: string[] = [startRoot];
   while (queue.length > 0) {
     const dir = queue.shift()!;
     if (budgetExhausted()) {
       // Everything still in the queue becomes a pending dir.
+      // `relPath` is always against `baseRoot` so the queue rows
+      // resolve correctly on the next drain pass.
       const remaining = [dir, ...queue];
       for (const r of remaining) {
-        const rel = toRel(opts.root, r);
+        const rel = toRel(baseRoot, r);
         if (rel !== null) pendingDirs.push(rel);
       }
       break;
@@ -188,7 +219,7 @@ export function walkWorkspace(opts: WalkOptions): WalkResult {
       if (budgetExhausted()) {
         // The current dir is half-walked — record what's left as
         // a pending dir so the resumer re-walks it.
-        const rel = toRel(opts.root, dir);
+        const rel = toRel(baseRoot, dir);
         if (rel !== null && !pendingDirs.includes(rel)) pendingDirs.push(rel);
         break;
       }
@@ -205,7 +236,7 @@ export function walkWorkspace(opts: WalkOptions): WalkResult {
         if (EXCLUDED_DIR_BASENAMES.has(entry)) {
           // Excluded — record an aggregate skip so the doctor can
           // surface it; never echo the dir name path beyond rel.
-          const rel = toRel(opts.root, abs);
+          const rel = toRel(baseRoot, abs);
           if (rel !== null) {
             skipped.push({ relPath: rel, reason: "excluded-dir" });
           }
@@ -213,7 +244,7 @@ export function walkWorkspace(opts: WalkOptions): WalkResult {
         }
         queue.push(abs);
       } else if (st.isFile()) {
-        const rel = toRel(opts.root, abs);
+        const rel = toRel(baseRoot, abs);
         if (rel === null) {
           // Path won't repo-rel cleanly. We still want to record
           // a skipped event but with no path.

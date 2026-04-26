@@ -88,7 +88,11 @@ describe("CLI events + report — integration via built binary", () => {
 
     const out = cli(["events", "--json", "--limit", "100"], workDir);
     const parsed = JSON.parse(out) as { events: Array<{ event: string }> };
-    expect(parsed.events.length).toBe(12); // 3 cycles × 4 events each
+    // 0.7.0-rc.2 — init now also runs the file indexer, which emits
+    // `file_index.completed` (always) and `file_index.skipped`
+    // (excluded-dir for `.tracebase` itself, etc.). Assert only
+    // the seeded event-type counts; the indexer events live in
+    // their own type buckets and don't affect the seed flow.
     const byType: Record<string, number> = {};
     for (const ev of parsed.events) byType[ev.event] = (byType[ev.event] ?? 0) + 1;
     expect(byType.retrieval).toBe(3);
@@ -114,12 +118,21 @@ describe("CLI events + report — integration via built binary", () => {
     await seedStoreWithEvents(workDir);
 
     // After ts just before q3 → only q3's 4 events survive.
+    // 0.7.0-rc.2 — the init-time file_index.* events also have
+    // ts > cutoff if `init` wall-clock-clocks above the cutoff
+    // (it does — cutoff is in 2023, init runs now). Assert only
+    // the seeded q3 events specifically by filtering on the four
+    // seeded event types.
     const BASE = 1_700_000_000_000;
     const cutoff = BASE + 2_500;
     const out = cli(["events", "--json", "--since", String(cutoff)], workDir);
-    const parsed = JSON.parse(out) as { events: Array<{ ts: number }> };
+    const parsed = JSON.parse(out) as {
+      events: Array<{ ts: number; event: string }>;
+    };
     for (const ev of parsed.events) expect(ev.ts).toBeGreaterThan(cutoff);
-    expect(parsed.events.length).toBe(4);
+    const seededTypes = new Set(["retrieval", "injection", "agent_used", "outcome"]);
+    const seededEvents = parsed.events.filter((e) => seededTypes.has(e.event));
+    expect(seededEvents.length).toBe(4);
   });
 
   it("report --json reflects the seeded events' counts + rates", async () => {
@@ -152,8 +165,15 @@ describe("CLI events + report — integration via built binary", () => {
 
   it("report without a store file short-circuits cleanly", () => {
     if (!existsSync(CLI_PATH)) return;
+    // 0.7.0-rc.2 — `init` now opens the store to run the indexer,
+    // so this test exercises a different "no work" shape:
+    // delete the storage file AFTER init, then run `report`. The
+    // short-circuit is the missing-file path, which is what the
+    // test was checking pre-rc.2.
     cli(["init", "--path", workDir], workDir);
-    // No events seeded, no store file.
+    rmSync(join(workDir, ".tracebase", "memory.db"), { force: true });
+    rmSync(join(workDir, ".tracebase", "memory.db-wal"), { force: true });
+    rmSync(join(workDir, ".tracebase", "memory.db-shm"), { force: true });
     const out = cli(["report", "--json"], workDir);
     const parsed = JSON.parse(out) as { empty?: boolean };
     expect(parsed.empty).toBe(true);

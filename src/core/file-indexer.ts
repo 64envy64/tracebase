@@ -25,6 +25,8 @@
  *      the local event held it).
  */
 import { createHash, randomUUID } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
+import { resolve as pathResolve, sep as pathSep } from "node:path";
 import type { BlockStore } from "./block-store.js";
 import { detectLeakageExtended, detectPromptInjectionPatterns, isRepoRelative } from "./guard.js";
 import { detectLanguage, summarizeFile, type FileLanguage } from "./file-summarizer.js";
@@ -37,8 +39,22 @@ import { walkWorkspace, type WalkBudget, type WalkResult } from "./file-walker.j
 export type SummarizerKind = "heuristic" | "embedding" | "llm";
 
 export interface IndexWorkspaceOptions {
-  /** Absolute root path of the workspace to walk. */
+  /**
+   * Absolute root path of the workspace to walk. When `baseRoot` is
+   * also set, this is the BFS START point; `baseRoot` becomes the
+   * repo-relative pivot.
+   */
   root: string;
+  /**
+   * 0.7.0-rc.2 hardening — repo-base override for sub-walks.
+   *
+   * Used by `drainIndexerPending` when re-walking a queued
+   * sub-directory: the BFS starts at `<projectRoot>/<rel>` but
+   * yielded files must persist with the full repo-relative path.
+   * When omitted, behaviour matches pre-hardening (`baseRoot ===
+   * root`).
+   */
+  baseRoot?: string;
   /** Budget passed straight to the walker. Defaults documented there. */
   budget?: Partial<WalkBudget>;
   /** Per-file size cap. Defaults to walker default (256 KiB). */
@@ -85,6 +101,7 @@ export function indexWorkspace(
 
   const walked: WalkResult = walkWorkspace({
     root: opts.root,
+    baseRoot: opts.baseRoot,
     budget: opts.budget,
     maxBytes: opts.maxBytes,
     now,
@@ -265,6 +282,194 @@ function persistFile(
 }
 
 // ---------------------------------------------------------------------------
+// Single-file indexer (PLAN-0.7 §rc.2 hardening)
+//
+// Pre-hardening, the file-pending drain branch in
+// `drainIndexerPending` ignored the queued `rel_path` and ran
+// `indexWorkspace(maxFiles=1)` from the project root, which BFS-
+// yielded whatever it saw first — NOT the queued file. The pending
+// row was deleted regardless, so a modified `src/deep/target.ts`
+// could be silently dropped.
+//
+// `indexSingleFile` is the exact-file path: read THIS file, run
+// the same exclusion / size / binary / privacy / persist gates
+// the walker+indexer pair runs, return a typed outcome. The
+// caller decides whether to drop the pending row based on that
+// outcome.
+// ---------------------------------------------------------------------------
+
+export type IndexSingleOutcome =
+  | "indexed" // newly inserted
+  | "updated" // upserted because hash changed
+  | "no-op" // hash unchanged
+  | "missing" // file no longer at that path
+  | "too-large"
+  | "binary"
+  | "excluded-suffix"
+  | "out-of-repo"
+  | "unreadable"
+  | "leakage"
+  | "injection";
+
+const PER_FILE_MAX_BYTES = 256 * 1024;
+const NULL_SNIFF_BYTES = 8 * 1024;
+
+const SINGLE_EXCLUDED_SUFFIXES = new Set<string>([
+  ".pyc", ".pyo", ".class", ".o", ".obj", ".exe", ".dll", ".so", ".dylib",
+  ".a", ".lib", ".jar", ".war", ".tar", ".gz", ".zip", ".7z", ".rar",
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".svg",
+  ".woff", ".woff2", ".ttf", ".eot", ".otf",
+  ".mp3", ".mp4", ".webm", ".mov", ".avi", ".wav", ".ogg",
+  ".pdf",
+  ".lock", ".sum",
+  ".map",
+]);
+
+export function indexSingleFile(
+  store: BlockStore,
+  baseRoot: string,
+  rel: string,
+  opts?: { summarizer?: SummarizerKind; maxBytes?: number; now?: () => number },
+): IndexSingleOutcome {
+  if (!isRepoRelative(rel)) return "out-of-repo";
+
+  const now = opts?.now ?? Date.now;
+  const summarizer = opts?.summarizer ?? "heuristic";
+  const maxBytes = opts?.maxBytes ?? PER_FILE_MAX_BYTES;
+
+  // Resolve abs and verify it doesn't escape baseRoot via traversal.
+  const baseAbs = pathResolve(baseRoot);
+  const abs = pathResolve(baseRoot, rel);
+  if (!abs.startsWith(baseAbs + pathSep) && abs !== baseAbs) {
+    return "out-of-repo";
+  }
+
+  const lower = rel.toLowerCase();
+  for (const ext of SINGLE_EXCLUDED_SUFFIXES) {
+    if (lower.endsWith(ext)) {
+      emitSkippedEvent(store, "excluded-suffix", rel, now);
+      return "excluded-suffix";
+    }
+  }
+
+  let st: ReturnType<typeof statSync>;
+  try {
+    st = statSync(abs);
+  } catch {
+    // File no longer exists — drop the row, emit a skip so the
+    // operator sees the churn.
+    emitSkippedEvent(store, "missing", rel, now);
+    return "missing";
+  }
+  if (!st.isFile()) {
+    emitSkippedEvent(store, "missing", rel, now);
+    return "missing";
+  }
+  if (st.size > maxBytes) {
+    emitSkippedEvent(store, "too-large", rel, now);
+    return "too-large";
+  }
+
+  let content: string;
+  try {
+    content = readFileSync(abs, "utf-8");
+  } catch {
+    emitSkippedEvent(store, "unreadable", rel, now);
+    return "unreadable";
+  }
+  // Null-byte sniff.
+  const sniffLimit = Math.min(content.length, NULL_SNIFF_BYTES);
+  for (let i = 0; i < sniffLimit; i++) {
+    if (content.charCodeAt(i) === 0) {
+      emitSkippedEvent(store, "binary", rel, now);
+      return "binary";
+    }
+  }
+
+  // Hash dedup.
+  const hash = createHash("sha256").update(content).digest("hex");
+  const db = store.rawDb;
+  const existing = db
+    .prepare("SELECT hash FROM indexed_files WHERE rel_path = ?")
+    .get(rel) as { hash: string } | undefined;
+  if (existing && existing.hash === hash) return "no-op";
+
+  // Summarize + privacy gates.
+  const language = detectLanguage(rel);
+  const summary = summarizeFile({ relPath: rel, content, language });
+  const corpus = `${summary.summary}\n${summary.symbols}`;
+
+  const leak = detectLeakageExtended(corpus);
+  if (leak) {
+    emitSkippedEvent(store, "leakage", rel, now);
+    return "leakage";
+  }
+  const inj = detectPromptInjectionPatterns(corpus);
+  if (inj) {
+    try {
+      store.appendEvent({
+        ts: now(),
+        queryId: `injection-reject-${randomUUID()}`,
+        event: "store.injection_rejected",
+        surface: "indexer",
+        patternName: inj,
+      });
+    } catch {
+      // telemetry must never break a write path
+    }
+    emitSkippedEvent(store, "injection", rel, now);
+    return "injection";
+  }
+
+  // Upsert.
+  const tNow = now();
+  if (existing) {
+    db.prepare(
+      `UPDATE indexed_files SET
+         hash = @hash,
+         language = @language,
+         size_bytes = @size_bytes,
+         summary = @summary,
+         symbols = @symbols,
+         summarizer = @summarizer,
+         updated_at = @updated_at
+       WHERE rel_path = @rel_path`,
+    ).run({
+      hash,
+      language: summary.language,
+      size_bytes: st.size,
+      summary: summary.summary,
+      symbols: summary.symbols,
+      summarizer,
+      updated_at: tNow,
+      rel_path: rel,
+    });
+    return "updated";
+  }
+  db.prepare(
+    `INSERT INTO indexed_files (
+       id, rel_path, hash, language, size_bytes,
+       summary, symbols, summarizer, indexed_at, updated_at
+     ) VALUES (
+       @id, @rel_path, @hash, @language, @size_bytes,
+       @summary, @symbols, @summarizer, @indexed_at, @updated_at
+     )`,
+  ).run({
+    id: randomUUID(),
+    rel_path: rel,
+    hash,
+    language: summary.language,
+    size_bytes: st.size,
+    summary: summary.summary,
+    symbols: summary.symbols,
+    summarizer,
+    indexed_at: tNow,
+    updated_at: tNow,
+  });
+  return "indexed";
+}
+
+// ---------------------------------------------------------------------------
 // Pending queue helpers
 // ---------------------------------------------------------------------------
 
@@ -352,14 +557,20 @@ export function drainIndexerPending(
     indexedCount >= fileBudget || now() - start >= timeBudget;
 
   // --- Dirs first ---
+  // 0.7.0-rc.2 hardening — pass `baseRoot: opts.root` so file
+  // `rel_path` resolves against the project root, not the
+  // sub-directory. Pre-hardening this branch persisted
+  // `src/deep/target.ts` as `target.ts`, breaking the
+  // `indexed_files.rel_path UNIQUE` contract.
   for (const rel of fetchSlice("dir", 8)) {
     if (exhausted()) break;
     const remainingFiles = Math.max(0, fileBudget - indexedCount);
     const remainingMs = Math.max(0, timeBudget - (now() - start));
-    const subRoot = rel === "." ? opts.root : `${opts.root}/${rel}`;
+    const startRoot = rel === "." ? opts.root : `${opts.root}/${rel}`;
     try {
       const sub = indexWorkspace(store, {
-        root: subRoot,
+        root: startRoot,
+        baseRoot: opts.root,
         budget: { maxFiles: remainingFiles, timeMs: remainingMs },
         now,
       });
@@ -369,7 +580,8 @@ export function drainIndexerPending(
     }
     // Whether the sub-walk succeeded or not, drop this dir from the
     // queue. If it had un-walked descendants, the sub-walk re-
-    // enqueued them as new file/dir rows already.
+    // enqueued them as new file/dir rows already (now with correct
+    // repo-rel paths because `baseRoot` was passed).
     store.rawDb
       .prepare("DELETE FROM indexer_pending WHERE rel_path = ? AND kind = 'dir'")
       .run(rel);
@@ -377,31 +589,22 @@ export function drainIndexerPending(
   }
 
   // --- Files second ---
+  // 0.7.0-rc.2 hardening — exact-file path. Pre-hardening this
+  // branch ran a one-file walker from the project root, which
+  // BFS-yielded whatever it saw first instead of the queued file.
+  // Modified files at deep paths could be silently dropped.
   if (!exhausted()) {
-    for (const rel of fetchSlice("file", fileBudget - indexedCount)) {
+    const remaining = fileBudget - indexedCount;
+    for (const rel of fetchSlice("file", Math.max(1, remaining))) {
       if (exhausted()) break;
-      // Re-walk just this file. We pretend the parent dir is the
-      // walker root and pass a one-file budget so the walker yields
-      // it (the BFS will stop after the first file in the dir
-      // matching the path tail).
-      //
-      // Simpler: read + persist in-place via the per-file path. We
-      // have the rel; resolve to abs and load.
-      try {
-        const sub = indexWorkspace(store, {
-          // Walk the parent so toRepoRelative produces the same
-          // rel as the queued row.
-          root: opts.root,
-          budget: { maxFiles: 1, timeMs: Math.max(0, timeBudget - (now() - start)) },
-          now,
-        });
-        indexedCount += sub.indexedCount;
-      } catch {
-        // swallow
+      const outcome = indexSingleFile(store, opts.root, rel, { now });
+      if (outcome === "indexed" || outcome === "updated") {
+        indexedCount++;
       }
-      // Drop the row regardless — if persistence didn't happen
-      // (large file, leakage, etc.), the un-indexed state is
-      // recoverable via a future PostToolBatch enqueue.
+      // Drop the pending row regardless of outcome — the queued
+      // file was given an exact-file pass. If it surfaced a
+      // skip-reason event (binary / leakage / etc.), the operator
+      // sees it in the doctor / event log.
       store.rawDb
         .prepare("DELETE FROM indexer_pending WHERE rel_path = ? AND kind = 'file'")
         .run(rel);

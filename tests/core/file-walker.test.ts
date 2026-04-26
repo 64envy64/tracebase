@@ -187,6 +187,46 @@ describe("walkWorkspace — budgets", () => {
 // Determinism + edge cases
 // ---------------------------------------------------------------------------
 
+describe("walkWorkspace — baseRoot vs startRoot (0.7.0-rc.2 hardening)", () => {
+  it("yields paths repo-relative to baseRoot, not startRoot, when both are passed", () => {
+    plant("src/deep/target.ts", "export const x = 1;");
+    plant("src/deep/sibling.ts", "export const y = 2;");
+
+    // Sub-walk the `src/deep/` directory but compute paths against
+    // the project root. Pre-hardening this would have yielded
+    // `target.ts` / `sibling.ts`; post-hardening yields the full
+    // repo-relative path.
+    const startRoot = join(root, "src", "deep");
+    const result = walkWorkspace({ root: startRoot, baseRoot: root });
+    const yielded = result.files.map((f) => f.relPath).sort();
+    expect(yielded).toEqual(["src/deep/sibling.ts", "src/deep/target.ts"]);
+  });
+
+  it("falls back to root when baseRoot is omitted (back-compat)", () => {
+    plant("src/a.ts", "x");
+    const result = walkWorkspace({ root });
+    expect(result.files.map((f) => f.relPath)).toEqual(["src/a.ts"]);
+  });
+
+  it("pendingDirs from sub-walk surface as repo-relative against baseRoot", () => {
+    for (let i = 0; i < 5; i++) plant(`src/deep/f${i}.ts`, "x");
+    plant("src/deep/another/x.ts", "x");
+
+    const startRoot = join(root, "src", "deep");
+    const result = walkWorkspace({
+      root: startRoot,
+      baseRoot: root,
+      budget: { maxFiles: 1 },
+    });
+    // Whatever still hasn't been walked surfaces as a pendingDir
+    // path with the FULL `src/deep/...` prefix, not the relative-
+    // to-startRoot form.
+    for (const dir of result.pendingDirs) {
+      expect(dir.startsWith("src/deep")).toBe(true);
+    }
+  });
+});
+
 describe("walkWorkspace — determinism + edge cases", () => {
   it("walk order is deterministic (sorted entries)", () => {
     plant("src/zeta.ts", "x");

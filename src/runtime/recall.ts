@@ -136,14 +136,24 @@ export function recallForPrompt(
 
   recordRecallEvents(store, raw, payload);
 
-  // 0.7.0-rc.2 §rc.2 — opportunistic indexer drain. Best-effort
-  // slice (≤ 50 files OR ≤ 200ms wall-clock); any failure is
-  // swallowed so the recall path never breaks because the indexer
-  // is being asked to do work. Skip entirely on trivial / no-content
-  // recalls: there's nothing the user is waiting for that would
-  // make a 200ms drain unwelcome.
+  // 0.7.0-rc.2 §rc.2 — opportunistic indexer drain.
+  //
+  // 0.7.0-rc.2 hardening: tight budget. The §rc.2 default drain
+  // slice is 50 files / 200 ms — that conflicts with the planned
+  // UserPromptSubmit p95 ≤ 150 ms target (§0.7 stable bench).
+  // Cap the recall-path slice at 10 files / 30 ms so the prompt
+  // path can never be blocked by indexer work, even when many
+  // pending rows exist. The bigger 50/200 slice belongs on
+  // Stop / PostToolBatch / startup hooks, which rc.4+ wires up.
+  //
+  // Best-effort: any failure is swallowed so the recall path
+  // never breaks because the indexer is being asked to do work.
   try {
-    drainIndexerPending(store, { root: opts.basePath });
+    drainIndexerPending(store, {
+      root: opts.basePath,
+      maxFiles: RECALL_PATH_DRAIN_MAX_FILES,
+      timeMs: RECALL_PATH_DRAIN_TIME_MS,
+    });
   } catch {
     // swallow — drain is non-load-bearing on the recall path.
   }
@@ -156,6 +166,18 @@ export function recallForPrompt(
     hasContent: payload.hasContent,
   };
 }
+
+/**
+ * 0.7.0-rc.2 hardening — recall-path drain budget caps.
+ *
+ * UserPromptSubmit p95 target is 150 ms (§0.7 stable bench). The
+ * full §rc.2 drain slice (50 files / 200 ms) would single-handedly
+ * bust that. Cap to 10 / 30 here; rc.4 will wire a 50/200 slice
+ * onto Stop / PostToolBatch / startup paths where the latency
+ * budget is far more forgiving.
+ */
+export const RECALL_PATH_DRAIN_MAX_FILES = 10;
+export const RECALL_PATH_DRAIN_TIME_MS = 30;
 
 /**
  * Trivial-prompt gate. Returns false for prompts shorter than the

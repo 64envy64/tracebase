@@ -23,8 +23,12 @@ import {
   recallForPrompt,
   shouldQueryForPrompt,
   MIN_PROMPT_CHARS,
+  RECALL_PATH_DRAIN_MAX_FILES,
+  RECALL_PATH_DRAIN_TIME_MS,
   type HoldoutLoader,
 } from "../../src/runtime/recall.js";
+import { writeFileSync, mkdirSync } from "node:fs";
+import { enqueuePending } from "../../src/core/file-indexer.js";
 import type { StoreBlockInput } from "../../src/types.js";
 
 const NO_HOLDOUT: HoldoutLoader = () => null;
@@ -211,6 +215,60 @@ describe("recallForPrompt — toggles", () => {
       });
       // Last 2 are B,B — that's only 2, not enough for straight (≥3).
       expect(narrow.signal.kind).toBe("duplicate");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 0.7.0-rc.2 hardening — recall-path drain budget cap
+// ---------------------------------------------------------------------------
+
+describe("recallForPrompt — drain budget cap (P2 hardening)", () => {
+  it("drain cap constants match the documented bench-friendly slice", () => {
+    // The §0.7 stable bench targets UserPromptSubmit p95 ≤ 150ms.
+    // The recall-path drain MUST be a small slice of that — not the
+    // §rc.2 default 50/200. These constants are the contract that
+    // future bench gates rely on; if a future commit relaxes the
+    // cap, this test catches it.
+    expect(RECALL_PATH_DRAIN_MAX_FILES).toBeLessThanOrEqual(20);
+    expect(RECALL_PATH_DRAIN_TIME_MS).toBeLessThanOrEqual(50);
+  });
+
+  it("queues many pending rows but indexes at most RECALL_PATH_DRAIN_MAX_FILES per recall", () => {
+    withFreshStore((store, server, basePath) => {
+      seedBlock(store, PYTEST_BLOCK);
+
+      // Plant 30 files + queue them all as file-pending. A single
+      // recall call should drain at most RECALL_PATH_DRAIN_MAX_FILES
+      // of them, not all 30.
+      mkdirSync(join(basePath, "src"), { recursive: true });
+      for (let i = 0; i < 30; i++) {
+        writeFileSync(
+          join(basePath, "src", `f${i}.ts`),
+          `/** file ${i} */\nexport const x${i} = ${i};\n`,
+        );
+        enqueuePending(store, `src/f${i}.ts`, "file", 1);
+      }
+
+      const before = store.rawDb
+        .prepare("SELECT COUNT(*) AS c FROM indexed_files")
+        .get() as { c: number };
+      expect(before.c).toBe(0);
+
+      recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "Pytest collects the wrong package — long enough prompt to pass the gate",
+        basePath,
+        sessionId: null,
+      });
+
+      const after = store.rawDb
+        .prepare("SELECT COUNT(*) AS c FROM indexed_files")
+        .get() as { c: number };
+      // The drain processed AT MOST the cap. (May be less if file
+      // I/O ran into the time budget first, which is the whole
+      // point of the cap — recall path stays bounded.)
+      expect(after.c).toBeGreaterThan(0);
+      expect(after.c).toBeLessThanOrEqual(RECALL_PATH_DRAIN_MAX_FILES);
     });
   });
 });
