@@ -249,4 +249,3 @@ export function computeMechanismSavings(
     total,
   };
 }
-
