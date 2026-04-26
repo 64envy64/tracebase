@@ -790,18 +790,26 @@ export class BlockStore {
     const now = this.now();
 
     if (current === 0) {
-      // Fresh DB — run full current schema.
-      this.db.exec(V2_SCHEMA);
-      this.setSchemaVersion(V2_SCHEMA_VERSION);
-      // 0.7.0-rc.1 — mirror the per-step log retroactively so a fresh
-      // install lands with the same audit history as an upgraded one.
-      // The schema_version table was just created by V2_SCHEMA above,
-      // so this insert always succeeds (INSERT OR IGNORE keeps it
-      // safe against re-runs on the same connection).
-      const stamp = this.db.prepare(
-        "INSERT OR IGNORE INTO schema_version(version, applied_at) VALUES (?, ?)",
-      );
-      for (let v = 1; v <= V2_SCHEMA_VERSION; v++) stamp.run(v, now);
+      // 0.7.0-rc.1 §hardening — fresh-init wrapped in a single
+      // transaction so a process death mid-init can never leave a
+      // partially-initialised DB. Either every table + index + FTS
+      // mirror exists with the full audit log, or nothing did.
+      // (The `current === 0` re-check on next open will see the
+      // rolled-back state and re-run the full init.)
+      const tx = this.db.transaction(() => {
+        this.db.exec(V2_SCHEMA);
+        this.setSchemaVersion(V2_SCHEMA_VERSION);
+        // Mirror the per-step log retroactively so a fresh install
+        // lands with the same audit history as an upgraded one. The
+        // schema_version table was created by V2_SCHEMA above, so
+        // this insert always succeeds (INSERT OR IGNORE keeps it
+        // safe against re-runs on the same connection).
+        const stamp = this.db.prepare(
+          "INSERT OR IGNORE INTO schema_version(version, applied_at) VALUES (?, ?)",
+        );
+        for (let v = 1; v <= V2_SCHEMA_VERSION; v++) stamp.run(v, now);
+      });
+      tx();
       return;
     }
 
@@ -1691,16 +1699,59 @@ export class BlockStore {
   // -------------------------------------------------------------------------
 
   /**
+   * 0.7.0-rc.1 §hardening — closed surface enum at runtime.
+   *
+   * The TS type for `recordInjectionRejected.surface` constrains
+   * values, but TS is a compile-time guarantee. JS callers + future
+   * code paths that build a synthetic event from JSON / DB row /
+   * external input could pass an arbitrary string. This Set is the
+   * runtime check: if a surface isn't here, the event is dropped
+   * before any analytics row writes. The `analytics_events.payload`
+   * column never carries a free-form surface value as a result.
+   */
+  private static readonly KNOWN_INJECTION_SURFACES = new Set<string>([
+    "block",
+    "fact",
+    "imported",
+    "indexer",
+    "fold",
+  ]);
+
+  /**
+   * Warn-once trackers for telemetry-side failures inside
+   * `recordInjectionRejected`. Static state because there's only one
+   * stderr per process and a single warn line per category is enough
+   * — the goal is "operator sees something is off in debug mode",
+   * not a per-occurrence audit log.
+   */
+  private static loggedTelemetryFailure = false;
+  private static loggedUnknownSurfaces = new Set<string>();
+
+  /**
    * Internal helper: emit a `store.injection_rejected` analytics
-   * event when the prompt-injection guard rejects a write. Best-effort
-   * — telemetry must never break a user write path, so any failure
-   * here is swallowed (the guard's primary responsibility is to
-   * reject the write, which the caller does next via `throw`).
+   * event when the prompt-injection guard rejects a write.
+   *
+   * Best-effort — telemetry must never break a user write path. Two
+   * defenses:
+   *   1. Surface arg is checked against `KNOWN_INJECTION_SURFACES`;
+   *      unknown values drop without persisting. Warn-once under
+   *      `TRACEBASE_DEBUG=1` so an operator notices in development.
+   *   2. `appendEvent` is wrapped in try/catch; any failure logs
+   *      warn-once (debug only) and silently returns. The throw the
+   *      caller does next (PromptInjectionError) is what enforces
+   *      the "no partial content stored" contract — the event is
+   *      audit, not enforcement.
    */
   private recordInjectionRejected(
     surface: "block" | "fact" | "imported" | "indexer" | "fold",
     patternName: string,
   ): void {
+    if (!BlockStore.KNOWN_INJECTION_SURFACES.has(surface)) {
+      // Drop. Don't write an arbitrary surface value to
+      // analytics_events.payload — that's a future PII vector.
+      BlockStore.warnOnceUnknownSurface(surface);
+      return;
+    }
     try {
       this.appendEvent({
         ts: this.now(),
@@ -1712,8 +1763,31 @@ export class BlockStore {
         surface,
         patternName,
       });
-    } catch {
-      // Telemetry must never break a write path.
+    } catch (err) {
+      BlockStore.warnOnceTelemetryFailure(err);
+    }
+  }
+
+  private static warnOnceUnknownSurface(surface: string): void {
+    if (BlockStore.loggedUnknownSurfaces.has(surface)) return;
+    BlockStore.loggedUnknownSurfaces.add(surface);
+    if (process.env.TRACEBASE_DEBUG) {
+      // String-coerce to keep stderr safe even if `surface` is a
+      // weird object that snuck through a JSON boundary.
+      process.stderr.write(
+        `[tracebase] dropping injection-reject event with unknown surface: ${String(surface)}\n`,
+      );
+    }
+  }
+
+  private static warnOnceTelemetryFailure(err: unknown): void {
+    if (BlockStore.loggedTelemetryFailure) return;
+    BlockStore.loggedTelemetryFailure = true;
+    if (process.env.TRACEBASE_DEBUG) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `[tracebase] injection-reject telemetry append failed (write path unaffected): ${msg}\n`,
+      );
     }
   }
 

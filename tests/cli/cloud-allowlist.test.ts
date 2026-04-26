@@ -428,7 +428,7 @@ describe("sanitizeForCloud — edge cases", () => {
 // ---------------------------------------------------------------------------
 
 describe("sanitizeForCloud — mechanisms.fileIndex aggregate", () => {
-  it("keeps the documented count fields, drops planted paths + ids", () => {
+  it("keeps the documented count fields + bySummarizer enum, drops planted paths + ids", () => {
     const out = sanitizeForCloud({
       metrics: {
         mechanisms: {
@@ -436,9 +436,22 @@ describe("sanitizeForCloud — mechanisms.fileIndex aggregate", () => {
             completedCount: 42,
             bytesSummarized: 12345,
             durationMs: 800,
-            summarizer: "heuristic",
+            // 0.7.0-rc.1 hardening — bySummarizer is a closed enum.
+            // Buckets `heuristic` / `embedding` / `llm` survive;
+            // `unknown_summarizer_v2` is dropped at the wire.
+            bySummarizer: {
+              heuristic: 30,
+              embedding: 10,
+              llm: 2,
+              unknown_summarizer_v2: 99,
+            },
             pending: 5,
             skippedCount: 3,
+            // Bare `summarizer` string is no longer in the spec — a
+            // future aggregator that bubbles the raw value (which
+            // could be a model identity like "claude-sonnet-4-6")
+            // gets dropped here.
+            summarizer: "claude-sonnet-4-6",
             // Forbidden — not in the spec. Each key represents a
             // class of leak the aggregator could accidentally bubble.
             paths: ["/Users/me/project/src/foo.ts"],
@@ -453,15 +466,25 @@ describe("sanitizeForCloud — mechanisms.fileIndex aggregate", () => {
     const fi = out.metrics?.mechanisms?.fileIndex ?? {};
     expect(fi.completedCount).toBe(42);
     expect(fi.bytesSummarized).toBe(12345);
-    expect(fi.summarizer).toBe("heuristic");
     expect(fi.pending).toBe(5);
     expect(fi.skippedCount).toBe(3);
+    // bySummarizer survives with the three known buckets.
+    const bs = fi.bySummarizer as Record<string, unknown>;
+    expect(bs.heuristic).toBe(30);
+    expect(bs.embedding).toBe(10);
+    expect(bs.llm).toBe(2);
+    expect(bs.unknown_summarizer_v2).toBeUndefined();
+    // Bare `summarizer` string is stripped.
+    expect(fi.summarizer).toBeUndefined();
     for (const k of ["paths", "fileIds", "relPath", "sessionId", "byReason"]) {
       expect(fi[k], `fileIndex.${k} must be stripped`).toBeUndefined();
     }
     const serialized = JSON.stringify(out);
     expect(serialized).not.toContain("/Users/me/project");
     expect(serialized).not.toContain("sess-42");
+    // The planted model name must NEVER appear in the envelope.
+    expect(serialized).not.toContain("claude-sonnet-4-6");
+    expect(serialized).not.toContain("unknown_summarizer_v2");
   });
 });
 
@@ -576,7 +599,7 @@ describe("sanitizeForCloud — mechanisms.loopRedirect aggregate", () => {
 });
 
 describe("sanitizeForCloud — mechanisms.contextFold aggregate", () => {
-  it("keeps token sums + closed-enum byReason, drops summary text + sessionIds", () => {
+  it("keeps token sums + closed-enum byReason + bySummarizer, drops summary text + sessionIds", () => {
     const out = sanitizeForCloud({
       metrics: {
         mechanisms: {
@@ -584,6 +607,14 @@ describe("sanitizeForCloud — mechanisms.contextFold aggregate", () => {
             chunkCount: 4,
             tokensBeforeSum: 8000,
             tokensAfterSum: 600,
+            // 0.7.0-rc.1 hardening — same closed-enum bySummarizer
+            // as fileIndex. Aggregator must run summarizer values
+            // through this enum before counting; unknowns drop.
+            bySummarizer: {
+              heuristic: 3,
+              llm: 1,
+              "claude-sonnet": 99,
+            },
             skipCount: 1,
             byReason: {
               "no-new-turns": 1,
@@ -596,6 +627,7 @@ describe("sanitizeForCloud — mechanisms.contextFold aggregate", () => {
             summaries: ["chunk 1 summary text"],
             sessionId: "sess-42",
             chunkRange: "10-17",
+            summarizer: "claude-sonnet-4-6",
           },
         },
       },
@@ -608,9 +640,16 @@ describe("sanitizeForCloud — mechanisms.contextFold aggregate", () => {
     const r = cf.byReason as Record<string, unknown>;
     expect(r["no-new-turns"]).toBe(1);
     expect(r["model-error"]).toBeUndefined();
+    const bs = cf.bySummarizer as Record<string, unknown>;
+    expect(bs.heuristic).toBe(3);
+    expect(bs.llm).toBe(1);
+    expect(bs["claude-sonnet"]).toBeUndefined();
+    expect(cf.summarizer).toBeUndefined();
     for (const k of ["summaries", "sessionId", "chunkRange"]) {
       expect(cf[k], `contextFold.${k} must be stripped`).toBeUndefined();
     }
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain("claude-sonnet");
   });
 });
 

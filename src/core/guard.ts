@@ -176,22 +176,44 @@ export function detectLeakageExtended(corpus: string): string | null {
  * leak is not.
  */
 export const PROMPT_INJECTION_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
+  // 0.7.0-rc.1 §hardening — bounded gaps. Original used unbounded
+  // `.*` between the verb / temporal qualifier / target noun, which
+  // matched accidental coincidences across long stretches of prose.
+  // Same-line bounded windows ([^.!?\n]{0,120}) require all three
+  // tokens within the same sentence-ish span, dramatically lowering
+  // the false-positive rate without losing real injection shapes
+  // (canonical "Ignore previous instructions" lands inside one
+  // sentence by definition).
+  //
   // "Ignore previous instructions / disregard the system prompt /
   // forget the rules" — the canonical first-attempt shape.
   {
     name: "role-override",
-    re: /\b(ignore|disregard|forget)\b.*\b(previous|prior|above|earlier)\b.*\b(instruction|prompt|rule|message)s?\b/i,
+    re: /\b(ignore|disregard|forget)\b[^.!?\n]{0,120}\b(previous|prior|above|earlier)\b[^.!?\n]{0,120}\b(instruction|prompt|rule|message)s?\b/i,
   },
-  // "You are now Eve. Act as a helpful assistant who…" — persona-flip.
+  // 0.7.0-rc.1 §hardening — split persona-flip's "act as" branch
+  // into a closed persona vocabulary so domain prose like "act as a
+  // fallback" / "act as if the cache is cold" no longer triggers.
+  // The other branches (`you are now` / `pretend (to be|you are)` /
+  // `roleplay as`) stay loose because their very wording implies
+  // persona swap. Vocabulary covers the high-risk personas attackers
+  // typically request: `assistant`, `system`, `developer`,
+  // `admin`/`root`, `hacker`, `user`, `expert`, `agent`.
   {
     name: "persona-flip",
-    re: /\b(you are now|act as|pretend (to be|you are)|roleplay as)\b/i,
+    re: /\b(you are now|pretend (to be|you are)|roleplay as)\b|\bact as (an?|the)?\s*(assistant|system|developer|admin|root|hacker|user|expert|agent)\b/i,
   },
+  // 0.7.0-rc.1 §hardening — backtick-neighbour skip. A documented
+  // tag wrapped in inline backticks (e.g. "the `<system>` block
+  // marker") is documentation about prompts, not a spoofed turn
+  // marker. Lookbehind/lookahead skip the match in that case while
+  // a raw `<system>spoof</system>` injection still matches.
+  //
   // Inline `<system>…</system>` or `<assistant>` tags faking a
   // higher-privilege turn marker.
   {
     name: "system-spoof",
-    re: /<\s*\/?\s*(system|user|assistant)\s*>/i,
+    re: /(?<!`)<\s*\/?\s*(system|user|assistant)\s*>(?!`)/i,
   },
   // Faked TraceBase delimiters: someone writes
   // ```prior_fix\n…\n``` or `<file_memory>` to ride on our own
@@ -200,17 +222,25 @@ export const PROMPT_INJECTION_PATTERNS: ReadonlyArray<{ name: string; re: RegExp
     name: "delimiter-spoof",
     re: /(```\s*(system|tool_result|prior_fix|file_memory|context_fold)\b|<\s*(prior_fix|file_memory|context_fold)\b)/i,
   },
+  // 0.7.0-rc.1 §hardening — bounded gap + tightened secret target.
+  // `env` alone (and even `env var` alone) is too short — both
+  // appear in benign code prose ("print env var name", "list env
+  // vars" etc). Restrict to the verbose `environment variable(s)?`
+  // form which carries clearer exfil intent. The leakage-extended
+  // scanner catches concrete env-line shapes (`AWS_SECRET=…`) at
+  // value level; this regex is the intent-shape line.
+  //
   // Exfil prompts asking the model to dump credentials, the system
   // prompt, environment variables, or tokens.
   {
     name: "exfil-prompt",
-    re: /\b(print|reveal|output|dump|leak|exfiltrate)\b.*\b(system prompt|api[_ ]?key|env|secret|token)/i,
+    re: /\b(print|reveal|output|dump|leak|exfiltrate)\b[^.!?\n]{0,160}\b(system prompt|api[_ ]?key|environment variables?|secret|token)\b/i,
   },
   // "Call the X tool silently / without confirmation / hidden from
   // the user" — coercion to use tools out-of-band.
   {
     name: "tool-coercion",
-    re: /\b(call|invoke|run)\b.*\btool\b.*\b(silently|without (asking|confirmation)|hidden)\b/i,
+    re: /\b(call|invoke|run)\b[^.!?\n]{0,120}\btool\b[^.!?\n]{0,80}\b(silently|without (asking|confirmation)|hidden)\b/i,
   },
 ];
 

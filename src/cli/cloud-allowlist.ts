@@ -155,17 +155,36 @@ const CACHE_SURFACE_SPEC: AllowlistSpec = {
   openai: true,
 };
 
+/**
+ * 0.7.0-rc.1 §hardening — closed enum for summarizer values.
+ *
+ * Pre-hardening, file-index and context-fold aggregates carried a
+ * free-form `summarizer: <string>` primitive leaf, which would have
+ * shipped any value the aggregator wrote — including a future
+ * "claude-sonnet-4-6" / "openai-text-embedding-3" string that
+ * leaks the model identity to the cloud envelope.
+ *
+ * Post-hardening, both aggregates ship `bySummarizer: { heuristic:
+ * <count>, embedding: <count>, llm: <count> }` instead. The
+ * aggregator must run summarizer values through this closed enum
+ * before incrementing a bucket; unknown values fall on the floor
+ * at the wire (any key not listed here is dropped by the spec
+ * walker).
+ */
+const SUMMARIZER_SPEC: AllowlistSpec = {
+  heuristic: true,
+  embedding: true,
+  llm: true,
+};
+
 const USAGE_FILE_INDEX_SPEC: AllowlistSpec = {
-  // Window-summed counts. `summarizer` is a closed enum so the
-  // primitive leaf accepts only the three documented values
-  // (heuristic / embedding / llm); any other string at this leaf
-  // still passes the leaf-copy check, but later aggregator code
-  // emits only the enum values, so a malformed leaf surfaces in
-  // the planted-PII test below.
+  // Window-summed counts only. The summarizer value moved into the
+  // closed-enum `bySummarizer` histogram below; bare `summarizer`
+  // strings are no longer in the spec → dropped at the wire.
   completedCount: true,
   bytesSummarized: true,
   durationMs: true,
-  summarizer: true,
+  bySummarizer: SUMMARIZER_SPEC,
   pending: true,
   skippedCount: true,
   // NOTE: `byReason` is intentionally omitted. The skip reason set
@@ -198,6 +217,10 @@ const USAGE_CONTEXT_FOLD_SPEC: AllowlistSpec = {
   chunkCount: true,
   tokensBeforeSum: true,
   tokensAfterSum: true,
+  // 0.7.0-rc.1 §hardening — same closed-enum constraint as
+  // fileIndex.bySummarizer. Free-form `summarizer` strings drop
+  // at the wire; only the three documented buckets ship.
+  bySummarizer: SUMMARIZER_SPEC,
   skipCount: true,
   byReason: FOLD_SKIP_REASON_SPEC,
 };

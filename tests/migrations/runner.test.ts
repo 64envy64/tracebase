@@ -196,6 +196,110 @@ describe("migrations — synthetic 0.6.x DB at v=8", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Synthetic intermediate (v=5) DB upgrade path
+// ---------------------------------------------------------------------------
+
+describe("migrations — synthetic intermediate DB at v=5", () => {
+  /**
+   * 0.7.0-rc.1 §hardening — bridge test for the older intermediate
+   * version. v=5 was the failure-distillation lane release; the
+   * walker has to apply migrations 6, 7, 8, AND 9 in order. v=8 (the
+   * existing test above) only exercises the v=9 step.
+   *
+   * Approach: stand up a fresh DB at v=9 schema, drop everything
+   * added at v>=6 (schema_version + tool_observations tables), and
+   * roll the meta cell back to 5. The next BlockStore open walks all
+   * four migrations.
+   *
+   * The project_facts table itself stays at the v=9 schema because
+   * the v=6/v=7 rebuilds use IF NOT EXISTS bootstraps + transactional
+   * SELECT-into-new patterns that are byte-idempotent against a
+   * newer-shape source. The point of this test is the migration
+   * walker, not the SQLite-rewrite mechanics of v=6/v=7.
+   */
+  function makeV5Database(): void {
+    const seed = new BlockStore(dbPath);
+    seed.close();
+    const raw = new Database(dbPath);
+    raw.exec("DROP TABLE IF EXISTS schema_version");
+    raw.exec("DROP TABLE IF EXISTS tool_observations");
+    raw.prepare("UPDATE v2_schema_meta SET value = '5' WHERE key = 'version'").run();
+    raw.close();
+  }
+
+  it("walks v=5 → v=9 cleanly across all four migrations", () => {
+    makeV5Database();
+
+    // Plant a row in a table that pre-dates v=6 so the post-walk
+    // rebuilds preserve it through every CHECK widening.
+    const pre = new Database(dbPath);
+    pre.prepare(
+      `INSERT INTO project_facts(
+         id, version, scope, fact_type, statement,
+         inv_api_surface, src_origin, confidence,
+         last_verified_at, created_at, updated_at, status, dedupe_key
+       ) VALUES (
+         'fact-pre-v6', 1, 'project', 'convention', 'pre-v6 row survives migration walk',
+         '[]', 'observed', 0.5, 1, 1, 1, 'active', 'dedupe-pre-v6'
+       )`,
+    ).run();
+    pre.close();
+
+    const store = new BlockStore(dbPath);
+    const db = store.rawDb;
+
+    // Final version landed at 9.
+    const meta = db
+      .prepare("SELECT value FROM v2_schema_meta WHERE key = 'version'")
+      .get() as { value: string };
+    expect(parseInt(meta.value, 10)).toBeGreaterThanOrEqual(9);
+
+    // schema_version contains rows for every version from 1 through 9.
+    const versions = (
+      db.prepare("SELECT version FROM schema_version ORDER BY version").all() as Array<{
+        version: number;
+      }>
+    ).map((r) => r.version);
+    expect(versions).toEqual(expect.arrayContaining([1, 2, 3, 4, 5, 6, 7, 8, 9]));
+
+    // tool_observations table was added at v=8 and survives v=9.
+    const tableNames = (
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name);
+    expect(tableNames).toContain("tool_observations");
+    expect(tableNames).toContain("schema_version");
+
+    // Pre-v=6 row preserved through v=6 rebuild + v=7 rebuild.
+    const fact = db
+      .prepare("SELECT id, statement FROM project_facts WHERE id = 'fact-pre-v6'")
+      .get() as { id: string; statement: string };
+    expect(fact.id).toBe("fact-pre-v6");
+    expect(fact.statement).toBe("pre-v6 row survives migration walk");
+
+    store.close();
+  });
+
+  it("double-open of v=5 DB lands at v=9 and is then a no-op", () => {
+    makeV5Database();
+    const a = new BlockStore(dbPath);
+    const beforeRows = a.rawDb
+      .prepare("SELECT version FROM schema_version ORDER BY version")
+      .all() as Array<{ version: number }>;
+    a.close();
+
+    const b = new BlockStore(dbPath);
+    const afterRows = b.rawDb
+      .prepare("SELECT version FROM schema_version ORDER BY version")
+      .all() as Array<{ version: number }>;
+    b.close();
+
+    expect(afterRows).toEqual(beforeRows);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Double-apply path
 // ---------------------------------------------------------------------------
 
