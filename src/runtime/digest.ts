@@ -142,6 +142,59 @@ export function extractDigest(raw: string): string | null {
 }
 
 /**
+ * 0.7.0-rc.6 §rc.6 — extract `{ role, content }[]` turns from a
+ * JSONL transcript. Used by the PreCompact path so the chunk
+ * folder works on the same shape `saveContext({ turns })` calls
+ * with from the SDK. Skips meta-line entries; only user-string and
+ * assistant-text content lands in the result.
+ */
+export function extractTurnsFromJsonl(
+  raw: string,
+): Array<{ role: "user" | "assistant"; content: string }> {
+  const out: Array<{ role: "user" | "assistant"; content: string }> = [];
+  for (const line of raw.split("\n")) {
+    if (!line || line.length === 0) continue;
+    let entry: unknown;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as {
+      type?: string;
+      message?: { role?: string; content?: unknown };
+    };
+    if (e.type === "user" && typeof e.message?.content === "string") {
+      const t = e.message.content.trim();
+      if (t.length === 0) continue;
+      // Skip Claude Code meta wrappers (system reminders, command
+      // names, etc.) — same list `firstLineStripped` filters.
+      if (
+        /^<(command-name|local-command-caveat|local-command-stdout|local-command-output|system-reminder|tracebase)[\s>]/.test(
+          t,
+        )
+      ) {
+        continue;
+      }
+      out.push({ role: "user", content: t });
+    } else if (e.type === "assistant" && Array.isArray(e.message?.content)) {
+      const parts: string[] = [];
+      for (const block of e.message!.content as unknown[]) {
+        if (!block || typeof block !== "object") continue;
+        const b = block as { type?: string; text?: unknown };
+        if (b.type !== "text" || typeof b.text !== "string") continue;
+        if (b.text.trim().length > 0) parts.push(b.text);
+      }
+      if (parts.length > 0) {
+        out.push({ role: "assistant", content: parts.join("\n").trim() });
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Bridge between the SDK's `{ role, content }[]` shape and the
  * `extractDigest` helper above (which expects a JSONL transcript).
  * The SDK runtime calls this from `saveContext({ turns })` so

@@ -409,6 +409,125 @@ describe("recallForPrompt — file memory integration", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 0.7.0-rc.6 — chunk-based context compression integration
+// ---------------------------------------------------------------------------
+
+describe("recallForPrompt — context fold integration (rc.6)", () => {
+  function makeChunkPair() {
+    const turns: Array<{ role: "user" | "assistant"; content: string }> = [];
+    for (let i = 0; i < 16; i++) {
+      turns.push({
+        role: i % 2 === 0 ? "user" : "assistant",
+        content: `meaty chunk content turn ${i} with auth gateway middleware payment retries `.repeat(
+          5,
+        ),
+      });
+    }
+    return turns;
+  }
+
+  it("renders <context_fold> section when chunks exist for the session", async () => {
+    const { foldTurns } = await import("../../src/core/context-fold.js");
+    withFreshStore((store, server, basePath) => {
+      const sessionId = "S-fold";
+      // Plant 16 turns of meaty content → 2 chunks worth.
+      const turns = makeChunkPair();
+      const folded = foldTurns({ sessionId, turns, existingWatermark: -1 });
+      expect(folded.chunks.length).toBe(2);
+      store.recordSessionChunks(folded.chunks);
+
+      const out = recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "auth gateway middleware payment retries — what does the loop look like",
+        basePath,
+        sessionId,
+      });
+
+      expect(out.payload.text).toContain("<context_fold>");
+      expect(out.payload.text).toContain("</context_fold>");
+      expect(out.payload.contextFoldRanges.length).toBeGreaterThan(0);
+      expect(out.payload.contextFoldTokensBefore).toBeGreaterThan(0);
+      expect(out.payload.contextFoldTokensAfter).toBeGreaterThan(0);
+    });
+  });
+
+  it("badge numbers match SUM(tokens_before/after) over rendered chunks (within ±1)", async () => {
+    const { foldTurns } = await import("../../src/core/context-fold.js");
+    withFreshStore((store, server, basePath) => {
+      const sessionId = "S-badge";
+      const turns = makeChunkPair();
+      const folded = foldTurns({ sessionId, turns, existingWatermark: -1 });
+      store.recordSessionChunks(folded.chunks);
+
+      const out = recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "another long enough prompt to pass the trivial gate",
+        basePath,
+        sessionId,
+      });
+
+      // Pull the same rows back via the public API and verify
+      // payload sums match within ±1 token (rounding slack on
+      // the small char-clamping the renderer does).
+      const rendered = store.recallSessionChunks(sessionId, 3);
+      // The payload's contextFoldRanges shows what the budget
+      // actually retained — that's the set we sum.
+      const renderedByRange = new Map(
+        rendered.map((r) => [`${r.chunkStartTurn}-${r.chunkEndTurn}`, r]),
+      );
+      let expectedBefore = 0;
+      let expectedAfter = 0;
+      for (const r of out.payload.contextFoldRanges) {
+        const row = renderedByRange.get(`${r.start}-${r.end}`);
+        if (row) {
+          expectedBefore += row.tokensBefore;
+          expectedAfter += row.tokensAfter;
+        }
+      }
+      expect(Math.abs(out.payload.contextFoldTokensBefore - expectedBefore)).toBeLessThanOrEqual(
+        1,
+      );
+      expect(Math.abs(out.payload.contextFoldTokensAfter - expectedAfter)).toBeLessThanOrEqual(
+        1,
+      );
+    });
+  });
+
+  it("cross-session recall: chunks from session A do NOT leak into session B's prompt", async () => {
+    const { foldTurns } = await import("../../src/core/context-fold.js");
+    withFreshStore((store, server, basePath) => {
+      const turnsA = makeChunkPair();
+      const fA = foldTurns({ sessionId: "S-A", turns: turnsA, existingWatermark: -1 });
+      store.recordSessionChunks(fA.chunks);
+
+      const out = recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "another long enough prompt to pass the trivial gate",
+        basePath,
+        sessionId: "S-B",
+      });
+
+      expect(out.payload.contextFoldRanges).toEqual([]);
+      expect(out.payload.text).not.toContain("<context_fold>");
+    });
+  });
+
+  it("missing sessionId on options → no chunk recall, no <context_fold> in payload", async () => {
+    const { foldTurns } = await import("../../src/core/context-fold.js");
+    withFreshStore((store, server, basePath) => {
+      const turns = makeChunkPair();
+      const folded = foldTurns({ sessionId: "S-fold", turns, existingWatermark: -1 });
+      store.recordSessionChunks(folded.chunks);
+
+      const out = recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "another long enough prompt to pass the trivial gate",
+        basePath,
+        // sessionId intentionally omitted
+      });
+      expect(out.payload.contextFoldRanges).toEqual([]);
+      expect(out.payload.text).not.toContain("<context_fold>");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 0.7.0-rc.5 hardening — semantic-loop dedupe keys on intent_key
 // ---------------------------------------------------------------------------
 

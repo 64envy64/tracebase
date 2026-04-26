@@ -81,6 +81,13 @@ export interface RecallForPromptOptions {
    * hard ceiling (10) are silently capped there.
    */
   fileHitsK?: number;
+  /**
+   * 0.7.0-rc.6 §rc.6 — top-K override for session-chunk recall.
+   * Default `CHUNK_HITS_DEFAULT_K`. Recalled chunks are scoped to
+   * the SAME session only; cross-session recall is structurally
+   * impossible.
+   */
+  chunkHitsK?: number;
 }
 
 export interface RecallForPromptResult {
@@ -151,9 +158,28 @@ export function recallForPrompt(
     fileHits = [];
   }
 
+  // 0.7.0-rc.6 §rc.6 — chunk-based context compression recall.
+  // SAME-SESSION ONLY. Pulls the top-K most recent chunks for
+  // this session and feeds them into the injection payload as a
+  // `<context_fold>` section. Cross-session recall is structurally
+  // impossible (the SQL filters on session_id) and a missing
+  // sessionId produces an empty list.
+  let chunkHits: ReturnType<typeof store.recallSessionChunks> = [];
+  if (opts.sessionId) {
+    try {
+      chunkHits = store.recallSessionChunks(
+        opts.sessionId,
+        opts.chunkHitsK ?? CHUNK_HITS_DEFAULT_K,
+      );
+    } catch {
+      chunkHits = [];
+    }
+  }
+
   const payload = buildInjectionPayload(raw, {
     tokenBudget: opts.tokenBudget ?? 1200,
     fileHits,
+    chunkHits,
   });
 
   let signal: ToolPatternSignal = { kind: "none", count: 0 };
@@ -365,6 +391,15 @@ export const RECALL_PATH_DRAIN_TIME_MS = 30;
  * have ground-truth ranking, just FTS bm25).
  */
 export const FILE_HITS_DEFAULT_K = 3;
+
+/**
+ * 0.7.0-rc.6 §rc.6 — default top-K for session-chunk recall. The
+ * spec ships at 3; raising this risks crowding the prompt with
+ * redundant fold summaries since chunks ALREADY summarise their
+ * window. Lowering to 1 or 2 is fine if the wrapper has a tight
+ * token budget.
+ */
+export const CHUNK_HITS_DEFAULT_K = 3;
 
 /**
  * Trivial-prompt gate. Returns false for prompts shorter than the

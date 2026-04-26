@@ -234,6 +234,67 @@ describe("createRuntime — beforeRun", () => {
     });
   });
 
+  // 0.7.0-rc.6 §rc.6 — foldContext + recallChunks SDK surface.
+  describe("foldContext + recallChunks (rc.6)", () => {
+    function makeMeatyTurns() {
+      const turns: Array<{ role: "user" | "assistant"; content: string }> = [];
+      for (let i = 0; i < 16; i++) {
+        turns.push({
+          role: i % 2 === 0 ? "user" : "assistant",
+          content: `meaty content turn ${i} about auth gateway middleware payments retries `.repeat(
+            5,
+          ),
+        });
+      }
+      return turns;
+    }
+
+    it("foldContext writes chunks; recallChunks returns them for the same session", async () => {
+      const runtime = createRuntime(dummyLayer(), { projectPath: projectDir });
+      const turns = makeMeatyTurns();
+      const out = await runtime.foldContext({ sessionId: "S-fold-sdk", turns });
+      expect(out.chunkCount).toBeGreaterThanOrEqual(1);
+      expect(out.tokensBefore).toBeGreaterThan(0);
+      expect(out.tokensAfter).toBeGreaterThan(0);
+
+      const recall = await runtime.recallChunks({ sessionId: "S-fold-sdk" });
+      expect(recall.hits.length).toBe(out.chunkCount);
+      await runtime.close();
+    });
+
+    it("foldContext is idempotent on identical input (turn_hash dedup)", async () => {
+      const runtime = createRuntime(dummyLayer(), { projectPath: projectDir });
+      const turns = makeMeatyTurns();
+      const a = await runtime.foldContext({ sessionId: "S-idem", turns });
+      const b = await runtime.foldContext({ sessionId: "S-idem", turns });
+      expect(a.chunkCount).toBeGreaterThanOrEqual(1);
+      expect(b.chunkCount).toBe(0);
+      await runtime.close();
+    });
+
+    it("recallChunks scopes to session — cross-session returns empty", async () => {
+      const runtime = createRuntime(dummyLayer(), { projectPath: projectDir });
+      await runtime.foldContext({
+        sessionId: "S-x-A",
+        turns: makeMeatyTurns(),
+      });
+      const cross = await runtime.recallChunks({ sessionId: "S-x-B" });
+      expect(cross.hits).toEqual([]);
+      await runtime.close();
+    });
+
+    it("rejects after close()", async () => {
+      const runtime = createRuntime(dummyLayer(), { projectPath: projectDir });
+      await runtime.close();
+      await expect(
+        runtime.foldContext({ sessionId: "S", turns: [] }),
+      ).rejects.toThrow(/runtime closed/);
+      await expect(
+        runtime.recallChunks({ sessionId: "S" }),
+      ).rejects.toThrow(/runtime closed/);
+    });
+  });
+
   it("emits TB LOOP after 3 repeated tool observations precede the prompt", async () => {
     seedBlock(PYTEST_BLOCK);
     const runtime = createRuntime(dummyLayer(), {

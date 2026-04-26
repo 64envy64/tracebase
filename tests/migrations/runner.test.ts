@@ -88,6 +88,7 @@ describe("migrations — fresh DB", () => {
       "indexed_files",
       "indexer_pending",
       "loop_redirect_dedupe",
+      "session_chunks",
     ]) {
       expect(tables).toContain(t);
     }
@@ -670,6 +671,119 @@ describe("migration #12 — loop_redirect_dedupe", () => {
     ).map((r) => r.name);
     expect(tables).toContain("loop_redirect_dedupe");
     store.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Migration #13 — session_chunks (PLAN-0.7 §rc.6)
+// ---------------------------------------------------------------------------
+
+describe("migration #13 — session_chunks", () => {
+  it("fresh init creates session_chunks with the documented columns + indexes", () => {
+    const store = new BlockStore(dbPath);
+    const db = store.rawDb;
+    const cols = (
+      db.prepare("PRAGMA table_info(session_chunks)").all() as Array<{ name: string }>
+    )
+      .map((c) => c.name)
+      .sort();
+    expect(cols).toEqual([
+      "chunk_end_turn",
+      "chunk_start_turn",
+      "created_at",
+      "expires_at",
+      "id",
+      "session_id",
+      "summarizer",
+      "summary",
+      "tokens_after",
+      "tokens_before",
+      "turn_hash",
+    ]);
+    const indexes = (
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='session_chunks'",
+        )
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name);
+    expect(indexes).toEqual(
+      expect.arrayContaining(["idx_session_chunks_session", "idx_session_chunks_dedupe"]),
+    );
+    store.close();
+  });
+
+  it("UNIQUE (session_id, turn_hash) enforces idempotent fold", () => {
+    const store = new BlockStore(dbPath);
+    const db = store.rawDb;
+    const insert = db.prepare(
+      `INSERT INTO session_chunks (id, session_id, chunk_start_turn, chunk_end_turn,
+        turn_hash, summary, tokens_before, tokens_after, summarizer, expires_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    expect(() => insert.run("c1", "s1", 0, 7, "hash-A", "summary A", 1000, 200, "heuristic", 99, 1)).not.toThrow();
+    // Same (session_id, turn_hash) → UNIQUE violation. INSERT OR IGNORE
+    // is what callers use; here we verify the constraint exists.
+    expect(() => insert.run("c2", "s1", 8, 15, "hash-A", "different summary", 1000, 200, "heuristic", 99, 1)).toThrow(
+      /UNIQUE/,
+    );
+    // Different turn_hash → distinct row.
+    expect(() => insert.run("c3", "s1", 8, 15, "hash-B", "summary B", 1000, 200, "heuristic", 99, 1)).not.toThrow();
+    // Different session_id → distinct row even at same turn_hash.
+    expect(() => insert.run("c4", "s2", 0, 7, "hash-A", "summary A", 1000, 200, "heuristic", 99, 1)).not.toThrow();
+    store.close();
+  });
+
+  it("upgrade from v=12: adds session_chunks without disturbing existing rows", () => {
+    const seed = new BlockStore(dbPath);
+    seed.storeFact({
+      scope: "global",
+      factType: "convention",
+      statement: "tests live under tests/cli",
+      invariants: {},
+      source: { origin: "declared" },
+    });
+    seed.close();
+
+    const raw = new Database(dbPath);
+    raw.exec("DROP INDEX IF EXISTS idx_session_chunks_dedupe");
+    raw.exec("DROP INDEX IF EXISTS idx_session_chunks_session");
+    raw.exec("DROP TABLE IF EXISTS session_chunks");
+    raw.prepare("UPDATE v2_schema_meta SET value = '12' WHERE key = 'version'").run();
+    raw.prepare("DELETE FROM schema_version WHERE version >= 13").run();
+    raw.close();
+
+    const store = new BlockStore(dbPath);
+    const db = store.rawDb;
+    const meta = db
+      .prepare("SELECT value FROM v2_schema_meta WHERE key = 'version'")
+      .get() as { value: string };
+    expect(parseInt(meta.value, 10)).toBeGreaterThanOrEqual(13);
+    const fact = db
+      .prepare("SELECT statement FROM project_facts")
+      .get() as { statement: string };
+    expect(fact.statement).toBe("tests live under tests/cli");
+    const tables = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{
+        name: string;
+      }>
+    ).map((r) => r.name);
+    expect(tables).toContain("session_chunks");
+    store.close();
+  });
+
+  it("double-open at v=13 is a no-op", () => {
+    const a = new BlockStore(dbPath);
+    a.close();
+    const b = new BlockStore(dbPath);
+    const versions = (
+      b.rawDb.prepare("SELECT version FROM schema_version ORDER BY version").all() as Array<{
+        version: number;
+      }>
+    ).map((r) => r.version);
+    expect(versions).toContain(13);
+    expect(new Set(versions).size).toBe(versions.length);
+    b.close();
   });
 });
 

@@ -45,7 +45,12 @@ import {
   isInitialized,
   loadConfig,
 } from "../../core/config.js";
-import { extractDigest, sessionScope } from "../../runtime/digest.js";
+import {
+  extractDigest,
+  extractTurnsFromJsonl,
+  sessionScope,
+} from "../../runtime/digest.js";
+import { foldTurns } from "../../core/context-fold.js";
 import { ensureManagedHooksCurrent } from "../hook-self-heal.js";
 import type { StoreProjectFactInput } from "../../types.js";
 
@@ -245,6 +250,45 @@ export function runCaptureContext(
         ttlDays: DIGEST_TTL_DAYS,
       };
       const fact = store.storeFact(input);
+
+      // 0.7.0-rc.6 §rc.6 — chunk-based context compression. Same-
+      // session only. Watermark via the existing
+      // `latestSessionChunkWatermark`; the folder walks turns past
+      // it and emits new chunks. Best-effort: any failure here
+      // never breaks the legacy digest path that the prior `if
+      // (!digest)` already accepted.
+      try {
+        const turns = extractTurnsFromJsonl(transcript);
+        if (turns.length > 0) {
+          const watermark = store.latestSessionChunkWatermark(sessionId);
+          const folded = foldTurns({
+            sessionId,
+            turns,
+            existingWatermark: watermark,
+          });
+          if (folded.chunks.length > 0) {
+            store.recordSessionChunks(folded.chunks);
+          }
+          // Emit one `context.fold_skipped` per skipped chunk so
+          // the doctor surfaces leakage / injection / below-
+          // threshold drops.
+          for (const s of folded.skipped) {
+            try {
+              store.appendEvent({
+                ts: Date.now(),
+                queryId: `context-fold-skip-${s.sessionId}-${s.chunkStartTurn}`,
+                event: "context.fold_skipped",
+                reason: s.reason,
+              });
+            } catch {
+              // best-effort
+            }
+          }
+        }
+      } catch {
+        // never break the digest path on a chunk-fold failure
+      }
+
       return fact.id;
     });
 

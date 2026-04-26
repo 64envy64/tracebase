@@ -55,11 +55,16 @@ import {
   indexWorkspace as indexWorkspaceCore,
   recallFiles as recallFilesCore,
 } from "../core/file-indexer.js";
+import { foldTurns as foldTurnsCore } from "../core/context-fold.js";
 import type {
   IndexFilesInput,
   IndexFilesResult,
   RecallFilesInput,
   RecallFilesResult,
+  FoldContextInput,
+  FoldContextResult,
+  RecallChunksInput,
+  RecallChunksResult,
 } from "../types.js";
 import { captureTurnFromTexts } from "../runtime/capture-turn.js";
 import { extractDigestFromTurns, sessionScope } from "../runtime/digest.js";
@@ -281,6 +286,10 @@ export function createRuntime(
       fileIds?: string[];
       bytesAvoided?: number;
       tokensEstimate: number;
+      // 0.7.0-rc.6 — context fold fields. Same back-compat shape.
+      contextFoldRanges?: Array<{ start: number; end: number }>;
+      contextFoldTokensBefore?: number;
+      contextFoldTokensAfter?: number;
     },
     queryId: string,
   ): BadgeEvent[] {
@@ -321,6 +330,30 @@ export function createRuntime(
         kind: "memory-files",
         label: `▣ TB MEMORY  recalled ${fileCount} file(s)${kbTag}`,
         count: fileCount,
+        queryId,
+        ts,
+        ...baseSrc,
+      });
+    }
+    // 0.7.0-rc.6 §rc.6 — TB CONTEXT folded badge. Numbers come
+    // straight from the persisted chunk rows surfaced in the
+    // payload — never invented. Format:
+    //   ▣ TB CONTEXT  folded N turns · Xk→Yk
+    // Where N = sum of (chunk_end_turn - chunk_start_turn + 1)
+    // across the rendered ranges, and X/Y are the
+    // tokens_before/tokens_after sums in thousands (rounded).
+    const ranges = payload.contextFoldRanges ?? [];
+    if (enableContext && ranges.length > 0) {
+      const turnsFolded = ranges.reduce(
+        (acc, r) => acc + (r.end - r.start + 1),
+        0,
+      );
+      const kBefore = Math.round((payload.contextFoldTokensBefore ?? 0) / 100) / 10;
+      const kAfter = Math.round((payload.contextFoldTokensAfter ?? 0) / 100) / 10;
+      events.push({
+        kind: "context",
+        label: `▣ TB CONTEXT  folded ${turnsFolded} turns · ${kBefore}k→${kAfter}k`,
+        count: turnsFolded,
         queryId,
         ts,
         ...baseSrc,
@@ -617,6 +650,60 @@ export function createRuntime(
     return { hits };
   }
 
+  // -----------------------------------------------------------------------
+  // 0.7.0-rc.6 §rc.6 — context fold SDK surface
+  // -----------------------------------------------------------------------
+
+  async function foldContext(input: FoldContextInput): Promise<FoldContextResult> {
+    if (closed) throw new Error("runtime closed");
+    const basePath = resolveBasePath();
+    if (!basePath) {
+      return { chunkCount: 0, tokensBefore: 0, tokensAfter: 0, skipped: {} };
+    }
+    const conn = ensureConnection(basePath);
+    if (!conn) {
+      return { chunkCount: 0, tokensBefore: 0, tokensAfter: 0, skipped: {} };
+    }
+    const watermark = conn.store.latestSessionChunkWatermark(input.sessionId);
+    const folded = foldTurnsCore({
+      sessionId: input.sessionId,
+      turns: input.turns,
+      existingWatermark: watermark,
+    });
+    const inserted = conn.store.recordSessionChunks(folded.chunks);
+    const skipped: Record<string, number> = {};
+    for (const s of folded.skipped) {
+      skipped[s.reason] = (skipped[s.reason] ?? 0) + 1;
+      try {
+        conn.store.appendEvent({
+          ts: Date.now(),
+          queryId: `context-fold-skip-${s.sessionId}-${s.chunkStartTurn}`,
+          event: "context.fold_skipped",
+          reason: s.reason,
+        });
+      } catch {
+        // best-effort
+      }
+    }
+    if (inserted > 0) markDirty("foldContext");
+    return {
+      chunkCount: inserted,
+      tokensBefore: folded.chunks.reduce((acc, c) => acc + c.tokensBefore, 0),
+      tokensAfter: folded.chunks.reduce((acc, c) => acc + c.tokensAfter, 0),
+      skipped,
+    };
+  }
+
+  async function recallChunks(input: RecallChunksInput): Promise<RecallChunksResult> {
+    if (closed) throw new Error("runtime closed");
+    const basePath = resolveBasePath();
+    if (!basePath) return { hits: [] };
+    const conn = ensureConnection(basePath);
+    if (!conn) return { hits: [] };
+    const hits = conn.store.recallSessionChunks(input.sessionId, input.k ?? 3);
+    return { hits };
+  }
+
   return {
     beforeRun,
     observeToolBatch: observe,
@@ -624,6 +711,8 @@ export function createRuntime(
     afterRun,
     indexFiles,
     recallFiles: recallFilesMethod,
+    foldContext,
+    recallChunks,
     flush,
     close,
   };

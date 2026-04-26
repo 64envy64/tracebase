@@ -45,12 +45,13 @@ import { detectPromptInjectionPatterns } from "./guard.js";
 // Schema
 // ---------------------------------------------------------------------------
 
-// 0.7.0-rc.5 bumps to 12 — loop redirect anti-self-loop guard
-// (PLAN-0.7 §rc.5). Adds `loop_redirect_dedupe(session_id,
-// anchor_id, arg_key, ts)` so the same anchor for the same
-// arg_key in the same session fires the redirect once. Same
-// migration framework as before.
-const V2_SCHEMA_VERSION = 12;
+// 0.7.0-rc.6 bumps to 13 — chunk-based context compression
+// (PLAN-0.7 §rc.6). Adds `session_chunks(id, session_id,
+// chunk_start_turn, chunk_end_turn, turn_hash, summary, tokens_*,
+// summarizer, expires_at, created_at)` so PreCompact can fold
+// transcript tail into rolling chunks the next UserPromptSubmit
+// in the same session can recall.
+const V2_SCHEMA_VERSION = 13;
 
 const V2_SCHEMA = `
 CREATE TABLE IF NOT EXISTS reasoning_blocks (
@@ -440,6 +441,40 @@ CREATE TABLE IF NOT EXISTS loop_redirect_dedupe (
 );
 
 CREATE INDEX IF NOT EXISTS idx_loop_redirect_dedupe_ts ON loop_redirect_dedupe(ts);
+
+-- 0.7.0-rc.6 rc.6 — chunk-based context compression.
+--
+-- One row per folded chunk of a session's transcript. PreCompact
+-- writes new rows; the next UserPromptSubmit in the SAME session
+-- queries the latest rows by chunk_start_turn DESC and injects
+-- the top-K under <context_fold>...</context_fold>.
+--
+-- Privacy: summary <= 1200 chars, leakage- and injection-scanned
+-- at write. Cloud allowlist drops every column from session_chunks
+-- (USAGE_CONTEXT_FOLD_SPEC ships only counts).
+--
+-- Idempotency: (session_id, turn_hash) is UNIQUE so a re-fold of
+-- the same content on the next PreCompact no-ops; expires_at
+-- carries the spec'd 14-day TTL so old chunks age out.
+CREATE TABLE IF NOT EXISTS session_chunks (
+  id                TEXT PRIMARY KEY,
+  session_id        TEXT NOT NULL,
+  chunk_start_turn  INTEGER NOT NULL,
+  chunk_end_turn    INTEGER NOT NULL,
+  turn_hash         TEXT NOT NULL,
+  summary           TEXT NOT NULL,
+  tokens_before     INTEGER NOT NULL,
+  tokens_after      INTEGER NOT NULL,
+  summarizer        TEXT NOT NULL,
+  expires_at        INTEGER NOT NULL,
+  created_at        INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_chunks_session
+  ON session_chunks(session_id, chunk_start_turn);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_session_chunks_dedupe
+  ON session_chunks(session_id, turn_hash);
 
 -- Calibrator models (Phase 5.2). Named JSON blobs so multiple named
 -- calibrators can coexist (e.g. per-cohort, per-deployment). Phase 5
@@ -869,6 +904,29 @@ const V2_MIGRATIONS: Record<number, MigrationStep[]> = {
        PRIMARY KEY (session_id, anchor_id, arg_key)
      )`,
     `CREATE INDEX IF NOT EXISTS idx_loop_redirect_dedupe_ts ON loop_redirect_dedupe(ts)`,
+  ],
+  // v12 → v13: 0.7.0-rc.6 chunk-based context compression
+  // (PLAN-0.7 §rc.6). Pure additive — one new table + two
+  // indexes (one for session+turn ordering, one UNIQUE for
+  // turn_hash idempotency). Idempotent via IF NOT EXISTS.
+  13: [
+    `CREATE TABLE IF NOT EXISTS session_chunks (
+       id                TEXT PRIMARY KEY,
+       session_id        TEXT NOT NULL,
+       chunk_start_turn  INTEGER NOT NULL,
+       chunk_end_turn    INTEGER NOT NULL,
+       turn_hash         TEXT NOT NULL,
+       summary           TEXT NOT NULL,
+       tokens_before     INTEGER NOT NULL,
+       tokens_after      INTEGER NOT NULL,
+       summarizer        TEXT NOT NULL,
+       expires_at        INTEGER NOT NULL,
+       created_at        INTEGER NOT NULL
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_session_chunks_session
+       ON session_chunks(session_id, chunk_start_turn)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_session_chunks_dedupe
+       ON session_chunks(session_id, turn_hash)`,
   ],
 };
 
@@ -2258,6 +2316,174 @@ export class BlockStore {
       )
       .get(sessionId) as { c: number };
     return row.c;
+  }
+
+  // -------------------------------------------------------------------------
+  // 0.7.0-rc.6 — session_chunks (chunk-based context compression)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Highest persisted `chunk_end_turn` for a session. The PreCompact
+   * folder uses this as the starting watermark — chunks past this
+   * index are new candidates; chunks at-or-below are already
+   * folded. Returns -1 when the session has no chunks yet.
+   */
+  latestSessionChunkWatermark(sessionId: string): number {
+    try {
+      const row = this.db
+        .prepare(
+          `SELECT MAX(chunk_end_turn) AS m FROM session_chunks WHERE session_id = ?`,
+        )
+        .get(sessionId) as { m: number | null };
+      return typeof row.m === "number" ? row.m : -1;
+    } catch {
+      return -1;
+    }
+  }
+
+  /**
+   * Insert a batch of `FoldedChunk` rows, idempotent on
+   * `(session_id, turn_hash)`. Returns the number of rows actually
+   * inserted (already-existing rows count as 0). Used by the
+   * PreCompact path; emits one `context.folded` analytics event
+   * per inserted row.
+   */
+  recordSessionChunks(
+    rows: ReadonlyArray<{
+      sessionId: string;
+      chunkStartTurn: number;
+      chunkEndTurn: number;
+      turnHash: string;
+      summary: string;
+      tokensBefore: number;
+      tokensAfter: number;
+      summarizer: string;
+      expiresAt: number;
+    }>,
+  ): number {
+    if (rows.length === 0) return 0;
+    const stmt = this.db.prepare(
+      `INSERT OR IGNORE INTO session_chunks (
+         id, session_id, chunk_start_turn, chunk_end_turn,
+         turn_hash, summary, tokens_before, tokens_after,
+         summarizer, expires_at, created_at
+       ) VALUES (
+         @id, @session_id, @chunk_start_turn, @chunk_end_turn,
+         @turn_hash, @summary, @tokens_before, @tokens_after,
+         @summarizer, @expires_at, @created_at
+       )`,
+    );
+    const tNow = this.now();
+    let inserted = 0;
+    type Mutable<T> = T extends ReadonlyArray<infer U> ? U[] : never;
+    const insertedChunks: Mutable<typeof rows> = [];
+    const tx = this.db.transaction(() => {
+      for (const r of rows) {
+        const res = stmt.run({
+          id: randomUUID(),
+          session_id: r.sessionId,
+          chunk_start_turn: r.chunkStartTurn,
+          chunk_end_turn: r.chunkEndTurn,
+          turn_hash: r.turnHash,
+          summary: r.summary,
+          tokens_before: r.tokensBefore,
+          tokens_after: r.tokensAfter,
+          summarizer: r.summarizer,
+          expires_at: r.expiresAt,
+          created_at: tNow,
+        });
+        if (res.changes > 0) {
+          inserted += 1;
+          insertedChunks.push(r);
+        }
+      }
+    });
+    tx();
+
+    // Emit one `context.folded` per inserted chunk. Best-effort —
+    // telemetry must never break the fold path.
+    for (const c of insertedChunks) {
+      try {
+        this.appendEvent({
+          ts: tNow,
+          queryId: `context-fold-${randomUUID()}`,
+          event: "context.folded",
+          sessionId: c.sessionId,
+          chunkRange: `${c.chunkStartTurn}-${c.chunkEndTurn}`,
+          tokensBefore: c.tokensBefore,
+          tokensAfter: c.tokensAfter,
+          summarizer:
+            c.summarizer === "embedding"
+              ? "embedding"
+              : c.summarizer === "llm"
+                ? "llm"
+                : "heuristic",
+        });
+      } catch {
+        // best-effort
+      }
+    }
+    return inserted;
+  }
+
+  /**
+   * Recall the top-K most recent session chunks for `sessionId`,
+   * ordered by `chunk_end_turn DESC`. Returns oldest-first within
+   * the K-window so injection prefix order matches the transcript.
+   * Empty array when the session has no chunks. Cross-session
+   * recall is structurally impossible — the SQL filters on
+   * `session_id`.
+   */
+  recallSessionChunks(
+    sessionId: string,
+    limit: number = 3,
+  ): Array<{
+    chunkStartTurn: number;
+    chunkEndTurn: number;
+    summary: string;
+    tokensBefore: number;
+    tokensAfter: number;
+  }> {
+    if (limit <= 0) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT chunk_start_turn, chunk_end_turn, summary,
+                tokens_before, tokens_after
+           FROM session_chunks
+          WHERE session_id = ?
+          ORDER BY chunk_end_turn DESC, rowid DESC
+          LIMIT ?`,
+      )
+      .all(sessionId, limit) as Array<{
+      chunk_start_turn: number;
+      chunk_end_turn: number;
+      summary: string;
+      tokens_before: number;
+      tokens_after: number;
+    }>;
+    return rows
+      .map((r) => ({
+        chunkStartTurn: r.chunk_start_turn,
+        chunkEndTurn: r.chunk_end_turn,
+        summary: r.summary,
+        tokensBefore: r.tokens_before,
+        tokensAfter: r.tokens_after,
+      }))
+      .reverse();
+  }
+
+  /** Diagnostic count helper used by the doctor / tests. */
+  countSessionChunks(sessionId: string): number {
+    try {
+      const row = this.db
+        .prepare(
+          `SELECT COUNT(*) AS c FROM session_chunks WHERE session_id = ?`,
+        )
+        .get(sessionId) as { c: number };
+      return row.c;
+    } catch {
+      return 0;
+    }
   }
 
   /**

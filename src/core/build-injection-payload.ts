@@ -59,6 +59,22 @@ export interface BuildInjectionPayloadOptions {
   fileHits?: FileHit[];
   /** Hard cap on rendered file lines regardless of budget. Default 3. */
   maxFiles?: number;
+  /**
+   * 0.7.0-rc.6 §rc.6 — session chunks to render inside an explicit
+   * `<context_fold>…</context_fold>` tag. Each chunk renders as
+   * one bullet per stored summary, prefixed with its turn range
+   * (`[turns 0-7]: …`). Bounded by `maxChunks`; section drops
+   * cleanly when budget tight.
+   */
+  chunkHits?: ReadonlyArray<{
+    chunkStartTurn: number;
+    chunkEndTurn: number;
+    summary: string;
+    tokensBefore: number;
+    tokensAfter: number;
+  }>;
+  /** Hard cap on rendered chunk lines regardless of budget. Default 3. */
+  maxChunks?: number;
 }
 
 export interface InjectionPayload {
@@ -108,6 +124,16 @@ export interface InjectionPayload {
    * tokensInjected` to compute against the correct denominator.
    */
   fileMemoryTokensEstimate: number;
+  /**
+   * 0.7.0-rc.6 §rc.6 — chunk turn-ranges that appear in the
+   * rendered `<context_fold>` section. Empty when no chunk
+   * recalled or budget dropped them all. The TB CONTEXT badge
+   * computes "folded N turns · Xk → Yk" by SUMMING tokens_before
+   * / tokens_after over these chunks (NEVER invented).
+   */
+  contextFoldRanges: Array<{ start: number; end: number }>;
+  contextFoldTokensBefore: number;
+  contextFoldTokensAfter: number;
 }
 
 const DEFAULT_TOKEN_BUDGET = 1200;
@@ -115,10 +141,14 @@ const DEFAULT_MAX_BLOCKS = 4;
 const DEFAULT_MAX_FACTS = 4;
 const DEFAULT_MAX_FILES = 3;
 const FILE_MAX_HARD_CEILING = 6;
+const DEFAULT_MAX_CHUNKS = 3;
+const CHUNK_MAX_HARD_CEILING = 4;
 /** Common English heuristic — good enough for budgeting against the 10 KB ceiling. */
 const CHARS_PER_TOKEN = 4;
 /** Per-file-line clamp inside the `<file_memory>` section. */
 const FILE_LINE_MAX_CHARS = 220;
+/** Per-chunk-line clamp inside the `<context_fold>` section. */
+const CHUNK_LINE_MAX_CHARS = 280;
 
 /**
  * Convert a recall result to silent injection text.
@@ -140,6 +170,10 @@ export function buildInjectionPayload(
     Math.max(0, opts.maxFiles ?? DEFAULT_MAX_FILES),
     FILE_MAX_HARD_CEILING,
   );
+  const maxChunks = Math.min(
+    Math.max(0, opts.maxChunks ?? DEFAULT_MAX_CHUNKS),
+    CHUNK_MAX_HARD_CEILING,
+  );
 
   const empty: InjectionPayload = {
     text: "",
@@ -151,6 +185,9 @@ export function buildInjectionPayload(
     bytesAvoided: 0,
     tokensEstimate: 0,
     fileMemoryTokensEstimate: 0,
+    contextFoldRanges: [],
+    contextFoldTokensBefore: 0,
+    contextFoldTokensAfter: 0,
   };
 
   // 0.7.0-rc.3 hardening — file memory MUST inject independently
@@ -184,13 +221,23 @@ export function buildInjectionPayload(
   // indexer's leakage / injection scans gate at write-time), so
   // the maxFiles cap is the only filter here.
   const gatedFiles = (opts.fileHits ?? []).slice(0, maxFiles);
-  if (gatedBlocks.length === 0 && gatedFacts.length === 0 && gatedFiles.length === 0) {
+  // 0.7.0-rc.6 §rc.6 — same shape for context fold chunks: the
+  // PreCompact write-side leakage + injection scan already gated
+  // each chunk's summary, so the maxChunks cap is the only filter.
+  const gatedChunks = (opts.chunkHits ?? []).slice(0, maxChunks);
+  if (
+    gatedBlocks.length === 0 &&
+    gatedFacts.length === 0 &&
+    gatedFiles.length === 0 &&
+    gatedChunks.length === 0
+  ) {
     return empty;
   }
 
   const blockLines = gatedBlocks.map(renderBlockSilent);
   const factLines = gatedFacts.map(renderFactSilent);
   const fileLines = gatedFiles.map(renderFileSilent);
+  const chunkLines = gatedChunks.map(renderChunkSilent);
 
   // Frame: queryId-tagged wrapper so `record_reasoning_outcome` can
   // close the loop, plus a one-line lead-in. The lead-in is plain
@@ -215,6 +262,14 @@ export function buildInjectionPayload(
     gatedFiles.length > 0
       ? fileTagOpen.length + 1 + fileTagClose.length + 1
       : 0;
+  // 0.7.0-rc.6 §rc.6 — context_fold section. Same wrapping
+  // discipline as file_memory; same tag-overhead accounting.
+  const chunkTagOpen = `<context_fold>`;
+  const chunkTagClose = `</context_fold>`;
+  const chunkSectionFixed =
+    gatedChunks.length > 0
+      ? chunkTagOpen.length + 1 + chunkTagClose.length + 1
+      : 0;
 
   // Budget walk. Reserve `open + lead + close` headroom then add
   // items in score order, dropping any item that would push us
@@ -222,7 +277,7 @@ export function buildInjectionPayload(
   const fixedHeadroom = open.length + 1 + lead.length + 2 + close.length + 1;
   const sectionGap =
     gatedBlocks.length > 0 && gatedFacts.length > 0 ? 1 + "Project facts:".length + 1 : 0;
-  let used = fixedHeadroom + sectionGap + fileSectionFixed;
+  let used = fixedHeadroom + sectionGap + fileSectionFixed + chunkSectionFixed;
   const keptBlocks: { hit: BlockHit; line: string }[] = [];
   for (let i = 0; i < gatedBlocks.length; i++) {
     const hit = gatedBlocks[i]!;
@@ -250,14 +305,30 @@ export function buildInjectionPayload(
     used += cost;
     keptFiles.push({ hit, line });
   }
+  // 0.7.0-rc.6 §rc.6 — chunk fold lines after files in the budget
+  // walk so file memory keeps priority on tight budgets (file
+  // recall is fresh-from-FTS, fold is summarised history).
+  const keptChunks: {
+    hit: NonNullable<typeof opts.chunkHits>[number];
+    line: string;
+  }[] = [];
+  for (let i = 0; i < gatedChunks.length; i++) {
+    const hit = gatedChunks[i]!;
+    const line = chunkLines[i]!;
+    const cost = line.length + 1;
+    if (used + cost > charBudget) break;
+    used += cost;
+    keptChunks.push({ hit, line });
+  }
 
   // Edge case: a budget so tight that nothing fit. Prefer a mild
-  // overshoot over silence — keep the top-scored item across all
-  // three pools.
+  // overshoot over silence — keep the top-scored item across the
+  // four pools.
   if (
     keptBlocks.length === 0 &&
     keptFacts.length === 0 &&
-    keptFiles.length === 0
+    keptFiles.length === 0 &&
+    keptChunks.length === 0
   ) {
     if (gatedBlocks.length > 0) {
       keptBlocks.push({ hit: gatedBlocks[0]!, line: blockLines[0]! });
@@ -265,13 +336,16 @@ export function buildInjectionPayload(
       keptFacts.push({ hit: gatedFacts[0]!, line: factLines[0]! });
     } else if (gatedFiles.length > 0) {
       keptFiles.push({ hit: gatedFiles[0]!, line: fileLines[0]! });
+    } else if (gatedChunks.length > 0) {
+      keptChunks.push({ hit: gatedChunks[0]!, line: chunkLines[0]! });
     }
   }
 
   if (
     keptBlocks.length === 0 &&
     keptFacts.length === 0 &&
-    keptFiles.length === 0
+    keptFiles.length === 0 &&
+    keptChunks.length === 0
   ) {
     return empty;
   }
@@ -288,6 +362,11 @@ export function buildInjectionPayload(
     parts.push("", fileTagOpen);
     for (const k of keptFiles) parts.push(k.line);
     parts.push(fileTagClose);
+  }
+  if (keptChunks.length > 0) {
+    parts.push("", chunkTagOpen);
+    for (const k of keptChunks) parts.push(k.line);
+    parts.push(chunkTagClose);
   }
   parts.push(close);
 
@@ -306,6 +385,22 @@ export function buildInjectionPayload(
         fileTagClose.length;
   const fileMemoryTokensEstimate =
     fileMemoryChars > 0 ? Math.ceil(fileMemoryChars / CHARS_PER_TOKEN) : 0;
+  // 0.7.0-rc.6 §rc.6 — chunk-fold accounting. The badge surfaces
+  // these numbers verbatim ("folded N turns · Xk→Yk"); they MUST
+  // come from the persisted rows, not be invented.
+  const contextFoldRanges = keptChunks.map((k) => ({
+    start: k.hit.chunkStartTurn,
+    end: k.hit.chunkEndTurn,
+  }));
+  const contextFoldTokensBefore = keptChunks.reduce(
+    (acc, k) => acc + k.hit.tokensBefore,
+    0,
+  );
+  const contextFoldTokensAfter = keptChunks.reduce(
+    (acc, k) => acc + k.hit.tokensAfter,
+    0,
+  );
+
   return {
     text,
     hasContent: true,
@@ -316,6 +411,9 @@ export function buildInjectionPayload(
     bytesAvoided: keptFiles.reduce((acc, k) => acc + (k.hit.sizeBytes ?? 0), 0),
     tokensEstimate: Math.ceil(text.length / CHARS_PER_TOKEN),
     fileMemoryTokensEstimate,
+    contextFoldRanges,
+    contextFoldTokensBefore,
+    contextFoldTokensAfter,
   };
 }
 
@@ -404,6 +502,30 @@ function clampFileLine(s: string): string {
   const slice = s.slice(0, FILE_LINE_MAX_CHARS);
   const lastSpace = slice.lastIndexOf(" ");
   if (lastSpace > FILE_LINE_MAX_CHARS - 40) return slice.slice(0, lastSpace) + "…";
+  return slice + "…";
+}
+
+/**
+ * 0.7.0-rc.6 §rc.6 — render a session-chunk hit as a single bullet:
+ *   `[turns 0-7]: <summary>` clamped at CHUNK_LINE_MAX_CHARS.
+ * The full `<context_fold>` wrapper is added by the caller so the
+ * tag bytes count once per section, not per line.
+ */
+function renderChunkSilent(hit: {
+  chunkStartTurn: number;
+  chunkEndTurn: number;
+  summary: string;
+}): string {
+  const summary = trimSentence(hit.summary);
+  const raw = `• [turns ${hit.chunkStartTurn}-${hit.chunkEndTurn}]: ${summary}`;
+  return clampChunkLine(raw);
+}
+
+function clampChunkLine(s: string): string {
+  if (s.length <= CHUNK_LINE_MAX_CHARS) return s;
+  const slice = s.slice(0, CHUNK_LINE_MAX_CHARS);
+  const lastSpace = slice.lastIndexOf(" ");
+  if (lastSpace > CHUNK_LINE_MAX_CHARS - 40) return slice.slice(0, lastSpace) + "…";
   return slice + "…";
 }
 

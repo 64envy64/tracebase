@@ -1369,6 +1369,29 @@ export interface Runtime {
   recallFiles(input: RecallFilesInput): Promise<RecallFilesResult>;
 
   /**
+   * 0.7.0-rc.6 §rc.6 — chunk-based context compression.
+   *
+   * Folds a `{role, content}[]` turn list into rolling chunks
+   * (8 turns or ≥ 4k tokens, whichever first). Same-session-only;
+   * the next `beforeRun` for the same session can recall the
+   * chunks via `recallChunks` (and they auto-inject under
+   * `<context_fold>` from `beforeRun`).
+   *
+   * Watermark is read from `session_chunks.MAX(chunk_end_turn)`,
+   * so passing the same `turns` twice is idempotent — the second
+   * call sees its own writes and folds nothing new.
+   */
+  foldContext(input: FoldContextInput): Promise<FoldContextResult>;
+
+  /**
+   * 0.7.0-rc.6 §rc.6 — direct chunk recall.
+   *
+   * SAME-SESSION ONLY. Cross-session recall is structurally
+   * impossible — the SQL filters on `session_id`.
+   */
+  recallChunks(input: RecallChunksInput): Promise<RecallChunksResult>;
+
+  /**
    * Release the SQLite handle and clear sync timers. Idempotent.
    * Subsequent runtime method calls reject with a clear error.
    */
@@ -1426,6 +1449,44 @@ export interface RecallFilesResult {
     language: string | null;
     sizeBytes: number;
     score: number;
+  }>;
+}
+
+// ----------------------------------------------------------------------------
+// 0.7.0-rc.6 §rc.6 — context-fold SDK I/O.
+// ----------------------------------------------------------------------------
+
+export interface FoldContextInput {
+  sessionId: string;
+  /** `{role, content}` turn list, oldest-first. Skipped when empty. */
+  turns: ReadonlyArray<{ role: "user" | "assistant"; content: string }>;
+}
+
+export interface FoldContextResult {
+  /** Number of NEW chunks persisted by this call. */
+  chunkCount: number;
+  /** Sum of `tokens_before` across the new chunks. */
+  tokensBefore: number;
+  /** Sum of `tokens_after` across the new chunks. */
+  tokensAfter: number;
+  /** Reason → count map; never carries paths or summaries. */
+  skipped: Record<string, number>;
+}
+
+export interface RecallChunksInput {
+  sessionId: string;
+  /** Top-K cap (default 3). Recall is scoped to the same session only. */
+  k?: number;
+}
+
+export interface RecallChunksResult {
+  /** Oldest-first within the K-window. May be empty. */
+  hits: Array<{
+    chunkStartTurn: number;
+    chunkEndTurn: number;
+    summary: string;
+    tokensBefore: number;
+    tokensAfter: number;
   }>;
 }
 
