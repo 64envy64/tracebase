@@ -39,12 +39,19 @@ import type {
   ToolObservationOutcome,
 } from "../types.js";
 import { detectLeakage } from "./block.js";
+import { detectPromptInjectionPatterns } from "./guard.js";
 
 // ---------------------------------------------------------------------------
 // Schema
 // ---------------------------------------------------------------------------
 
-const V2_SCHEMA_VERSION = 8;
+// 0.7.0-rc.1 bumps to 9 — the bridging migration that introduces the
+// per-row `schema_version` log on top of the existing `v2_schema_meta`
+// KV. Every later rc that adds a table or column adds another step in
+// `V2_MIGRATIONS` and bumps this number; the new step lands a row in
+// `schema_version` automatically (the migrate() wrapper writes one
+// per applied step).
+const V2_SCHEMA_VERSION = 9;
 
 const V2_SCHEMA = `
 CREATE TABLE IF NOT EXISTS reasoning_blocks (
@@ -296,6 +303,17 @@ CREATE INDEX IF NOT EXISTS idx_tool_obs_use_id     ON tool_observations(tool_use
 CREATE TABLE IF NOT EXISTS v2_schema_meta (
   key    TEXT PRIMARY KEY,
   value  TEXT NOT NULL
+);
+
+-- 0.7.0-rc.1: per-step migration log. One row per applied migration
+-- version, populated either incrementally by the migrate() walker or
+-- by the fresh-init fast-path which inserts rows 1..V2_SCHEMA_VERSION
+-- in one shot. Coexists with v2_schema_meta — the KV row stays the
+-- single source of truth for "current version", the per-row log is
+-- there for audit + future migration runners that want richer history.
+CREATE TABLE IF NOT EXISTS schema_version (
+  version    INTEGER PRIMARY KEY,
+  applied_at INTEGER NOT NULL
 );
 
 -- Calibrator models (Phase 5.2). Named JSON blobs so multiple named
@@ -587,7 +605,80 @@ const V2_MIGRATIONS: Record<number, string[]> = {
     `CREATE INDEX IF NOT EXISTS idx_tool_obs_argkey_ts  ON tool_observations(arg_key, ts)`,
     `CREATE INDEX IF NOT EXISTS idx_tool_obs_use_id     ON tool_observations(tool_use_id)`,
   ],
+  // v8 → v9: 0.7.0-rc.1 introduces the per-step `schema_version` log
+  // table. Every prior migration's outcome was tracked only in the
+  // `v2_schema_meta` KV (single "current version" cell); this step
+  // adds a richer log with one row per applied migration. The migrate()
+  // wrapper inserts the version-9 row itself; this step just creates
+  // the table and back-fills rows for versions 1..8 so audit history
+  // exists for upgrades from 0.6.x.
+  //
+  // INSERT OR IGNORE keeps it idempotent: if a future migrate path or
+  // a partial run already populated some rows, this step doesn't
+  // duplicate-key. `applied_at` is best-effort for the back-fill —
+  // we don't know when those historical migrations actually ran on
+  // this database.
+  9: [
+    `CREATE TABLE IF NOT EXISTS schema_version (
+      version    INTEGER PRIMARY KEY,
+      applied_at INTEGER NOT NULL
+    )`,
+    // Back-fill 1..8. Version 9 itself is recorded by the migrate()
+    // wrapper after this migration's transaction commits.
+    `INSERT OR IGNORE INTO schema_version(version, applied_at)
+       SELECT 1, COALESCE((SELECT MIN(ts) FROM analytics_events), strftime('%s','now')*1000)`,
+    `INSERT OR IGNORE INTO schema_version(version, applied_at)
+       SELECT 2, COALESCE((SELECT MIN(ts) FROM analytics_events), strftime('%s','now')*1000)`,
+    `INSERT OR IGNORE INTO schema_version(version, applied_at)
+       SELECT 3, COALESCE((SELECT MIN(ts) FROM analytics_events), strftime('%s','now')*1000)`,
+    `INSERT OR IGNORE INTO schema_version(version, applied_at)
+       SELECT 4, COALESCE((SELECT MIN(ts) FROM analytics_events), strftime('%s','now')*1000)`,
+    `INSERT OR IGNORE INTO schema_version(version, applied_at)
+       SELECT 5, COALESCE((SELECT MIN(ts) FROM analytics_events), strftime('%s','now')*1000)`,
+    `INSERT OR IGNORE INTO schema_version(version, applied_at)
+       SELECT 6, COALESCE((SELECT MIN(ts) FROM analytics_events), strftime('%s','now')*1000)`,
+    `INSERT OR IGNORE INTO schema_version(version, applied_at)
+       SELECT 7, COALESCE((SELECT MIN(ts) FROM analytics_events), strftime('%s','now')*1000)`,
+    `INSERT OR IGNORE INTO schema_version(version, applied_at)
+       SELECT 8, COALESCE((SELECT MIN(ts) FROM analytics_events), strftime('%s','now')*1000)`,
+  ],
 };
+
+// ---------------------------------------------------------------------------
+// Migration helpers (0.7.0-rc.1 §Ground)
+// ---------------------------------------------------------------------------
+
+/**
+ * Idempotent ALTER TABLE ADD COLUMN. The migration runner uses this
+ * helper for every column-addition step so re-running a migration on
+ * a DB that already saw it doesn't raise `duplicate column name`.
+ *
+ * Why a helper instead of inline SQL: SQLite has no `ADD COLUMN IF
+ * NOT EXISTS`. The probe-then-alter pattern is the only portable
+ * shape, and centralising it here means later rc's migrations all
+ * inherit the same idempotency contract without each one re-inventing
+ * the probe.
+ *
+ * `type` is a free-form column-type string (`"TEXT"`, `"INTEGER NOT
+ * NULL DEFAULT 0"`, etc.) — it goes verbatim after the column name in
+ * the ALTER statement, so the caller is responsible for keeping it
+ * SQLite-syntactically valid. Tests for migration steps that use this
+ * helper exercise the probe both ways (column missing, column
+ * present).
+ */
+export function addColumnIfMissing(
+  db: Database.Database,
+  table: string,
+  name: string,
+  type: string,
+): void {
+  // PRAGMA table_info returns one row per column; `name` is the column
+  // identifier the SQLite parser exposes (case-sensitive).
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === name)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -597,6 +688,23 @@ export class LeakageError extends Error {
   constructor(public readonly pattern: string) {
     super(`block content leaks gold-truth material: ${pattern}`);
     this.name = "LeakageError";
+  }
+}
+
+/**
+ * Raised by storage paths when the prompt-injection guard
+ * (`detectPromptInjectionPatterns` in `src/core/guard.ts`) matches a
+ * named pattern in the candidate write. The pattern name is one of
+ * the entries in `PROMPT_INJECTION_PATTERNS` and is also recorded as
+ * a `store.injection_rejected` analytics event with the same name.
+ */
+export class PromptInjectionError extends Error {
+  constructor(
+    public readonly pattern: string,
+    public readonly surface: "block" | "fact" | "imported" | "indexer" | "fold",
+  ) {
+    super(`${surface} content matches prompt-injection pattern: ${pattern}`);
+    this.name = "PromptInjectionError";
   }
 }
 
@@ -679,14 +787,29 @@ export class BlockStore {
     const current = this.getSchemaVersion();
     if (current >= V2_SCHEMA_VERSION) return;
 
+    const now = this.now();
+
     if (current === 0) {
       // Fresh DB — run full current schema.
       this.db.exec(V2_SCHEMA);
       this.setSchemaVersion(V2_SCHEMA_VERSION);
+      // 0.7.0-rc.1 — mirror the per-step log retroactively so a fresh
+      // install lands with the same audit history as an upgraded one.
+      // The schema_version table was just created by V2_SCHEMA above,
+      // so this insert always succeeds (INSERT OR IGNORE keeps it
+      // safe against re-runs on the same connection).
+      const stamp = this.db.prepare(
+        "INSERT OR IGNORE INTO schema_version(version, applied_at) VALUES (?, ?)",
+      );
+      for (let v = 1; v <= V2_SCHEMA_VERSION; v++) stamp.run(v, now);
       return;
     }
 
     // Existing DB at an older v2 version — walk incremental migrations.
+    // Each step runs in its own transaction so a partial walk leaves
+    // the DB at a coherent intermediate version. The per-step log row
+    // lands inside the same transaction as the migration's own SQL,
+    // so on rollback we never claim a version we didn't reach.
     for (let v = current + 1; v <= V2_SCHEMA_VERSION; v++) {
       const steps = V2_MIGRATIONS[v];
       if (!steps) continue;
@@ -695,6 +818,19 @@ export class BlockStore {
           this.db.exec(sql);
         }
         this.setSchemaVersion(v);
+        // Per-step audit row. INSERT OR IGNORE because migration v=9
+        // itself populated rows 1..8 already (back-fill bridge for
+        // 0.6.x DBs); it never tries to claim its own row, which the
+        // wrapper writes here.
+        try {
+          this.db
+            .prepare("INSERT OR IGNORE INTO schema_version(version, applied_at) VALUES (?, ?)")
+            .run(v, this.now());
+        } catch {
+          // schema_version doesn't exist yet — only possible on a
+          // pre-9 DB whose current step hasn't created it. The next
+          // pass (or migration 9 itself) will back-fill.
+        }
       });
       tx();
     }
@@ -743,6 +879,24 @@ export class BlockStore {
   storeBlock(block: ReasoningBlock): void {
     const leak = detectLeakage(block);
     if (leak) throw new LeakageError(leak);
+
+    // 0.7.0-rc.1 §Ground — prompt-injection guard. Scan the
+    // user-visible body fields together so a payload split across
+    // mechanism + unlock still matches. The dead-ends + guardrails
+    // arrays carry agent-supplied prose too.
+    const corpus = [
+      block.trigger.situation,
+      block.body.mechanism,
+      block.body.unlock,
+      block.body.verification,
+      ...(block.body.deadEnds ?? []),
+      ...(block.body.guardrails ?? []),
+    ].join("\n");
+    const injection = detectPromptInjectionPatterns(corpus);
+    if (injection) {
+      this.recordInjectionRejected("block", injection);
+      throw new PromptInjectionError(injection, "block");
+    }
 
     // Active requires: (1) an origin ref exists, (2) no counter refs.
     // Canonical flow is: insert candidate → attach origin → promote.
@@ -1260,6 +1414,18 @@ export class BlockStore {
     const leak = detectLeakage(bodyLike as unknown as Parameters<typeof detectLeakage>[0]);
     if (leak) throw new LeakageError(leak);
 
+    // 0.7.0-rc.1 §Ground — prompt-injection guard. Imported facts
+    // (`src.origin === 'imported'`) are tagged with the `imported`
+    // surface so the analytics event reflects which pipe the
+    // payload tried to enter through.
+    const surface: "fact" | "imported" =
+      input.source.origin === "imported" ? "imported" : "fact";
+    const injection = detectPromptInjectionPatterns(input.statement);
+    if (injection) {
+      this.recordInjectionRejected(surface, injection);
+      throw new PromptInjectionError(injection, surface);
+    }
+
     const now = this.now();
     const id = randomUUID();
     const dedupeKey = BlockStore.factDedupeKey(input.scope, input.factType, input.statement);
@@ -1523,6 +1689,33 @@ export class BlockStore {
   // -------------------------------------------------------------------------
   // Analytics events
   // -------------------------------------------------------------------------
+
+  /**
+   * Internal helper: emit a `store.injection_rejected` analytics
+   * event when the prompt-injection guard rejects a write. Best-effort
+   * — telemetry must never break a user write path, so any failure
+   * here is swallowed (the guard's primary responsibility is to
+   * reject the write, which the caller does next via `throw`).
+   */
+  private recordInjectionRejected(
+    surface: "block" | "fact" | "imported" | "indexer" | "fold",
+    patternName: string,
+  ): void {
+    try {
+      this.appendEvent({
+        ts: this.now(),
+        // Synthetic queryId — there's no caller queryId for storage
+        // rejections. Prefix marks it as a rejection record so any
+        // future query-by-id grep is unambiguous.
+        queryId: `injection-reject-${randomUUID()}`,
+        event: "store.injection_rejected",
+        surface,
+        patternName,
+      });
+    } catch {
+      // Telemetry must never break a write path.
+    }
+  }
 
   appendEvent(event: AnalyticsEvent, extra?: { runId?: string }): number {
     // Resolve the effective runId: `extra` wins (so explicit emit-site

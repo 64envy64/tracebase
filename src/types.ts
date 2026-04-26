@@ -1351,7 +1351,28 @@ export type AnalyticsEvent =
   | AgentUsedEvent
   | OutcomeEvent
   | FactInjectionEvent
-  | FactAgentUsedEvent;
+  | FactAgentUsedEvent
+  // 0.7.0-rc.1 — store-side rejection event. Emitted when the
+  // prompt-injection guard rejects a write. rc.1 is the only rc
+  // that actually emits this; later rcs (file indexer, chunk
+  // summary, import) reuse the same event kind from their own
+  // surfaces.
+  | StoreInjectionRejectedEvent
+  // 0.7.0-rc.2..rc.7 — type-only scaffolding. The emitter for each
+  // event kind lands in the rc that introduces the corresponding
+  // capability. Listing them here in rc.1 lets the cloud allowlist
+  // (§rc.1 §Ground) lock the per-kind aggregate spec without a
+  // forward dependency on later rc code.
+  | FileIndexCompletedEvent
+  | FileIndexSkippedEvent
+  | FileMemoryRecalledEvent
+  | ToolSupervisionWarnedEvent
+  | ToolSupervisionSuppressedEvent
+  | LoopRedirectedEvent
+  | LoopFallbackEvent
+  | ContextFoldedEvent
+  | ContextFoldSkippedEvent
+  | CachePromptHitEvent;
 
 interface EventBase {
   ts: number;
@@ -1469,4 +1490,120 @@ export interface FactAgentUsedEvent extends EventBase {
   factId: string;
   matchSignal: "jaccard" | "embedding" | "explicit";
   matchScore: number;
+}
+
+// ----------------------------------------------------------------------------
+// 0.7.0 telemetry event kinds (PLAN-0.7 §rc.1 Ground).
+//
+// These are append-only analytics records, mirrored to the cloud only
+// as aggregates via `src/cli/cloud-allowlist.ts`. Privacy invariants:
+//   - paths, fileIds, sessionIds, argKeys, anchorIds, raw toolNames,
+//     bodies, prompts NEVER leave the local DB.
+//   - Cloud receives only counts + family-bucket sums.
+//
+// rc.1 wires only `StoreInjectionRejectedEvent` (emitted by the
+// prompt-injection guard in `src/core/guard.ts`). The remaining
+// types are type-only scaffolds for rc.2..rc.7; listing them here
+// gives the cloud allowlist a complete catalogue from day 1, so
+// later rcs add behavior without re-opening the privacy review.
+// ----------------------------------------------------------------------------
+
+/**
+ * The prompt-injection guard rejected a write. `surface` names the
+ * storage path (block / fact / imported / indexer / fold), and
+ * `patternName` is one of the named patterns from
+ * `PROMPT_INJECTION_PATTERNS` in `src/core/guard.ts` —
+ * `"role-override"`, `"persona-flip"`, etc.
+ */
+export interface StoreInjectionRejectedEvent extends EventBase {
+  event: "store.injection_rejected";
+  surface: "block" | "fact" | "imported" | "indexer" | "fold";
+  patternName: string;
+}
+
+/** rc.2 — file indexer finished a (budget-bounded) walk. */
+export interface FileIndexCompletedEvent extends EventBase {
+  event: "file_index.completed";
+  fileCount: number;
+  bytesSummarized: number;
+  durationMs: number;
+  summarizer: "heuristic" | "embedding" | "llm";
+  /** Pending-queue size at the end of the walk. */
+  pending: number;
+}
+
+/** rc.2 — a file was skipped during indexing. */
+export interface FileIndexSkippedEvent extends EventBase {
+  event: "file_index.skipped";
+  /** `"binary"`, `"too-large"`, `"gitignore"`, `"unparseable"`, etc. */
+  reason: string;
+  /**
+   * Repo-relative path of the skipped file. Local-only — the cloud
+   * allowlist drops this and ships only `reasonCount` grouped by
+   * reason.
+   */
+  path?: string;
+}
+
+/** rc.3 — file-memory recall fired and contributed to an injection. */
+export interface FileMemoryRecalledEvent extends EventBase {
+  event: "file_memory.recalled";
+  fileIds: string[];
+  tokensInjected: number;
+  bytesAvoided: number;
+}
+
+/** rc.4 — pre-tool warn fired on a duplicate-shaped tool call. */
+export interface ToolSupervisionWarnedEvent extends EventBase {
+  event: "tool_supervision.warned";
+  argKey: string;
+  toolName: string;
+  mode: "warn" | "block";
+}
+
+/** rc.4 — pre-tool warn was suppressed (warn-once-per-arg-per-session). */
+export interface ToolSupervisionSuppressedEvent extends EventBase {
+  event: "tool_supervision.suppressed";
+  argKey: string;
+  toolName: string;
+}
+
+/** rc.5 — loop redirect fired with a recall-backed anchor. */
+export interface LoopRedirectedEvent extends EventBase {
+  event: "loop.redirected";
+  signal: "duplicate" | "ping-pong" | "straight";
+  anchorId: string;
+  anchorKind: "block" | "file";
+  confidence: number;
+}
+
+/** rc.5 — loop signal saw no confident hit; static fallback emitted. */
+export interface LoopFallbackEvent extends EventBase {
+  event: "loop.fallback";
+  signal: "duplicate" | "ping-pong" | "straight";
+  reason: "no-hit" | "low-confidence" | "anti-self-loop";
+}
+
+/** rc.6 — chunk fold landed a `<context_fold>` summary. */
+export interface ContextFoldedEvent extends EventBase {
+  event: "context.folded";
+  sessionId: string;
+  /** Inclusive turn-range identifier; e.g. "10-17". */
+  chunkRange: string;
+  tokensBefore: number;
+  tokensAfter: number;
+  summarizer: "heuristic" | "embedding" | "llm";
+}
+
+/** rc.6 — fold was skipped (no new turns / hash collision / etc). */
+export interface ContextFoldSkippedEvent extends EventBase {
+  event: "context.fold_skipped";
+  reason: "no-new-turns" | "hash-collision" | "leakage" | "injection" | "below-threshold";
+}
+
+/** rc.7 — provider reported a prefix-cache hit. */
+export interface CachePromptHitEvent extends EventBase {
+  event: "cache.prompt_hit";
+  surface: "anthropic" | "openai";
+  tokensSaved: number;
 }

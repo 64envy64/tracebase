@@ -184,6 +184,21 @@ export function buildInjectionPayload(
   };
 }
 
+// 0.7.0-rc.1 §Ground — provenance trust differentiation. Content
+// imported from outside the local workspace (gold-patch corpora,
+// JSONL exports of another project, third-party knowledge bases) is
+// rendered inside an explicit `<prior_fix source="imported">` tag so
+// the agent treats it with the same scepticism as web search
+// results. Local content (the default) ships untagged, identical to
+// the pre-0.7 voice. The CLAUDE.md / AGENTS.md update in §0.7.0
+// stable documents the tag's contract for the model side.
+const IMPORTED_TAG_OPEN = `<prior_fix source="imported">`;
+const IMPORTED_TAG_CLOSE = `</prior_fix>`;
+
+function wrapIfImported(line: string, imported: boolean): string {
+  return imported ? `${IMPORTED_TAG_OPEN}${line}${IMPORTED_TAG_CLOSE}` : line;
+}
+
 function renderBlockSilent(hit: BlockHit): string {
   // Compact bullet:
   //   • <Situation, capitalized>. Mechanism: <…>. Fix: <unlock>. Verify: <verification>.
@@ -197,16 +212,21 @@ function renderBlockSilent(hit: BlockHit): string {
   const unlock = trimSentence(hit.block.body.unlock);
   const verification = trimSentence(hit.block.body.verification);
   const main = `• ${situation}. Mechanism: ${mechanism}. Fix: ${unlock}. Verify: ${verification}.`;
-  if (hit.block.body.deadEnds.length === 0) return main;
+  const imported = hit.block.provenance.extractedFrom === "imported";
+  if (hit.block.body.deadEnds.length === 0) {
+    return wrapIfImported(main, imported);
+  }
   const avoid = hit.block.body.deadEnds
     .map((s) => trimSentence(s).replace(/[.;]+$/, ""))
     .filter(Boolean)
     .join("; ");
-  return avoid ? `${main} Avoid: ${avoid}.` : main;
+  const full = avoid ? `${main} Avoid: ${avoid}.` : main;
+  return wrapIfImported(full, imported);
 }
 
 function renderFactSilent(hit: FactHit): string {
-  return `• ${trimSentence(hit.fact.statement)}`;
+  const line = `• ${trimSentence(hit.fact.statement)}`;
+  return wrapIfImported(line, hit.fact.source.origin === "imported");
 }
 
 function capitalize(s: string): string {

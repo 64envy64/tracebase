@@ -149,3 +149,85 @@ export function detectLeakageExtended(corpus: string): string | null {
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Prompt-injection patterns (PLAN-0.7 §rc.1 Ground)
+// ---------------------------------------------------------------------------
+
+/**
+ * Shapes that look like a prompt trying to subvert the next agent's
+ * behaviour by hiding inside stored content. These are the canonical
+ * shapes the literature on indirect prompt injection identifies; the
+ * primary risk in TraceBase is that a transcript captured into a
+ * reasoning block / project fact / file summary contains an injection
+ * payload, the next session retrieves it, and the model treats the
+ * payload as instruction.
+ *
+ * Names are stable — they appear in `store.injection_rejected`
+ * analytics events and in the cloud `byPattern` histogram (see
+ * `INJECTION_PATTERN_SPEC` in `src/cli/cloud-allowlist.ts`).
+ *
+ * The list is conservative on purpose. False positives mean a
+ * legitimate write fails; false negatives mean an injected payload
+ * lands in storage and contaminates future retrievals. We err toward
+ * false positives — the prevailing view in the security literature is
+ * "fail closed" for injection guards, and the call sites are write
+ * paths where rejection is recoverable (the user re-phrases) but a
+ * leak is not.
+ */
+export const PROMPT_INJECTION_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
+  // "Ignore previous instructions / disregard the system prompt /
+  // forget the rules" — the canonical first-attempt shape.
+  {
+    name: "role-override",
+    re: /\b(ignore|disregard|forget)\b.*\b(previous|prior|above|earlier)\b.*\b(instruction|prompt|rule|message)s?\b/i,
+  },
+  // "You are now Eve. Act as a helpful assistant who…" — persona-flip.
+  {
+    name: "persona-flip",
+    re: /\b(you are now|act as|pretend (to be|you are)|roleplay as)\b/i,
+  },
+  // Inline `<system>…</system>` or `<assistant>` tags faking a
+  // higher-privilege turn marker.
+  {
+    name: "system-spoof",
+    re: /<\s*\/?\s*(system|user|assistant)\s*>/i,
+  },
+  // Faked TraceBase delimiters: someone writes
+  // ```prior_fix\n…\n``` or `<file_memory>` to ride on our own
+  // injection prefix and inherit its trust level.
+  {
+    name: "delimiter-spoof",
+    re: /(```\s*(system|tool_result|prior_fix|file_memory|context_fold)\b|<\s*(prior_fix|file_memory|context_fold)\b)/i,
+  },
+  // Exfil prompts asking the model to dump credentials, the system
+  // prompt, environment variables, or tokens.
+  {
+    name: "exfil-prompt",
+    re: /\b(print|reveal|output|dump|leak|exfiltrate)\b.*\b(system prompt|api[_ ]?key|env|secret|token)/i,
+  },
+  // "Call the X tool silently / without confirmation / hidden from
+  // the user" — coercion to use tools out-of-band.
+  {
+    name: "tool-coercion",
+    re: /\b(call|invoke|run)\b.*\btool\b.*\b(silently|without (asking|confirmation)|hidden)\b/i,
+  },
+];
+
+/**
+ * Run the prompt-injection pattern set against a single string.
+ * Returns the first matched pattern name, or `null` on a clean
+ * corpus. Same calling convention as `detectLeakage` /
+ * `detectLeakageExtended` so call sites can chain the three checks
+ * uniformly.
+ *
+ * Empty / non-string inputs return `null` (treat as clean — the
+ * caller's other guards will catch a missing field).
+ */
+export function detectPromptInjectionPatterns(corpus: string): string | null {
+  if (typeof corpus !== "string" || corpus.length === 0) return null;
+  for (const { name, re } of PROMPT_INJECTION_PATTERNS) {
+    if (re.test(corpus)) return name;
+  }
+  return null;
+}

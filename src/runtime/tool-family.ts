@@ -43,20 +43,45 @@ export const TOOL_FAMILIES: readonly ToolFamily[] = [
 
 export function toolFamily(toolName: string): ToolFamily {
   switch (toolName) {
+    // read: file-content read tools across hosts. `Cat` and `MultiRead`
+    // are non-Claude-Code aliases (LangChain / Agent SDK style).
     case "Read":
+    case "Cat":
+    case "MultiRead":
       return "read";
+    // search: pattern-search tools. The Unix-side aliases (ripgrep, ag,
+    // findstr) collapse to the same family so a host that exposes
+    // `rg` doesn't ship a different vocabulary than one with `Grep`.
     case "Grep":
     case "Glob":
+    case "ripgrep":
+    case "ag":
+    case "findstr":
       return "search";
+    // shell: arbitrary command execution. `Shell`, `Exec`, `Run` cover
+    // common LangChain / Agent SDK names.
     case "Bash":
+    case "Shell":
+    case "Exec":
+    case "Run":
       return "shell";
+    // edit: in-place file mutation. `MultiEdit` / `Patch` cover hosts
+    // that expose patch-style edits separately from single-line edits.
     case "Edit":
+    case "MultiEdit":
     case "NotebookEdit":
+    case "Patch":
       return "edit";
+    // write: net-new file creation. `Create` is a common SDK alias.
     case "Write":
+    case "Create":
       return "write";
+    // web: outbound HTTP. `HttpGet` / `HttpPost` cover hosts that
+    // expose method-typed network tools instead of a single `WebFetch`.
     case "WebFetch":
     case "WebSearch":
+    case "HttpGet":
+    case "HttpPost":
       return "web";
     case "Task":
     case "Skill":
@@ -68,6 +93,15 @@ export function toolFamily(toolName: string): ToolFamily {
       return "other";
   }
 }
+
+/**
+ * Alias spelled per PLAN-0.7 §rc.1 (Ground). Same function, same
+ * contract — the alternate name is what later rcs reference (loop
+ * normalization in §rc.5 and the supervision warn path in §rc.4).
+ * Kept as an alias rather than a rename so existing imports of
+ * `toolFamily` keep compiling.
+ */
+export const toolFamilyOf = toolFamily;
 
 /** Initialise a counts map with every family key set to 0. */
 export function emptyToolFamilyCounts(): Record<ToolFamily, number> {

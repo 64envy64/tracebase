@@ -187,5 +187,14 @@ function formatEventLine(ev: AnalyticsEvent): string {
         (ev.steps !== undefined ? ` steps=${ev.steps}` : "") +
         (ev.control ? pc.yellow(" control") : "") +
         qidTag + runTag;
+    default: {
+      // 0.7.0-rc.1+ — generic line for new event kinds. Pretty
+      // renderers land alongside the rc that emits each kind; the
+      // generic shape stays here for low-frequency events
+      // (`store.injection_rejected`, `file_index.skipped`, etc.)
+      // that don't justify a bespoke format string.
+      const e = ev as { event: string };
+      return `${pc.dim(ts)}  ${pc.gray(e.event)}` + qidTag + runTag;
+    }
   }
 }

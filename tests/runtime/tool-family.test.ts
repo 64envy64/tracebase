@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   emptyToolFamilyCounts,
   toolFamily,
+  toolFamilyOf,
   TOOL_FAMILIES,
   type ToolFamily,
 } from "../../src/runtime/tool-family.js";
@@ -29,6 +30,48 @@ describe("toolFamily — known mappings", () => {
     ["Skill", "task"],
   ])("%s → %s", (input, expected) => {
     expect(toolFamily(input)).toBe(expected);
+  });
+});
+
+// 0.7.0-rc.1 §Ground — additional non-Claude-Code aliases so
+// LangChain / LangGraph / Agent SDK tools collapse to the same
+// frozen family vocabulary as Claude Code does. The eight family
+// slots stay the same; only the alias surface widens.
+describe("toolFamily — 0.7.0-rc.1 cross-host aliases", () => {
+  it.each([
+    ["Cat", "read"],
+    ["MultiRead", "read"],
+    ["ripgrep", "search"],
+    ["ag", "search"],
+    ["findstr", "search"],
+    ["Shell", "shell"],
+    ["Exec", "shell"],
+    ["Run", "shell"],
+    ["MultiEdit", "edit"],
+    ["Patch", "edit"],
+    ["Create", "write"],
+    ["HttpGet", "web"],
+    ["HttpPost", "web"],
+  ])("%s → %s", (input, expected) => {
+    expect(toolFamily(input)).toBe(expected);
+  });
+
+  it("toolFamilyOf is an alias for toolFamily — same contract", () => {
+    // Spec spells the function as `toolFamilyOf`; the existing
+    // export is `toolFamily`. Both must return identical values
+    // including the privacy invariant on unknown names.
+    for (const name of [
+      "Read",
+      "Grep",
+      "Bash",
+      "Cat",
+      "ripgrep",
+      "FuturisticMystery",
+      "MyCompany.SecretInternalProbe",
+      "",
+    ]) {
+      expect(toolFamilyOf(name)).toBe(toolFamily(name));
+    }
   });
 });
 

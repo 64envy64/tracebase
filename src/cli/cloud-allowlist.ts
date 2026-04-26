@@ -106,6 +106,129 @@ const USAGE_TOOL_BATCH_SPEC: AllowlistSpec = {
   errorClassCounts: ERROR_CLASS_SPEC,
 };
 
+// ---------------------------------------------------------------------------
+// 0.7.0-rc.1 — per-event-kind aggregate specs (PLAN-0.7 §rc.1 Ground).
+//
+// Each new analytics event (file_index.*, file_memory.*,
+// tool_supervision.*, loop.*, context.*, store.injection_rejected,
+// cache.prompt_hit) ships to the cloud as counts + closed-enum
+// histograms only. Anything keyed by a free-form path / id / pattern
+// name is either summed into a single count or dropped entirely.
+//
+// All these aggregates live under `metrics.mechanisms` so they can
+// land in one envelope without proliferating top-level keys; that
+// shape is locked by the cloud-allowlist test below.
+// ---------------------------------------------------------------------------
+
+/**
+ * Closed enum: the prompt-injection guard's named patterns from
+ * `src/core/guard.ts`. Counts only; the matched substring is never
+ * read by the aggregator and never reaches the wire.
+ */
+const INJECTION_PATTERN_SPEC: AllowlistSpec = {
+  "role-override": true,
+  "persona-flip": true,
+  "system-spoof": true,
+  "delimiter-spoof": true,
+  "exfil-prompt": true,
+  "tool-coercion": true,
+};
+
+/** Closed enum: reasons a context-fold step skipped a chunk. */
+const FOLD_SKIP_REASON_SPEC: AllowlistSpec = {
+  "no-new-turns": true,
+  "hash-collision": true,
+  "leakage": true,
+  "injection": true,
+  "below-threshold": true,
+};
+
+/** Closed enum: anchor kinds the loop redirector emits. */
+const LOOP_KIND_SPEC: AllowlistSpec = {
+  block: true,
+  file: true,
+};
+
+/** Closed enum: prompt-cache surfaces (Anthropic / OpenAI today). */
+const CACHE_SURFACE_SPEC: AllowlistSpec = {
+  anthropic: true,
+  openai: true,
+};
+
+const USAGE_FILE_INDEX_SPEC: AllowlistSpec = {
+  // Window-summed counts. `summarizer` is a closed enum so the
+  // primitive leaf accepts only the three documented values
+  // (heuristic / embedding / llm); any other string at this leaf
+  // still passes the leaf-copy check, but later aggregator code
+  // emits only the enum values, so a malformed leaf surfaces in
+  // the planted-PII test below.
+  completedCount: true,
+  bytesSummarized: true,
+  durationMs: true,
+  summarizer: true,
+  pending: true,
+  skippedCount: true,
+  // NOTE: `byReason` is intentionally omitted. The skip reason set
+  // is open-ended (binary / too-large / gitignore / unparseable /
+  // future reasons) and we don't want a permissive object-leaf
+  // here. The total `skippedCount` is enough signal for the
+  // dashboard; an enumerated reason histogram can land later
+  // behind its own explicit closed-enum spec.
+};
+
+const USAGE_FILE_MEMORY_SPEC: AllowlistSpec = {
+  recallCount: true,
+  tokensInjected: true,
+  bytesAvoided: true,
+};
+
+const USAGE_TOOL_SUPERVISION_SPEC: AllowlistSpec = {
+  warnCount: true,
+  suppressedCount: true,
+  byFamily: TOOL_FAMILY_SPEC,
+};
+
+const USAGE_LOOP_REDIRECT_SPEC: AllowlistSpec = {
+  redirectCount: true,
+  fallbackCount: true,
+  byKind: LOOP_KIND_SPEC,
+};
+
+const USAGE_CONTEXT_FOLD_SPEC: AllowlistSpec = {
+  chunkCount: true,
+  tokensBeforeSum: true,
+  tokensAfterSum: true,
+  skipCount: true,
+  byReason: FOLD_SKIP_REASON_SPEC,
+};
+
+const USAGE_INJECTION_REJECTED_SPEC: AllowlistSpec = {
+  rejectCount: true,
+  byPattern: INJECTION_PATTERN_SPEC,
+};
+
+const USAGE_PROMPT_CACHE_SPEC: AllowlistSpec = {
+  hitCount: true,
+  tokensSavedSum: true,
+  bySurface: CACHE_SURFACE_SPEC,
+};
+
+/**
+ * Composite spec for `metrics.mechanisms.*`. One nested object per
+ * event-kind family. Adding a new family means an explicit nested
+ * spec here AND a regression case in `tests/cli/cloud-allowlist.test.ts`
+ * — same contract as the rest of the allowlist.
+ */
+const USAGE_MECHANISMS_SPEC: AllowlistSpec = {
+  fileIndex: USAGE_FILE_INDEX_SPEC,
+  fileMemory: USAGE_FILE_MEMORY_SPEC,
+  toolSupervision: USAGE_TOOL_SUPERVISION_SPEC,
+  loopRedirect: USAGE_LOOP_REDIRECT_SPEC,
+  contextFold: USAGE_CONTEXT_FOLD_SPEC,
+  injectionRejected: USAGE_INJECTION_REJECTED_SPEC,
+  promptCache: USAGE_PROMPT_CACHE_SPEC,
+};
+
 /**
  * The single allowlist tracebase-ai cloud sync writes against. Every
  * other path that hits the hosted API should pipe its payload through
@@ -174,6 +297,11 @@ export const USAGE_SAMPLE_ALLOWLIST: AllowlistSpec = {
     // valid primitive leaf.
     netTokenImpact: true,
     totalInjectedTokensEstimate: true,
+    // 0.7.0-rc.1 — per-event-kind aggregate buckets. Each nested
+    // family object is primitive-only at every leaf; free-form ids
+    // / paths / argKeys / pattern matches never make it past the
+    // sanitiser. See USAGE_MECHANISMS_SPEC above for the catalogue.
+    mechanisms: USAGE_MECHANISMS_SPEC,
   },
 };
 

@@ -240,3 +240,112 @@ describe("buildInjectionPayload", () => {
     expect(payload.factIds.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 0.7.0-rc.1 §Ground — provenance trust differentiation in injection.
+// Imported content (`provenance.extractedFrom === "imported"` for blocks,
+// `source.origin === "imported"` for facts) renders inside an explicit
+// `<prior_fix source="imported">` tag so the agent treats it with the
+// same scepticism as a web-search hit. Local content stays untagged.
+// ---------------------------------------------------------------------------
+
+describe("buildInjectionPayload — imported provenance tag", () => {
+  let store: BlockStore;
+  beforeEach(() => {
+    store = makeStore();
+  });
+
+  it("wraps imported facts in <prior_fix source=\"imported\"> and leaves local untagged", () => {
+    storeActive(store, PY_BLOCK);
+    // Two facts with identical query-overlap so FTS ranks both
+    // similarly and both clear the gate. Only the marker words
+    // differ — `repository` for local, `external` for imported.
+    store.storeFact({
+      scope: "global",
+      factType: "convention",
+      statement: "pytest shadowing repository signal",
+      invariants: {},
+      source: { origin: "declared" },
+      confidence: 0.9,
+    });
+    store.storeFact({
+      scope: "global",
+      factType: "convention",
+      statement: "pytest shadowing external signal",
+      invariants: {},
+      source: { origin: "imported" },
+      confidence: 0.9,
+    });
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    const result = server.recall({ text: "pytest shadowing signal" });
+    expect(result.facts.filter((h) => h.passesGate).length).toBeGreaterThanOrEqual(2);
+
+    const payload = buildInjectionPayload(result, { maxFacts: 4, tokenBudget: 4000 });
+    expect(payload.hasContent).toBe(true);
+
+    // The imported fact's bullet line carries the explicit tag.
+    expect(payload.text).toContain('<prior_fix source="imported">');
+    expect(payload.text).toContain("</prior_fix>");
+    // The tag wraps the imported content specifically — assert the
+    // tag pair brackets the "external" marker word.
+    const importedSegment = payload.text.match(
+      /<prior_fix source="imported">[\s\S]*?<\/prior_fix>/,
+    );
+    expect(importedSegment).not.toBeNull();
+    expect(importedSegment![0]).toContain("external signal");
+
+    // The local "repository signal" line has no tag wrapper.
+    expect(payload.text).toContain("repository signal");
+    const localLine = payload.text
+      .split("\n")
+      .find((line) => line.includes("repository signal"));
+    expect(localLine).toBeDefined();
+    expect(localLine).not.toContain("<prior_fix");
+  });
+
+  it("wraps imported blocks in <prior_fix source=\"imported\">", () => {
+    const importedInput: StoreBlockInput = {
+      ...PY_BLOCK,
+      provenance: {
+        ...PY_BLOCK.provenance,
+        sourceTaskId: "imported-pytest",
+        extractedFrom: "imported",
+      },
+    };
+    storeActive(store, importedInput);
+
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    const result = server.recall({ text: "pytest shadowing module" });
+    expect(result.blocks.some((h) => h.passesGate)).toBe(true);
+
+    const payload = buildInjectionPayload(result);
+    expect(payload.hasContent).toBe(true);
+    expect(payload.text).toContain('<prior_fix source="imported">');
+    // The tagged region contains the rendered block bullet, not the
+    // surrounding queryId envelope.
+    expect(payload.text).toMatch(
+      /<prior_fix source="imported">• Pytest collects[\s\S]*?<\/prior_fix>/,
+    );
+  });
+
+  it("does NOT inject the tag when all content is local", () => {
+    storeActive(store, PY_BLOCK);
+    store.storeFact({
+      scope: "global",
+      factType: "convention",
+      statement: "pytest shadowing local declared fact",
+      invariants: {},
+      source: { origin: "declared" },
+      confidence: 0.9,
+    });
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    const result = server.recall({ text: "pytest shadowing" });
+
+    const payload = buildInjectionPayload(result);
+    expect(payload.hasContent).toBe(true);
+    // No imported content present → no `<prior_fix source="imported">`
+    // anywhere. The legacy injection voice is preserved exactly.
+    expect(payload.text).not.toContain("<prior_fix");
+    expect(payload.text).not.toContain("</prior_fix>");
+  });
+});
