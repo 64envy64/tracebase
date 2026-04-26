@@ -135,8 +135,15 @@ const EXCLUDED_DIR_BASENAMES = new Set<string>([
  * Suffixes we never read regardless of size — binary or
  * irrelevant-by-extension. Cheaper than null-byte sniffing for
  * known cases; the sniff is the second line of defense.
+ *
+ * 0.7.0-rc.3 hardening — exported so the indexSingleFile path in
+ * file-indexer.ts can lock to the same set via a regression test.
+ * Pre-export the lists were duplicated; the locked test in
+ * `tests/core/walker-indexer-constants.test.ts` asserts the two
+ * stay byte-identical until they're physically deduped before
+ * 0.7.0 stable.
  */
-const EXCLUDED_SUFFIXES = new Set<string>([
+export const EXCLUDED_SUFFIXES = new Set<string>([
   // Bytecode / archives / images / fonts / video.
   ".pyc", ".pyo", ".class", ".o", ".obj", ".exe", ".dll", ".so", ".dylib",
   ".a", ".lib", ".jar", ".war", ".tar", ".gz", ".zip", ".7z", ".rar",
@@ -150,8 +157,17 @@ const EXCLUDED_SUFFIXES = new Set<string>([
   ".map",
 ]);
 
-const DEFAULT_MAX_BYTES = 256 * 1024;
-const NULL_SNIFF_BYTES = 8 * 1024;
+/**
+ * Per-file size cap. Files larger than this skip with reason
+ * `'too-large'`. Matched by `PER_FILE_MAX_BYTES` in `file-indexer.ts`
+ * — see the locked-constants test.
+ */
+export const DEFAULT_MAX_BYTES = 256 * 1024;
+/**
+ * Null-byte sniff window. Same threshold in `file-indexer.ts` —
+ * see the locked-constants test.
+ */
+export const NULL_SNIFF_BYTES = 8 * 1024;
 
 // ---------------------------------------------------------------------------
 // Walker

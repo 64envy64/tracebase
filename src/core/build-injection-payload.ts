@@ -31,6 +31,7 @@
  * for any external consumer that wants the audit ribbons.
  */
 import type { RecallV2Result, BlockHit, FactHit } from "./block-serving.js";
+import type { FileHit } from "./file-indexer.js";
 
 export interface BuildInjectionPayloadOptions {
   /**
@@ -47,6 +48,17 @@ export interface BuildInjectionPayloadOptions {
   maxBlocks?: number;
   /** Hard cap on rendered facts regardless of budget. Default 4. */
   maxFacts?: number;
+  /**
+   * 0.7.0-rc.3 §rc.3 — file memory hits to render inside an
+   * explicit `<file_memory>…</file_memory>` tag below the block /
+   * fact sections. Top-K hits ranked by FTS5 bm25; the section is
+   * dropped cleanly if budget is tight. Default 3 hits, hard
+   * ceiling 6 (anything beyond starts hurting prompt focus more
+   * than it helps recall).
+   */
+  fileHits?: FileHit[];
+  /** Hard cap on rendered file lines regardless of budget. Default 3. */
+  maxFiles?: number;
 }
 
 export interface InjectionPayload {
@@ -65,6 +77,22 @@ export interface InjectionPayload {
   blockIds: string[];
   /** Same contract as blockIds. */
   factIds: string[];
+  /**
+   * 0.7.0-rc.3 §rc.3 — repo-relative file paths that appear in the
+   * rendered `<file_memory>` section. Same contract as blockIds /
+   * factIds: empty when no file recall fired or the budget dropped
+   * them all. Used by recallForPrompt to emit
+   * `file_memory.recalled` analytics with the matching ids.
+   */
+  fileIds: string[];
+  /**
+   * 0.7.0-rc.3 §rc.3 — total `size_bytes` of the source files
+   * surfaced via the `<file_memory>` section. The agent uses
+   * recall-summary instead of re-reading; this is the rough
+   * "bytes avoided" the badge surfaces. Aggregate only — file
+   * paths / hashes / contents never reach the cloud.
+   */
+  bytesAvoided: number;
   /** Rough token estimate (chars / 4, ceiled). 0 when text is empty. */
   tokensEstimate: number;
 }
@@ -72,8 +100,12 @@ export interface InjectionPayload {
 const DEFAULT_TOKEN_BUDGET = 1200;
 const DEFAULT_MAX_BLOCKS = 4;
 const DEFAULT_MAX_FACTS = 4;
+const DEFAULT_MAX_FILES = 3;
+const FILE_MAX_HARD_CEILING = 6;
 /** Common English heuristic — good enough for budgeting against the 10 KB ceiling. */
 const CHARS_PER_TOKEN = 4;
+/** Per-file-line clamp inside the `<file_memory>` section. */
+const FILE_LINE_MAX_CHARS = 220;
 
 /**
  * Convert a recall result to silent injection text.
@@ -91,6 +123,10 @@ export function buildInjectionPayload(
   const charBudget = tokenBudget * CHARS_PER_TOKEN;
   const maxBlocks = Math.max(0, opts.maxBlocks ?? DEFAULT_MAX_BLOCKS);
   const maxFacts = Math.max(0, opts.maxFacts ?? DEFAULT_MAX_FACTS);
+  const maxFiles = Math.min(
+    Math.max(0, opts.maxFiles ?? DEFAULT_MAX_FILES),
+    FILE_MAX_HARD_CEILING,
+  );
 
   const empty: InjectionPayload = {
     text: "",
@@ -98,6 +134,8 @@ export function buildInjectionPayload(
     queryId: result.queryId,
     blockIds: [],
     factIds: [],
+    fileIds: [],
+    bytesAvoided: 0,
     tokensEstimate: 0,
   };
 
@@ -107,10 +145,18 @@ export function buildInjectionPayload(
   // inspection but never reach the prompt.
   const gatedBlocks = result.blocks.filter((h) => h.passesGate).slice(0, maxBlocks);
   const gatedFacts = result.facts.filter((h) => h.passesGate).slice(0, maxFacts);
-  if (gatedBlocks.length === 0 && gatedFacts.length === 0) return empty;
+  // 0.7.0-rc.3 §rc.3 — file memory hits feed in directly from the
+  // caller's recallFiles(). They have no per-item gate (the file
+  // indexer's leakage / injection scans gate at write-time), so
+  // the maxFiles cap is the only filter here.
+  const gatedFiles = (opts.fileHits ?? []).slice(0, maxFiles);
+  if (gatedBlocks.length === 0 && gatedFacts.length === 0 && gatedFiles.length === 0) {
+    return empty;
+  }
 
   const blockLines = gatedBlocks.map(renderBlockSilent);
   const factLines = gatedFacts.map(renderFactSilent);
+  const fileLines = gatedFiles.map(renderFileSilent);
 
   // Frame: queryId-tagged wrapper so `record_reasoning_outcome` can
   // close the loop, plus a one-line lead-in. The lead-in is plain
@@ -118,12 +164,23 @@ export function buildInjectionPayload(
   // the agent is reading this as if a human teammate wrote a note.
   const open = `<tracebase queryId="${result.queryId}">`;
   const close = `</tracebase>`;
-  const lead =
-    gatedBlocks.length > 0 && gatedFacts.length > 0
-      ? "Relevant prior patterns and project facts from this codebase:"
-      : gatedBlocks.length > 0
-        ? "Relevant prior patterns from this codebase:"
-        : "Relevant project facts:";
+  const lead = composeLead({
+    hasBlocks: gatedBlocks.length > 0,
+    hasFacts: gatedFacts.length > 0,
+    hasFiles: gatedFiles.length > 0,
+  });
+
+  // 0.7.0-rc.3 §rc.3 — file_memory section is wrapped in an
+  // explicit XML tag so the agent treats summaries as background
+  // recall (same scepticism level as `<prior_fix source="imported">`),
+  // not authoritative procedural patterns. Tag overhead is
+  // accounted for in the budget walk below.
+  const fileTagOpen = `<file_memory>`;
+  const fileTagClose = `</file_memory>`;
+  const fileSectionFixed =
+    gatedFiles.length > 0
+      ? fileTagOpen.length + 1 + fileTagClose.length + 1
+      : 0;
 
   // Budget walk. Reserve `open + lead + close` headroom then add
   // items in score order, dropping any item that would push us
@@ -131,7 +188,7 @@ export function buildInjectionPayload(
   const fixedHeadroom = open.length + 1 + lead.length + 2 + close.length + 1;
   const sectionGap =
     gatedBlocks.length > 0 && gatedFacts.length > 0 ? 1 + "Project facts:".length + 1 : 0;
-  let used = fixedHeadroom + sectionGap;
+  let used = fixedHeadroom + sectionGap + fileSectionFixed;
   const keptBlocks: { hit: BlockHit; line: string }[] = [];
   for (let i = 0; i < gatedBlocks.length; i++) {
     const hit = gatedBlocks[i]!;
@@ -150,18 +207,40 @@ export function buildInjectionPayload(
     used += cost;
     keptFacts.push({ hit, line });
   }
+  const keptFiles: { hit: FileHit; line: string }[] = [];
+  for (let i = 0; i < gatedFiles.length; i++) {
+    const hit = gatedFiles[i]!;
+    const line = fileLines[i]!;
+    const cost = line.length + 1;
+    if (used + cost > charBudget) break;
+    used += cost;
+    keptFiles.push({ hit, line });
+  }
 
   // Edge case: a budget so tight that nothing fit. Prefer a mild
-  // overshoot over silence — keep the top-scored item.
-  if (keptBlocks.length === 0 && keptFacts.length === 0) {
+  // overshoot over silence — keep the top-scored item across all
+  // three pools.
+  if (
+    keptBlocks.length === 0 &&
+    keptFacts.length === 0 &&
+    keptFiles.length === 0
+  ) {
     if (gatedBlocks.length > 0) {
       keptBlocks.push({ hit: gatedBlocks[0]!, line: blockLines[0]! });
     } else if (gatedFacts.length > 0) {
       keptFacts.push({ hit: gatedFacts[0]!, line: factLines[0]! });
+    } else if (gatedFiles.length > 0) {
+      keptFiles.push({ hit: gatedFiles[0]!, line: fileLines[0]! });
     }
   }
 
-  if (keptBlocks.length === 0 && keptFacts.length === 0) return empty;
+  if (
+    keptBlocks.length === 0 &&
+    keptFacts.length === 0 &&
+    keptFiles.length === 0
+  ) {
+    return empty;
+  }
 
   const parts: string[] = [open, lead];
   if (keptBlocks.length > 0) {
@@ -170,6 +249,11 @@ export function buildInjectionPayload(
   if (keptFacts.length > 0) {
     if (keptBlocks.length > 0) parts.push("", "Project facts:");
     for (const k of keptFacts) parts.push(k.line);
+  }
+  if (keptFiles.length > 0) {
+    parts.push("", fileTagOpen);
+    for (const k of keptFiles) parts.push(k.line);
+    parts.push(fileTagClose);
   }
   parts.push(close);
 
@@ -180,8 +264,33 @@ export function buildInjectionPayload(
     queryId: result.queryId,
     blockIds: keptBlocks.map((k) => k.hit.block.id),
     factIds: keptFacts.map((k) => k.hit.fact.id),
+    fileIds: keptFiles.map((k) => k.hit.relPath),
+    bytesAvoided: keptFiles.reduce((acc, k) => acc + (k.hit.sizeBytes ?? 0), 0),
     tokensEstimate: Math.ceil(text.length / CHARS_PER_TOKEN),
   };
+}
+
+function composeLead(opts: {
+  hasBlocks: boolean;
+  hasFacts: boolean;
+  hasFiles: boolean;
+}): string {
+  // The lead phrasing focuses on whatever the agent will read MOST —
+  // patterns + facts dominate when present; file memory plays a
+  // supporting role and is folded into the lead when nothing else
+  // is there.
+  if (opts.hasBlocks && opts.hasFacts) {
+    return "Relevant prior patterns and project facts from this codebase:";
+  }
+  if (opts.hasBlocks) {
+    return "Relevant prior patterns from this codebase:";
+  }
+  if (opts.hasFacts) {
+    return "Relevant project facts:";
+  }
+  // Files-only path — explicit lead-in so the agent doesn't read
+  // the bare tag as protocol.
+  return "Relevant file context:";
 }
 
 // 0.7.0-rc.1 §Ground — provenance trust differentiation. Content
@@ -227,6 +336,26 @@ function renderBlockSilent(hit: BlockHit): string {
 function renderFactSilent(hit: FactHit): string {
   const line = `• ${trimSentence(hit.fact.statement)}`;
   return wrapIfImported(line, hit.fact.source.origin === "imported");
+}
+
+/**
+ * 0.7.0-rc.3 §rc.3 — render a file-memory hit as a single bullet
+ * line: `• <relPath>: <summary>` clamped to FILE_LINE_MAX_CHARS.
+ * The full `<file_memory>` wrapper is added by the caller so the
+ * tag bytes count once per section, not per line.
+ */
+function renderFileSilent(hit: FileHit): string {
+  const summary = trimSentence(hit.summary);
+  const raw = `• ${hit.relPath}: ${summary}`;
+  return clampFileLine(raw);
+}
+
+function clampFileLine(s: string): string {
+  if (s.length <= FILE_LINE_MAX_CHARS) return s;
+  const slice = s.slice(0, FILE_LINE_MAX_CHARS);
+  const lastSpace = slice.lastIndexOf(" ");
+  if (lastSpace > FILE_LINE_MAX_CHARS - 40) return slice.slice(0, lastSpace) + "…";
+  return slice + "…";
 }
 
 function capitalize(s: string): string {

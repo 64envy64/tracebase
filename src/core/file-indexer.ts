@@ -311,10 +311,24 @@ export type IndexSingleOutcome =
   | "leakage"
   | "injection";
 
-const PER_FILE_MAX_BYTES = 256 * 1024;
-const NULL_SNIFF_BYTES = 8 * 1024;
+/**
+ * 0.7.0-rc.3 hardening — same value as `DEFAULT_MAX_BYTES` in
+ * file-walker.ts. The duplicate is intentional today: the walker
+ * runs against budgets that may differ from the indexer's per-
+ * file cap in a future revision. Until that diverges (or the
+ * dedupe lands cleanly), the locked constants test keeps both
+ * pinned to the same value.
+ */
+export const PER_FILE_MAX_BYTES = 256 * 1024;
+/** 0.7.0-rc.3 hardening — same value as `NULL_SNIFF_BYTES` in file-walker.ts. */
+export const NULL_SNIFF_BYTES = 8 * 1024;
 
-const SINGLE_EXCLUDED_SUFFIXES = new Set<string>([
+/**
+ * 0.7.0-rc.3 hardening — exported for the locked-constants
+ * regression. Stays byte-identical to `EXCLUDED_SUFFIXES` in
+ * file-walker.ts; a divergence fails the locked test loudly.
+ */
+export const SINGLE_EXCLUDED_SUFFIXES = new Set<string>([
   ".pyc", ".pyo", ".class", ".o", ".obj", ".exe", ".dll", ".so", ".dylib",
   ".a", ".lib", ".jar", ".war", ".tar", ".gz", ".zip", ".7z", ".rar",
   ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".svg",
@@ -467,6 +481,117 @@ export function indexSingleFile(
     updated_at: tNow,
   });
   return "indexed";
+}
+
+// ---------------------------------------------------------------------------
+// File memory recall (PLAN-0.7 §rc.3)
+//
+// FTS5-backed prompt-term overlap against `indexed_files(summary,
+// symbols)`. Returns up to K hits ordered by bm25 score. Pure DB
+// query — no I/O against the workspace.
+// ---------------------------------------------------------------------------
+
+export interface RecallFilesOptions {
+  /** Free-text prompt. Empty / too-short prompts return an empty hit list. */
+  prompt: string;
+  /** Top-K cap. Default 3, hard ceiling 10. */
+  k?: number;
+}
+
+export interface FileHit {
+  /** Repo-relative path. */
+  relPath: string;
+  /** Heuristic summary (≤ 600 chars, leakage + injection scanned at write). */
+  summary: string;
+  /** JSON-encoded symbols payload (≤ 256 chars, parseable). */
+  symbols: string;
+  /** Detected language slot. */
+  language: string | null;
+  /** File size in bytes — useful for the "Xkb avoided" badge. */
+  sizeBytes: number;
+  /** FTS5 bm25 score. Lower is more relevant. Exposed so callers can rank. */
+  score: number;
+}
+
+/** Hard ceiling on K. Calls past 10 cap silently. */
+const RECALL_FILES_MAX_K = 10;
+/** Reject queries below this many chars (post-trim). */
+const MIN_PROMPT_LEN = 4;
+
+export function recallFiles(store: BlockStore, opts: RecallFilesOptions): FileHit[] {
+  const k = Math.min(Math.max(1, opts.k ?? 3), RECALL_FILES_MAX_K);
+  const prompt = (opts.prompt ?? "").trim();
+  if (prompt.length < MIN_PROMPT_LEN) return [];
+
+  const fts = sanitizeRecallQuery(prompt);
+  if (!fts) return [];
+
+  // Over-fetch slightly so we can dedupe on rel_path before
+  // truncating to K. In practice rel_path is UNIQUE on
+  // indexed_files so this is a belt-and-braces guard rather than
+  // a real dedup; the over-fetch costs at most a few rows.
+  const overFetch = k * 2;
+  const rows = store.rawDb
+    .prepare(
+      `SELECT
+         indexed_files.rel_path AS rel_path,
+         indexed_files.summary AS summary,
+         indexed_files.symbols AS symbols,
+         indexed_files.language AS language,
+         indexed_files.size_bytes AS size_bytes,
+         bm25(indexed_files_fts) AS score
+       FROM indexed_files
+       JOIN indexed_files_fts ON indexed_files.rowid = indexed_files_fts.rowid
+       WHERE indexed_files_fts MATCH @fts
+       ORDER BY bm25(indexed_files_fts)
+       LIMIT @limit`,
+    )
+    .all({ fts, limit: overFetch }) as Array<{
+      rel_path: string;
+      summary: string;
+      symbols: string | null;
+      language: string | null;
+      size_bytes: number;
+      score: number;
+    }>;
+
+  const seen = new Set<string>();
+  const out: FileHit[] = [];
+  for (const r of rows) {
+    if (seen.has(r.rel_path)) continue;
+    seen.add(r.rel_path);
+    out.push({
+      relPath: r.rel_path,
+      summary: r.summary,
+      symbols: r.symbols ?? "{}",
+      language: r.language,
+      sizeBytes: r.size_bytes,
+      score: r.score,
+    });
+    if (out.length >= k) break;
+  }
+  return out;
+}
+
+/**
+ * Tokenize + escape a free-text prompt into an FTS5 MATCH expression.
+ * Same shape as `BlockStore.sanitizeFtsQuery` (private over there).
+ * Mirrored locally to keep file-indexer dep-light against block-store
+ * internals.
+ *
+ * Strategy: strip FTS5 metacharacters, split on whitespace, quote
+ * each token, join with OR for >3 tokens (broader recall) or space-
+ * AND for ≤3 tokens (tighter precision).
+ */
+function sanitizeRecallQuery(prompt: string): string {
+  const cleaned = prompt.replace(/[*"():^~{}[\]\\]/g, " ").trim();
+  if (!cleaned) return "";
+  const words = cleaned
+    .split(/\s+/)
+    .filter((w) => w.length > 1); // single chars don't carry signal
+  if (words.length === 0) return "";
+  const joiner = words.length <= 3 ? " " : " OR ";
+  return words.map((w) => `"${w}"`).join(joiner);
 }
 
 // ---------------------------------------------------------------------------

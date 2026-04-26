@@ -1145,7 +1145,20 @@ export interface RecordToolObservationInput {
 //   `BadgeEvent` is a compile error.
 // ============================================================================
 
-export type BadgeEventKind = "trace" | "memory" | "context" | "tool" | "loop";
+// 0.7.0-rc.3 §rc.3 — `memory-files` is the file-memory bullet split
+// out from the long-running `memory` (project_facts) bullet so the
+// two counters never merge. The spec contract: file count counts
+// `indexed_files` rows surfaced by recallFiles; the legacy `memory`
+// bullet keeps counting project_facts where `provenance_kind !=
+// "indexer"`. Wrappers that route badges by kind get one event per
+// bullet rather than a combined number.
+export type BadgeEventKind =
+  | "trace"
+  | "memory"
+  | "memory-files"
+  | "context"
+  | "tool"
+  | "loop";
 
 /**
  * One observable event surfaced from the runtime to wrapper-side
@@ -1332,10 +1345,88 @@ export interface Runtime {
   flush(): Promise<void>;
 
   /**
+   * 0.7.0-rc.3 §rc.3 — explicit indexer pass.
+   *
+   * Walks the workspace under the documented budget (defaults
+   * `{ timeMs: 30000, maxFiles: 5000, maxBytesScan: 64 MiB }`) and
+   * upserts `indexed_files`. Returns aggregate counts only —
+   * never paths / hashes / summaries (those stay local).
+   *
+   * `tracebase init` calls this automatically; SDK consumers call
+   * it directly when they want to refresh the index outside the
+   * init flow (e.g. after a large checkout / git pull).
+   */
+  indexFiles(input: IndexFilesInput): Promise<IndexFilesResult>;
+
+  /**
+   * 0.7.0-rc.3 §rc.3 — direct file-memory recall.
+   *
+   * Equivalent of `beforeRun`'s file recall, exposed for callers
+   * that want the hits without the full block + fact + tool path.
+   * FTS5 over `indexed_files(summary, symbols)`. Top-K bounded
+   * (default 3, hard ceiling 10).
+   */
+  recallFiles(input: RecallFilesInput): Promise<RecallFilesResult>;
+
+  /**
    * Release the SQLite handle and clear sync timers. Idempotent.
    * Subsequent runtime method calls reject with a clear error.
    */
   close(): Promise<void>;
+}
+
+// ----------------------------------------------------------------------------
+// 0.7.0-rc.3 §rc.3 — file memory I/O types.
+//
+// Both shapes intentionally exclude path / hash / content fields
+// from the wire; only counts surface to the cloud allowlist
+// (USAGE_FILE_INDEX_SPEC + USAGE_FILE_MEMORY_SPEC).
+// ----------------------------------------------------------------------------
+
+export interface IndexFilesInput {
+  /** Workspace root. Required. */
+  root: string;
+  /** Optional budget overrides; missing fields fall back to spec defaults. */
+  budget?: {
+    timeMs?: number;
+    maxFiles?: number;
+    maxBytesScan?: number;
+  };
+  /** Per-file size cap, default 256 KiB. */
+  maxBytes?: number;
+  /** Summarizer label written on each indexed_files row. Default 'heuristic'. */
+  summarizer?: "heuristic" | "embedding" | "llm";
+}
+
+export interface IndexFilesResult {
+  indexedCount: number;
+  bytesSummarized: number;
+  durationMs: number;
+  pendingFilesCount: number;
+  pendingDirsCount: number;
+  /** Reason → count map; never carries paths. */
+  skipped: Record<string, number>;
+  summarizer: "heuristic" | "embedding" | "llm";
+}
+
+export interface RecallFilesInput {
+  /** Free-text prompt. Empty / too-short prompts return [] without throwing. */
+  prompt: string;
+  /** Top-K cap (default 3, hard ceiling 10). */
+  k?: number;
+}
+
+export interface RecallFilesResult {
+  /** Hits in bm25 score order. May be empty. */
+  hits: Array<{
+    relPath: string;
+    summary: string;
+    /** JSON-encoded symbols payload; parseable. */
+    symbols: string;
+    language: string | null;
+    sizeBytes: number;
+    score: number;
+  }>;
 }
 
 // ============================================================================

@@ -33,7 +33,7 @@ import type { readHoldoutConfig } from "../core/config.js";
 
 import { detectToolPattern } from "../core/tool-loop-detect.js";
 import { buildInjectionPayload } from "../core/build-injection-payload.js";
-import { drainIndexerPending } from "../core/file-indexer.js";
+import { drainIndexerPending, recallFiles } from "../core/file-indexer.js";
 import { runReasoningPatternsRecall } from "../server/reasoning-patterns-entry.js";
 import { sessionScope } from "./digest.js";
 
@@ -72,6 +72,12 @@ export interface RecallForPromptOptions {
    * detector emits both kinds of signal from a single window walk.
    */
   enableToolDetection?: boolean;
+  /**
+   * 0.7.0-rc.3 §rc.3 — top-K override for file memory recall.
+   * Default `FILE_HITS_DEFAULT_K`. Values above the file-indexer
+   * hard ceiling (10) are silently capped there.
+   */
+  fileHitsK?: number;
 }
 
 export interface RecallForPromptResult {
@@ -117,8 +123,26 @@ export function recallForPrompt(
     { problem: opts.prompt, scope: recallScope },
     { readHoldoutConfig: holdoutLoader },
   );
+
+  // 0.7.0-rc.3 §rc.3 — file memory recall runs alongside the
+  // pattern recall. K=3 default (FILE_HITS_DEFAULT_K). The file
+  // hits feed into buildInjectionPayload as a separate section
+  // wrapped in `<file_memory>…</file_memory>`. Best-effort: any
+  // failure (FTS not yet built, malformed prompt, etc.) yields
+  // an empty list and the legacy block + fact path still ships.
+  let fileHits: ReturnType<typeof recallFiles> = [];
+  try {
+    fileHits = recallFiles(store, {
+      prompt: opts.prompt,
+      k: opts.fileHitsK ?? FILE_HITS_DEFAULT_K,
+    });
+  } catch {
+    fileHits = [];
+  }
+
   const payload = buildInjectionPayload(raw, {
     tokenBudget: opts.tokenBudget ?? 1200,
+    fileHits,
   });
 
   let signal: ToolPatternSignal = { kind: "none", count: 0 };
@@ -135,6 +159,26 @@ export function recallForPrompt(
   }
 
   recordRecallEvents(store, raw, payload);
+
+  // 0.7.0-rc.3 §rc.3 — file_memory.recalled emit. Fires once when
+  // the rendered payload includes at least one file_memory bullet.
+  // Aggregate-only fields (fileIds + tokensInjected + bytesAvoided)
+  // — the cloud allowlist drops fileIds at the wire, so paths
+  // never leave the local DB.
+  if (payload.fileIds.length > 0) {
+    try {
+      store.appendEvent({
+        ts: Date.now(),
+        queryId: payload.queryId,
+        event: "file_memory.recalled",
+        fileIds: [...payload.fileIds],
+        tokensInjected: payload.tokensEstimate,
+        bytesAvoided: payload.bytesAvoided,
+      });
+    } catch {
+      // never break the recall path on a telemetry failure
+    }
+  }
 
   // 0.7.0-rc.2 §rc.2 — opportunistic indexer drain.
   //
@@ -178,6 +222,15 @@ export function recallForPrompt(
  */
 export const RECALL_PATH_DRAIN_MAX_FILES = 10;
 export const RECALL_PATH_DRAIN_TIME_MS = 30;
+
+/**
+ * 0.7.0-rc.3 §rc.3 — default top-K for the file memory recall the
+ * pattern path runs alongside the block + fact recall. Three is
+ * the spec default; above 6 the prompt focus suffers more than
+ * the recall hit gain (the indexer's heuristic summaries don't
+ * have ground-truth ranking, just FTS bm25).
+ */
+export const FILE_HITS_DEFAULT_K = 3;
 
 /**
  * Trivial-prompt gate. Returns false for prompts shorter than the

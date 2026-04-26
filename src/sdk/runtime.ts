@@ -51,6 +51,16 @@ import {
   type HoldoutLoader,
 } from "../runtime/recall.js";
 import { observeToolBatch } from "../runtime/observe-tools.js";
+import {
+  indexWorkspace as indexWorkspaceCore,
+  recallFiles as recallFilesCore,
+} from "../core/file-indexer.js";
+import type {
+  IndexFilesInput,
+  IndexFilesResult,
+  RecallFilesInput,
+  RecallFilesResult,
+} from "../types.js";
 import { captureTurnFromTexts } from "../runtime/capture-turn.js";
 import { extractDigestFromTurns, sessionScope } from "../runtime/digest.js";
 import { createSyncCoordinator, type SyncCoordinator } from "./sync-coordinator.js";
@@ -250,7 +260,16 @@ export function createRuntime(
   }
 
   function recallToBadgeEvents(
-    payload: { blockIds: string[]; factIds: string[]; tokensEstimate: number },
+    payload: {
+      blockIds: string[];
+      factIds: string[];
+      // 0.7.0-rc.3 — file memory fields. Optional in the type so
+      // callers built before rc.3 still compile; the default
+      // payload from buildInjectionPayload always sets them.
+      fileIds?: string[];
+      bytesAvoided?: number;
+      tokensEstimate: number;
+    },
     queryId: string,
   ): BadgeEvent[] {
     const events: BadgeEvent[] = [];
@@ -272,6 +291,24 @@ export function createRuntime(
         kind: "memory",
         label: `▣ TB MEMORY  recalled ${payload.factIds.length} fact(s)`,
         count: payload.factIds.length,
+        queryId,
+        ts,
+        ...baseSrc,
+      });
+    }
+    // 0.7.0-rc.3 §rc.3 — file memory bullet, separate from the
+    // facts counter. "Xkb avoided" is rendered into the label;
+    // BadgeEvent intentionally has no `bytesAvoided` field so the
+    // privacy regression test's keyset stays disjoint from the
+    // forbidden surface.
+    const fileCount = payload.fileIds?.length ?? 0;
+    if (enableMemory && fileCount > 0) {
+      const kb = Math.round((payload.bytesAvoided ?? 0) / 1024);
+      const kbTag = kb > 0 ? ` · ${kb}kb avoided` : "";
+      events.push({
+        kind: "memory-files",
+        label: `▣ TB MEMORY  recalled ${fileCount} file(s)${kbTag}`,
+        count: fileCount,
         queryId,
         ts,
         ...baseSrc,
@@ -502,11 +539,70 @@ export function createRuntime(
     }
   }
 
+  // -----------------------------------------------------------------------
+  // 0.7.0-rc.3 §rc.3 — file memory SDK surface
+  // -----------------------------------------------------------------------
+
+  async function indexFiles(input: IndexFilesInput): Promise<IndexFilesResult> {
+    if (closed) throw new Error("runtime closed");
+    const basePath = resolveBasePath(input.root);
+    if (!basePath) {
+      // Mirror the beforeRun shape: missing config returns an
+      // empty-shaped result, never throws.
+      return {
+        indexedCount: 0,
+        bytesSummarized: 0,
+        durationMs: 0,
+        pendingFilesCount: 0,
+        pendingDirsCount: 0,
+        skipped: {},
+        summarizer: input.summarizer ?? "heuristic",
+      };
+    }
+    const conn = ensureConnection(basePath);
+    if (!conn) {
+      return {
+        indexedCount: 0,
+        bytesSummarized: 0,
+        durationMs: 0,
+        pendingFilesCount: 0,
+        pendingDirsCount: 0,
+        skipped: {},
+        summarizer: input.summarizer ?? "heuristic",
+      };
+    }
+    const out = indexWorkspaceCore(conn.store, {
+      root: basePath,
+      budget: input.budget,
+      maxBytes: input.maxBytes,
+      summarizer: input.summarizer ?? "heuristic",
+    });
+    if (out.indexedCount > 0) markDirty("indexFiles");
+    return out;
+  }
+
+  async function recallFilesMethod(
+    input: RecallFilesInput,
+  ): Promise<RecallFilesResult> {
+    if (closed) throw new Error("runtime closed");
+    const basePath = resolveBasePath();
+    if (!basePath) return { hits: [] };
+    const conn = ensureConnection(basePath);
+    if (!conn) return { hits: [] };
+    const hits = recallFilesCore(conn.store, {
+      prompt: input.prompt,
+      k: input.k,
+    });
+    return { hits };
+  }
+
   return {
     beforeRun,
     observeToolBatch: observe,
     saveContext,
     afterRun,
+    indexFiles,
+    recallFiles: recallFilesMethod,
     flush,
     close,
   };

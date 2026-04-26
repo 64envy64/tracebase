@@ -85,6 +85,8 @@ describe("migrations — fresh DB", () => {
       "v2_schema_meta",
       "schema_version",
       "calibrator_models",
+      "indexed_files",
+      "indexer_pending",
     ]) {
       expect(tables).toContain(t);
     }
@@ -499,6 +501,94 @@ describe("migration #10 — file indexer schema", () => {
         )
         .run(),
     ).not.toThrow();
+    store.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Migration #11 — indexed_files FTS5 mirror (PLAN-0.7 §rc.3)
+// ---------------------------------------------------------------------------
+
+describe("migration #11 — indexed_files FTS5 mirror", () => {
+  it("fresh init creates indexed_files_fts virtual table + 3 sync triggers", () => {
+    const store = new BlockStore(dbPath);
+    const db = store.rawDb;
+
+    const tables = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
+        name: string;
+      }>
+    ).map((r) => r.name);
+    expect(tables).toContain("indexed_files_fts");
+
+    const triggers = (
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name")
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name);
+    expect(triggers).toEqual(
+      expect.arrayContaining([
+        "indexed_files_fts_insert",
+        "indexed_files_fts_update",
+        "indexed_files_fts_delete",
+      ]),
+    );
+    store.close();
+  });
+
+  it("indexed rows are searchable via the FTS table after insert", () => {
+    const store = new BlockStore(dbPath);
+    const db = store.rawDb;
+    db.prepare(
+      `INSERT INTO indexed_files (id, rel_path, hash, size_bytes, summary, symbols, summarizer, indexed_at, updated_at)
+       VALUES ('f1', 'src/auth.ts', 'h1', 100, 'Authentication middleware for the gateway', '{"exports":["authenticate","sign"]}', 'heuristic', 1, 1)`,
+    ).run();
+    const hits = db
+      .prepare(
+        "SELECT rel_path FROM indexed_files WHERE rowid IN (SELECT rowid FROM indexed_files_fts WHERE indexed_files_fts MATCH ?)",
+      )
+      .all("authentication") as Array<{ rel_path: string }>;
+    expect(hits.map((h) => h.rel_path)).toEqual(["src/auth.ts"]);
+    store.close();
+  });
+
+  it("upgrade from v=10: creates FTS table + back-fills existing rows", () => {
+    // Stand up a fresh DB at v=11, drop indexed_files_fts and its
+    // triggers, roll meta back to 10. Pre-seed an indexed_files row
+    // so the rebuild step has work to do.
+    const seed = new BlockStore(dbPath);
+    seed.rawDb
+      .prepare(
+        `INSERT INTO indexed_files (id, rel_path, hash, size_bytes, summary, symbols, summarizer, indexed_at, updated_at)
+         VALUES ('f-pre', 'src/a.ts', 'h-pre', 50, 'pre-rebuild summary about widgets', '{}', 'heuristic', 1, 1)`,
+      )
+      .run();
+    seed.close();
+
+    const raw = new Database(dbPath);
+    raw.exec("DROP TRIGGER IF EXISTS indexed_files_fts_insert");
+    raw.exec("DROP TRIGGER IF EXISTS indexed_files_fts_update");
+    raw.exec("DROP TRIGGER IF EXISTS indexed_files_fts_delete");
+    raw.exec("DROP TABLE IF EXISTS indexed_files_fts");
+    raw.prepare("UPDATE v2_schema_meta SET value = '10' WHERE key = 'version'").run();
+    raw.prepare("DELETE FROM schema_version WHERE version >= 11").run();
+    raw.close();
+
+    const store = new BlockStore(dbPath);
+    const db = store.rawDb;
+    const meta = db
+      .prepare("SELECT value FROM v2_schema_meta WHERE key = 'version'")
+      .get() as { value: string };
+    expect(parseInt(meta.value, 10)).toBeGreaterThanOrEqual(11);
+
+    // FTS rebuilt with the existing row.
+    const hits = db
+      .prepare(
+        "SELECT rel_path FROM indexed_files WHERE rowid IN (SELECT rowid FROM indexed_files_fts WHERE indexed_files_fts MATCH ?)",
+      )
+      .all("widgets") as Array<{ rel_path: string }>;
+    expect(hits.map((h) => h.rel_path)).toEqual(["src/a.ts"]);
+
     store.close();
   });
 });

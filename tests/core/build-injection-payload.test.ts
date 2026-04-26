@@ -349,3 +349,162 @@ describe("buildInjectionPayload — imported provenance tag", () => {
     expect(payload.text).not.toContain("</prior_fix>");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 0.7.0-rc.3 §rc.3 — file_memory section + bytesAvoided
+// ---------------------------------------------------------------------------
+
+describe("buildInjectionPayload — file_memory section", () => {
+  let store: BlockStore;
+  beforeEach(() => {
+    store = makeStore();
+  });
+
+  function makeFileHits(rels: string[]) {
+    return rels.map((relPath, i) => ({
+      relPath,
+      summary: `Heuristic summary for ${relPath} explaining what it does in detail`,
+      symbols: '{"exports":["fn1","fn2"]}',
+      language: "typescript",
+      sizeBytes: 1024 * (i + 1),
+      score: -i, // bm25-like: lower is better
+    }));
+  }
+
+  it("renders file hits inside <file_memory>...</file_memory>", () => {
+    storeActive(store, PY_BLOCK);
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    const result = server.recall({ text: "pytest shadowing" });
+
+    const fileHits = makeFileHits(["src/auth.ts", "src/payments.ts"]);
+    const payload = buildInjectionPayload(result, { fileHits });
+
+    expect(payload.hasContent).toBe(true);
+    expect(payload.text).toContain("<file_memory>");
+    expect(payload.text).toContain("</file_memory>");
+    expect(payload.text).toContain("• src/auth.ts:");
+    expect(payload.text).toContain("• src/payments.ts:");
+    expect(payload.fileIds).toEqual(["src/auth.ts", "src/payments.ts"]);
+    expect(payload.bytesAvoided).toBe(1024 + 2048);
+  });
+
+  it("respects maxFiles cap (default 3, hard ceiling 6)", () => {
+    storeActive(store, PY_BLOCK);
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    const result = server.recall({ text: "pytest shadowing" });
+
+    const fileHits = makeFileHits(
+      Array.from({ length: 10 }, (_, i) => `src/f${i}.ts`),
+    );
+
+    const def = buildInjectionPayload(result, { fileHits });
+    expect(def.fileIds.length).toBe(3);
+
+    const explicit = buildInjectionPayload(result, { fileHits, maxFiles: 5 });
+    expect(explicit.fileIds.length).toBe(5);
+
+    // Hard ceiling: maxFiles=99 capped at 6.
+    const over = buildInjectionPayload(result, { fileHits, maxFiles: 99 });
+    expect(over.fileIds.length).toBe(6);
+  });
+
+  it("file lines clamp at FILE_LINE_MAX_CHARS to prevent runaway summaries", () => {
+    storeActive(store, PY_BLOCK);
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    const result = server.recall({ text: "pytest shadowing" });
+
+    const longSummary = "x".repeat(5000);
+    const fileHits = [
+      {
+        relPath: "src/long.ts",
+        summary: longSummary,
+        symbols: "{}",
+        language: "typescript",
+        sizeBytes: 100,
+        score: 0,
+      },
+    ];
+    const payload = buildInjectionPayload(result, { fileHits });
+    const fileLine = payload.text
+      .split("\n")
+      .find((l) => l.startsWith("• src/long.ts:"));
+    expect(fileLine).toBeDefined();
+    expect(fileLine!.length).toBeLessThanOrEqual(220 + 1);
+  });
+
+  it("drops the file_memory section cleanly when budget is too tight", () => {
+    storeActive(store, PY_BLOCK);
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    const result = server.recall({ text: "pytest shadowing" });
+
+    // Tiny budget — block always wins (top item rescue), files
+    // drop. fileIds is empty, bytesAvoided is 0.
+    const fileHits = makeFileHits(["src/a.ts", "src/b.ts"]);
+    const payload = buildInjectionPayload(result, {
+      fileHits,
+      tokenBudget: 50, // tighter than block + file lines combined
+    });
+    expect(payload.fileIds).toEqual([]);
+    expect(payload.bytesAvoided).toBe(0);
+    expect(payload.text).not.toContain("<file_memory>");
+  });
+
+  it("files-only payload uses the file-context lead-in", () => {
+    // No blocks, no facts — only files. The lead-in must still
+    // make sense; otherwise the agent reads the bare tag as
+    // protocol noise.
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    // Recall returns shouldInject=false when no blocks/facts hit;
+    // forge a shouldInject=true result via direct construction.
+    const fakeResult = {
+      ...server.recall({ text: "pytest shadowing module" }),
+      shouldInject: true,
+    };
+
+    const fileHits = makeFileHits(["src/onlyfile.ts"]);
+    const payload = buildInjectionPayload(fakeResult, { fileHits });
+    expect(payload.hasContent).toBe(true);
+    expect(payload.text).toContain("Relevant file context:");
+    expect(payload.text).toContain("<file_memory>");
+  });
+
+  it("never mixes <file_memory> bullets with the imported <prior_fix> tag", () => {
+    storeActive(store, PY_BLOCK);
+    store.storeFact({
+      scope: "global",
+      factType: "convention",
+      statement: "pytest shadowing imported guidance external",
+      invariants: {},
+      source: { origin: "imported" },
+      confidence: 0.9,
+    });
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    const result = server.recall({ text: "pytest shadowing imported" });
+
+    const fileHits = makeFileHits(["src/auth.ts"]);
+    const payload = buildInjectionPayload(result, { fileHits });
+
+    // Both tags present, but the imported fact's <prior_fix> is
+    // CLOSED before the <file_memory> section opens. This ensures
+    // the tags don't nest or interleave.
+    const text = payload.text;
+    const priorClose = text.indexOf("</prior_fix>");
+    const fileOpen = text.indexOf("<file_memory>");
+    expect(priorClose).toBeGreaterThan(0);
+    expect(fileOpen).toBeGreaterThan(priorClose);
+  });
+
+  it("empty fileHits leaves payload byte-identical to pre-rc.3", () => {
+    storeActive(store, PY_BLOCK);
+    const server = new BlockServer(store, { gateThreshold: 0.5 });
+    const result = server.recall({ text: "pytest shadowing" });
+
+    const a = buildInjectionPayload(result);
+    const b = buildInjectionPayload(result, { fileHits: [] });
+    expect(a.text).toBe(b.text);
+    expect(a.fileIds).toEqual([]);
+    expect(b.fileIds).toEqual([]);
+    expect(a.bytesAvoided).toBe(0);
+    expect(b.bytesAvoided).toBe(0);
+  });
+});

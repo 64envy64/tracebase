@@ -112,7 +112,14 @@ describe("BadgeEvent — public type shape", () => {
   });
 
   it("accepts every BadgeEventKind", () => {
-    const kinds: BadgeEvent["kind"][] = ["trace", "memory", "context", "tool", "loop"];
+    const kinds: BadgeEvent["kind"][] = [
+      "trace",
+      "memory",
+      "memory-files", // 0.7.0-rc.3 §rc.3 — file memory bullet
+      "context",
+      "tool",
+      "loop",
+    ];
     for (const k of kinds) {
       const ev: BadgeEvent = { kind: k, label: `▣ TB ${k.toUpperCase()}`, ts: 0 };
       expect(ev.kind).toBe(k);

@@ -45,13 +45,12 @@ import { detectPromptInjectionPatterns } from "./guard.js";
 // Schema
 // ---------------------------------------------------------------------------
 
-// 0.7.0-rc.2 bumps to 10 — the file indexer (PLAN-0.7 §rc.2) adds two
-// new tables (`indexed_files`, `indexer_pending`) and a `provenance_kind`
-// column on `project_facts` so the rc.3 badge counters can distinguish
-// chat-derived facts from indexer-derived ones. Same migration framework
-// rc.1 stood up (`schema_version` per-row log + `addColumnIfMissing`
-// idempotency probe).
-const V2_SCHEMA_VERSION = 10;
+// 0.7.0-rc.3 bumps to 11 — file memory recall (PLAN-0.7 §rc.3)
+// needs FTS over indexed_files.summary + symbols. Adds the
+// `indexed_files_fts` virtual table + its three sync triggers,
+// mirroring the long-running pattern used by `reasoning_blocks_fts`
+// and `project_facts_fts`.
+const V2_SCHEMA_VERSION = 11;
 
 const V2_SCHEMA = `
 CREATE TABLE IF NOT EXISTS reasoning_blocks (
@@ -357,6 +356,44 @@ CREATE TABLE IF NOT EXISTS indexed_files (
 
 CREATE INDEX IF NOT EXISTS idx_indexed_files_hash ON indexed_files(hash);
 CREATE INDEX IF NOT EXISTS idx_indexed_files_lang ON indexed_files(language);
+
+-- 0.7.0-rc.3 rc.3 — FTS5 mirror over (summary, symbols).
+--
+-- Same shape as reasoning_blocks_fts / project_facts_fts. The
+-- recall path queries this virtual table by prompt-term overlap;
+-- ranking is FTS5 bm25, the same default we use elsewhere.
+--
+-- Privacy: the FTS index is content-addressable to indexed_files
+-- by rowid (content='indexed_files', content_rowid='rowid').
+-- Cloud allowlist already drops every column from indexed_files
+-- (USAGE_FILE_INDEX_SPEC ships only counts), so the FTS rows
+-- never reach the wire either.
+CREATE VIRTUAL TABLE IF NOT EXISTS indexed_files_fts USING fts5(
+  summary,
+  symbols,
+  content='indexed_files',
+  content_rowid='rowid',
+  tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS indexed_files_fts_insert AFTER INSERT ON indexed_files BEGIN
+  INSERT INTO indexed_files_fts(rowid, summary, symbols)
+  VALUES (new.rowid, new.summary, new.symbols);
+END;
+
+CREATE TRIGGER IF NOT EXISTS indexed_files_fts_delete AFTER DELETE ON indexed_files BEGIN
+  INSERT INTO indexed_files_fts(indexed_files_fts, rowid, summary, symbols)
+  VALUES ('delete', old.rowid, old.summary, old.symbols);
+END;
+
+CREATE TRIGGER IF NOT EXISTS indexed_files_fts_update
+  AFTER UPDATE OF summary, symbols ON indexed_files
+BEGIN
+  INSERT INTO indexed_files_fts(indexed_files_fts, rowid, summary, symbols)
+  VALUES ('delete', old.rowid, old.summary, old.symbols);
+  INSERT INTO indexed_files_fts(rowid, summary, symbols)
+  VALUES (new.rowid, new.summary, new.symbols);
+END;
 
 -- 0.7.0-rc.2 §rc.2 — indexer pending queue.
 --
@@ -763,6 +800,40 @@ const V2_MIGRATIONS: Record<number, MigrationStep[]> = {
        PRIMARY KEY (rel_path, kind)
      )`,
     `CREATE INDEX IF NOT EXISTS idx_indexer_pending_kind ON indexer_pending(kind, enqueued_at)`,
+  ],
+  // v10 → v11: 0.7.0-rc.3 file memory recall (PLAN-0.7 §rc.3).
+  //
+  // Adds FTS5 mirror over indexed_files(summary, symbols) plus
+  // its three insert/delete/update sync triggers, then rebuilds
+  // the index for any rows that already exist in indexed_files.
+  // The 'rebuild' insert is a no-op on an empty table — same
+  // idempotency contract as the project_facts_fts rebuild in
+  // migration #6.
+  11: [
+    `CREATE VIRTUAL TABLE IF NOT EXISTS indexed_files_fts USING fts5(
+       summary,
+       symbols,
+       content='indexed_files',
+       content_rowid='rowid',
+       tokenize='porter unicode61'
+     )`,
+    `CREATE TRIGGER IF NOT EXISTS indexed_files_fts_insert AFTER INSERT ON indexed_files BEGIN
+       INSERT INTO indexed_files_fts(rowid, summary, symbols)
+       VALUES (new.rowid, new.summary, new.symbols);
+     END`,
+    `CREATE TRIGGER IF NOT EXISTS indexed_files_fts_delete AFTER DELETE ON indexed_files BEGIN
+       INSERT INTO indexed_files_fts(indexed_files_fts, rowid, summary, symbols)
+       VALUES ('delete', old.rowid, old.summary, old.symbols);
+     END`,
+    `CREATE TRIGGER IF NOT EXISTS indexed_files_fts_update
+       AFTER UPDATE OF summary, symbols ON indexed_files
+     BEGIN
+       INSERT INTO indexed_files_fts(indexed_files_fts, rowid, summary, symbols)
+       VALUES ('delete', old.rowid, old.summary, old.symbols);
+       INSERT INTO indexed_files_fts(rowid, summary, symbols)
+       VALUES (new.rowid, new.summary, new.symbols);
+     END`,
+    `INSERT INTO indexed_files_fts(indexed_files_fts) VALUES('rebuild')`,
   ],
 };
 

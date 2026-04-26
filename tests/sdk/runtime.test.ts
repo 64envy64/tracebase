@@ -15,7 +15,7 @@
  *   - `BadgeEvent` privacy: nothing forbidden ever shows up
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -23,6 +23,7 @@ import { initConfig, loadConfig } from "../../src/core/config.js";
 import { BlockStore } from "../../src/core/block-store.js";
 import { createBlock } from "../../src/core/block.js";
 import { ReasoningLayer } from "../../src/core/engine.js";
+import { indexWorkspace } from "../../src/core/file-indexer.js";
 import { createRuntime } from "../../src/index.js";
 import type { BadgeEvent, StoreBlockInput } from "../../src/index.js";
 
@@ -130,6 +131,107 @@ describe("createRuntime — beforeRun", () => {
     expect(trace.source).toBe("openai");
 
     await runtime.close();
+  });
+
+  // 0.7.0-rc.3 §rc.3 — file memory bullet, separate from facts.
+  it("emits TB MEMORY (memory-files) when indexed files match the prompt", async () => {
+    seedBlock(PYTEST_BLOCK);
+
+    // Plant + index a file that overlaps the prompt.
+    mkdirSync(join(projectDir, "src"), { recursive: true });
+    writeFileSync(
+      join(projectDir, "src", "shadowing.ts"),
+      "/** sys.path shadow detection helpers */\nexport function detect() {}\n",
+    );
+    {
+      const cfg = loadConfig(projectDir);
+      const db = new Database(cfg.storagePath);
+      const store = new BlockStore(db);
+      indexWorkspace(store, { root: projectDir });
+      store.close();
+    }
+
+    const events: BadgeEvent[] = [];
+    const runtime = createRuntime(dummyLayer(), {
+      projectPath: projectDir,
+      onBadge: (ev) => events.push(ev),
+    });
+    const out = await runtime.beforeRun({
+      prompt:
+        "Pytest collects the wrong package — sys.path shadow detection in our test runner",
+    });
+
+    const memFiles = events.find((e) => e.kind === "memory-files");
+    expect(memFiles).toBeDefined();
+    expect(memFiles!.label).toMatch(/▣ TB MEMORY\s+recalled \d+ file\(s\)/);
+    expect(memFiles!.count).toBeGreaterThan(0);
+    expect(memFiles!.queryId).toBe(out.queryId);
+
+    // Spec: "separate counters, never merged". The pre-rc.3
+    // `memory` (facts) bullet may also fire here if facts also
+    // matched, but the kinds MUST be distinct events.
+    const memFacts = events.find((e) => e.kind === "memory");
+    if (memFacts) {
+      expect(memFacts).not.toBe(memFiles);
+      expect(memFacts.label).toMatch(/fact\(s\)/);
+    }
+
+    await runtime.close();
+  });
+
+  // 0.7.0-rc.3 §rc.3 — explicit indexFiles + recallFiles SDK surface.
+  describe("indexFiles + recallFiles (rc.3)", () => {
+    it("indexFiles populates indexed_files; recallFiles surfaces matches", async () => {
+      mkdirSync(join(projectDir, "src"), { recursive: true });
+      writeFileSync(
+        join(projectDir, "src", "auth.ts"),
+        "/** Authentication middleware */\nexport function authenticate() {}\n",
+      );
+      const runtime = createRuntime(dummyLayer(), { projectPath: projectDir });
+
+      const idx = await runtime.indexFiles({ root: projectDir });
+      expect(idx.indexedCount).toBe(1);
+      expect(idx.bytesSummarized).toBeGreaterThan(0);
+      expect(idx.summarizer).toBe("heuristic");
+
+      const recall = await runtime.recallFiles({ prompt: "authentication middleware" });
+      expect(recall.hits.length).toBeGreaterThanOrEqual(1);
+      expect(recall.hits[0].relPath).toBe("src/auth.ts");
+      expect(recall.hits[0].sizeBytes).toBeGreaterThan(0);
+
+      await runtime.close();
+    });
+
+    it("recallFiles returns empty hits on too-short prompt without throwing", async () => {
+      const runtime = createRuntime(dummyLayer(), { projectPath: projectDir });
+      const recall = await runtime.recallFiles({ prompt: "" });
+      expect(recall.hits).toEqual([]);
+      await runtime.close();
+    });
+
+    it("indexFiles on uninitialised project returns empty result, never throws", async () => {
+      const elsewhere = mkdtempSync(join(tmpdir(), "tb-runtime-noinit-"));
+      try {
+        const runtime = createRuntime(dummyLayer(), { projectPath: elsewhere });
+        const out = await runtime.indexFiles({ root: elsewhere });
+        expect(out.indexedCount).toBe(0);
+        expect(out.bytesSummarized).toBe(0);
+        await runtime.close();
+      } finally {
+        rmSync(elsewhere, { recursive: true, force: true });
+      }
+    });
+
+    it("methods reject after close()", async () => {
+      const runtime = createRuntime(dummyLayer(), { projectPath: projectDir });
+      await runtime.close();
+      await expect(runtime.indexFiles({ root: projectDir })).rejects.toThrow(
+        /runtime closed/,
+      );
+      await expect(runtime.recallFiles({ prompt: "anything" })).rejects.toThrow(
+        /runtime closed/,
+      );
+    });
   });
 
   it("emits TB LOOP after 3 repeated tool observations precede the prompt", async () => {

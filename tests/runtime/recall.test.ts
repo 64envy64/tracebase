@@ -28,7 +28,7 @@ import {
   type HoldoutLoader,
 } from "../../src/runtime/recall.js";
 import { writeFileSync, mkdirSync } from "node:fs";
-import { enqueuePending } from "../../src/core/file-indexer.js";
+import { enqueuePending, indexWorkspace } from "../../src/core/file-indexer.js";
 import type { StoreBlockInput } from "../../src/types.js";
 
 const NO_HOLDOUT: HoldoutLoader = () => null;
@@ -215,6 +215,77 @@ describe("recallForPrompt — toggles", () => {
       });
       // Last 2 are B,B — that's only 2, not enough for straight (≥3).
       expect(narrow.signal.kind).toBe("duplicate");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 0.7.0-rc.3 — file memory recall integration
+// ---------------------------------------------------------------------------
+
+describe("recallForPrompt — file memory integration", () => {
+  it("renders the <file_memory> section when files match the prompt", () => {
+    withFreshStore((store, server, basePath) => {
+      seedBlock(store, PYTEST_BLOCK);
+
+      // Plant + index a file the prompt overlaps.
+      mkdirSync(join(basePath, "src"), { recursive: true });
+      writeFileSync(
+        join(basePath, "src", "shadowing.ts"),
+        "/** Pytest sys.path shadowing detection helpers */\nexport function detectShadow() {}\n",
+      );
+      // Run indexer directly so the FTS row exists before recall.
+      indexWorkspace(store, { root: basePath });
+
+      const result = recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "Pytest collects the wrong package — sys.path shadow on a fresh clone",
+        basePath,
+        sessionId: null,
+      });
+
+      expect(result.payload.text).toContain("<file_memory>");
+      expect(result.payload.text).toContain("</file_memory>");
+      expect(result.payload.fileIds).toContain("src/shadowing.ts");
+      expect(result.payload.bytesAvoided).toBeGreaterThan(0);
+    });
+  });
+
+  it("emits file_memory.recalled with aggregate fields when files surface", () => {
+    withFreshStore((store, server, basePath) => {
+      seedBlock(store, PYTEST_BLOCK);
+      mkdirSync(join(basePath, "src"), { recursive: true });
+      writeFileSync(
+        join(basePath, "src", "shadowing.ts"),
+        "/** sys.path shadow detection */\nexport function fn() {}\n",
+      );
+      indexWorkspace(store, { root: basePath });
+
+      recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "sys.path shadow long enough to pass the gate without being trivial",
+        basePath,
+        sessionId: null,
+      });
+
+      const events = store.readEvents({ eventType: "file_memory.recalled" });
+      expect(events.length).toBe(1);
+      if (events[0]!.event !== "file_memory.recalled") return;
+      expect(events[0]!.fileIds).toContain("src/shadowing.ts");
+      expect(events[0]!.tokensInjected).toBeGreaterThan(0);
+      expect(events[0]!.bytesAvoided).toBeGreaterThan(0);
+    });
+  });
+
+  it("does NOT emit file_memory.recalled when no files clear the gate", () => {
+    withFreshStore((store, server, basePath) => {
+      seedBlock(store, PYTEST_BLOCK);
+      // No files indexed → recallFiles returns empty → no event.
+      recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "Pytest collects the wrong package — long enough prompt",
+        basePath,
+        sessionId: null,
+      });
+      const events = store.readEvents({ eventType: "file_memory.recalled" });
+      expect(events.length).toBe(0);
     });
   });
 });
