@@ -33,6 +33,7 @@ import type { readHoldoutConfig } from "../core/config.js";
 
 import { detectToolPattern } from "../core/tool-loop-detect.js";
 import { buildInjectionPayload } from "../core/build-injection-payload.js";
+import { drainIndexerPending } from "../core/file-indexer.js";
 import { runReasoningPatternsRecall } from "../server/reasoning-patterns-entry.js";
 import { sessionScope } from "./digest.js";
 
@@ -134,6 +135,18 @@ export function recallForPrompt(
   }
 
   recordRecallEvents(store, raw, payload);
+
+  // 0.7.0-rc.2 §rc.2 — opportunistic indexer drain. Best-effort
+  // slice (≤ 50 files OR ≤ 200ms wall-clock); any failure is
+  // swallowed so the recall path never breaks because the indexer
+  // is being asked to do work. Skip entirely on trivial / no-content
+  // recalls: there's nothing the user is waiting for that would
+  // make a 200ms drain unwelcome.
+  try {
+    drainIndexerPending(store, { root: opts.basePath });
+  } catch {
+    // swallow — drain is non-load-bearing on the recall path.
+  }
 
   return {
     raw,

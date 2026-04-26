@@ -25,6 +25,25 @@
 import type { BlockStore } from "../core/block-store.js";
 import type { RecordToolObservationInput, ToolObservationOutcome } from "../types.js";
 import { sanitizeToolArgs } from "../core/tool-arg.js";
+import { toRepoRelative } from "../core/guard.js";
+import { enqueuePending } from "../core/file-indexer.js";
+
+/**
+ * 0.7.0-rc.2 §rc.2 — closed set of tool names that imply the file
+ * at `toolInput.file_path` was just modified. PostToolBatch enqueues
+ * each touched repo-relative path into `indexer_pending(kind='file')`
+ * so the next recall pass can drain a slice and refresh
+ * `indexed_files`. We never enqueue for read tools — those don't
+ * change content and re-summarizing wastes budget.
+ */
+const WRITE_LIKE_TOOLS = new Set<string>([
+  "Edit",
+  "Write",
+  "MultiEdit",
+  "NotebookEdit",
+  "Create",
+  "Patch",
+]);
 
 /**
  * Hard ceiling on per-batch observations. Real Claude Code batches
@@ -117,5 +136,44 @@ export function observeToolBatch(
   }
 
   const ids = store.recordToolObservations(inputs);
+
+  // 0.7.0-rc.2 §rc.2 — opportunistic indexer enqueue. After the
+  // observations land, scan the same batch for write-like tools and
+  // queue the touched files for re-summarization. Best-effort: any
+  // failure here is swallowed — the agent's tool path must never
+  // break because the indexer is being cute.
+  try {
+    const enqueueAt = Date.now();
+    for (let i = 0; i < cap; i++) {
+      const call = opts.toolCalls[i]!;
+      if (!WRITE_LIKE_TOOLS.has(call.toolName)) continue;
+      const filePath = extractTouchedPath(call.toolInput);
+      if (filePath === null) continue;
+      const rel = toRepoRelative(filePath, opts.cwd);
+      if (rel === null) continue;
+      enqueuePending(store, rel, "file", enqueueAt);
+    }
+  } catch {
+    // never break PostToolBatch on indexer enqueue failure.
+  }
+
   return { recorded: ids.length, ids, truncated };
+}
+
+/**
+ * Pull the touched-file path from a write-like tool's `toolInput`.
+ * Reads ONLY the documented field names — never sniffs arbitrary
+ * keys — so a future tool that hides paths in odd places is dropped
+ * cleanly rather than silently leaking.
+ */
+function extractTouchedPath(toolInput: unknown): string | null {
+  if (typeof toolInput !== "object" || toolInput === null) return null;
+  const obj = toolInput as Record<string, unknown>;
+  // Claude Code uses `file_path`; LangChain / SDK conventions
+  // sometimes use `path` or `filename`. We accept the common set.
+  for (const key of ["file_path", "path", "filename", "filePath"] as const) {
+    const v = obj[key];
+    if (typeof v === "string" && v.trim().length > 0) return v;
+  }
+  return null;
 }

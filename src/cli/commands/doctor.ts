@@ -181,6 +181,12 @@ export function runDoctor(invocationPath: string): DoctorReport {
   // WARN when the experiment block is malformed / partial.
   appendImpactMeasurementCheck(checks, projectRoot);
 
+  // 0.7.0-rc.2 §rc.2 — file indexer health surface. Reports
+  // indexed count, pending sizes, summarizer in use, last drain
+  // duration, and aggregated skip reasons. WARN when nothing is
+  // indexed AND no completion event ever fired (indexer never ran).
+  appendFileIndexerCheck(checks, cfg.storagePath);
+
   const configuredAgents = normalizeInstallAgents(cfg.install);
   // Same three-state handling as `status`: distinguish legacy
   // pre-multi-agent configs (no `install` field) from explicit
@@ -708,6 +714,152 @@ function appendImpactMeasurementCheck(
     level: "pass",
     message: `enabled (${ratePct}% holdout)`,
   });
+}
+
+/**
+ * 0.7.0-rc.2 §rc.2 — file indexer health.
+ *
+ * State machine:
+ *   - FAIL: storage path unreadable or schema not at >= v=10.
+ *   - WARN: indexed_files is empty AND no file_index.completed
+ *           event ever fired (indexer hasn't run, OR every run
+ *           failed silently).
+ *   - INFO: pending queue non-empty (indexer is mid-walk or has
+ *           opportunistic work to do).
+ *   - PASS: indexed_files populated AND no pending work.
+ *
+ * The check opens its own short-lived BlockStore connection. We
+ * `skipMigrate: true` because the version check is part of the
+ * surfaced report — auto-migrating from inside doctor would mask
+ * a corrupted DB rather than report it.
+ */
+function appendFileIndexerCheck(checks: DoctorCheck[], storagePath: string): void {
+  if (!existsSync(storagePath)) {
+    // Storage missing is already surfaced by an earlier check;
+    // emit info here so the operator sees the section but no
+    // duplicate FAIL.
+    checks.push({
+      name: "file-indexer",
+      level: "info",
+      message: "storage not initialized — run `npx tracebase init`",
+    });
+    return;
+  }
+
+  let store: BlockStore | null = null;
+  try {
+    const db = new Database(storagePath, { readonly: false });
+    store = new BlockStore(db, { skipMigrate: true });
+
+    // Schema gate. If the indexer tables are absent, the doctor's
+    // job is to surface the upgrade hint, not silently re-attempt
+    // a migration.
+    const tables = (
+      store.rawDb
+        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name);
+    if (!tables.includes("indexed_files") || !tables.includes("indexer_pending")) {
+      checks.push({
+        name: "file-indexer",
+        level: "warn",
+        message: "indexer tables missing — re-run `npx tracebase init` to migrate",
+      });
+      return;
+    }
+
+    const indexedCount = (
+      store.rawDb.prepare("SELECT COUNT(*) AS c FROM indexed_files").get() as { c: number }
+    ).c;
+    const pendingFile = (
+      store.rawDb
+        .prepare("SELECT COUNT(*) AS c FROM indexer_pending WHERE kind = 'file'")
+        .get() as { c: number }
+    ).c;
+    const pendingDir = (
+      store.rawDb
+        .prepare("SELECT COUNT(*) AS c FROM indexer_pending WHERE kind = 'dir'")
+        .get() as { c: number }
+    ).c;
+
+    const completionEvents = store.readEvents({
+      eventType: "file_index.completed",
+      limit: 50,
+    });
+    const lastEvent =
+      completionEvents.length > 0 ? completionEvents[completionEvents.length - 1] : null;
+    const summarizer =
+      lastEvent && lastEvent.event === "file_index.completed"
+        ? lastEvent.summarizer
+        : "heuristic";
+    const lastDurationMs =
+      lastEvent && lastEvent.event === "file_index.completed"
+        ? lastEvent.durationMs
+        : null;
+
+    const skipReasons = aggregateSkipReasons(store);
+
+    if (indexedCount === 0 && completionEvents.length === 0) {
+      checks.push({
+        name: "file-indexer",
+        level: "warn",
+        message:
+          "no files indexed and no completion events — indexer has not run yet",
+        fix: "Re-run `npx tracebase init` to populate the indexer.",
+      });
+      return;
+    }
+
+    const total = pendingFile + pendingDir;
+    const skipsTag = skipReasons.length > 0 ? ` · skips: ${skipReasons.join(", ")}` : "";
+    const lastTag = lastDurationMs !== null ? ` · last drain ${lastDurationMs}ms` : "";
+
+    if (total > 0) {
+      checks.push({
+        name: "file-indexer",
+        level: "info",
+        message:
+          `${indexedCount} indexed (${summarizer}) · ${pendingFile} pending file(s)` +
+          ` · ${pendingDir} pending dir(s)${lastTag}${skipsTag}`,
+      });
+      return;
+    }
+
+    checks.push({
+      name: "file-indexer",
+      level: "pass",
+      message:
+        `${indexedCount} indexed (${summarizer})${lastTag}${skipsTag}`,
+    });
+  } catch (err) {
+    checks.push({
+      name: "file-indexer",
+      level: "warn",
+      message:
+        "indexer health check failed — " +
+        (err instanceof Error ? err.message : String(err)),
+    });
+  } finally {
+    if (store) store.close();
+  }
+}
+
+/**
+ * Walk the recent `file_index.skipped` events and produce a short
+ * `reason: count` summary for the doctor line. Bounded so the
+ * doctor output stays one line.
+ */
+function aggregateSkipReasons(store: BlockStore): string[] {
+  const events = store.readEvents({ eventType: "file_index.skipped", limit: 200 });
+  const counts: Record<string, number> = {};
+  for (const ev of events) {
+    if (ev.event !== "file_index.skipped") continue;
+    counts[ev.reason] = (counts[ev.reason] ?? 0) + 1;
+  }
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([reason, n]) => `${reason}=${n}`);
 }
 
 function appendAgentIntegrationChecks(

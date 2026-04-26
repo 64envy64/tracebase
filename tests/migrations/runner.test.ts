@@ -186,10 +186,16 @@ describe("migrations — synthetic 0.6.x DB at v=8", () => {
 
     const v9 = db.prepare("SELECT version FROM schema_version WHERE version = 9").get();
     expect(v9).toBeTruthy();
+    // 0.7.0-rc.2 — V2_SCHEMA_VERSION is now 10; opening a v=8 DB
+    // walks 8 → 9 → 10 in one shot. The meta cell ends at the
+    // current latest, not at the intermediate transactional
+    // checkpoint that introduced schema_version. Using
+    // `toBeGreaterThanOrEqual` keeps the test resilient to future
+    // version bumps without re-asserting the exact number.
     const meta = db
       .prepare("SELECT value FROM v2_schema_meta WHERE key = 'version'")
       .get() as { value: string };
-    expect(parseInt(meta.value, 10)).toBe(9);
+    expect(parseInt(meta.value, 10)).toBeGreaterThanOrEqual(9);
 
     store.close();
   });
@@ -338,6 +344,162 @@ describe("migrations — double-apply is a no-op", () => {
     const set = new Set(versions.map((v) => v.version));
     expect(set.size).toBe(versions.length);
     c.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Migration #10 — file indexer schema (PLAN-0.7 §rc.2)
+// ---------------------------------------------------------------------------
+
+describe("migration #10 — file indexer schema", () => {
+  it("fresh init creates indexed_files + indexer_pending tables with the documented columns", () => {
+    const store = new BlockStore(dbPath);
+    const db = store.rawDb;
+
+    const indexedCols = (
+      db.prepare("PRAGMA table_info(indexed_files)").all() as Array<{ name: string }>
+    )
+      .map((c) => c.name)
+      .sort();
+    expect(indexedCols).toEqual([
+      "hash",
+      "id",
+      "indexed_at",
+      "language",
+      "rel_path",
+      "size_bytes",
+      "summarizer",
+      "summary",
+      "symbols",
+      "updated_at",
+    ]);
+
+    const pendingCols = (
+      db.prepare("PRAGMA table_info(indexer_pending)").all() as Array<{ name: string }>
+    )
+      .map((c) => c.name)
+      .sort();
+    expect(pendingCols).toEqual(["enqueued_at", "kind", "last_attempt", "rel_path"]);
+
+    // rel_path is UNIQUE on indexed_files.
+    const indexes = (
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='indexed_files'")
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name);
+    expect(indexes).toEqual(
+      expect.arrayContaining(["idx_indexed_files_hash", "idx_indexed_files_lang"]),
+    );
+
+    const pendingIndexes = (
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='indexer_pending'",
+        )
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name);
+    expect(pendingIndexes).toEqual(expect.arrayContaining(["idx_indexer_pending_kind"]));
+
+    store.close();
+  });
+
+  it("project_facts gains provenance_kind column with default 'chat-derived'", () => {
+    const store = new BlockStore(dbPath);
+    const db = store.rawDb;
+    const cols = (
+      db.prepare("PRAGMA table_info(project_facts)").all() as Array<{
+        name: string;
+        dflt_value: unknown;
+      }>
+    );
+    const provCol = cols.find((c) => c.name === "provenance_kind");
+    expect(provCol).toBeDefined();
+    expect(provCol!.dflt_value).toBe("'chat-derived'");
+    store.close();
+  });
+
+  it("upgrade from v=9: adds provenance_kind without disturbing existing rows", () => {
+    // Seed a fresh DB at v=10, then roll back to v=9 by dropping
+    // the rc.2 tables + column to simulate a 0.7.0-rc.1 install
+    // upgrading to rc.2.
+    const seed = new BlockStore(dbPath);
+    seed.storeFact({
+      scope: "global",
+      factType: "convention",
+      statement: "tests live under tests/cli",
+      invariants: {},
+      source: { origin: "declared" },
+    });
+    seed.close();
+
+    const raw = new Database(dbPath);
+    raw.exec("DROP TABLE IF EXISTS indexed_files");
+    raw.exec("DROP TABLE IF EXISTS indexer_pending");
+    // Drop the column too via table-rebuild (SQLite < 3.35 has no
+    // DROP COLUMN; but better-sqlite3 ships a recent version. We
+    // use the rebuild dance to be portable.)
+    raw.exec("ALTER TABLE project_facts DROP COLUMN provenance_kind");
+    raw.prepare("UPDATE v2_schema_meta SET value = '9' WHERE key = 'version'").run();
+    // Drop the v=10 row from schema_version too so the upgrade sees
+    // 9 as current.
+    raw.prepare("DELETE FROM schema_version WHERE version >= 10").run();
+    raw.close();
+
+    // Re-open — migrate walks 9 → 10.
+    const store = new BlockStore(dbPath);
+    const db = store.rawDb;
+
+    // Pre-existing fact row preserved with default 'chat-derived'.
+    const fact = db
+      .prepare("SELECT statement, provenance_kind FROM project_facts")
+      .get() as { statement: string; provenance_kind: string };
+    expect(fact.statement).toBe("tests live under tests/cli");
+    expect(fact.provenance_kind).toBe("chat-derived");
+
+    // New tables exist.
+    const tables = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{
+        name: string;
+      }>
+    ).map((r) => r.name);
+    expect(tables).toContain("indexed_files");
+    expect(tables).toContain("indexer_pending");
+
+    // schema_version log has the v=10 row.
+    const v10 = db
+      .prepare("SELECT version FROM schema_version WHERE version = 10")
+      .get();
+    expect(v10).toBeTruthy();
+
+    store.close();
+  });
+
+  it("indexer_pending CHECK rejects unknown kinds", () => {
+    const store = new BlockStore(dbPath);
+    const db = store.rawDb;
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO indexer_pending(rel_path, kind, enqueued_at) VALUES ('src/foo.ts', 'whatever', 1)",
+        )
+        .run(),
+    ).toThrow(/CHECK constraint/);
+    // Both 'file' and 'dir' are accepted.
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO indexer_pending(rel_path, kind, enqueued_at) VALUES ('src/foo.ts', 'file', 1)",
+        )
+        .run(),
+    ).not.toThrow();
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO indexer_pending(rel_path, kind, enqueued_at) VALUES ('src/', 'dir', 1)",
+        )
+        .run(),
+    ).not.toThrow();
+    store.close();
   });
 });
 

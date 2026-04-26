@@ -23,6 +23,11 @@ import {
   resolveProjectBase,
   DEFAULT_HOLDOUT_RATE,
 } from "../../core/config.js";
+import { BlockStore } from "../../core/block-store.js";
+import {
+  indexWorkspace,
+  type IndexWorkspaceOutcome,
+} from "../../core/file-indexer.js";
 import {
   bestEffortOpenUrl,
   loadCloudCredential,
@@ -329,6 +334,12 @@ export const initCommand = new Command("init")
     console.log();
     console.log(holdoutResult.message);
 
+    // 0.7.0-rc.2 §rc.2 — file indexer pass. Budget-bounded so a
+    // huge repo can't hang `init`; un-summarized files / dirs land
+    // in `indexer_pending` for opportunistic drain on later runs.
+    const indexOutcome = runInitIndexer(basePath, config.storagePath);
+    if (indexOutcome) renderIndexerLine(indexOutcome);
+
     console.log();
     console.log(pc.bold("Next:"));
     if (selectedAgents.length === 1) {
@@ -369,6 +380,64 @@ export const initCommand = new Command("init")
     console.log(pc.dim("  .tracebase/memory.db-shm"));
     console.log();
   });
+
+/**
+ * 0.7.0-rc.2 §rc.2 — wire the file indexer into init.
+ *
+ * Returns null on any error so init never fails because of indexer
+ * issues; the operator can re-run later or trigger an opportunistic
+ * drain by simply using the agent (PostToolBatch enqueues touched
+ * files automatically — wired in §rc.2 step 6).
+ *
+ * Power-user knobs in `.tracebase/config.json` under `fileMemory.*`:
+ *   - `summarizer`: `'heuristic' | 'embedding' | 'llm'` (default
+ *     heuristic; embedding/llm are reserved for later rcs)
+ *   - `initBudget`: `{ timeMs?, maxFiles?, maxBytesScan? }`
+ *   - `maxBytes`: per-file size cap
+ * Casual users never touch any of these.
+ */
+function runInitIndexer(basePath: string, storagePath: string): IndexWorkspaceOutcome | null {
+  let store: BlockStore | null = null;
+  try {
+    // `loadConfig` returns the strict `TraceBaseConfig` shape; the
+    // power-user `fileMemory` knobs aren't on that type yet (they
+    // land formally with rc.3's typed config schema). Read via an
+    // `unknown` cast so the indexer can pick up the field today
+    // without forcing a type-only commit on the config layer.
+    const cfg = loadConfig(basePath) as unknown as
+      | undefined
+      | {
+          fileMemory?: {
+            summarizer?: "heuristic" | "embedding" | "llm";
+            initBudget?: { timeMs?: number; maxFiles?: number; maxBytesScan?: number };
+            maxBytes?: number;
+          };
+        };
+    const fm = cfg?.fileMemory ?? {};
+    store = new BlockStore(storagePath);
+    return indexWorkspace(store, {
+      root: basePath,
+      summarizer: fm.summarizer ?? "heuristic",
+      budget: fm.initBudget,
+      maxBytes: fm.maxBytes,
+    });
+  } catch {
+    return null;
+  } finally {
+    if (store) store.close();
+  }
+}
+
+function renderIndexerLine(outcome: IndexWorkspaceOutcome): void {
+  const mib = (outcome.bytesSummarized / (1024 * 1024)).toFixed(1);
+  const pending = outcome.pendingFilesCount + outcome.pendingDirsCount;
+  const pendingTag = pending > 0 ? ` · ${pending} pending` : "";
+  console.log();
+  console.log(
+    pc.dim("  ") +
+      `tracebase: indexed ${outcome.indexedCount} file${outcome.indexedCount === 1 ? "" : "s"} (${mib} MiB)${pendingTag}`,
+  );
+}
 
 async function pickAgents(input: {
   explicit?: string | null;

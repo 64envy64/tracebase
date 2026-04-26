@@ -512,3 +512,90 @@ describe("runDoctor — cursor adapter", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// 0.7.0-rc.2 §rc.2 — file indexer health surface
+// ---------------------------------------------------------------------------
+
+describe("runDoctor — file indexer (0.7.0-rc.2)", () => {
+  it("INFO when storage file is absent (uninitialized)", () => {
+    initConfig(dir);
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "file-indexer")!;
+    expect(c.level).toBe("info");
+    expect(c.message).toMatch(/storage not initialized/);
+  });
+
+  it("WARN when storage exists but indexer never ran", async () => {
+    initConfig(dir);
+    // Open + close the store so storage file exists, but no indexer
+    // pass has fired (no indexed_files rows, no completion events).
+    const Database = (await import("better-sqlite3")).default;
+    const { BlockStore } = await import("../../src/core/block-store.js");
+    const db = new Database(join(dir, ".tracebase", "memory.db"));
+    const store = new BlockStore(db);
+    store.close();
+    db.close();
+
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "file-indexer")!;
+    expect(c.level).toBe("warn");
+    expect(c.message).toMatch(/no files indexed/);
+    expect(c.fix).toMatch(/tracebase init/);
+  });
+
+  it("PASS when indexer has indexed files and pending queue is empty", async () => {
+    initConfig(dir);
+    const Database = (await import("better-sqlite3")).default;
+    const { BlockStore } = await import("../../src/core/block-store.js");
+    const { indexWorkspace } = await import("../../src/core/file-indexer.js");
+
+    // Plant a tiny TS file so the indexer has something to do.
+    const fs = await import("node:fs");
+    fs.mkdirSync(join(dir, "src"), { recursive: true });
+    fs.writeFileSync(join(dir, "src", "hello.ts"), "/** docs */\nexport const x = 1;\n");
+
+    const db = new Database(join(dir, ".tracebase", "memory.db"));
+    const store = new BlockStore(db);
+    indexWorkspace(store, { root: dir });
+    store.close();
+    db.close();
+
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "file-indexer")!;
+    expect(c.level).toBe("pass");
+    expect(c.message).toMatch(/indexed.*heuristic/);
+  });
+
+  it("INFO when pending queue has rows (indexer mid-walk)", async () => {
+    initConfig(dir);
+    const Database = (await import("better-sqlite3")).default;
+    const { BlockStore } = await import("../../src/core/block-store.js");
+    const { enqueuePending } = await import("../../src/core/file-indexer.js");
+
+    const db = new Database(join(dir, ".tracebase", "memory.db"));
+    const store = new BlockStore(db);
+    // Plant a fake completion event so the WARN ("never ran") path
+    // doesn't fire — we want INFO ("pending work").
+    store.appendEvent({
+      ts: 1,
+      queryId: "fake-completion",
+      event: "file_index.completed",
+      fileCount: 0,
+      bytesSummarized: 0,
+      durationMs: 0,
+      summarizer: "heuristic",
+      pending: 2,
+    });
+    enqueuePending(store, "src/foo.ts", "file", 1);
+    enqueuePending(store, "src/", "dir", 1);
+    store.close();
+    db.close();
+
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "file-indexer")!;
+    expect(c.level).toBe("info");
+    expect(c.message).toMatch(/1 pending file\(s\)/);
+    expect(c.message).toMatch(/1 pending dir\(s\)/);
+  });
+});

@@ -191,3 +191,81 @@ describe("observeToolBatch — bucketing determinism", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// 0.7.0-rc.2 — PostToolBatch enqueues touched files into indexer_pending
+// ---------------------------------------------------------------------------
+
+describe("observeToolBatch — opportunistic indexer enqueue", () => {
+  it("enqueues touched paths from write-like tools (Edit / Write / MultiEdit)", () => {
+    const { store, close } = freshStore();
+    try {
+      observeToolBatch(store, {
+        sessionId: "s-write",
+        cwd: CWD,
+        workspaceSalt: SALT,
+        toolCalls: [
+          { toolName: "Edit", toolInput: { file_path: "/work/repo/src/auth.ts" } },
+          { toolName: "Write", toolInput: { file_path: "/work/repo/src/new.ts" } },
+          { toolName: "MultiEdit", toolInput: { file_path: "/work/repo/src/multi.ts" } },
+        ],
+      });
+      const pending = store.rawDb
+        .prepare("SELECT rel_path, kind FROM indexer_pending ORDER BY rel_path")
+        .all() as Array<{ rel_path: string; kind: string }>;
+      expect(pending.map((p) => p.rel_path).sort()).toEqual([
+        "src/auth.ts",
+        "src/multi.ts",
+        "src/new.ts",
+      ]);
+      expect(pending.every((p) => p.kind === "file")).toBe(true);
+    } finally {
+      close();
+    }
+  });
+
+  it("does NOT enqueue read-only tools (Read / Grep / Bash)", () => {
+    const { store, close } = freshStore();
+    try {
+      observeToolBatch(store, {
+        sessionId: "s-read",
+        cwd: CWD,
+        workspaceSalt: SALT,
+        toolCalls: [
+          { toolName: "Read", toolInput: { file_path: "/work/repo/src/foo.ts" } },
+          { toolName: "Grep", toolInput: { pattern: "TODO" } },
+          { toolName: "Bash", toolInput: { command: "ls" } },
+        ],
+      });
+      const count = (
+        store.rawDb.prepare("SELECT COUNT(*) AS c FROM indexer_pending").get() as {
+          c: number;
+        }
+      ).c;
+      expect(count).toBe(0);
+    } finally {
+      close();
+    }
+  });
+
+  it("drops paths that escape the workspace (privacy invariant)", () => {
+    const { store, close } = freshStore();
+    try {
+      observeToolBatch(store, {
+        sessionId: "s-escape",
+        cwd: CWD,
+        workspaceSalt: SALT,
+        toolCalls: [
+          { toolName: "Edit", toolInput: { file_path: "/etc/passwd" } },
+          { toolName: "Edit", toolInput: { file_path: "/work/repo/src/ok.ts" } },
+        ],
+      });
+      const rows = store.rawDb
+        .prepare("SELECT rel_path FROM indexer_pending")
+        .all() as Array<{ rel_path: string }>;
+      expect(rows.map((r) => r.rel_path)).toEqual(["src/ok.ts"]);
+    } finally {
+      close();
+    }
+  });
+});

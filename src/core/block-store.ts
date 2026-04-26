@@ -45,13 +45,13 @@ import { detectPromptInjectionPatterns } from "./guard.js";
 // Schema
 // ---------------------------------------------------------------------------
 
-// 0.7.0-rc.1 bumps to 9 — the bridging migration that introduces the
-// per-row `schema_version` log on top of the existing `v2_schema_meta`
-// KV. Every later rc that adds a table or column adds another step in
-// `V2_MIGRATIONS` and bumps this number; the new step lands a row in
-// `schema_version` automatically (the migrate() wrapper writes one
-// per applied step).
-const V2_SCHEMA_VERSION = 9;
+// 0.7.0-rc.2 bumps to 10 — the file indexer (PLAN-0.7 §rc.2) adds two
+// new tables (`indexed_files`, `indexer_pending`) and a `provenance_kind`
+// column on `project_facts` so the rc.3 badge counters can distinguish
+// chat-derived facts from indexer-derived ones. Same migration framework
+// rc.1 stood up (`schema_version` per-row log + `addColumnIfMissing`
+// idempotency probe).
+const V2_SCHEMA_VERSION = 10;
 
 const V2_SCHEMA = `
 CREATE TABLE IF NOT EXISTS reasoning_blocks (
@@ -209,6 +209,15 @@ CREATE TABLE IF NOT EXISTS project_facts (
   -- non-null and already past Date.now().
   ttl_until_at      INTEGER,
 
+  -- 0.7.0-rc.2 rc.2 — orthogonal-to-src_origin provenance dimension
+  -- so the rc.3 badge counters can distinguish indexer-derived facts
+  -- from chat-derived ones. Default 'chat-derived' covers every
+  -- existing row and every fact extracted from a transcript; the
+  -- file indexer (when it eventually writes to project_facts for
+  -- non-file semantic facts) sets 'indexer'; explicit SDK calls
+  -- can set 'manual'.
+  provenance_kind   TEXT DEFAULT 'chat-derived',
+
   dedupe_key        TEXT NOT NULL
 );
 
@@ -316,6 +325,63 @@ CREATE TABLE IF NOT EXISTS schema_version (
   applied_at INTEGER NOT NULL
 );
 
+-- 0.7.0-rc.2 §rc.2 — file indexer.
+--
+-- One row per file the heuristic walker successfully summarized.
+-- Body fields (summary, symbols) are leakage-scanned + prompt-
+-- injection-scanned before write — a positive match emits
+-- file_index.skipped and the row never lands.
+--
+-- Privacy invariants:
+--   - rel_path is repo-relative via toRepoRelative. Absolute or
+--     escape-relative paths fail at the indexer boundary, never reach
+--     this table.
+--   - summary <= 600 chars, symbols <= 256 chars (JSON). Bodies
+--     never carry full file content; the heuristic extracts header /
+--     symbols only.
+--   - cloud allowlist drops every column-name except aggregates;
+--     rel_path / hash / summary / symbols never reach the wire
+--     (see USAGE_FILE_INDEX_SPEC in src/cli/cloud-allowlist.ts).
+CREATE TABLE IF NOT EXISTS indexed_files (
+  id            TEXT PRIMARY KEY,
+  rel_path      TEXT NOT NULL UNIQUE,
+  hash          TEXT NOT NULL,
+  language      TEXT,
+  size_bytes    INTEGER NOT NULL,
+  summary       TEXT NOT NULL,
+  symbols       TEXT,
+  summarizer    TEXT NOT NULL,
+  indexed_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_indexed_files_hash ON indexed_files(hash);
+CREATE INDEX IF NOT EXISTS idx_indexed_files_lang ON indexed_files(language);
+
+-- 0.7.0-rc.2 §rc.2 — indexer pending queue.
+--
+-- Two row kinds:
+--   * 'file' — a specific file the walker visited but could not
+--             summarize within the budget; the next opportunistic
+--             drain summarizes it directly.
+--   * 'dir'  — a directory prefix the walker NEVER ENTERED because
+--             the budget hit zero before it descended; the next
+--             drain re-walks that prefix and either summarizes new
+--             files within slice-budget or re-enqueues them.
+--
+-- Composite primary key on (rel_path, kind) — a path can be queued as
+-- both a file and a dir if it appears in both contexts (rare). The
+-- (kind, enqueued_at) index supports the dir-preferential drain order.
+CREATE TABLE IF NOT EXISTS indexer_pending (
+  rel_path     TEXT NOT NULL,
+  kind         TEXT NOT NULL CHECK (kind IN ('file', 'dir')),
+  enqueued_at  INTEGER NOT NULL,
+  last_attempt INTEGER,
+  PRIMARY KEY (rel_path, kind)
+);
+
+CREATE INDEX IF NOT EXISTS idx_indexer_pending_kind ON indexer_pending(kind, enqueued_at);
+
 -- Calibrator models (Phase 5.2). Named JSON blobs so multiple named
 -- calibrators can coexist (e.g. per-cohort, per-deployment). Phase 5
 -- ships a single canonical name; future calibrators reuse the table.
@@ -327,11 +393,23 @@ CREATE TABLE IF NOT EXISTS calibrator_models (
 `;
 
 /**
+ * A single migration step. Strings are exec'd directly; function steps
+ * receive the database handle and may call helpers like
+ * `addColumnIfMissing` that need probe-then-act semantics.
+ *
+ * 0.7.0-rc.2 widened the type from `string` to `string | function` so
+ * migrations that need conditional ALTER TABLE could compose with the
+ * existing exec-each-string walker without re-implementing column
+ * presence probes inside raw SQL.
+ */
+type MigrationStep = string | ((db: Database.Database) => void);
+
+/**
  * Incremental migrations for existing v2 databases. Fresh installs run
  * the full V2_SCHEMA above; existing databases walk this map step-by-step
  * from their current version to V2_SCHEMA_VERSION.
  */
-const V2_MIGRATIONS: Record<number, string[]> = {
+const V2_MIGRATIONS: Record<number, MigrationStep[]> = {
   // v1 → v2: add `fact_id` column + index and relax event_type CHECK
   // so fact_injection / fact_agent_used can be written. SQLite cannot
   // alter CHECK in place, so this rebuilds the table.
@@ -642,6 +720,50 @@ const V2_MIGRATIONS: Record<number, string[]> = {
     `INSERT OR IGNORE INTO schema_version(version, applied_at)
        SELECT 8, COALESCE((SELECT MIN(ts) FROM analytics_events), strftime('%s','now')*1000)`,
   ],
+  // v9 → v10: 0.7.0-rc.2 file indexer (PLAN-0.7 §rc.2).
+  //
+  // Three changes, all additive + idempotent:
+  //   1. `provenance_kind` column on `project_facts`. Probe-then-add
+  //      via `addColumnIfMissing` so re-running on a DB that already
+  //      has the column no-ops. DEFAULT `'chat-derived'` covers
+  //      every existing row at zero migration cost (SQLite fills it
+  //      lazily on read for unfilled rows).
+  //   2. `indexed_files` table — one row per heuristically-summarized
+  //      file. Bodies leakage- + injection-scanned at write time;
+  //      cloud allowlist drops every column except aggregates.
+  //   3. `indexer_pending` queue with composite (rel_path, kind) PK.
+  //      Drain order keys on (kind, enqueued_at).
+  10: [
+    (db) =>
+      addColumnIfMissing(
+        db,
+        "project_facts",
+        "provenance_kind",
+        "TEXT DEFAULT 'chat-derived'",
+      ),
+    `CREATE TABLE IF NOT EXISTS indexed_files (
+       id            TEXT PRIMARY KEY,
+       rel_path      TEXT NOT NULL UNIQUE,
+       hash          TEXT NOT NULL,
+       language      TEXT,
+       size_bytes    INTEGER NOT NULL,
+       summary       TEXT NOT NULL,
+       symbols       TEXT,
+       summarizer    TEXT NOT NULL,
+       indexed_at    INTEGER NOT NULL,
+       updated_at    INTEGER NOT NULL
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_indexed_files_hash ON indexed_files(hash)`,
+    `CREATE INDEX IF NOT EXISTS idx_indexed_files_lang ON indexed_files(language)`,
+    `CREATE TABLE IF NOT EXISTS indexer_pending (
+       rel_path     TEXT NOT NULL,
+       kind         TEXT NOT NULL CHECK (kind IN ('file', 'dir')),
+       enqueued_at  INTEGER NOT NULL,
+       last_attempt INTEGER,
+       PRIMARY KEY (rel_path, kind)
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_indexer_pending_kind ON indexer_pending(kind, enqueued_at)`,
+  ],
 };
 
 // ---------------------------------------------------------------------------
@@ -822,8 +944,16 @@ export class BlockStore {
       const steps = V2_MIGRATIONS[v];
       if (!steps) continue;
       const tx = this.db.transaction(() => {
-        for (const sql of steps) {
-          this.db.exec(sql);
+        for (const step of steps) {
+          // 0.7.0-rc.2 — steps are now `string | (db) => void`.
+          // Function steps get the live db handle so they can run
+          // probe-then-act helpers (`addColumnIfMissing`) that need
+          // PRAGMA table_info to drive a conditional ALTER.
+          if (typeof step === "string") {
+            this.db.exec(step);
+          } else {
+            step(this.db);
+          }
         }
         this.setSchemaVersion(v);
         // Per-step audit row. INSERT OR IGNORE because migration v=9
