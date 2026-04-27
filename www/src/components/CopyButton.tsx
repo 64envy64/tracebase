@@ -59,9 +59,9 @@ export function CopyCommand({ command, onMedia }: { command: string; onMedia?: b
       onClick={copy}
       className="group flex items-center gap-3 px-5 py-3 font-mono text-sm border rounded-md transition-colors duration-150 cursor-pointer"
       style={{
-        borderColor: onMedia ? "rgba(255, 255, 255, 0.2)" : "var(--border)",
-        color: onMedia ? "rgba(237, 236, 236, 0.88)" : "var(--text-secondary)",
-        background: onMedia ? "rgba(0, 0, 0, 0.38)" : "var(--surface)",
+        borderColor: onMedia ? "rgba(232, 217, 184, 0.18)" : "var(--border)",
+        color: onMedia ? "rgba(232, 217, 184, 0.85)" : "var(--text-secondary)",
+        background: onMedia ? "rgba(6, 10, 13, 0.55)" : "var(--surface)",
       }}
     >
       <span style={{ color: "var(--text-tertiary)" }}>$</span>

@@ -100,8 +100,8 @@ function PricingCtaButton({
   const className = [
     "group inline-flex min-h-[52px] w-full items-center justify-center rounded-[18px] border px-5 py-4 text-center text-[13px] font-semibold tracking-tight transition-[background-color,color,border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
     tone === "light"
-      ? "border-[var(--accent)] bg-[var(--accent)] text-black shadow-[0_18px_38px_rgba(0,0,0,0.18)] hover:border-[var(--accent-hover)] hover:bg-[var(--accent-hover)]"
-      : "border-white/[0.08] bg-white/[0.03] text-[var(--text)] hover:border-white/[0.14] hover:bg-white/[0.05]",
+      ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--ink-deep)] shadow-[0_18px_38px_rgba(0,0,0,0.18)] hover:border-[var(--accent-hover)] hover:bg-[var(--accent-hover)]"
+      : "text-[var(--text)] border-[rgba(232,217,184,0.12)] bg-[rgba(232,217,184,0.04)] hover:border-[rgba(232,217,184,0.2)] hover:bg-[rgba(232,217,184,0.07)]",
   ].join(" ");
 
   if (href) {
@@ -238,8 +238,8 @@ function PricingCard({
           <span
             className="rounded-full border px-3 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
             style={{
-              borderColor: plan.accent ? "var(--accent)" : "#2e2f28",
-              background: plan.accent ? "var(--accent)" : "#1a1b17",
+              borderColor: plan.accent ? "var(--accent)" : "rgba(232,217,184,0.14)",
+              background: plan.accent ? "var(--accent)" : "rgba(232,217,184,0.04)",
               color: plan.accent ? "var(--accent-ink)" : "var(--text)",
             }}
           >
@@ -270,8 +270,8 @@ function PricingCard({
             key={feature}
             className="border-b pb-4 text-[15px] font-light leading-relaxed"
             style={{
-              borderColor: "rgba(255,255,255,0.06)",
-              color: "rgba(237,236,236,0.72)",
+              borderColor: "rgba(232,217,184,0.08)",
+              color: "var(--text-secondary)",
             }}
           >
             {feature}
@@ -298,10 +298,10 @@ export function PricingGrid() {
 
   return (
     <div
-      className="overflow-hidden border"
+      className="overflow-hidden rounded-xl border"
       style={{
         borderColor: "var(--border)",
-        background: "rgba(255,255,255,0.02)",
+        background: "rgba(232,217,184,0.02)",
       }}
     >
       <div className="border-b px-6 py-6 md:px-8" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
@@ -315,7 +315,7 @@ export function PricingGrid() {
 
           <div
             className="relative inline-grid h-12 min-w-[258px] grid-cols-2 rounded-full border p-[3px]"
-            style={{ borderColor: "#2e2f28", background: "#171711" }}
+            style={{ borderColor: "rgba(232,217,184,0.12)", background: "var(--ink-deep)" }}
             role="tablist"
             aria-label="Billing cadence"
           >

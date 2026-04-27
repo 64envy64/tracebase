@@ -1,58 +1,271 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #0f0e09;
-  --surface: rgba(237, 236, 236, 0.03);
-  --border: rgba(237, 236, 236, 0.08);
-  --text: #edecec;
-  --text-secondary: rgba(237, 236, 236, 0.55);
-  --text-tertiary: rgba(237, 236, 236, 0.3);
-  --accent-rgb: 49 208 178;
-  --accent: #31d0b2;
-  --accent-hover: #5cdcc5;
-  --accent-ink: #050505;
-  --accent-soft: rgb(var(--accent-rgb) / 0.12);
-  --signal: #7dd3fc;
-  --signal-soft: rgba(125, 211, 252, 0.12);
-  --success: #6de7b7;
-  --success-soft: rgba(109, 231, 183, 0.12);
-  --warning: #f2c572;
-  --warning-soft: rgba(242, 197, 114, 0.12);
+  /* Core ink palette */
+  --ink: #0a1014;
+  --ink-deep: #060a0d;
+  --abyss: #15232a;
+  --shoal: #1f3942;
+  --shoal-soft: rgba(31, 57, 66, 0.55);
+
+  --bone: #e8d9b8;
+  --bone-soft: rgba(232, 217, 184, 0.72);
+  --pearl: #f5ecd6;
+  --sand: #c8b58e;
+  --sand-soft: rgba(200, 181, 142, 0.46);
+  --ash: rgba(232, 217, 184, 0.14);
+
+  --ember-rgb: 255 122 92;
+  --ember: #ff7a5c;
+  --ember-hover: #ffa083;
+  --ember-soft: rgba(255, 122, 92, 0.14);
+  --coral: #b84f38;
+
+  --amber: #e0b458;
+  --amber-soft: rgba(224, 180, 88, 0.14);
+
+  /* Semantic aliases — all signal/success surfaces route back to ember so
+     the palette stays on-brand (ink / bone / ember / coral / amber). */
+  --bg: var(--ink);
+  --surface: rgba(232, 217, 184, 0.03);
+  --border: rgba(232, 217, 184, 0.09);
+  --text: var(--bone);
+  --text-secondary: rgba(232, 217, 184, 0.62);
+  --text-tertiary: rgba(232, 217, 184, 0.34);
+  --accent-rgb: var(--ember-rgb);
+  --accent: var(--ember);
+  --accent-hover: var(--ember-hover);
+  --accent-ink: var(--ink);
+  --accent-soft: var(--ember-soft);
+  --signal: var(--ember);
+  --signal-soft: var(--ember-soft);
+  --success: var(--ember);
+  --success-soft: var(--ember-soft);
+  --warning: var(--amber);
+  --warning-soft: var(--amber-soft);
 }
 
 @theme inline {
-  --color-background: var(--bg);
-  --color-foreground: var(--text);
+  --color-background: var(--ink);
+  --color-foreground: var(--bone);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 body {
-  background: var(--bg);
-  color: var(--text);
+  background: var(--ink);
+  color: var(--bone);
   -webkit-font-smoothing: antialiased;
 }
 
+/* Subtle bone-dust grain — no radial gradients, no neon glow. */
 body::before {
   content: "";
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background:
-    radial-gradient(circle at top, rgb(var(--accent-rgb) / 0.05), transparent 24%),
-    radial-gradient(circle at bottom left, rgba(125, 211, 252, 0.04), transparent 30%);
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      rgba(232, 217, 184, 0.012) 0 1px,
+      transparent 1px 3px
+    );
+  opacity: 0.6;
   z-index: -1;
 }
 
 ::selection {
-  background: rgba(237, 236, 236, 0.12);
+  background: rgba(255, 122, 92, 0.22);
+  color: var(--bone);
 }
 
 html {
   scroll-behavior: smooth;
 }
 
-/* Dashboard: subtle entrance — keep opacity/transform only (GPU-friendly) */
+/* ============================================================ */
+/*  Tracebase.ink brand animations                               */
+/* ============================================================ */
+
+/* Tentacle draw — SVG path stroke animation                     */
+@keyframes tentacle-draw {
+  from {
+    stroke-dashoffset: var(--tentacle-len, 400);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.tentacle-draw {
+  stroke-dasharray: var(--tentacle-len, 400);
+  stroke-dashoffset: var(--tentacle-len, 400);
+  animation: tentacle-draw 1.15s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: var(--tentacle-delay, 0ms);
+}
+
+@keyframes tentacle-sway {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(0, -1.5px, 0) rotate(0.6deg);
+  }
+}
+
+.tentacle-sway {
+  transform-origin: center top;
+  animation: tentacle-sway 5.2s ease-in-out infinite;
+  animation-delay: var(--tentacle-delay, 0ms);
+}
+
+/* Ink drop — pulse the accent */
+@keyframes ink-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.88;
+  }
+}
+
+.ink-pulse {
+  animation: ink-pulse 2.4s ease-in-out infinite;
+}
+
+/* Heartbeat dot (runtime live indicator) */
+@keyframes ink-heartbeat {
+  0%,
+  100% {
+    opacity: 0.75;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.24);
+  }
+}
+
+.ink-heartbeat {
+  animation: ink-heartbeat 1.6s ease-in-out infinite;
+}
+
+/* Fade + rise on scroll reveal */
+@keyframes ink-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.ink-rise {
+  animation: ink-rise 0.68s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--ink-rise-delay, 0ms);
+}
+
+/* Ink bloom: radial expand from origin (for blot reveals) */
+@keyframes ink-bloom {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.ink-bloom {
+  transform-origin: center;
+  animation: ink-bloom 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Typing caret */
+@keyframes ink-caret {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.24;
+  }
+}
+
+.ink-caret {
+  animation: ink-caret 1.05s ease-in-out infinite;
+}
+
+/* Progress fill (0 → 1) for bars */
+@keyframes ink-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(var(--ink-fill-end, 1));
+  }
+}
+
+.ink-fill {
+  transform-origin: left center;
+  animation: ink-fill 1.05s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--ink-fill-delay, 0ms);
+}
+
+/* Drift (subtle vertical motion for ambient decorative shapes) */
+@keyframes ink-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -10px, 0);
+  }
+}
+
+.ink-drift {
+  animation: ink-drift 7.2s ease-in-out infinite;
+}
+
+/* Tentacle reach — stretches an SVG path toward a target. Data attribute
+   "data-tentacle-active" on the wrapper flips stroke-dashoffset to 0.  */
+.tentacle-reach-path {
+  stroke-dasharray: var(--tentacle-reach-len, 600);
+  stroke-dashoffset: var(--tentacle-reach-len, 600);
+  transition:
+    stroke-dashoffset 0.9s cubic-bezier(0.22, 1, 0.36, 1),
+    stroke 0.35s ease,
+    stroke-opacity 0.35s ease;
+}
+.tentacle-reach-path[data-reach="on"] {
+  stroke-dashoffset: 0;
+}
+
+/* Step reveal — for agent trace rows */
+@keyframes step-reveal {
+  from {
+    opacity: 0;
+    transform: translate3d(-8px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.step-reveal {
+  animation: step-reveal 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--step-delay, 0ms);
+}
+
+/* Legacy animations — kept so untouched components still render */
 @keyframes dash-enter {
   from {
     opacity: 0;
@@ -73,16 +286,10 @@ html {
 }
 
 .hero-glass {
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(15, 14, 9, 0.38);
+  border: 1px solid rgba(232, 217, 184, 0.1);
+  background: rgba(10, 16, 20, 0.42);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .hero-glass-anim {
-    animation: none !important;
-  }
 }
 
 @keyframes landing-nav-enter {
@@ -98,12 +305,6 @@ html {
 
 .landing-nav-enter {
   animation: landing-nav-enter 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .landing-nav-enter {
-    animation: none;
-  }
 }
 
 @keyframes hero-fade-in {
@@ -141,17 +342,6 @@ html {
     transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .hero-reveal {
-    transition: none;
-  }
-
-  .hero-shimmer {
-    animation: none;
-    opacity: 0.4;
-  }
-}
-
 @keyframes hero-toast-in {
   from {
     opacity: 0;
@@ -179,17 +369,6 @@ html {
 .setup-tab-progress {
   transform-origin: left center;
   animation: setup-tab-progress 4.8s linear forwards;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .hero-toast-in {
-    animation: none;
-  }
-
-  .setup-tab-progress {
-    animation: none;
-    transform: scaleX(1);
-  }
 }
 
 @keyframes hero-caret-blink {
@@ -250,48 +429,69 @@ html {
 
 .cl-userButtonPopoverCard,
 .cl-userPreviewMainIdentifier {
-  color: #edecec;
+  color: var(--bone);
 }
 
 .cl-userButtonPopoverCard {
-  border: 1px solid rgba(237, 236, 236, 0.08);
-  background: rgba(10, 10, 10, 0.96);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(232, 217, 184, 0.08);
+  background: rgba(10, 16, 20, 0.96);
 }
 
-/*
- * Fallback only: if Clerk's internal input keeps its own styles,
- * force readable text inside auth fields.
- */
 .auth-clerk-host
   form
   input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not(
     [type="button"]
   ) {
-  color: #f4f3ef !important;
-  -webkit-text-fill-color: #f4f3ef !important;
-  caret-color: #f4f3ef;
-  background-color: #141414 !important;
+  color: var(--bone) !important;
+  -webkit-text-fill-color: var(--bone) !important;
+  caret-color: var(--bone);
+  background-color: #0f1820 !important;
 }
 
 .auth-clerk-host form input::placeholder {
-  color: rgba(244, 243, 239, 0.42) !important;
-  -webkit-text-fill-color: rgba(244, 243, 239, 0.42) !important;
+  color: rgba(232, 217, 184, 0.42) !important;
+  -webkit-text-fill-color: rgba(232, 217, 184, 0.42) !important;
   opacity: 1;
 }
 
 .auth-clerk-host form input:-webkit-autofill,
 .auth-clerk-host form input:-webkit-autofill:hover,
 .auth-clerk-host form input:-webkit-autofill:focus {
-  -webkit-box-shadow: 0 0 0 1000px #141414 inset !important;
-  -webkit-text-fill-color: #f4f3ef !important;
-  caret-color: #f4f3ef;
+  -webkit-box-shadow: 0 0 0 1000px #0f1820 inset !important;
+  -webkit-text-fill-color: var(--bone) !important;
+  caret-color: var(--bone);
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .landing-nav-enter,
+  .hero-glass-anim,
+  .hero-reveal,
+  .hero-shimmer,
+  .hero-toast-in,
+  .setup-tab-progress,
+  .dash-enter,
   .auth-panel-enter,
   .auth-visual-enter,
-  .auth-glow-float {
-    animation: none;
+  .auth-glow-float,
+  .tentacle-draw,
+  .tentacle-sway,
+  .ink-pulse,
+  .ink-heartbeat,
+  .ink-rise,
+  .ink-bloom,
+  .ink-caret,
+  .ink-fill,
+  .ink-drift,
+  .step-reveal {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .tentacle-draw {
+    stroke-dashoffset: 0;
+  }
+
+  .ink-fill {
+    transform: scaleX(var(--ink-fill-end, 1));
   }
 }

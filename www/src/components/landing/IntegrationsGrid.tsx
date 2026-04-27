@@ -41,8 +41,8 @@ function IntegrationCard({ integration }: { integration: Integration }) {
       <div
         className="flex h-[5.5rem] w-[5.5rem] items-center justify-center rounded-[24px] border md:h-[6.5rem] md:w-[6.5rem]"
         style={{
-          borderColor: "rgba(255,255,255,0.08)",
-          background: "radial-gradient(circle at top left, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.015) 62%, rgba(255,255,255,0.01) 100%)",
+          borderColor: "rgba(232,217,184,0.1)",
+          background: "rgba(232,217,184,0.04)",
         }}
       >
         <Image
@@ -64,10 +64,10 @@ function IntegrationCard({ integration }: { integration: Integration }) {
 export function IntegrationsGrid() {
   return (
     <div
-      className="overflow-hidden border"
+      className="overflow-hidden rounded-xl border"
       style={{
         borderColor: "var(--border)",
-        background: "rgba(255,255,255,0.02)",
+        background: "var(--ink-deep)",
       }}
     >
       <div className="grid gap-px md:grid-cols-3" style={{ background: "var(--border)" }}>

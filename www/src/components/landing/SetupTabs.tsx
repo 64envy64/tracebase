@@ -170,7 +170,7 @@ function SetupStepPill({ label, active }: { label: string; active: boolean }) {
     <span
       className="inline-flex items-center py-1 text-[11px] font-semibold uppercase tracking-[0.18em]"
       style={{
-        color: active ? "rgba(177,255,109,0.76)" : "rgba(237,236,236,0.42)",
+        color: active ? "rgba(255,122,92,0.85)" : "rgba(232,217,184,0.42)",
       }}
     >
       {label}
@@ -252,17 +252,17 @@ function SetupTabCard({
       onClick={onClick}
       className="relative flex min-h-[172px] flex-col items-start p-5 text-left md:min-h-[188px] md:p-6"
       style={{
-        background: active ? "rgba(255,255,255,0.045)" : "var(--bg)",
-        color: active ? "var(--text)" : "rgba(237,236,236,0.84)",
+        background: active ? "rgba(232,217,184,0.035)" : "var(--bg)",
+        color: active ? "var(--text)" : "rgba(232,217,184,0.78)",
       }}
     >
-      <span className="absolute inset-x-0 top-0 h-px bg-white/[0.04]" aria-hidden />
+      <span className="absolute inset-x-0 top-0 h-px" style={{ background: "rgba(232,217,184,0.06)" }} aria-hidden />
       {active ? (
         <span
           key={method.id}
           className="setup-tab-progress absolute inset-x-0 top-0 h-px"
           style={{
-            background: "linear-gradient(90deg, rgba(177,255,109,0.85) 0%, rgba(177,255,109,0.35) 100%)",
+            background: "var(--ember)",
             animationDuration: `${AUTO_ADVANCE_MS}ms`,
             animationPlayState: paused || reducedMotion ? "paused" : "running",
           }}
@@ -273,9 +273,9 @@ function SetupTabCard({
       <span
         className="inline-flex h-11 w-11 items-center justify-center rounded-[15px] border md:h-12 md:w-12 md:rounded-[16px]"
         style={{
-          borderColor: active ? "rgba(177,255,109,0.16)" : "rgba(255,255,255,0.08)",
-          background: active ? "rgba(177,255,109,0.06)" : "rgba(255,255,255,0.02)",
-          color: active ? "rgba(177,255,109,0.78)" : "rgba(237,236,236,0.66)",
+          borderColor: active ? "rgba(255,122,92,0.28)" : "rgba(232,217,184,0.1)",
+          background: active ? "rgba(255,122,92,0.08)" : "rgba(232,217,184,0.02)",
+          color: active ? "var(--ember)" : "rgba(232,217,184,0.66)",
         }}
       >
         <TabIcon kind={method.icon} />

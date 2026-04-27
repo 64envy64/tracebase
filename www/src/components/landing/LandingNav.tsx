@@ -1,16 +1,16 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { GetStartedButton } from "@/components/auth/GetStartedButton";
 import { GitHubMark } from "@/components/ui/GitHubMark";
+import { MiniOcto, TracebaseInkWordmark } from "./brand/Marks";
 
 type NavItem = { href: string; label: string; external?: boolean };
 
 const NAV_LINKS: NavItem[] = [
-  { href: "#overview", label: "Overview" },
-  { href: "#evidence", label: "Benchmarks" },
+  { href: "#capabilities", label: "Runtime" },
+  { href: "#runs", label: "Runs" },
   { href: "/docs", label: "Docs" },
   { href: "#pricing", label: "Pricing" },
   { href: "#faq", label: "FAQ" },
@@ -125,9 +125,10 @@ export function LandingNav() {
 
   return (
     <header
-      className="landing-nav-enter fixed top-0 z-50 w-full border-b border-white/[0.08]"
+      className="landing-nav-enter fixed top-0 z-50 w-full border-b"
       style={{
-        background: "rgba(15, 14, 9, 0.72)",
+        borderColor: "rgba(232,217,184,0.08)",
+        background: "rgba(10, 16, 20, 0.76)",
         backdropFilter: "blur(14px)",
         WebkitBackdropFilter: "blur(14px)",
       }}
@@ -135,13 +136,12 @@ export function LandingNav() {
       <div className="mx-auto flex h-14 max-w-[1080px] items-center justify-between gap-4 px-4 sm:px-6">
         <Link
           href="/"
-          className="flex min-w-0 shrink items-center gap-2 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+          className="flex min-w-0 shrink items-center gap-2.5 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
           onClick={close}
+          aria-label="tracebase.ink home"
         >
-          <Image src="/logo.svg" alt="" width={20} height={20} className="h-5 w-5 shrink-0" aria-hidden />
-          <span className="truncate text-base font-semibold tracking-tight" style={{ color: "var(--text)" }}>
-            TraceBase
-          </span>
+          <MiniOcto size={22} animated />
+          <TracebaseInkWordmark size={16} />
         </Link>
 
         <div className="hidden items-center gap-3 md:flex">

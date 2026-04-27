@@ -16,13 +16,21 @@ const heroSerif = Newsreader({
 });
 
 export const metadata: Metadata = {
-  title: "TraceBase — The reasoning reuse layer for AI agents",
+  title: "tracebase.ink — Every run, written in ink.",
   description:
-    "Every successful agent run captures a reasoning trace. Every future run draws from it, so agents get more reliable and cheaper over time.",
-  keywords: ["AI agents", "reasoning", "institutional memory", "LLM", "token optimization", "MCP"],
+    "Reasoning runtime for autonomous agents. Remembers past solutions, catches doom-loops, trims redundant tool calls, folds long contexts. Drop-in — no agent rewrites.",
+  keywords: [
+    "AI agents",
+    "reasoning runtime",
+    "agent memory",
+    "loop detection",
+    "tool supervision",
+    "context compression",
+    "MCP",
+  ],
   openGraph: {
-    title: "TraceBase",
-    description: "The reasoning reuse layer for AI agents",
+    title: "tracebase.ink",
+    description: "Reasoning runtime for autonomous agents. Every run, written in ink.",
     type: "website",
   },
 };

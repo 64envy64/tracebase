@@ -2,39 +2,44 @@ import Image from "next/image";
 import Link from "next/link";
 import { type ReactNode } from "react";
 import { CtaSection } from "@/components/landing/CtaSection";
-import { HeroWithVideo } from "@/components/landing/HeroWithVideo";
+import { ForgettingTax } from "@/components/landing/ForgettingTax";
+import { HeroInk } from "@/components/landing/HeroInk";
 import { LandingNav } from "@/components/landing/LandingNav";
 import { PricingGrid } from "@/components/landing/PricingGrid";
-import { RunComparisonSection } from "@/components/landing/RunComparisonSection";
+import { RunSplitSection } from "@/components/landing/RunSplitSection";
+import { TentacleSection } from "@/components/landing/TentacleSection";
+import { InkInterstitial, TracebaseInkWordmark } from "@/components/landing/brand/Marks";
+import { SectionLabel } from "@/components/landing/brand/Primitives";
+import { Reveal } from "@/components/landing/brand/Reveal";
+import { INK } from "@/components/landing/brand/tokens";
 import { GitHubMark } from "@/components/ui/GitHubMark";
 
-function SectionHeading({
-  eyebrow,
-  muted,
-  title,
-  body,
-}: {
-  eyebrow: string;
-  muted: string;
-  title: string;
-  body?: string;
-}) {
+/* ============================================================ */
+/*  Shared layout primitives                                     */
+/* ============================================================ */
+
+type SectionHeadingProps = {
+  label: string;
+  muted: ReactNode;
+  title: ReactNode;
+  body?: ReactNode;
+};
+
+function SectionHeading({ label, muted, title, body }: SectionHeadingProps) {
   return (
-    <div className="mb-10 md:mb-12">
-      <p className="mb-5 text-[11px] font-light tracking-[0.2em] uppercase" style={{ color: "var(--text-tertiary)" }}>
-        {eyebrow}
-      </p>
-      <div className="max-w-[920px]">
-        <p
-          className="text-[clamp(1.7rem,4vw,3.2rem)] font-light leading-[0.98] tracking-tight"
-          style={{ color: "rgba(237,236,236,0.52)" }}
-        >
-          {muted}
-        </p>
-        <h2 className="mt-1 text-[clamp(1.7rem,4vw,3.2rem)] font-light leading-[0.98] tracking-tight">{title}</h2>
-      </div>
+    <div className="mb-10 max-w-[44rem] md:mb-12">
+      <SectionLabel>{label}</SectionLabel>
+      <h2
+        className="mt-3 font-hero-serif text-[clamp(1.9rem,4vw,3.2rem)] font-normal leading-[1.04] tracking-tight"
+        style={{ color: INK.pearl }}
+      >
+        <span style={{ color: "rgba(232,217,184,0.48)" }}>{muted}</span> {title}
+      </h2>
       {body ? (
-        <p className="mt-5 max-w-xl text-[13px] font-light leading-relaxed md:text-sm" style={{ color: "var(--text-secondary)" }}>
+        <p
+          className="mt-5 max-w-[36rem] text-[14px] font-light leading-relaxed md:text-[15px]"
+          style={{ color: "rgba(232,217,184,0.68)" }}
+        >
           {body}
         </p>
       ) : null}
@@ -42,326 +47,275 @@ function SectionHeading({
   );
 }
 
-function SectionGrid({
-  columnsClassName,
-  children,
-}: {
-  columnsClassName: string;
-  children: ReactNode;
-}) {
+function Grid({ cols, children }: { cols: string; children: ReactNode }) {
   return (
     <div
-      className="overflow-hidden border"
-      style={{
-        borderColor: "var(--border)",
-        background: "rgba(255,255,255,0.02)",
-      }}
+      className="overflow-hidden rounded-xl border"
+      style={{ borderColor: "rgba(232,217,184,0.1)", background: "rgba(232,217,184,0.08)" }}
     >
-      <div className={`grid gap-px ${columnsClassName}`} style={{ background: "var(--border)" }}>
+      <div className={`grid gap-px ${cols}`} style={{ background: "rgba(232,217,184,0.08)" }}>
         {children}
       </div>
     </div>
   );
 }
 
-function SectionCard({
-  eyebrow,
-  title,
-  body,
-  minHeightClassName = "min-h-[196px] md:min-h-[210px]",
-}: {
-  eyebrow?: string;
-  title: string;
-  body: string;
-  minHeightClassName?: string;
-}) {
-  return (
-    <article className={`flex flex-col justify-between p-6 md:p-7 ${minHeightClassName}`} style={{ background: "var(--bg)" }}>
-      <div>
-        {eyebrow ? (
-          <p className="mb-5 text-[10px] font-mono uppercase tracking-[0.18em]" style={{ color: "var(--text-tertiary)" }}>
-            {eyebrow}
-          </p>
-        ) : null}
-        <h3 className="text-[1.03rem] font-normal tracking-tight md:text-[1.12rem]">{title}</h3>
-      </div>
-      <p className="mt-5 max-w-[28rem] text-[13px] font-light leading-relaxed md:text-sm" style={{ color: "var(--text-secondary)" }}>
-        {body}
-      </p>
-    </article>
-  );
-}
-
-function SectionLinkCard({
+function Tile({
+  label,
   title,
   body,
   href,
+  cta,
 }: {
+  label?: string;
   title: string;
   body: string;
-  href: string;
+  href?: string;
+  cta?: string;
 }) {
-  return (
-    <Link
-      href={href}
-      className="group flex min-h-[196px] flex-col justify-between p-6 transition-colors md:min-h-[208px] md:p-7"
-      style={{ background: "var(--bg)" }}
+  const inner = (
+    <div
+      className="flex min-h-[190px] flex-col justify-between gap-4 p-6 md:min-h-[210px] md:p-7"
+      style={{ background: INK.inkDeep }}
     >
       <div>
-        <p className="mb-5 text-[10px] font-mono uppercase tracking-[0.18em]" style={{ color: "var(--text-tertiary)" }}>
-          Docs
-        </p>
-        <h3 className="text-[1.03rem] font-normal tracking-tight transition-colors group-hover:text-[var(--accent)] md:text-[1.12rem]">
+        {label ? <SectionLabel className="mb-4">{label}</SectionLabel> : null}
+        <h3
+          className="text-[15.5px] font-medium tracking-tight md:text-[16.5px]"
+          style={{ color: href ? INK.bone : INK.pearl }}
+        >
           {title}
         </h3>
       </div>
-      <div>
-        <p className="max-w-[28rem] text-[13px] font-light leading-relaxed md:text-sm" style={{ color: "var(--text-secondary)" }}>
-          {body}
-        </p>
-        <p className="mt-5 text-[11px] font-light uppercase tracking-[0.16em]" style={{ color: "rgb(var(--accent-rgb) / 0.72)" }}>
-          Open section
-        </p>
-      </div>
-    </Link>
+      <p
+        className="max-w-[28rem] text-[13px] font-light leading-relaxed"
+        style={{ color: "rgba(232,217,184,0.64)" }}
+      >
+        {body}
+      </p>
+      {cta ? (
+        <SectionLabel>
+          <span style={{ color: INK.ember }}>{cta} →</span>
+        </SectionLabel>
+      ) : null}
+    </div>
   );
+  if (href) {
+    return (
+      <Link href={href} className="group transition-colors hover:bg-[rgba(232,217,184,0.02)]">
+        {inner}
+      </Link>
+    );
+  }
+  return <article>{inner}</article>;
 }
+
+/* ============================================================ */
+/*  Content — docs links & FAQ                                   */
+/* ============================================================ */
 
 const DOCS_LINKS = [
   {
     title: "Quickstart",
-    body: "Install, initialize a project-local store, and verify the agent surface in a few commands.",
+    body: "Install, point at a project, and verify the runtime attaches to your agent surface.",
     href: "/docs#quickstart",
   },
   {
     title: "Integrations",
-    body: "How to fit TraceBase into IDE agents, wrapped SDK clients, and custom internal runtimes.",
+    body: "MCP for IDE agents, SDK middleware for wrapped clients, service boundary for custom runtimes.",
     href: "/docs#integrations",
   },
   {
     title: "Architecture",
-    body: "A high-level map of capture, retrieval, and serving without turning the landing into an implementation dump.",
+    body: "Capture, retrieval, supervision, compression — how the five arms share one store.",
     href: "/docs#architecture",
   },
   {
     title: "Troubleshooting",
-    body: "The first checks to run when tooling, retrieval, or the local store look wrong in a live workspace.",
+    body: "First checks when retrieval, tooling, or the local store looks wrong in a live workspace.",
     href: "/docs#troubleshooting",
   },
 ] as const;
 
-const FAQ_ITEMS = [
+const FAQ = [
   {
-    question: "What problem is TraceBase actually solving?",
-    answer:
-      "It reduces repeated re-discovery. When similar engineering or operations work comes back, the next run starts from prior wins instead of starting cold again.",
+    q: "What failure mode does tracebase.ink actually catch?",
+    a: "Five of them. Repeat reasoning, forgotten file meaning, doom-loops, redundant tool calls, and context-window thrashing on long horizons.",
   },
   {
-    question: "Do we have to move to a hosted platform?",
-    answer:
-      "No. The default path stays local-first and self-hosted, with project-scoped storage and integration points that fit the tools teams already run.",
+    q: "Do we have to move to a hosted runtime?",
+    a: "No. Self-hosted by default, project-scoped storage, no cloud dependency.",
   },
   {
-    question: "Does this expose private reasoning or internal chain-of-thought?",
-    answer:
-      "No. The product is positioned around reusable traces and operator-facing signals, not around dumping raw internal deliberation into a public UI.",
+    q: "Does this expose internal chain-of-thought?",
+    a: "No. The ink stores resolved traces and operator signals — not raw deliberation.",
   },
   {
-    question: "Where does it fit in the stack?",
-    answer:
-      "Use it at the agent edge that already exists for your team: MCP for tool-driven agents, middleware for wrapped SDK calls, or a service boundary for custom runtimes.",
+    q: "Where does it sit in the stack?",
+    a: "Between the agent and its tools. MCP for tool-driven agents, middleware for wrapped SDK clients, boundary for custom runtimes.",
   },
   {
-    question: "When does it help the most?",
-    answer:
-      "Repeat incidents, debugging loops, migrations, and any workflow where the second or fifth run should benefit from the first one having already paid the exploration cost.",
+    q: "When is the payoff largest?",
+    a: "Repeat incidents, migrations, debugging loops — any workflow where the nth run should beat the first.",
   },
   {
-    question: "Why move setup and implementation detail into docs?",
-    answer:
-      "Because buyers need the promise quickly, while operators need the mechanics in a place they can return to. Landing and docs should do different jobs.",
+    q: "Why move setup detail into docs?",
+    a: "Landing sells the promise. Docs carry the mechanics. Different jobs, different places.",
   },
 ] as const;
 
+/* ============================================================ */
+/*  Page                                                          */
+/* ============================================================ */
+
 export default function Home() {
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen" style={{ background: INK.ink }}>
       <LandingNav />
 
-      <HeroWithVideo />
+      <HeroInk />
 
-      <main className="mx-auto max-w-[1080px] bg-[var(--bg)] px-6" style={{ color: "var(--text)" }}>
-        <section className="scroll-mt-20 py-[4.5rem] md:py-20" id="overview" aria-labelledby="overview-heading">
-          <p className="mb-3 text-[11px] font-light tracking-[0.2em] uppercase" style={{ color: "var(--text-tertiary)" }}>
-            Overview
-          </p>
-          <h2 id="overview-heading" className="mb-5 text-[24px] font-light tracking-tight sm:text-[26px]">
-            What changes once repeat work stops starting cold
-          </h2>
-          <p className="mb-9 max-w-2xl text-[13px] font-light leading-relaxed md:text-sm" style={{ color: "var(--text-secondary)" }}>
-            TraceBase captures every solved problem as a reasoning trace and feeds it back into future runs. Your
-            agents don&apos;t just execute — they accumulate expertise. Every run is built on every run before it.
-          </p>
-          <SectionGrid columnsClassName="sm:grid-cols-2">
-            <SectionCard
-              title="Document intake"
-              body="Repeated extraction, classification, and review work improves once prior successful paths are surfaced before generation begins."
-            />
-            <SectionCard
-              title="Claims + casework"
-              body="Models stop treating every claim, form, or exception as a brand new problem when the shape has already shown up before."
-            />
-            <SectionCard
-              title="Support triage"
-              body="Repeated routing and response flows get shorter when grounded priors are injected ahead of another speculative pass."
-            />
-            <SectionCard
-              title="Existing LLM pipeline"
-              body="Drop a reasoning layer into the stack you already own instead of rebuilding around brittle checker logic."
-            />
-          </SectionGrid>
-          <p className="mt-8 max-w-3xl text-[12px] font-light leading-relaxed" style={{ color: "rgba(237,236,236,0.46)" }}>
-            Best fit tends to be repeat-heavy vertical SaaS work: document processing, claims automation, support
-            operations, financial analysis, and other model jobs that recur in familiar shapes.
-          </p>
-          <p className="mt-9 max-w-2xl text-[11px] font-light leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
-            TraceBase is included in the{" "}
-            <a
-              href="https://www.daytona.io/startups"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[var(--text-secondary)] underline decoration-white/[0.12] underline-offset-2 transition-colors hover:text-[var(--text)]"
-            >
-              Daytona Startup Grid
-            </a>{" "}
-            — Daytona&apos;s program backing early teams that ship AI-native developer infrastructure.
-          </p>
-        </section>
+      <main style={{ color: INK.bone }}>
+        <ForgettingTax />
 
-        <div className="border-t" style={{ borderColor: "var(--border)" }} />
+        <RunSplitSection />
 
-        <RunComparisonSection />
+        <TentacleSection />
 
-        <div className="border-t" style={{ borderColor: "var(--border)" }} />
+        <div className="mx-auto max-w-[1080px] px-5 sm:px-6">
+          <InkInterstitial label="the mechanics live in docs" />
 
-        <section className="scroll-mt-20 py-20 md:py-[5.5rem]" id="docs-preview">
-          <SectionHeading
-            eyebrow="Docs"
-            muted="Keep the landing short."
-            title="Put setup and implementation detail where teams expect it."
-            body="Quickstart, rollout options, architecture notes, and recovery paths now live in docs so the landing can stay focused on the product promise."
-          />
-
-          <SectionGrid columnsClassName="sm:grid-cols-2 lg:grid-cols-4">
-            {DOCS_LINKS.map((item) => (
-              <SectionLinkCard key={item.title} {...item} />
-            ))}
-          </SectionGrid>
-        </section>
-
-        <div className="border-t" style={{ borderColor: "var(--border)" }} />
-
-        <section className="scroll-mt-20 py-20 md:py-[5.5rem]" id="pricing">
-          <SectionHeading
-            eyebrow="Pricing"
-            muted="Open source now."
-            title="Managed launch pricing."
-            body="Self-hosted is available today. The startup and enterprise tiers below are planned managed rollout packaging, shown here as draft launch pricing rather than live checkout."
-          />
-
-          <PricingGrid />
-        </section>
-
-        <div className="border-t" style={{ borderColor: "var(--border)" }} />
-
-        <section className="scroll-mt-20 py-20 md:py-[5.5rem]" id="faq" aria-labelledby="faq-heading">
-          <SectionHeading
-            eyebrow="FAQ"
-            muted="Questions that come up fast."
-            title="Answers for buyers, operators, and engineers."
-            body="This is the public-facing pass: enough to evaluate the product, without turning the landing into a long technical brief."
-          />
-
-          <SectionGrid columnsClassName="lg:grid-cols-2">
-            {FAQ_ITEMS.map((item) => (
-              <SectionCard
-                key={item.question}
-                title={item.question}
-                body={item.answer}
-                minHeightClassName="min-h-[214px] md:min-h-[226px]"
+          <section id="docs-preview" className="scroll-mt-20 py-16 md:py-24">
+            <Reveal>
+              <SectionHeading
+                label="docs"
+                muted="Keep the landing short."
+                title={<span>Mechanics live where teams return to them.</span>}
+                body="Quickstart, rollouts, architecture, and recovery paths live in docs — the landing stays focused on the runtime."
               />
-            ))}
-          </SectionGrid>
-        </section>
+            </Reveal>
+            <Reveal delayMs={120}>
+              <Grid cols="sm:grid-cols-2 lg:grid-cols-4">
+                {DOCS_LINKS.map((d) => (
+                  <Tile key={d.title} label="docs" title={d.title} body={d.body} href={d.href} cta="Open section" />
+                ))}
+              </Grid>
+            </Reveal>
+          </section>
 
-        <div className="border-t" style={{ borderColor: "var(--border)" }} />
+          <InkInterstitial label="pricing · open source today" />
 
-        <CtaSection />
+          <section id="pricing" className="scroll-mt-20 py-16 md:py-24">
+            <Reveal>
+              <SectionHeading
+                label="pricing"
+                muted="Open source today."
+                title={<span>Managed tiers planned for launch.</span>}
+                body="Self-hosted is available now. Startup and enterprise tiers below are draft launch packaging — not live checkout."
+              />
+            </Reveal>
+            <Reveal delayMs={120}>
+              <PricingGrid />
+            </Reveal>
+          </section>
 
-        <footer
-          className="flex flex-col gap-8 border-t py-8 lg:flex-row lg:items-center lg:justify-between lg:gap-10"
-          style={{ borderColor: "var(--border)" }}
+          <InkInterstitial label="questions, short answers" />
+
+          <section id="faq" className="scroll-mt-20 py-16 md:py-24" aria-labelledby="faq-heading">
+            <Reveal>
+              <SectionHeading
+                label="faq"
+                muted="Common questions."
+                title={<span>Short answers for buyers and operators.</span>}
+              />
+            </Reveal>
+            <Reveal delayMs={120}>
+              <Grid cols="md:grid-cols-2">
+                {FAQ.map((f) => (
+                  <Tile key={f.q} title={f.q} body={f.a} />
+                ))}
+              </Grid>
+            </Reveal>
+          </section>
+
+          <InkInterstitial label="pick up the pen" />
+
+          <CtaSection />
+
+          <Footer />
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function Footer() {
+  return (
+    <footer
+      className="flex flex-col gap-8 border-t py-10 lg:flex-row lg:items-center lg:justify-between lg:gap-10"
+      style={{ borderColor: "rgba(232,217,184,0.08)" }}
+    >
+      <div className="flex min-w-0 flex-col gap-3">
+        <TracebaseInkWordmark size={14} />
+        <p
+          className="max-w-sm text-[11px] font-light leading-relaxed"
+          style={{ color: INK.sand }}
         >
-          <div className="flex min-w-0 flex-col gap-2">
-            <span className="text-xs font-light" style={{ color: "var(--text-tertiary)" }}>
-              MIT &middot; TraceBase
-            </span>
-            <p className="max-w-sm text-[11px] font-light leading-relaxed lg:max-w-xs" style={{ color: "var(--text-tertiary)" }}>
-              Part of the{" "}
-              <a
-                href="https://www.daytona.io/startups"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[var(--text-secondary)] underline decoration-white/[0.12] underline-offset-2 transition-colors hover:text-[var(--text)]"
-              >
-                Daytona Startup Grid
-              </a>
-              .
-            </p>
-          </div>
-
+          MIT. Part of the{" "}
           <a
             href="https://www.daytona.io/startups"
             target="_blank"
             rel="noopener noreferrer"
-            className="shrink-0 self-start opacity-90 transition-opacity hover:opacity-100 lg:self-center"
-            aria-label="Daytona Startup Grid (opens in a new tab)"
+            className="underline underline-offset-2"
+            style={{ color: INK.bone, textDecorationColor: "rgba(232,217,184,0.22)" }}
           >
-            <Image
-              src="/partners/daytonapartner.png"
-              alt=""
-              width={160}
-              height={40}
-              className="h-8 w-auto max-w-[200px] object-contain object-left"
-              sizes="200px"
-            />
+            Daytona Startup Grid
           </a>
+          .
+        </p>
+      </div>
 
-          <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 self-start lg:self-center" aria-label="Footer">
-            <a
-              href="https://github.com/64envy64/tracebase"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-[var(--text-tertiary)] transition-colors hover:text-[var(--text)]"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="GitHub repository"
-            >
-              <GitHubMark className="h-[18px] w-[18px]" />
-            </a>
-            <Link href="/docs" className="text-xs font-light" style={{ color: "var(--text-tertiary)" }}>
-              Docs
-            </Link>
-            <a
-              href="https://www.npmjs.com/package/tracebase-ai"
-              className="text-xs font-light"
-              style={{ color: "var(--text-tertiary)" }}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              npm
-            </a>
-          </nav>
-        </footer>
-      </main>
-    </div>
+      <a
+        href="https://www.daytona.io/startups"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="shrink-0 self-start opacity-80 transition-opacity hover:opacity-100 lg:self-center"
+        aria-label="Daytona Startup Grid"
+      >
+        <Image
+          src="/partners/daytonapartner.png"
+          alt=""
+          width={160}
+          height={40}
+          className="h-8 w-auto max-w-[200px] object-contain object-left"
+          sizes="200px"
+        />
+      </a>
+
+      <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 self-start lg:self-center" aria-label="Footer">
+        <a
+          href="https://github.com/64envy64/tracebase"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border transition-colors hover:text-[var(--bone)]"
+          style={{ borderColor: "rgba(232,217,184,0.12)", color: INK.sand }}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="GitHub repository"
+        >
+          <GitHubMark className="h-[18px] w-[18px]" />
+        </a>
+        <Link href="/docs" className="text-xs font-light" style={{ color: INK.sand }}>
+          Docs
+        </Link>
+        <a
+          href="https://www.npmjs.com/package/tracebase-ai"
+          className="text-xs font-light"
+          style={{ color: INK.sand }}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          npm
+        </a>
+      </nav>
+    </footer>
   );
 }
