@@ -269,36 +269,79 @@ export function CapabilityDemo({ id, revealDelayMs = 0 }: { id: CapabilityId; re
         </div>
       ) : null}
 
-      <div style={{ display: "flex", flexDirection: "column", minHeight: demo.rows.length * 36 }}>
-        {demo.rows.slice(0, revealed).map((row, i) => (
-          <StepRow
-            // Index key: React mounts each new row freshly as `revealed` grows,
-            // which restarts its `step-reveal` CSS animation. On reset (revealed
-            // → 0) every row unmounts, so the next cycle re-animates cleanly.
-            key={i}
-            n={row.n}
-            tool={row.tool}
-            args={row.args}
-            note={row.note}
-            trailing={row.trailing}
-            muted={row.muted}
-            inView
-            delayMs={0}
-          />
-        ))}
+      {/*
+        Stable-height layout: rows section reserves space for the
+        full row count plus a slot for the running caret AND a slot
+        for the result box. Without this the page jumps every time
+        the demo cycles (rows mount/unmount, result toggles), which
+        cascades up through the sticky-octopus column on the left.
 
-        {!resultVisible && revealed > 0 && revealed < demo.rows.length ? (
-          <RunningCaret color={demo.meter.dot} />
-        ) : null}
-      </div>
+        The numbers: each StepRow is ~36px (px-driven via
+        Primitives), the RunningCaret is ~25px, and the result box
+        is reserved at 132px — enough for a two-line title + body.
+        Both rows-area and result-area are `position: relative`
+        children inside a fixed-height parent so their content can
+        absolutely-position-overlap-free without affecting outer
+        height.
+      */}
+      <div
+        style={{
+          position: "relative",
+          minHeight: demo.rows.length * 36 + 144,
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", minHeight: demo.rows.length * 36 }}>
+            {demo.rows.slice(0, revealed).map((row, i) => (
+              <StepRow
+                // Index key: React mounts each new row freshly as `revealed` grows,
+                // which restarts its `step-reveal` CSS animation. On reset (revealed
+                // → 0) every row unmounts, so the next cycle re-animates cleanly.
+                key={i}
+                n={row.n}
+                tool={row.tool}
+                args={row.args}
+                note={row.note}
+                trailing={row.trailing}
+                muted={row.muted}
+                inView
+                delayMs={0}
+              />
+            ))}
 
-      {resultVisible ? (
-        <div className="ink-rise">
-          <ResultBox tone={demo.result.tone} title={demo.result.title} trailing={demo.result.trailing}>
-            {demo.result.body}
-          </ResultBox>
+            {!resultVisible && revealed > 0 && revealed < demo.rows.length ? (
+              <RunningCaret color={demo.meter.dot} />
+            ) : null}
+          </div>
+
+          {/*
+            Result slot is ALWAYS rendered at full reserved height
+            so the surrounding card height never changes when the
+            demo cycles. We toggle visibility instead of unmounting.
+          */}
+          <div
+            style={{
+              minHeight: 132,
+              marginTop: 12,
+              opacity: resultVisible ? 1 : 0,
+              transition: "opacity 220ms ease-out",
+              pointerEvents: resultVisible ? "auto" : "none",
+            }}
+            aria-hidden={!resultVisible}
+          >
+            <ResultBox tone={demo.result.tone} title={demo.result.title} trailing={demo.result.trailing}>
+              {demo.result.body}
+            </ResultBox>
+          </div>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
