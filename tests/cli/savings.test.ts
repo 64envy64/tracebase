@@ -184,13 +184,14 @@ describe("buildMechanismRows — sort + impact bar scaling", () => {
 // buildFamilyRows — only when supervision fired
 // ---------------------------------------------------------------------------
 
-describe("buildFamilyRows — per-tool-family rollup", () => {
+describe("buildFamilyRows — per-tool-family rollup (block-only)", () => {
   it("returns empty array when no supervision events landed", () => {
     withStore((store) => {
       appendFold(store, 0);
     });
     const r = runSavings({ path: projectDir });
     expect(buildFamilyRows(r)).toHaveLength(0);
+    expect(r.savings.toolSupervisionAvoided).toBe(0);
   });
 
   it("groups by canonical ToolFamily; sorts by saved tokens descending", () => {
@@ -201,12 +202,108 @@ describe("buildFamilyRows — per-tool-family rollup", () => {
     });
     const r = runSavings({ path: projectDir });
     const rows = buildFamilyRows(r);
-    // 5 read × 1500 = 7500   (top)
-    // 3 web × 2000 = 6000
-    // 2 search × 800 = 1600
+    // 5 read × 1500 = 7500 (top), 3 web × 2000 = 6000, 2 search × 800 = 1600.
     expect(rows.map((r) => r.family)).toEqual(["read", "web", "search"]);
     expect(rows[0]!.count).toBe(5);
     expect(rows[0]!.impact).toBe(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // 0.7.1 hardening — block-only contract pinned per the user's spec
+  // -------------------------------------------------------------------------
+
+  it("warn-mode events (mode='warn') contribute ZERO to byFamily and saved", () => {
+    withStore((store) => {
+      // Three duplicate Reads, all warn-mode (the duplicate Read
+      // still ran). Pre-hardening this would have shown read=3 in
+      // the by-family rollup; post-hardening it shows nothing.
+      for (let i = 0; i < 3; i++) {
+        store.appendEvent({
+          ts: Date.now() - i * 1000,
+          queryId: `warn-read-${i}`,
+          event: "tool_supervision.warned",
+          argKey: `k${i}`,
+          toolName: "Read",
+          mode: "warn",
+        });
+      }
+    });
+    const r = runSavings({ path: projectDir });
+    expect(r.savings.toolSupervisionAvoided).toBe(0);
+    expect(r.byFamilyBlocked.read).toBe(0);
+    expect(buildFamilyRows(r)).toHaveLength(0);
+  });
+
+  it("suppressed with blocked:false / undefined contributes ZERO", () => {
+    withStore((store) => {
+      // Bash, Edit, Write — current strict policy never blocks these
+      // (only read+search families). The supervisor would emit
+      // suppressed events with blocked:false for these on a
+      // duplicate hit. The dashboard must NOT credit them.
+      for (const tool of ["Bash", "Edit", "Write"]) {
+        store.appendEvent({
+          ts: Date.now(),
+          queryId: `sup-${tool}`,
+          event: "tool_supervision.suppressed",
+          argKey: `k-${tool}`,
+          toolName: tool,
+          blocked: false,
+        });
+      }
+      // Plus one without the field at all (legacy / pre-hardening row).
+      store.appendEvent({
+        ts: Date.now(),
+        queryId: "sup-legacy",
+        event: "tool_supervision.suppressed",
+        argKey: "k-legacy",
+        toolName: "Read",
+        // intentionally NO `blocked` field
+      } as Parameters<typeof store.appendEvent>[0]);
+    });
+    const r = runSavings({ path: projectDir });
+    expect(r.savings.toolSupervisionAvoided).toBe(0);
+    expect(r.byFamilyBlocked.shell).toBe(0);
+    expect(r.byFamilyBlocked.edit).toBe(0);
+    expect(r.byFamilyBlocked.write).toBe(0);
+    expect(r.byFamilyBlocked.read).toBe(0);
+    expect(buildFamilyRows(r)).toHaveLength(0);
+  });
+
+  it("only blocked Read + Grep credit; mixed-mode events agree with the top total", () => {
+    withStore((store) => {
+      // Strict-block hits: 2 Read, 1 Grep
+      for (let i = 0; i < 2; i++) appendToolBlock(store, "Read", i);
+      appendToolBlock(store, "Grep", 0);
+      // Warn-mode noise: 4 Bash, 2 Edit (must NOT count)
+      for (let i = 0; i < 4; i++) {
+        store.appendEvent({
+          ts: Date.now() - i * 100,
+          queryId: `warn-bash-${i}`,
+          event: "tool_supervision.warned",
+          argKey: `k${i}`,
+          toolName: "Bash",
+          mode: "warn",
+        });
+      }
+      for (let i = 0; i < 2; i++) {
+        store.appendEvent({
+          ts: Date.now() - i * 100,
+          queryId: `sup-edit-${i}`,
+          event: "tool_supervision.suppressed",
+          argKey: `k${i}`,
+          toolName: "Edit",
+          blocked: false,
+        });
+      }
+    });
+    const r = runSavings({ path: projectDir });
+    const rows = buildFamilyRows(r);
+    // Only read + search families show.
+    expect(rows.map((r) => r.family)).toEqual(["read", "search"]);
+    // Sum of by-family saved must equal the top-line savings.
+    const familySum = rows.reduce((acc, x) => acc + x.saved, 0);
+    expect(familySum).toBe(r.savings.toolSupervisionAvoided);
+    expect(familySum).toBe(2 * 1500 + 1 * 800);
   });
 });
 
@@ -267,6 +364,52 @@ describe("renderSavingsDashboard — visual + copy contract", () => {
     expect(out.toLowerCase()).not.toContain("verified");
   });
 
+  // 0.7.1 hardening — the explicit empty-state line for the
+  // "By Tool Family" section when nothing was actually blocked.
+  it("renders 'no rows — no duplicate tools were blocked' when toolSupervisionAvoided=0", () => {
+    withStore((store) => {
+      // warn-mode events only — top-line savings stays 0
+      for (let i = 0; i < 3; i++) {
+        store.appendEvent({
+          ts: Date.now() - i * 1000,
+          queryId: `warn-${i}`,
+          event: "tool_supervision.warned",
+          argKey: `k${i}`,
+          toolName: "Read",
+          mode: "warn",
+        });
+      }
+      // Plant ONE other-mechanism event so the "No mechanism events"
+      // global empty-state path doesn't fire — we want to reach the
+      // tool-family empty-state line specifically.
+      appendFold(store, 0);
+    });
+    const r = runSavings({ path: projectDir });
+    expect(r.savings.toolSupervisionAvoided).toBe(0);
+    const out = stripAnsi(renderSavingsDashboard(r));
+    expect(out).toMatch(/By Tool Family/);
+    expect(out).toMatch(/no rows — no duplicate tools were blocked in this window/);
+    // And the table itself is NOT rendered alongside.
+    expect(out).not.toMatch(/^\s+#\s+Family\s+Count/m);
+  });
+
+  // 0.7.1 hardening — top total / by-mechanism / by-family must agree.
+  it("top-line total, by-mechanism row, and sum of by-family rows all agree", () => {
+    withStore((store) => {
+      // 4 strict-block Reads + 2 strict-block Greps
+      for (let i = 0; i < 4; i++) appendToolBlock(store, "Read", i);
+      for (let i = 0; i < 2; i++) appendToolBlock(store, "Grep", i);
+    });
+    const r = runSavings({ path: projectDir });
+    const mech = buildMechanismRows(r).find((m) => m.key === "tool_supervision");
+    const fam = buildFamilyRows(r);
+    const famSum = fam.reduce((acc, x) => acc + x.saved, 0);
+    expect(mech).toBeDefined();
+    expect(mech!.saved).toBe(r.savings.toolSupervisionAvoided);
+    expect(famSum).toBe(r.savings.toolSupervisionAvoided);
+    expect(famSum).toBe(4 * 1500 + 2 * 800);
+  });
+
   it("renders impact bars with █ and ░ chars (visual parity with the spec)", () => {
     // Seed a state that produces partial efficiency so ░ shows in
     // the meter. 2 folds (7600 saved) + 2400 injected → 0.76 eff.
@@ -309,5 +452,41 @@ describe("runSavings — JSON shape", () => {
     expect(r.aggregates).not.toBeNull();
     expect(r.aggregates!.contextFold.chunkCount).toBe(1);
     expect(r.aggregates!.promptCache.bySurface.openai).toBe(1);
+  });
+
+  // 0.7.1 hardening — the JSON output must NOT carry non-blocked
+  // families as if they had savings. The dashboard reader (CI / a
+  // dashboard scraper) should see exactly the same set of "saved
+  // tokens" the CLI shows visually.
+  it("byFamilyBlocked excludes warn-mode + unblocked-suppressed events from any family bucket", () => {
+    withStore((store) => {
+      // Warn-mode noise across non-strict families.
+      for (const tool of ["Bash", "Edit", "Write"]) {
+        store.appendEvent({
+          ts: Date.now(),
+          queryId: `warn-${tool}`,
+          event: "tool_supervision.warned",
+          argKey: `k-${tool}`,
+          toolName: tool,
+          mode: "warn",
+        });
+        store.appendEvent({
+          ts: Date.now(),
+          queryId: `sup-${tool}`,
+          event: "tool_supervision.suppressed",
+          argKey: `k2-${tool}`,
+          toolName: tool,
+          blocked: false,
+        });
+      }
+      // One real strict-block Read so we know the path works.
+      appendToolBlock(store, "Read", 0);
+    });
+    const r = runSavings({ path: projectDir });
+    expect(r.byFamilyBlocked.shell).toBe(0);
+    expect(r.byFamilyBlocked.edit).toBe(0);
+    expect(r.byFamilyBlocked.write).toBe(0);
+    expect(r.byFamilyBlocked.read).toBe(1);
+    expect(r.savings.toolSupervisionAvoided).toBe(1500); // 1 read × 1500
   });
 });

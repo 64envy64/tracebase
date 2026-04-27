@@ -42,7 +42,12 @@ import {
   TOOL_FAMILY_TOKEN_ESTIMATE,
   type MechanismSavings,
 } from "../../analytics/mechanism-savings.js";
-import { TOOL_FAMILIES, type ToolFamily } from "../../runtime/tool-family.js";
+import {
+  TOOL_FAMILIES,
+  emptyToolFamilyCounts,
+  toolFamilyOf,
+  type ToolFamily,
+} from "../../runtime/tool-family.js";
 
 interface SavingsOptions {
   path?: string;
@@ -89,8 +94,20 @@ export interface SavingsReport {
   tokensInjected: number;
   /** Σ over the four mechanism components. */
   savings: MechanismSavings;
-  /** Underlying aggregator output, used for the per-family rollup. */
+  /** Underlying aggregator output, used for top-level event counts. */
   aggregates: MechanismAggregates | null;
+  /**
+   * Per-tool-family count of ACTUAL BLOCKS in the window — same
+   * filter `computeMechanismSavings.toolSupervisionAvoided` uses:
+   *   - `tool_supervision.warned { mode: "block" }`
+   *   - `tool_supervision.suppressed { blocked: true }`
+   * Warn-mode events and `blocked: false` / `undefined` suppressed
+   * events contribute zero. Distinct from
+   * `aggregates.toolSupervision.byFamily`, which counts ALL
+   * supervision activity (used for the cloud allowlist's full
+   * activity histogram, not for the savings dashboard).
+   */
+  byFamilyBlocked: Record<ToolFamily, number>;
   /** "savings.total / (savings.total + tokensInjected)" — clamped to [0,1]. */
   efficiency: number;
   error?: string;
@@ -140,11 +157,13 @@ export function runSavings(opts: SavingsOptions): SavingsReport {
   let savings: MechanismSavings;
   let aggregates: MechanismAggregates;
   let tokensInjected = 0;
+  let byFamilyBlocked: Record<ToolFamily, number> = emptyToolFamilyCounts();
   try {
     const agg = computeAggregates(store, { afterTs, beforeTs });
     savings = computeMechanismSavings(store, { afterTs, beforeTs });
     aggregates = agg.mechanisms;
     tokensInjected = agg.retrieval.totalInjectedTokensEstimate;
+    byFamilyBlocked = computeBlockedFamilyCounts(store, afterTs, beforeTs);
   } finally {
     store.close();
   }
@@ -165,6 +184,7 @@ export function runSavings(opts: SavingsOptions): SavingsReport {
     windowDays,
     totalEvents,
     tokensInjected,
+    byFamilyBlocked,
     savings,
     aggregates,
     efficiency,
@@ -181,6 +201,7 @@ function emptyReport(opts: SavingsOptions, error?: string): SavingsReport {
     windowDays,
     totalEvents: 0,
     tokensInjected: 0,
+    byFamilyBlocked: emptyToolFamilyCounts(),
     savings: {
       contextCompressionSaved: 0,
       fileMemoryAvoided: 0,
@@ -204,7 +225,13 @@ export function buildMechanismRows(report: SavingsReport): MechanismRow[] {
   const s = report.savings;
   const cfCount = a.contextFold.chunkCount;
   const fmCount = a.fileMemory.recallCount;
-  const tsCount = a.toolSupervision.warnCount + a.toolSupervision.suppressedCount;
+  // 0.7.1 hardening — tool supervision Count must match the source
+  // of Saved (block-only events). Pre-hardening, Count was the
+  // total of warned+suppressed including warn-mode + unblocked
+  // suppressed events; combined with the block-only Saved value
+  // this made Avg = Saved/Count look right but the underlying
+  // numbers came from different filters.
+  const tsCount = sumValues(report.byFamilyBlocked);
   const pcCount = a.promptCache.hitCount;
 
   const raw: Array<Omit<MechanismRow, "rank" | "impact">> = [
@@ -253,8 +280,17 @@ export function buildMechanismRows(report: SavingsReport): MechanismRow[] {
 }
 
 export function buildFamilyRows(report: SavingsReport): FamilyRow[] {
-  if (!report.aggregates) return [];
-  const counts = report.aggregates.toolSupervision.byFamily;
+  // 0.7.1 hardening — read from `byFamilyBlocked` (block-only
+  // counts) rather than `aggregates.toolSupervision.byFamily`
+  // (all-supervision counts). Pre-hardening, the dashboard
+  // overclaimed: when warn-mode events fired for shell/edit/write
+  // (which strict mode never blocks), they still showed up here
+  // as "saved" rows even though the top-line total was 0.
+  // Post-hardening, the by-family rollup is the same SOURCE the
+  // top-line `toolSupervisionAvoided` is built from, so the three
+  // numbers (top total, by-mechanism row, sum of by-family rows)
+  // always agree.
+  const counts = report.byFamilyBlocked;
   const raw: Array<{ family: ToolFamily; count: number; saved: number; avgPerEvent: number }> = [];
   for (const family of TOOL_FAMILIES) {
     const count = counts[family] ?? 0;
@@ -275,6 +311,59 @@ export function buildFamilyRows(report: SavingsReport): FamilyRow[] {
     rank: i + 1,
     impact: max > 0 ? r.saved / max : 0,
   }));
+}
+
+/**
+ * 0.7.1 hardening — block-only per-family counter shared with the
+ * `toolSupervisionAvoided` source-of-truth filter in
+ * `mechanism-savings.ts`:
+ *   - tool_supervision.warned: count when `mode === "block"`
+ *   - tool_supervision.suppressed: count when `blocked === true`
+ *
+ * Walks the events directly so the rollup can never drift from
+ * what the top-line savings number was built from. Pre-hardening
+ * the dashboard read `aggregates.toolSupervision.byFamily` which
+ * counts EVERY supervision event (including warn-mode +
+ * unblocked suppressed), causing the top total to disagree with
+ * the by-family rows in zero-block / mixed-mode windows.
+ */
+function computeBlockedFamilyCounts(
+  store: BlockStore,
+  afterTs: number,
+  beforeTs: number,
+): Record<ToolFamily, number> {
+  const counts = emptyToolFamilyCounts();
+  try {
+    const warned = store.readEvents({
+      eventType: "tool_supervision.warned",
+      afterTs,
+      beforeTs,
+      limit: 10_000,
+    });
+    for (const ev of warned) {
+      if (ev.event !== "tool_supervision.warned") continue;
+      if (ev.mode !== "block") continue;
+      counts[toolFamilyOf(ev.toolName)] += 1;
+    }
+  } catch {
+    // best-effort — telemetry must never break the dashboard
+  }
+  try {
+    const suppressed = store.readEvents({
+      eventType: "tool_supervision.suppressed",
+      afterTs,
+      beforeTs,
+      limit: 10_000,
+    });
+    for (const ev of suppressed) {
+      if (ev.event !== "tool_supervision.suppressed") continue;
+      if (ev.blocked !== true) continue;
+      counts[toolFamilyOf(ev.toolName)] += 1;
+    }
+  } catch {
+    // best-effort
+  }
+  return counts;
 }
 
 // ---------------------------------------------------------------------------
@@ -354,9 +443,20 @@ export function renderSavingsDashboard(report: SavingsReport): string {
     }
   }
 
-  // By Tool Family — only when tool supervision fired
+  // By Tool Family — only when at least one block actually fired.
+  //
+  // 0.7.1 hardening — render the explicit empty-state when the
+  // top-line tool supervision savings is zero (warn-mode events,
+  // unblocked suppressed, or just no supervision activity at all).
+  // Pre-hardening, the section was hidden silently in this case;
+  // post-hardening, the operator sees the honest "no rows" line so
+  // the absence is clearly intentional rather than a render bug.
   const famRows = buildFamilyRows(report);
-  if (famRows.length > 0) {
+  if (s.toolSupervisionAvoided === 0) {
+    lines.push("");
+    lines.push(pc.bold("By Tool Family") + pc.dim("  (tool supervision blocks)"));
+    lines.push(pc.dim("  no rows — no duplicate tools were blocked in this window"));
+  } else if (famRows.length > 0) {
     lines.push("");
     lines.push(pc.bold("By Tool Family") + pc.dim("  (tool supervision blocks)"));
     lines.push(renderFamRow("#", "Family", "Count", "Saved", "Avg", "Impact", true));
@@ -451,6 +551,12 @@ function humanTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return `${Math.round(n)}`;
+}
+
+function sumValues(record: Record<string, number>): number {
+  let n = 0;
+  for (const v of Object.values(record)) n += v;
+  return n;
 }
 
 function humanCount(n: number): string {

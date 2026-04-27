@@ -53,13 +53,17 @@ for (let i = 0; i < 8; i++) {
   });
 }
 
-const toolNames = ["Read", "Read", "Read", "Grep", "Grep", "Bash", "Edit", "WebFetch"];
-for (let i = 0; i < 24; i++) {
-  const tool = toolNames[i % toolNames.length]!;
-  if (i < 6) {
+// Strict mode only blocks safe-read families (read + search), so
+// only Read/Grep produce blocked:true events. The other families
+// (Bash/Edit/Write/WebFetch) are emitted with mode:"warn" /
+// blocked:false to mirror real supervisor output.
+const blockedTools = ["Read", "Read", "Read", "Grep", "Grep"];
+for (let i = 0; i < 14; i++) {
+  const tool = blockedTools[i % blockedTools.length]!;
+  if (i < 4) {
     store.appendEvent({
       ts: tBase + i * 200_000,
-      queryId: `seed-warn-${i}`,
+      queryId: `seed-warn-block-${i}`,
       event: "tool_supervision.warned",
       argKey: `seed-k-${i}`,
       toolName: tool,
@@ -68,11 +72,34 @@ for (let i = 0; i < 24; i++) {
   } else {
     store.appendEvent({
       ts: tBase + i * 200_000,
-      queryId: `seed-supp-${i}`,
+      queryId: `seed-supp-block-${i}`,
       event: "tool_supervision.suppressed",
       argKey: `seed-k-${i}`,
       toolName: tool,
       blocked: true,
+    });
+  }
+}
+const warnTools = ["Bash", "Edit", "Write", "WebFetch"];
+for (let i = 0; i < 10; i++) {
+  const tool = warnTools[i % warnTools.length]!;
+  if (i < 4) {
+    store.appendEvent({
+      ts: tBase + i * 250_000,
+      queryId: `seed-warn-only-${i}`,
+      event: "tool_supervision.warned",
+      argKey: `seed-w-${i}`,
+      toolName: tool,
+      mode: "warn",
+    });
+  } else {
+    store.appendEvent({
+      ts: tBase + i * 250_000,
+      queryId: `seed-supp-unblocked-${i}`,
+      event: "tool_supervision.suppressed",
+      argKey: `seed-w-${i}`,
+      toolName: tool,
+      blocked: false,
     });
   }
 }
