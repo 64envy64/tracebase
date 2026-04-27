@@ -63,6 +63,7 @@ import {
 import { sanitizeToolArgs } from "../../core/tool-arg.js";
 import { detectToolPattern } from "../../core/tool-loop-detect.js";
 import { toolFamily } from "../../runtime/tool-family.js";
+import { normalizeIntentKey } from "../../core/intent-key.js";
 import {
   RecentToolCache,
   type CachedObservation,
@@ -139,6 +140,21 @@ export interface CapturePreToolUseOutcome {
 }
 
 const STDIN_BYTE_LIMIT = 256 * 1024;
+
+/**
+ * 0.7.1 — block-after-N threshold for the intent-loop counter.
+ *
+ * `N = 3` semantically-equivalent search invocations in the same
+ * session triggers `decision:"block"` on the next attempt. The
+ * threshold is intentionally generous: a real agent often tries
+ * 2–3 phrasings of a search before pivoting; only the 4th attempt
+ * (or beyond) at the same SEMANTIC intent is "stuck in a loop".
+ *
+ * Strict mode still blocks on the 1st duplicate hit for safe-read
+ * families — strict is for regulated workspaces that want zero
+ * duplicate-execution latency, not scope-widening hints.
+ */
+export const INTENT_LOOP_BLOCK_AT = 3;
 
 // ---------------------------------------------------------------------------
 // Commander surface
@@ -290,6 +306,33 @@ export function runCapturePreToolUse(
   const family = toolFamily(toolName);
   const isSafeRead = family === "read" || family === "search";
 
+  // 0.7.1 — intent-key block-after-N for search loops.
+  //
+  // For search-family tools (Grep / Glob / ripgrep / ag / findstr),
+  // count how many semantically-equivalent calls the agent has made
+  // in this session. Two calls collapse to the same intentKey if
+  // their normalised argSummary matches — `grep "auth_token"` and
+  // `rg "auth[_-]token"` both become `search:* auth token` after
+  // the regex/flag/quote normalisation.
+  //
+  // Threshold: INTENT_LOOP_BLOCK_AT (3 by default). Below the
+  // threshold, the supervisor still runs the warn/escalation
+  // policy below; at or above the threshold, the search family
+  // gets an intent-loop block regardless of whether this is the
+  // 1st or Nth raw-arg duplicate.
+  //
+  // intentKey is undefined for non-search families; the count is
+  // always 0 for them, so this branch is a no-op outside search.
+  const intentKey =
+    family === "search" ? normalizeIntentKey(argSummary, toolName) : undefined;
+  const priorIntentCount = cache.recentIntentCount(sessionId, intentKey);
+  // The synthetic call we're about to greenlight is the
+  // (priorIntentCount + 1)th attempt at this intent. Block when
+  // that attempt would push past the threshold — the agent has
+  // already tried the same SEMANTIC search ≥ N times this session.
+  const intentBlock =
+    intentKey !== undefined && priorIntentCount + 1 > INTENT_LOOP_BLOCK_AT;
+
   // 0.7.1 — preventive supervision policy.
   //
   // Pre-0.7.1 default mode warned indefinitely; only the explicit
@@ -318,7 +361,7 @@ export function runCapturePreToolUse(
   // the legitimate retry path.
   const strictBlock = strictEnabled && isSafeRead;
   const escalationBlock = !strictEnabled && isSafeRead && alreadyWarned;
-  const blocked = strictBlock || escalationBlock;
+  const blocked = strictBlock || escalationBlock || intentBlock;
 
   const labelTool = toolName;
   // Copy contract (0.7.1): "reused" for the first-hit hint, "blocked
@@ -328,9 +371,16 @@ export function runCapturePreToolUse(
   const reuseHint = isSafeRead
     ? `▣ TB TOOL  reused: ${labelTool} already returned this in the last ${signal.count} turn(s) — use the prior output instead`
     : `▣ TB TOOL  repeated ${labelTool} · already ran with same args in the last ${signal.count} turn(s) — verify before re-running`;
-  const blockReason = strictBlock
-    ? `▣ TB TOOL  blocked duplicate ${labelTool} (strict mode) — read prior ${family} output instead of re-running.`
-    : `▣ TB TOOL  blocked duplicate ${labelTool} — already flagged once in this session, escalating to block. Use the prior output or pass different args.`;
+  // Three block-reason variants. intentBlock dominates the message
+  // when it fires because the agent's repeat-search behaviour is
+  // a stronger signal than "already flagged once" — the wording
+  // tells the agent to widen scope rather than retry.
+  const intentAttempts = priorIntentCount + 1;
+  const blockReason = intentBlock
+    ? `▣ TB LOOP  blocked repeated search · same intent already tried ${intentAttempts} times — widen scope or use the prior matched context`
+    : strictBlock
+      ? `▣ TB TOOL  blocked duplicate ${labelTool} (strict mode) — read prior ${family} output instead of re-running.`
+      : `▣ TB TOOL  blocked duplicate ${labelTool} — already flagged once in this session, escalating to block. Use the prior output or pass different args.`;
 
   const envelopePayload: Record<string, unknown> = {};
 
@@ -354,17 +404,22 @@ export function runCapturePreToolUse(
       blocked,
     });
   } else {
-    // First hit. Mode tag distinguishes the three observable states
-    // for downstream aggregation:
-    //   - "block": the strict-mode block fired on first hit
-    //   - "warn":  default mode, first hit on a safe-read or
-    //             any-hit on a non-safe-read family — agent gets
-    //             an actionable reuse/repeat hint, tool still runs
+    // First hit. Mode tag reflects whether the supervisor actually
+    // changed agent trajectory on this call:
+    //   - "block": ANY block kind fired (strict / intent-loop /
+    //             escalation can't reach this branch yet because
+    //             alreadyWarned must be false here, but strict and
+    //             intent-loop both can fire on a first hit)
+    //   - "warn":  no block fired — the badge is advisory
+    //
+    // Mechanism savings reads `mode === "block"` on warned events
+    // (rc.7 hardening) so this is the canonical "did we credit
+    // an avoided tool call" flag for first-hit events.
     appendAnalyticsEvent(config.storagePath, {
       event: "tool_supervision.warned",
       argKey,
       toolName,
-      mode: strictBlock ? "block" : "warn",
+      mode: blocked ? "block" : "warn",
     });
     // Visible badge: surface the reuse/repeat hint when we're NOT
     // already blocking via decision (strict mode already conveys

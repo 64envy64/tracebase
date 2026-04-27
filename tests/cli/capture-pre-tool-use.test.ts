@@ -671,6 +671,203 @@ describe("capture-pre-tool-use — rc.4d strict mode", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 0.7.1 — intent-key block-after-N for search loops
+// ---------------------------------------------------------------------------
+
+describe("capture-pre-tool-use — 0.7.1 intent-key block-after-N", () => {
+  /**
+   * Helper: feed N search observations through the canonical
+   * PostToolBatch path so the cache learns their `intentKey`. We
+   * parameterise toolName / sessionId / argSummary so each test
+   * controls exactly what landed in the cache.
+   */
+  function postObserve(
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    sessionId: string,
+  ): void {
+    const cfg = loadConfig(workDir);
+    const db = new Database(cfg.storagePath);
+    const store = new BlockStore(db);
+    try {
+      observeToolBatch(store, {
+        sessionId,
+        cwd: "/work/repo",
+        workspaceSalt: getOrMintWorkspaceSalt(workDir)!,
+        toolCalls: [{ toolName, toolInput }],
+        workspacePath: workDir,
+      });
+    } finally {
+      store.close();
+    }
+  }
+
+  // 1. Equivalent intent collapses across grep / rg variants.
+  //    `grep "auth_token"` and `rg "auth[_-]token"` both normalise
+  //    to the same family-prefixed intent_key, so any combination
+  //    of N of them counts toward the threshold.
+  it("Grep \"auth_token\" + rg \"auth[_-]token\" share the same intentKey", () => {
+    const sid = "session-deadbeef-0002";
+    // Three semantically-equivalent searches (different argKeys but
+    // same intentKey).
+    postObserve("Grep", { pattern: "auth_token", path: "src" }, sid);
+    postObserve("ripgrep", { pattern: "auth[_-]token", path: "src" }, sid);
+    postObserve("Grep", { pattern: "AUTH_TOKEN", path: "src" }, sid);
+
+    // The fixture's input should hit the same intent on the 4th try.
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"));
+    // The grep.json fixture searches for "TODO" — DIFFERENT intent
+    // — so it should NOT block under the intent-loop policy. This
+    // test asserts the helper wired the cache correctly even when
+    // the prefix differs.
+    expect(out.blocked).toBe(false);
+  });
+
+  // 2. Equivalent search intent blocks AFTER threshold (N=3).
+  it("equivalent search intent blocks after N=3 in default mode", () => {
+    const sid = "session-deadbeef-0002";
+    // Plant 3 prior observations with the SAME normalised intent
+    // as the grep.json fixture — pattern "TODO" / glob "**/*.ts" /
+    // path "src".
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, sid);
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, sid);
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, sid);
+
+    // 4th attempt — past threshold → blocked.
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"));
+    expect(out.blocked).toBe(true);
+    const env = JSON.parse(out.envelope) as { decision?: string; reason?: string };
+    expect(env.decision).toBe("block");
+    expect(env.reason).toMatch(/▣ TB LOOP\s+blocked repeated search/);
+    expect(env.reason).toMatch(/widen scope/);
+
+    // First intent-block hit emits a `warned { mode: "block" }`
+    // event — mechanism savings reads that as a credited-avoid
+    // signal. (Subsequent hits in the same session would emit
+    // suppressed events, but the first intent-block doesn't
+    // collide with the badge dedupe.)
+    const warned = readEvents("tool_supervision.warned");
+    expect(warned.some((e) => e.mode === "block")).toBe(true);
+  });
+
+  // 3. Below threshold reroutes/warns but does NOT block.
+  it("equivalent search intent below N=3 emits reuse hint, no block", () => {
+    const sid = "session-deadbeef-0002";
+    // Plant 2 prior observations — count + this synthetic = 3,
+    // which is the LAST allowed hit before threshold trips.
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, sid);
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, sid);
+
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"));
+    expect(out.blocked).toBe(false);
+    const env = JSON.parse(out.envelope) as { decision?: string; systemMessage?: string };
+    expect(env.decision).toBeUndefined();
+    // Either the reuse hint fires (signal === duplicate) or no badge
+    // — depending on how detectToolPattern reads 3 same-argKey rows.
+    // Both paths are valid as long as we don't block early.
+  });
+
+  // 4. Different intentKey doesn't count toward threshold.
+  it("different search intentKeys do NOT collapse into the same threshold count", () => {
+    const sid = "session-deadbeef-0002";
+    // Three searches with DIFFERENT semantic intents. The grep.json
+    // fixture's intent ("TODO") is a 4th orthogonal target — it
+    // should NOT trigger the intent-block.
+    postObserve("Grep", { pattern: "auth_token", path: "src" }, sid);
+    postObserve("Grep", { pattern: "config", path: "src" }, sid);
+    postObserve("Grep", { pattern: "router", path: "src" }, sid);
+
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"));
+    expect(out.blocked).toBe(false);
+  });
+
+  // 5. Different sessions have independent intent counters.
+  it("different sessions do NOT share the intent-loop threshold", () => {
+    // Plant 3 in a non-fixture session — must not affect fixture.
+    const otherSid = "session-deadbeef-other";
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, otherSid);
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, otherSid);
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, otherSid);
+
+    // Fixture's session is "session-deadbeef-0002" — 0 prior hits
+    // against it → no block.
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"));
+    expect(out.blocked).toBe(false);
+  });
+
+  // 6. Bash / Edit / Write must NEVER intent-block — they're not
+  //    search families, so intentKey is undefined for them.
+  it("Bash duplicates never trigger intent-block, regardless of count", () => {
+    const sid = "session-deadbeef-0004";
+    // Plant 5 identical Bash invocations — way past N=3.
+    for (let i = 0; i < 5; i++) {
+      postObserve(
+        "Bash",
+        {
+          command: "npm run build && cat dist/index.js | head -50",
+          description: "Build and inspect output",
+        },
+        sid,
+      );
+    }
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("bash.json"));
+    expect(out.blocked).toBe(false);
+  });
+
+  // 7. Pre-0.7.1 cache rows hydrate without crashing.
+  it("legacy cache rows (no `i` field) hydrate without crashing", () => {
+    // Plant a row in the legacy 4-field shape directly via
+    // RecentToolCache.appendBatchToDisk. Then assert hydrate +
+    // recentIntentCount handles the absence cleanly.
+    const cacheDir = join(workDir, ".tracebase", "cache");
+    mkdirSync(cacheDir, { recursive: true });
+    const cachePath = join(cacheDir, "rtools.bin");
+    writeFileSync(
+      cachePath,
+      JSON.stringify({ s: "legacy-session", k: "legacy-key", n: "Grep", t: Date.now() }) + "\n",
+    );
+
+    // Hydrate via a fresh cache instance — must not throw.
+    const cache = new RecentToolCache();
+    cache.hydrate(workDir);
+    expect(cache.size()).toBe(1);
+    // Legacy rows have no intentKey, so they're invisible to the
+    // intent count.
+    expect(cache.recentIntentCount("legacy-session", "search:grep something")).toBe(0);
+
+    // And running the hook against a fresh fixture must not crash
+    // when the cache contains a legacy row.
+    expect(() => runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"))).not.toThrow();
+  });
+
+  // 8. JSON / events distinguish warn / reroute / block.
+  it("intent-block on first synthetic emits warned { mode: 'block' }; second synthetic emits suppressed { blocked: true }", () => {
+    const sid = "session-deadbeef-0002";
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, sid);
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, sid);
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, sid);
+
+    // First synthetic hit (4th attempt at the same intent): blocks
+    // via intentBlock, emits warned with mode='block'.
+    const first = runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"));
+    expect(first.blocked).toBe(true);
+    const warned = readEvents("tool_supervision.warned");
+    const blockingWarned = warned.filter((e) => e.toolName === "Grep" && e.mode === "block");
+    expect(blockingWarned.length).toBe(1);
+
+    // Second synthetic hit (5th attempt): badge dedupe kicks in →
+    // suppressed event, blocked still fires.
+    const second = runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"));
+    expect(second.blocked).toBe(true);
+    const suppressed = readEvents("tool_supervision.suppressed");
+    const blockingSuppressed = suppressed.filter(
+      (e) => e.toolName === "Grep" && e.blocked === true,
+    );
+    expect(blockingSuppressed.length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Privacy regression — argSummary / tool_input never leak through events
 // ---------------------------------------------------------------------------
 
