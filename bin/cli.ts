@@ -31,6 +31,7 @@ import { usageCommand } from "../src/cli/commands/usage.js";
 // (enable / disable / read) stay exported for programmatic use.
 import { memoryCommand } from "../src/cli/commands/memory.js";
 import { impactCommand } from "../src/cli/commands/impact.js";
+import { savingsCommand } from "../src/cli/commands/savings.js";
 import { isInitialized } from "../src/core/config.js";
 
 // Read version from package.json at runtime
@@ -75,6 +76,7 @@ program.addCommand(captureToolUseCommand);
 program.addCommand(capturePreToolUseCommand);
 program.addCommand(memoryCommand);
 program.addCommand(impactCommand);
+program.addCommand(savingsCommand);
 
 // No args → guided quickstart instead of generic help
 if (process.argv.length <= 2) {
