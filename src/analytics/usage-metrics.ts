@@ -54,7 +54,7 @@
  * project. Per-project breakdown arrives alongside per-agent in
  * Phase 2.
  */
-import type { EventAggregates } from "../core/analytics.js";
+import type { EventAggregates, MechanismAggregates } from "../core/analytics.js";
 
 /**
  * Granularity of the aggregated sample. See the module docstring
@@ -253,6 +253,20 @@ export interface UsageMetrics {
    * subtracts from `tokensLift.value`.
    */
   totalInjectedTokensEstimate: number;
+  /**
+   * 0.7.0 §6 stable §2 — per-mechanism aggregates derived from the
+   * 0.7-rc.1+ event stream. Counts + closed-enum histograms only;
+   * NEVER carries paths, fileIds, sessionId, argKey, or raw tool
+   * names. The cloud allowlist's `metrics.mechanisms.*` shape is
+   * mirrored exactly so this object can ship as-is to the wire
+   * after `sanitizeForCloud` is run.
+   *
+   * Optional in `UsageMetrics` for backward-compatibility with
+   * older payloads (Phase 1 didn't have these aggregates), but
+   * `computeUsageMetrics` always populates it for windows
+   * computed from a current store.
+   */
+  mechanisms?: MechanismAggregates;
 }
 
 export interface UsageCohort {
@@ -410,6 +424,14 @@ export function computeUsageMetrics(
     },
     netTokenImpact,
     totalInjectedTokensEstimate,
+    // 0.7.0 §6 stable §2 — mechanism aggregates pass through
+    // verbatim. They are already in the cloud-allowlist shape
+    // (counts + closed-enum histograms) — `sanitizeForCloud`
+    // drops anything outside the declared keys at the wire so
+    // a future spec drift here is caught defensively, but the
+    // local aggregate is also constructed against the closed
+    // vocabulary in `tallyMechanismEvent`.
+    mechanisms: agg.mechanisms,
   };
 }
 

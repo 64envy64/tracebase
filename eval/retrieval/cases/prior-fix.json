@@ -1,0 +1,141 @@
+{
+  "kind": "prior_fix",
+  "thresholds": {
+    "recall_at_5": 0.85,
+    "ndcg_at_5": 0.70,
+    "mrr": 0.65
+  },
+  "cases": [
+    {
+      "id": "prior-001",
+      "memory": [
+        { "id": "trace-A", "problem": "TypeError: Cannot read property 'name' of undefined in UserCard component", "solution": "Add optional chaining: user?.name. Defensive null guard for missing user prop." },
+        { "id": "trace-B", "problem": "JSON.parse fails on empty string returning SyntaxError", "solution": "Guard with if (raw.length > 0) before JSON.parse, return null on empty." },
+        { "id": "trace-C", "problem": "React useEffect runs infinitely when state setter is in dep array", "solution": "Remove setter from deps; setters are stable refs by React contract." },
+        { "id": "trace-D", "problem": "Express middleware order causes auth check to run after route handler", "solution": "Mount auth middleware before route definitions in app.use order." }
+      ],
+      "query": "Cannot read property of undefined when rendering user component",
+      "expected": ["trace-A"]
+    },
+    {
+      "id": "prior-002",
+      "memory": [
+        { "id": "trace-A", "problem": "TypeError: Cannot read property 'name' of undefined in UserCard component", "solution": "Add optional chaining: user?.name." },
+        { "id": "trace-B", "problem": "JSON.parse fails on empty string returning SyntaxError", "solution": "Guard with if (raw.length > 0) before JSON.parse, return null on empty." },
+        { "id": "trace-C", "problem": "React useEffect runs infinitely when state setter is in dep array", "solution": "Remove setter from deps; setters are stable refs." }
+      ],
+      "query": "JSON parse throwing SyntaxError on blank input",
+      "expected": ["trace-B"]
+    },
+    {
+      "id": "prior-003",
+      "memory": [
+        { "id": "trace-A", "problem": "useEffect creates infinite render loop because dependency changes every render", "solution": "Memoize dependency with useMemo, or remove from deps if stable." },
+        { "id": "trace-B", "problem": "useState updater function not invoked, stale closure captures old value", "solution": "Pass a function to setState: setX(prev => prev + 1)." },
+        { "id": "trace-C", "problem": "useCallback returning a new function on every render", "solution": "Add stable dependencies; primitive deps preferred over objects." }
+      ],
+      "query": "React useEffect infinite loop dependencies",
+      "expected": ["trace-A"]
+    },
+    {
+      "id": "prior-004",
+      "memory": [
+        { "id": "trace-A", "problem": "PostgreSQL deadlock between concurrent UPDATE statements on same row", "solution": "Order locks consistently: SELECT FOR UPDATE in same key order across transactions." },
+        { "id": "trace-B", "problem": "SQLite database is locked error in better-sqlite3 on concurrent writes", "solution": "Enable WAL mode: PRAGMA journal_mode=WAL." },
+        { "id": "trace-C", "problem": "MongoDB write conflict on findOneAndUpdate with same document", "solution": "Use upsert with $setOnInsert and retry on duplicate key." }
+      ],
+      "query": "SQLite better-sqlite3 database is locked",
+      "expected": ["trace-B"]
+    },
+    {
+      "id": "prior-005",
+      "memory": [
+        { "id": "trace-A", "problem": "Webpack build fails with Can't resolve 'crypto' in browser bundle", "solution": "Add fallback in resolve.fallback config: { crypto: false } or polyfill." },
+        { "id": "trace-B", "problem": "Vite import.meta.env undefined in production build", "solution": "Prefix env vars with VITE_ to expose to client bundle." },
+        { "id": "trace-C", "problem": "TypeScript fails to find module declaration for image import", "solution": "Add declare module '*.png' to a global.d.ts file." }
+      ],
+      "query": "Webpack browser cannot resolve crypto module",
+      "expected": ["trace-A"]
+    },
+    {
+      "id": "prior-006",
+      "memory": [
+        { "id": "trace-A", "problem": "Docker container cannot connect to host postgres on localhost:5432", "solution": "Use host.docker.internal instead of localhost on Mac/Win." },
+        { "id": "trace-B", "problem": "Docker compose service unable to reach another service by name", "solution": "Both services must be on same default network; use service name as hostname." },
+        { "id": "trace-C", "problem": "Dockerfile COPY fails with file not found despite file existing", "solution": "Check .dockerignore; build context excludes the file." }
+      ],
+      "query": "Docker container can't reach localhost postgres",
+      "expected": ["trace-A"]
+    },
+    {
+      "id": "prior-007",
+      "memory": [
+        { "id": "trace-A", "problem": "Promise.all rejects on first error losing partial results", "solution": "Use Promise.allSettled to collect all outcomes including rejections." },
+        { "id": "trace-B", "problem": "async function inside forEach does not await before loop continues", "solution": "Use for-of with await, or Promise.all(arr.map(fn))." },
+        { "id": "trace-C", "problem": "unhandled promise rejection crashing Node process", "solution": "Add .catch() or wrap in try-catch in async function; handle process.on('unhandledRejection')." }
+      ],
+      "query": "Promise.all losing results when one rejects",
+      "expected": ["trace-A"]
+    },
+    {
+      "id": "prior-008",
+      "memory": [
+        { "id": "trace-A", "problem": "CORS preflight failing with Access-Control-Allow-Origin missing", "solution": "Echo Origin in CORS header, or use cors npm middleware." },
+        { "id": "trace-B", "problem": "Express CORS not setting Access-Control-Allow-Credentials", "solution": "Set credentials: true in cors options and explicit origin (no wildcard)." },
+        { "id": "trace-C", "problem": "Fetch from frontend shows opaque response with no CORS error", "solution": "Server must return CORS headers; opaque means request was made cross-origin without proper headers." }
+      ],
+      "query": "CORS preflight Access-Control-Allow-Origin missing",
+      "expected": ["trace-A"]
+    },
+    {
+      "id": "prior-009",
+      "memory": [
+        { "id": "trace-A", "problem": "TypeScript strict mode complains about possibly null in non-null assertion", "solution": "Use type guard: if (x !== null) instead of x! non-null assertion." },
+        { "id": "trace-B", "problem": "TypeScript Object is possibly undefined on optional chaining result", "solution": "Use ?? default value or narrow with if check before access." },
+        { "id": "trace-C", "problem": "TypeScript no overload matches this call on overloaded function", "solution": "Cast argument to specific overload type, or refine input type." }
+      ],
+      "query": "TypeScript object is possibly undefined error after optional chaining",
+      "expected": ["trace-B"]
+    },
+    {
+      "id": "prior-010",
+      "memory": [
+        { "id": "trace-A", "problem": "git rebase loses commits when branch was already pushed", "solution": "Force push with lease: git push --force-with-lease to avoid clobbering teammates." },
+        { "id": "trace-B", "problem": "git merge conflict in package-lock.json hard to resolve", "solution": "Delete lock file, run npm install, commit fresh lock." },
+        { "id": "trace-C", "problem": "git stash pop fails with conflict on same file", "solution": "Resolve conflict markers manually, then git stash drop." }
+      ],
+      "query": "git rebase pushed branch lost commits",
+      "expected": ["trace-A"]
+    },
+    {
+      "id": "prior-011",
+      "memory": [
+        { "id": "trace-A", "problem": "Node fetch returns 401 even though token is valid in curl", "solution": "Strip whitespace and BOM from token; check for trailing newline in env var." },
+        { "id": "trace-B", "problem": "Node fetch returning empty body despite 200 OK", "solution": "Await response.text() / response.json() — body is a Stream that must be consumed." },
+        { "id": "trace-C", "problem": "Node fetch ECONNRESET on long-running request", "solution": "Increase keep-alive or implement retry with exponential backoff." }
+      ],
+      "query": "fetch returns 401 unauthorized token works in curl",
+      "expected": ["trace-A"]
+    },
+    {
+      "id": "prior-012",
+      "memory": [
+        { "id": "trace-A", "problem": "Jest test hangs indefinitely on async operation never resolves", "solution": "Add jest.setTimeout or mark test async and await all promises explicitly." },
+        { "id": "trace-B", "problem": "Vitest mock not being applied to imported module", "solution": "Use vi.mock at top-level, before imports — hoisted before transform." },
+        { "id": "trace-C", "problem": "Mocha test passes alone but fails in suite from shared state", "solution": "Reset state in beforeEach; do not mutate module-level globals." }
+      ],
+      "query": "Jest test hangs forever async never resolves",
+      "expected": ["trace-A"]
+    },
+    {
+      "id": "prior-013",
+      "memory": [
+        { "id": "trace-A", "problem": "Node Buffer concat throws TypeError on non-Buffer input", "solution": "Wrap with Buffer.from() or coerce strings before passing to concat." },
+        { "id": "trace-B", "problem": "Stream pipeline silently swallowing errors mid-pipeline", "solution": "Use stream.pipeline (callback or async) — pipe() does not propagate errors." },
+        { "id": "trace-C", "problem": "fs.readFile vs fs.promises.readFile inconsistent in callbacks", "solution": "Pick one API; promises version is preferred in modern Node." }
+      ],
+      "query": "Node stream pipeline swallowing errors silently",
+      "expected": ["trace-B"]
+    }
+  ]
+}

@@ -224,3 +224,57 @@ describe("RecentToolCache — file format is stable", () => {
     expect(Object.keys(parsed).sort()).toEqual(["k", "n", "s", "t"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 0.7.0 §6 stable §5 — disk-size cap enforcement on appendBatchToDisk
+// ---------------------------------------------------------------------------
+
+describe("RecentToolCache — disk-size cap enforcement", () => {
+  it("appendBatchToDisk rotates when on-disk size exceeds MAX_DISK_BYTES", () => {
+    // Plant a fake oversized cache file the way a long-running
+    // session would: many lines accumulated by O(1) appends.
+    const path = cacheFilePath(workspace);
+    mkdirSync(join(workspace, ".tracebase", "cache"), { recursive: true });
+    // Write ~3 MiB of valid records — well above the 2 MiB threshold.
+    const FAT_LINE = JSON.stringify({ s: "stale-session", k: "stale-key", n: "Read", t: 1 }) + "\n";
+    const padded = FAT_LINE + " ".repeat(3 * 1024 * 1024) + "\n"; // pad to push file size up
+    writeFileSync(path, padded);
+    const before = readFileSync(path).byteLength;
+    expect(before).toBeGreaterThan(2 * 1024 * 1024);
+
+    // Append a normal batch — the rotation should fire.
+    const c = new RecentToolCache({ maxRecords: 8 });
+    c.appendBatchToDisk(workspace, [
+      obs("s1", "k1", "Read", 100),
+      obs("s1", "k2", "Read", 101),
+    ]);
+
+    const after = readFileSync(path).byteLength;
+    // After rotation, the file is bounded by maxRecords × per-line cost.
+    // 8 × ~100 bytes < 2 MiB by orders of magnitude.
+    expect(after).toBeLessThan(2 * 1024 * 1024);
+
+    // The two new observations survived the rotation.
+    const lines = readFileSync(path, "utf-8").trim().split("\n").filter(Boolean);
+    const sessions = lines.map((l) => (JSON.parse(l) as { s: string }).s);
+    expect(sessions).toContain("s1");
+  });
+
+  it("appendBatchToDisk stays append-only when on-disk size is under the cap", () => {
+    // Healthy steady-state path: file under threshold → append-only.
+    const c = new RecentToolCache();
+    c.appendBatchToDisk(workspace, [
+      obs("s1", "k1", "Read", 1),
+      obs("s1", "k2", "Read", 2),
+    ]);
+    const sizeAfterFirst = readFileSync(cacheFilePath(workspace)).byteLength;
+    c.appendBatchToDisk(workspace, [
+      obs("s1", "k3", "Read", 3),
+    ]);
+    const sizeAfterSecond = readFileSync(cacheFilePath(workspace)).byteLength;
+    // Second batch should ADD to the file, not rewrite it.
+    expect(sizeAfterSecond).toBeGreaterThan(sizeAfterFirst);
+    const lines = readFileSync(cacheFilePath(workspace), "utf-8").trim().split("\n").filter(Boolean);
+    expect(lines.length).toBe(3);
+  });
+});

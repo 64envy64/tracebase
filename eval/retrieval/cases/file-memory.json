@@ -1,0 +1,131 @@
+{
+  "kind": "file_memory",
+  "thresholds": {
+    "recall_at_5": 0.85,
+    "ndcg_at_5": 0.70,
+    "mrr": 0.65
+  },
+  "cases": [
+    {
+      "id": "file-001",
+      "memory": [
+        { "id": "auth", "path": "src/auth/login.ts", "summary": "JWT token validation, refresh handler, session cookie issuance.", "bytes": 4200 },
+        { "id": "router", "path": "src/server/router.ts", "summary": "Express router setup for /api/v1 routes including users, posts, search.", "bytes": 3100 },
+        { "id": "db", "path": "src/db/postgres.ts", "summary": "PostgreSQL connection pool, transaction helpers, retry on serialization failure.", "bytes": 2800 },
+        { "id": "cache", "path": "src/cache/redis.ts", "summary": "Redis client wrapper, getJson/setJson with TTL, pipeline for batch ops.", "bytes": 1900 }
+      ],
+      "query": "where do we validate JWT tokens and issue session cookies",
+      "expected": ["auth"]
+    },
+    {
+      "id": "file-002",
+      "memory": [
+        { "id": "auth", "path": "src/auth/login.ts", "summary": "JWT token validation, refresh handler, session cookie issuance.", "bytes": 4200 },
+        { "id": "router", "path": "src/server/router.ts", "summary": "Express router setup for /api/v1 routes including users, posts, search.", "bytes": 3100 },
+        { "id": "db", "path": "src/db/postgres.ts", "summary": "PostgreSQL connection pool, transaction helpers, retry on serialization failure.", "bytes": 2800 }
+      ],
+      "query": "PostgreSQL connection pool transaction retry helper",
+      "expected": ["db"]
+    },
+    {
+      "id": "file-003",
+      "memory": [
+        { "id": "indexer", "path": "src/core/file-indexer.ts", "summary": "Walks workspace, extracts symbols and summary, writes indexed_files rows for FTS5 search.", "bytes": 8500 },
+        { "id": "engine", "path": "src/core/engine.ts", "summary": "ReasoningLayer main API: storeTrace, recall, feedback, listTraces.", "bytes": 6700 },
+        { "id": "store", "path": "src/core/store.ts", "summary": "TraceStore — SQLite persistence for traces, fingerprint dedupe, age-based pruning.", "bytes": 5100 }
+      ],
+      "query": "file indexer summary symbols FTS5",
+      "expected": ["indexer"]
+    },
+    {
+      "id": "file-004",
+      "memory": [
+        { "id": "openai", "path": "src/middleware/openai.ts", "summary": "wrapOpenAI: recall → inject → call LLM → record trace. Supports streams.", "bytes": 7200 },
+        { "id": "anthropic", "path": "src/middleware/anthropic.ts", "summary": "wrapAnthropic: same recall/inject path for Anthropic SDK clients.", "bytes": 6900 },
+        { "id": "generic", "path": "src/middleware/generic.ts", "summary": "wrapAgent: framework-neutral wrapper for arbitrary agent objects with run/invoke methods.", "bytes": 4500 }
+      ],
+      "query": "wrap an OpenAI client to capture traces",
+      "expected": ["openai"]
+    },
+    {
+      "id": "file-005",
+      "memory": [
+        { "id": "openai", "path": "src/middleware/openai.ts", "summary": "wrapOpenAI: recall → inject → call LLM → record trace. Supports streams.", "bytes": 7200 },
+        { "id": "anthropic", "path": "src/middleware/anthropic.ts", "summary": "wrapAnthropic: same recall/inject path for Anthropic SDK clients with streaming support.", "bytes": 6900 },
+        { "id": "promptcache", "path": "src/middleware/prompt-cache.ts", "summary": "Anthropic cache_control attachment, OpenAI cached_tokens extraction, cache.prompt_hit emission.", "bytes": 5300 }
+      ],
+      "query": "Anthropic cache_control ephemeral attachment",
+      "expected": ["promptcache"]
+    },
+    {
+      "id": "file-006",
+      "memory": [
+        { "id": "guard", "path": "src/core/guard.ts", "summary": "Privacy and prompt-injection patterns. detectLeakageExtended for absolute paths, secrets, credentials.", "bytes": 4800 },
+        { "id": "config", "path": "src/core/config.ts", "summary": "loadConfig, defaultConfig, findConfigDir, holdout experiment helpers.", "bytes": 3900 },
+        { "id": "fingerprint", "path": "src/core/fingerprint.ts", "summary": "Token-level fingerprinting for trace deduplication; jaccardSimilarity.", "bytes": 2600 }
+      ],
+      "query": "leakage detection absolute paths and secrets",
+      "expected": ["guard"]
+    },
+    {
+      "id": "file-007",
+      "memory": [
+        { "id": "init", "path": "src/cli/commands/init.ts", "summary": "tracebase init: writes config.json, generates workspaceId, installs MCP runtime registration.", "bytes": 5400 },
+        { "id": "doctor", "path": "src/cli/commands/doctor.ts", "summary": "tracebase doctor: 12-section health check including config, mcp-boot probe, file index health.", "bytes": 9200 },
+        { "id": "status", "path": "src/cli/commands/status.ts", "summary": "tracebase status: snapshot of trace count, recent activity, holdout state.", "bytes": 3300 }
+      ],
+      "query": "doctor health check 12 sections",
+      "expected": ["doctor"]
+    },
+    {
+      "id": "file-008",
+      "memory": [
+        { "id": "impact", "path": "src/cli/commands/impact.ts", "summary": "tracebase impact: one-line measurable token impact summary, estimated + verified + mechanism saved.", "bytes": 8100 },
+        { "id": "report", "path": "src/cli/commands/report.ts", "summary": "tracebase report: aggregated metrics, JSON output, time windows.", "bytes": 4400 },
+        { "id": "events", "path": "src/cli/commands/events.ts", "summary": "tracebase events: filter and inspect analytics_events rows by type and window.", "bytes": 2900 }
+      ],
+      "query": "estimated and verified token saved one line summary",
+      "expected": ["impact"]
+    },
+    {
+      "id": "file-009",
+      "memory": [
+        { "id": "fold", "path": "src/core/context-fold.ts", "summary": "foldTurns: rolling chunk fold over transcript, idempotent on turn_hash, leakage + injection scan.", "bytes": 4700 },
+        { "id": "digest", "path": "src/runtime/digest.ts", "summary": "Extract digest from JSONL transcript, drive PreCompact path.", "bytes": 3800 },
+        { "id": "recall", "path": "src/runtime/recall.ts", "summary": "recallForPrompt: shared by Claude Code hook and SDK runtime.beforeRun.", "bytes": 6300 }
+      ],
+      "query": "fold transcript into rolling chunks idempotent",
+      "expected": ["fold"]
+    },
+    {
+      "id": "file-010",
+      "memory": [
+        { "id": "blockstore", "path": "src/core/block-store.ts", "summary": "BlockStore: SQLite analytics, blocks, facts, file index, session chunks. Schema migrations.", "bytes": 18500 },
+        { "id": "blockserving", "path": "src/core/block-serving.ts", "summary": "BlockServer: ranking, gating, holdout, recall_v2 path.", "bytes": 7400 },
+        { "id": "tooldetect", "path": "src/core/tool-loop-detect.ts", "summary": "Detect duplicate / pingpong / straight tool patterns from tool_observations.", "bytes": 4200 }
+      ],
+      "query": "session chunks SQLite schema migration",
+      "expected": ["blockstore"]
+    },
+    {
+      "id": "file-011",
+      "memory": [
+        { "id": "anthropicwrap", "path": "src/middleware/anthropic.ts", "summary": "wrapAnthropic: recall and inject into system prompt; reads cache_read_input_tokens for hit emission.", "bytes": 6900 },
+        { "id": "openaiwrap", "path": "src/middleware/openai.ts", "summary": "wrapOpenAI: recall and inject; reads prompt_tokens_details.cached_tokens for hit emission.", "bytes": 7200 },
+        { "id": "recall_inject", "path": "src/middleware/recall-inject.ts", "summary": "performRecall + injectIntoAnthropicSystem + injectIntoOpenAIMessages helpers.", "bytes": 4800 }
+      ],
+      "query": "OpenAI prompt_tokens_details cached_tokens cache hit",
+      "expected": ["openaiwrap"]
+    },
+    {
+      "id": "file-012",
+      "memory": [
+        { "id": "loop", "path": "src/core/loop-redirect.ts", "summary": "resolveLoopRedirect: anchor-recall on duplicate/pingpong tool signal.", "bytes": 3700 },
+        { "id": "intent", "path": "src/core/intent-key.ts", "summary": "normalizeIntentKey: sanitised tool args → stable bucket id.", "bytes": 2400 },
+        { "id": "fold", "path": "src/core/context-fold.ts", "summary": "foldTurns: rolling chunk fold with summary clamp.", "bytes": 4700 }
+      ],
+      "query": "loop redirect anchor recall on duplicate tool",
+      "expected": ["loop"]
+    }
+  ]
+}

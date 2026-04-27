@@ -141,6 +141,41 @@ layer.close();
 
 ---
 
+## Host Parity
+
+Capabilities by host integration. Every cell in this table is backed by an integration test in `tests/parity/host-matrix.test.ts`.
+
+| Host                          | Recall | FileMem | Fold | PromptCache | Tool          | Loop          |
+| ----------------------------- | :----: | :-----: | :--: | :---------: | :-----------: | :-----------: |
+| Claude Code (hooks)           |   ✓    |    ✓    |  ✓   |     n/a¹    | ✓ preventive  | ✓ preventive  |
+| `wrapAnthropic`               |   ✓    |    ✓    |  ✓   |      ✓      | ◐ post-hoc²   | ◐ post-hoc²   |
+| `wrapOpenAI`                  |   ✓    |    ✓    |  ✓   |      ✓      | ◐ post-hoc²   | ◐ post-hoc²   |
+| `wrapAgent` (string→string)   |   ✓    |    ✓    |  ✓   |     n/a³    | ◐ post-hoc²   | ◐ post-hoc²   |
+| `wrapGeneric` (LangChain)     |   ✓    |    ✓    |  ✓   |     n/a³    | ◐ post-hoc²   | ◐ post-hoc²   |
+| `wrapGeneric` (LangGraph)     |   ✓    |    ✓    |  ✓   |     n/a³    | ◐ post-hoc²   | ◐ post-hoc²   |
+| `wrapGeneric` (Agent SDK)     |   ✓    |    ✓    |  ✓   |     n/a³    | ◐ post-hoc²   | ◐ post-hoc²   |
+
+Legend:
+- **✓** — exercised end-to-end via the host's real path.
+- **◐** — partial: capability exists but is observed AFTER the call rather than blocking before it.
+- **preventive** — TraceBase decides BEFORE the tool runs (block / warn / allow).
+- **post-hoc** — TraceBase records what happened; the loop redirect hint surfaces on the NEXT turn, not this one.
+
+Footnotes:
+1. Claude Code's prompt cache is provider-side — attached by the model server itself; no hook-layer involvement. Effective in your Claude Code session regardless.
+2. Bare wrappers don't intercept tool dispatch. Wire `runtime.observeToolBatch(...)` after each tool batch (or use `wrapGeneric`'s `observeTools` callback) to enable Tool/Loop signals on the NEXT call.
+3. Generic agent wrappers don't see provider request shapes. If the underlying call goes through `wrapAnthropic` / `wrapOpenAI` inside the generic flow, prompt cache fires from there. Cache savings (when supported by the provider) **may reduce billed/processed prefix tokens** on cache hits; the actual reduction is what the provider reports back via `cache_read_input_tokens` (Anthropic) or `prompt_tokens_details.cached_tokens` (OpenAI). TraceBase never estimates cache savings — it counts only what the provider reports.
+
+Capability glossary:
+- **Recall** — prior-fix lookup (`ReasoningLayer.recall` / `runtime.beforeRun`).
+- **FileMem** — file-index-backed snippet recall (`recallFiles`).
+- **Fold** — same-session chunk recall from rolling context fold (`recallChunks`).
+- **PromptCache** — provider-side prefix caching (Anthropic `cache_control` + cached-token reporting; OpenAI auto-cache + cached-token reporting).
+- **Tool** — duplicate / shape-of-loop tool detection.
+- **Loop** — anchor-recall redirect when a duplicate / pingpong / straight-line tool pattern fires.
+
+---
+
 ## How It Works
 
 ### The Recall-Before-Call Loop

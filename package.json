@@ -1,6 +1,6 @@
 {
   "name": "tracebase-ai",
-  "version": "0.7.0-rc.7",
+  "version": "0.7.0",
   "description": "Reasoning layer for AI agents — institutional memory so your agents never solve the same problem twice",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -33,6 +33,10 @@
     "lint": "tsc --noEmit -p tsconfig.check.json",
     "bench:hooks": "tsx scripts/bench-hooks.ts",
     "bench:sdk": "tsx scripts/bench-sdk.ts",
+    "bench:mechanisms": "tsx scripts/bench-mechanisms.ts",
+    "bench:gate": "tsx scripts/bench-gate.ts",
+    "eval:retrieval": "tsx eval/retrieval/runner.ts",
+    "smoke:agent": "tsx scripts/agent-smoke.ts",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

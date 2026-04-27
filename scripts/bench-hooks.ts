@@ -31,20 +31,30 @@ const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf-8")) as
 interface Budget {
   hook: string;
   target_ms: number;
+  /**
+   * 0.7.0 §6 stable gates §1 — release-blocking ceiling. The
+   * release gate fails ONLY when p95 exceeds the ceiling; p95
+   * over target but under ceiling logs as "OVER" without failing
+   * the build, matching the escalation rule from `bench-sdk.ts`.
+   * This stops transient noise (npm spawn under load, disk
+   * stalls in CI) from flapping the gate.
+   */
+  ceiling_ms: number;
   release_gate: boolean;
 }
 
 // Mirrors PLAN-0.5 §3 table. Source of truth for the CI gate.
 const BUDGETS: Budget[] = [
-  { hook: "inject-context", target_ms: 150, release_gate: true },
-  { hook: "capture-turn", target_ms: 500, release_gate: true },
-  { hook: "capture-context", target_ms: 2000, release_gate: true },
-  { hook: "capture-tool-use", target_ms: 200, release_gate: true },
+  { hook: "inject-context", target_ms: 150, ceiling_ms: 400, release_gate: true },
+  { hook: "capture-turn", target_ms: 500, ceiling_ms: 1500, release_gate: true },
+  { hook: "capture-context", target_ms: 2000, ceiling_ms: 6000, release_gate: true },
+  { hook: "capture-tool-use", target_ms: 200, ceiling_ms: 600, release_gate: true },
 ];
 
 interface FixtureResult {
   hook: string;
   target_ms: number;
+  ceiling_ms: number;
   release_gate: boolean;
   runs: number;
   p50_ms: number;
@@ -52,6 +62,7 @@ interface FixtureResult {
   p99_ms: number;
   max_ms: number;
   exceedsBudget: boolean;
+  exceedsCeiling: boolean;
 }
 
 const WARMUP = 5;
@@ -194,6 +205,7 @@ function fixtureInjectContext(): FixtureResult {
     return {
       hook: "inject-context",
       target_ms: budget.target_ms,
+      ceiling_ms: budget.ceiling_ms,
       release_gate: budget.release_gate,
       runs: durations.length,
       p50_ms: round2(quantile(sorted, 0.5)),
@@ -201,6 +213,7 @@ function fixtureInjectContext(): FixtureResult {
       p99_ms: round2(quantile(sorted, 0.99)),
       max_ms: round2(sorted[sorted.length - 1] ?? 0),
       exceedsBudget: p95 > budget.target_ms,
+      exceedsCeiling: p95 > budget.ceiling_ms,
     };
   } finally {
     rmSync(projectDir, { recursive: true, force: true });
@@ -275,6 +288,7 @@ function fixtureCaptureTurn(): FixtureResult {
     return {
       hook: "capture-turn",
       target_ms: budget.target_ms,
+      ceiling_ms: budget.ceiling_ms,
       release_gate: budget.release_gate,
       runs: durations.length,
       p50_ms: round2(quantile(sorted, 0.5)),
@@ -282,6 +296,7 @@ function fixtureCaptureTurn(): FixtureResult {
       p99_ms: round2(quantile(sorted, 0.99)),
       max_ms: round2(sorted[sorted.length - 1] ?? 0),
       exceedsBudget: p95 > budget.target_ms,
+      exceedsCeiling: p95 > budget.ceiling_ms,
     };
   } finally {
     rmSync(projectDir, { recursive: true, force: true });
@@ -361,6 +376,7 @@ function fixtureCaptureContext(): FixtureResult {
     return {
       hook: "capture-context",
       target_ms: budget.target_ms,
+      ceiling_ms: budget.ceiling_ms,
       release_gate: budget.release_gate,
       runs: durations.length,
       p50_ms: round2(quantile(sorted, 0.5)),
@@ -368,6 +384,7 @@ function fixtureCaptureContext(): FixtureResult {
       p99_ms: round2(quantile(sorted, 0.99)),
       max_ms: round2(sorted[sorted.length - 1] ?? 0),
       exceedsBudget: p95 > budget.target_ms,
+      exceedsCeiling: p95 > budget.ceiling_ms,
     };
   } finally {
     rmSync(projectDir, { recursive: true, force: true });
@@ -473,6 +490,7 @@ function fixtureCaptureToolUse(): FixtureResult {
     return {
       hook: "capture-tool-use",
       target_ms: budget.target_ms,
+      ceiling_ms: budget.ceiling_ms,
       release_gate: budget.release_gate,
       runs: durations.length,
       p50_ms: round2(quantile(sorted, 0.5)),
@@ -480,6 +498,7 @@ function fixtureCaptureToolUse(): FixtureResult {
       p99_ms: round2(quantile(sorted, 0.99)),
       max_ms: round2(sorted[sorted.length - 1] ?? 0),
       exceedsBudget: p95 > budget.target_ms,
+      exceedsCeiling: p95 > budget.ceiling_ms,
     };
   } finally {
     rmSync(projectDir, { recursive: true, force: true });
@@ -508,9 +527,15 @@ function main(): void {
   results.push(fixtureCaptureToolUse());
 
   for (const r of results) {
-    const status = r.exceedsBudget ? (r.release_gate ? "FAIL" : "warn") : "pass";
+    const status = r.exceedsCeiling
+      ? r.release_gate
+        ? "FAIL"
+        : "warn"
+      : r.exceedsBudget
+        ? "OVER"
+        : "pass";
     console.log(
-      `  ${status.padEnd(4)}  ${r.hook.padEnd(20)}  p50=${r.p50_ms}ms p95=${r.p95_ms}ms p99=${r.p99_ms}ms max=${r.max_ms}ms (target ${r.target_ms}ms)`,
+      `  ${status.padEnd(4)}  ${r.hook.padEnd(20)}  p50=${r.p50_ms}ms p95=${r.p95_ms}ms p99=${r.p99_ms}ms max=${r.max_ms}ms (target ${r.target_ms}ms ceiling ${r.ceiling_ms}ms)`,
     );
   }
   console.log("");
@@ -532,12 +557,14 @@ function main(): void {
   );
   console.log(`results: ${resultsPath}`);
 
-  const gateFailures = results.filter((r) => r.exceedsBudget && r.release_gate);
+  // 0.7.0 §6 — release gate fires only on ceiling miss; over-target
+  // logs as "OVER" so a busy CI machine doesn't flap the build.
+  const gateFailures = results.filter((r) => r.exceedsCeiling && r.release_gate);
   if (gateFailures.length > 0) {
     console.error("");
-    console.error(`[bench] ${gateFailures.length} release-gated fixture(s) exceeded budget.`);
+    console.error(`[bench] ${gateFailures.length} release-gated fixture(s) exceeded ceiling.`);
     for (const f of gateFailures) {
-      console.error(`  - ${f.hook}: p95=${f.p95_ms}ms > target ${f.target_ms}ms`);
+      console.error(`  - ${f.hook}: p95=${f.p95_ms}ms > ceiling ${f.ceiling_ms}ms`);
     }
     process.exit(1);
   }

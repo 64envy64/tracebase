@@ -1,0 +1,115 @@
+{
+  "kind": "context_fold",
+  "thresholds": {
+    "recall_at_5": 0.85,
+    "ndcg_at_5": 0.70,
+    "mrr": 0.65
+  },
+  "cases": [
+    {
+      "id": "fold-001",
+      "sessionId": "s-001",
+      "memory": [
+        { "id": "c1", "chunkStartTurn": 0, "chunkEndTurn": 7, "summary": "User asked about Postgres deadlock; agent diagnosed missing FOR UPDATE ordering and added consistent lock acquisition.", "tokensBefore": 4200, "tokensAfter": 200 },
+        { "id": "c2", "chunkStartTurn": 8, "chunkEndTurn": 15, "summary": "Refactored auth middleware to mount before route handlers in Express app.use order.", "tokensBefore": 3800, "tokensAfter": 180 },
+        { "id": "c3", "chunkStartTurn": 16, "chunkEndTurn": 23, "summary": "Added retry-with-backoff helper for transient ECONNRESET errors against external API.", "tokensBefore": 3500, "tokensAfter": 160 }
+      ],
+      "query": "earlier we fixed the postgres deadlock with FOR UPDATE locking",
+      "expected": ["c1"]
+    },
+    {
+      "id": "fold-002",
+      "sessionId": "s-002",
+      "memory": [
+        { "id": "c1", "chunkStartTurn": 0, "chunkEndTurn": 7, "summary": "Investigated SQLite database is locked under concurrent writes; enabled WAL mode in better-sqlite3.", "tokensBefore": 4000, "tokensAfter": 220 },
+        { "id": "c2", "chunkStartTurn": 8, "chunkEndTurn": 15, "summary": "Diagnosed React infinite render loop caused by useEffect dep on memoised object recreated each render.", "tokensBefore": 3700, "tokensAfter": 190 },
+        { "id": "c3", "chunkStartTurn": 16, "chunkEndTurn": 23, "summary": "Wrote Vitest mock for fetch, used vi.mock at top-level for hoisting.", "tokensBefore": 3300, "tokensAfter": 170 }
+      ],
+      "query": "remind me how we fixed the React useEffect infinite loop",
+      "expected": ["c2"]
+    },
+    {
+      "id": "fold-003",
+      "sessionId": "s-003",
+      "memory": [
+        { "id": "c1", "chunkStartTurn": 0, "chunkEndTurn": 7, "summary": "Set up Docker compose with two services on default network; used service name as hostname.", "tokensBefore": 3900, "tokensAfter": 210 },
+        { "id": "c2", "chunkStartTurn": 8, "chunkEndTurn": 15, "summary": "Migrated from npm to pnpm workspaces; updated CI cache key for lockfile.", "tokensBefore": 3500, "tokensAfter": 180 }
+      ],
+      "query": "docker compose service to service hostname resolution",
+      "expected": ["c1"]
+    },
+    {
+      "id": "fold-004",
+      "sessionId": "s-004",
+      "memory": [
+        { "id": "c1", "chunkStartTurn": 0, "chunkEndTurn": 7, "summary": "Added Anthropic prompt cache by attaching cache_control ephemeral on system block; reading cache_read_input_tokens for hit emission.", "tokensBefore": 4400, "tokensAfter": 240 },
+        { "id": "c2", "chunkStartTurn": 8, "chunkEndTurn": 15, "summary": "Wired OpenAI prompt cache via prompt_tokens_details.cached_tokens; emit cache.prompt_hit event.", "tokensBefore": 3800, "tokensAfter": 200 },
+        { "id": "c3", "chunkStartTurn": 16, "chunkEndTurn": 23, "summary": "Built mechanism savings aggregator: four components plus total, never conflated with verified causal lift.", "tokensBefore": 3200, "tokensAfter": 170 }
+      ],
+      "query": "Anthropic ephemeral cache_control how we attached it",
+      "expected": ["c1"]
+    },
+    {
+      "id": "fold-005",
+      "sessionId": "s-005",
+      "memory": [
+        { "id": "c1", "chunkStartTurn": 0, "chunkEndTurn": 7, "summary": "CORS preflight failing — set Access-Control-Allow-Origin to echo Origin and added cors npm middleware.", "tokensBefore": 4100, "tokensAfter": 220 },
+        { "id": "c2", "chunkStartTurn": 8, "chunkEndTurn": 15, "summary": "Fixed Webpack browser bundle Cannot resolve crypto with resolve.fallback config.", "tokensBefore": 3600, "tokensAfter": 190 }
+      ],
+      "query": "webpack resolve crypto fallback browser",
+      "expected": ["c2"]
+    },
+    {
+      "id": "fold-006",
+      "sessionId": "s-006",
+      "memory": [
+        { "id": "c1", "chunkStartTurn": 0, "chunkEndTurn": 7, "summary": "TypeScript strict null checks; refactored to type guards instead of non-null assertions.", "tokensBefore": 3900, "tokensAfter": 200 },
+        { "id": "c2", "chunkStartTurn": 8, "chunkEndTurn": 15, "summary": "Promise.all losing partial results on rejection — switched to Promise.allSettled.", "tokensBefore": 3400, "tokensAfter": 180 }
+      ],
+      "query": "Promise allSettled migration from Promise.all rejection",
+      "expected": ["c2"]
+    },
+    {
+      "id": "fold-007",
+      "sessionId": "s-007",
+      "memory": [
+        { "id": "c1", "chunkStartTurn": 0, "chunkEndTurn": 7, "summary": "Set up holdout experiment for causal measurement; deterministic hash assignment per fingerprint.", "tokensBefore": 4500, "tokensAfter": 250 },
+        { "id": "c2", "chunkStartTurn": 8, "chunkEndTurn": 15, "summary": "Wrote impact CLI: head + estimated + verified + mechanism segments; never confuses estimate with verified.", "tokensBefore": 4200, "tokensAfter": 230 },
+        { "id": "c3", "chunkStartTurn": 16, "chunkEndTurn": 23, "summary": "Cloud allowlist freeze on USAGE_SAMPLE_ALLOWLIST; mechanisms shape under metrics.mechanisms.", "tokensBefore": 3800, "tokensAfter": 210 }
+      ],
+      "query": "holdout experiment deterministic fingerprint hash assignment",
+      "expected": ["c1"]
+    },
+    {
+      "id": "fold-008",
+      "sessionId": "s-008",
+      "memory": [
+        { "id": "c1", "chunkStartTurn": 0, "chunkEndTurn": 7, "summary": "Built file index with FTS5; recallFiles BM25 ranking with bm25 score column.", "tokensBefore": 4300, "tokensAfter": 240 },
+        { "id": "c2", "chunkStartTurn": 8, "chunkEndTurn": 15, "summary": "Hardened drainIndexerPending against stale paths and excluded suffixes.", "tokensBefore": 3700, "tokensAfter": 200 }
+      ],
+      "query": "file index FTS5 BM25 ranking",
+      "expected": ["c1"]
+    },
+    {
+      "id": "fold-009",
+      "sessionId": "s-009",
+      "memory": [
+        { "id": "c1", "chunkStartTurn": 0, "chunkEndTurn": 7, "summary": "Added PreToolUse warm cache so dump-first path skips redundant FS reads.", "tokensBefore": 4100, "tokensAfter": 220 },
+        { "id": "c2", "chunkStartTurn": 8, "chunkEndTurn": 15, "summary": "Implemented strict mode block decision for safe-read tools; dedupe controls only badge spam.", "tokensBefore": 3700, "tokensAfter": 190 },
+        { "id": "c3", "chunkStartTurn": 16, "chunkEndTurn": 23, "summary": "Semantic loop redirect: pingpong vs duplicate vs straight signal handling.", "tokensBefore": 3300, "tokensAfter": 170 }
+      ],
+      "query": "PreToolUse warm cache dump-first FS reads",
+      "expected": ["c1"]
+    },
+    {
+      "id": "fold-010",
+      "sessionId": "s-010",
+      "memory": [
+        { "id": "c1", "chunkStartTurn": 0, "chunkEndTurn": 7, "summary": "JSON envelope must be single-line via JSON.stringify with no spacer — round-trip via JSON.parse for hooks.", "tokensBefore": 3800, "tokensAfter": 200 },
+        { "id": "c2", "chunkStartTurn": 8, "chunkEndTurn": 15, "summary": "Tool family vocabulary frozen at eight names; web not fetch in canonical map.", "tokensBefore": 3400, "tokensAfter": 180 }
+      ],
+      "query": "JSON envelope single line stringify no spacer",
+      "expected": ["c1"]
+    }
+  ]
+}

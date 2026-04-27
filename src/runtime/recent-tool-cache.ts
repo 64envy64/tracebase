@@ -38,6 +38,7 @@ import {
   openSync,
   readFileSync,
   renameSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -68,6 +69,23 @@ export interface RecentToolCacheOptions {
 
 /** Hard ceiling on the persisted cache size (records). */
 export const DEFAULT_MAX_RECORDS = 4096;
+
+/**
+ * 0.7.0 §6 stable §5 — append-only disk size cap.
+ *
+ * `appendBatchToDisk` is an O(1) append on the hot PostToolBatch
+ * path; without explicit rotation the on-disk file can grow
+ * unbounded between `flush()` calls (a long-running session that
+ * never restarts the process). When the file size crosses
+ * MAX_DISK_BYTES, the next append performs a hydrate + flush
+ * rewrite to enforce the cap.
+ *
+ * The threshold is intentionally generous (≈ 4× the worst-case
+ * full-ring on-disk size) so the rewrite is rare; a long session
+ * with constant tool spam still amortises to one rewrite per few
+ * thousand observations.
+ */
+export const MAX_DISK_BYTES = 2 * 1024 * 1024; // 2 MiB
 
 /** Cache file path resolver. */
 export function cacheFilePath(workspacePath: string): string {
@@ -199,6 +217,12 @@ export class RecentToolCache {
    * appendToDisk one-by-one would open/close the file per call.
    * This variant opens once, writes all lines, closes once.
    *
+   * 0.7.0 §6 stable §5 — disk-size cap enforcement. The append path
+   * checks the file size BEFORE writing and triggers a full rewrite
+   * (hydrate + flush) when the file is over `MAX_DISK_BYTES`. This
+   * keeps the on-disk cache from growing unbounded over long
+   * sessions that never restart the process.
+   *
    * Empty array is a no-op. Failure swallowed — cache warming is
    * never load-bearing on the agent's tool path.
    */
@@ -208,6 +232,36 @@ export class RecentToolCache {
     try {
       const dir = dirname(path);
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+      // 0.7.0 §6 stable §5 — disk-size cap enforcement.
+      //
+      // If the on-disk file is over MAX_DISK_BYTES, rotate before
+      // appending: read the file back into the in-memory ring
+      // (which applies the record cap automatically), then full-
+      // rewrite via `flush()`. The rewrite is bounded by
+      // `maxRecords` so disk size is bounded too.
+      //
+      // Stat-then-decide is cheap; the rewrite path is rare on a
+      // healthy session.
+      let needsRotation = false;
+      try {
+        const st = statSync(path);
+        if (st.size > MAX_DISK_BYTES) needsRotation = true;
+      } catch {
+        // file doesn't exist yet — nothing to rotate
+      }
+      if (needsRotation) {
+        // Hydrate from the over-sized file (record cap applies),
+        // then rewrite. The new in-memory contents include only
+        // the most recent `maxRecords` rows.
+        this.hydrate(workspacePath);
+        // Add the incoming batch to the ring before flushing so we
+        // don't lose this batch's data in the rotation.
+        for (const obs of observations) this.append(obs);
+        this.flush(workspacePath);
+        return;
+      }
+
       const fd = openSync(path, "a");
       try {
         const payload = observations

@@ -36,6 +36,11 @@ import type {
   FactAgentUsedEvent,
 } from "../types.js";
 import type { BlockStore } from "./block-store.js";
+import {
+  emptyToolFamilyCounts,
+  toolFamilyOf,
+  type ToolFamily,
+} from "../runtime/tool-family.js";
 
 // ---------------------------------------------------------------------------
 // JSONL sink
@@ -588,8 +593,310 @@ export interface EventAggregates {
    * quality issues a caller may want to fix before trusting lift.
    */
   integrity: AggregateIntegrity;
+  /**
+   * 0.7.0 §6 stable §2 — per-mechanism aggregates derived from the
+   * 0.7-rc.1+ event stream. Walked once over the same event
+   * iteration as the rest of `EventAggregates` (no extra DB reads).
+   * Cloud-allowlist shape is mirrored exactly: counts + closed-enum
+   * histograms only. Free-form fields (paths, fileIds, sessionId,
+   * argKey, raw toolName, summary text) NEVER enter this object —
+   * tally is by closed-enum bucket key, not by source string.
+   */
+  mechanisms: MechanismAggregates;
   /** The window used; undefined on either side means "open-ended". */
   window: { afterTs?: number; beforeTs?: number };
+}
+
+// ---------------------------------------------------------------------------
+// 0.7.0 §6 stable §2 — mechanism aggregates
+// ---------------------------------------------------------------------------
+
+/** Closed-enum summarizer values (matches cloud allowlist). */
+export type MechanismSummarizer = "heuristic" | "embedding" | "llm";
+
+/** Closed-enum context-fold skip reasons (matches cloud allowlist). */
+export type MechanismFoldReason =
+  | "no-new-turns"
+  | "hash-collision"
+  | "leakage"
+  | "injection"
+  | "below-threshold";
+
+/** Closed-enum loop-redirect anchor kinds (matches cloud allowlist). */
+export type MechanismLoopKind = "block" | "file";
+
+/** Closed-enum prompt-cache surfaces (matches cloud allowlist). */
+export type MechanismCacheSurface = "anthropic" | "openai";
+
+/** Closed-enum injection-rejection patterns (matches cloud allowlist). */
+export type MechanismInjectionPattern =
+  | "role-override"
+  | "persona-flip"
+  | "system-spoof"
+  | "delimiter-spoof"
+  | "exfil-prompt"
+  | "tool-coercion";
+
+const FOLD_REASONS: readonly MechanismFoldReason[] = [
+  "no-new-turns",
+  "hash-collision",
+  "leakage",
+  "injection",
+  "below-threshold",
+] as const;
+
+const LOOP_KINDS: readonly MechanismLoopKind[] = ["block", "file"] as const;
+
+const CACHE_SURFACES: readonly MechanismCacheSurface[] = [
+  "anthropic",
+  "openai",
+] as const;
+
+const INJECTION_PATTERNS: readonly MechanismInjectionPattern[] = [
+  "role-override",
+  "persona-flip",
+  "system-spoof",
+  "delimiter-spoof",
+  "exfil-prompt",
+  "tool-coercion",
+] as const;
+
+const SUMMARIZERS: readonly MechanismSummarizer[] = [
+  "heuristic",
+  "embedding",
+  "llm",
+] as const;
+
+export interface MechanismAggregates {
+  fileIndex: {
+    completedCount: number;
+    bytesSummarized: number;
+    durationMs: number;
+    pending: number;
+    skippedCount: number;
+    bySummarizer: Record<MechanismSummarizer, number>;
+  };
+  fileMemory: {
+    recallCount: number;
+    tokensInjected: number;
+    bytesAvoided: number;
+  };
+  toolSupervision: {
+    warnCount: number;
+    suppressedCount: number;
+    byFamily: Record<ToolFamily, number>;
+  };
+  loopRedirect: {
+    redirectCount: number;
+    fallbackCount: number;
+    byKind: Record<MechanismLoopKind, number>;
+  };
+  contextFold: {
+    chunkCount: number;
+    tokensBeforeSum: number;
+    tokensAfterSum: number;
+    skipCount: number;
+    bySummarizer: Record<MechanismSummarizer, number>;
+    byReason: Record<MechanismFoldReason, number>;
+  };
+  injectionRejected: {
+    rejectCount: number;
+    byPattern: Record<MechanismInjectionPattern, number>;
+  };
+  promptCache: {
+    hitCount: number;
+    tokensSavedSum: number;
+    bySurface: Record<MechanismCacheSurface, number>;
+  };
+}
+
+function emptySummarizerCounts(): Record<MechanismSummarizer, number> {
+  return { heuristic: 0, embedding: 0, llm: 0 };
+}
+
+function emptyFoldReasonCounts(): Record<MechanismFoldReason, number> {
+  return {
+    "no-new-turns": 0,
+    "hash-collision": 0,
+    leakage: 0,
+    injection: 0,
+    "below-threshold": 0,
+  };
+}
+
+function emptyLoopKindCounts(): Record<MechanismLoopKind, number> {
+  return { block: 0, file: 0 };
+}
+
+function emptyCacheSurfaceCounts(): Record<MechanismCacheSurface, number> {
+  return { anthropic: 0, openai: 0 };
+}
+
+function emptyInjectionPatternCounts(): Record<MechanismInjectionPattern, number> {
+  return {
+    "role-override": 0,
+    "persona-flip": 0,
+    "system-spoof": 0,
+    "delimiter-spoof": 0,
+    "exfil-prompt": 0,
+    "tool-coercion": 0,
+  };
+}
+
+function emptyMechanismAggregates(): MechanismAggregates {
+  return {
+    fileIndex: {
+      completedCount: 0,
+      bytesSummarized: 0,
+      durationMs: 0,
+      pending: 0,
+      skippedCount: 0,
+      bySummarizer: emptySummarizerCounts(),
+    },
+    fileMemory: { recallCount: 0, tokensInjected: 0, bytesAvoided: 0 },
+    toolSupervision: {
+      warnCount: 0,
+      suppressedCount: 0,
+      byFamily: emptyToolFamilyCounts(),
+    },
+    loopRedirect: {
+      redirectCount: 0,
+      fallbackCount: 0,
+      byKind: emptyLoopKindCounts(),
+    },
+    contextFold: {
+      chunkCount: 0,
+      tokensBeforeSum: 0,
+      tokensAfterSum: 0,
+      skipCount: 0,
+      bySummarizer: emptySummarizerCounts(),
+      byReason: emptyFoldReasonCounts(),
+    },
+    injectionRejected: {
+      rejectCount: 0,
+      byPattern: emptyInjectionPatternCounts(),
+    },
+    promptCache: {
+      hitCount: 0,
+      tokensSavedSum: 0,
+      bySurface: emptyCacheSurfaceCounts(),
+    },
+  };
+}
+
+/**
+ * Tally one event into the mechanism aggregates. Pure: only the
+ * supplied event mutates `aggs` (caller mutates a fresh object).
+ *
+ * Closed-enum invariant: free-form values that don't match the
+ * frozen vocabulary fall on the floor — they NEVER widen the
+ * histogram. The cloud allowlist drops anything outside the
+ * declared keys at the wire either way; failing closed here keeps
+ * the local aggregate honest with what would actually ship.
+ */
+function tallyMechanismEvent(
+  aggs: MechanismAggregates,
+  ev: AnalyticsEvent,
+): void {
+  switch (ev.event) {
+    case "file_index.completed": {
+      aggs.fileIndex.completedCount += 1;
+      aggs.fileIndex.bytesSummarized += ev.bytesSummarized;
+      aggs.fileIndex.durationMs += ev.durationMs;
+      // `pending` is the queue size at end of THIS walk; the
+      // window-summed view tracks the running tally so a dashboard
+      // sees "indexer made N walks, total scanned, current backlog".
+      aggs.fileIndex.pending = ev.pending;
+      if (SUMMARIZERS.includes(ev.summarizer)) {
+        aggs.fileIndex.bySummarizer[ev.summarizer] += 1;
+      }
+      break;
+    }
+    case "file_index.skipped": {
+      aggs.fileIndex.skippedCount += 1;
+      // `reason` is intentionally NOT tallied here — the spec
+      // omits a reason histogram for fileIndex.skipped because
+      // the reason set is open-ended (binary / too-large / future
+      // reasons). Total count is enough signal for the dashboard.
+      break;
+    }
+    case "file_memory.recalled": {
+      aggs.fileMemory.recallCount += 1;
+      aggs.fileMemory.tokensInjected += ev.tokensInjected;
+      aggs.fileMemory.bytesAvoided += ev.bytesAvoided;
+      // ev.fileIds is read-once and discarded — never enters the
+      // aggregate, so paths/ids cannot leak through this surface.
+      break;
+    }
+    case "tool_supervision.warned": {
+      aggs.toolSupervision.warnCount += 1;
+      const family = toolFamilyOf(ev.toolName);
+      aggs.toolSupervision.byFamily[family] += 1;
+      break;
+    }
+    case "tool_supervision.suppressed": {
+      aggs.toolSupervision.suppressedCount += 1;
+      const family = toolFamilyOf(ev.toolName);
+      aggs.toolSupervision.byFamily[family] += 1;
+      // ev.argKey + raw ev.toolName never read into the aggregate —
+      // the family bucket is the only thing that ships.
+      break;
+    }
+    case "loop.redirected": {
+      aggs.loopRedirect.redirectCount += 1;
+      if (LOOP_KINDS.includes(ev.anchorKind)) {
+        aggs.loopRedirect.byKind[ev.anchorKind] += 1;
+      }
+      break;
+    }
+    case "loop.fallback": {
+      aggs.loopRedirect.fallbackCount += 1;
+      break;
+    }
+    case "context.folded": {
+      aggs.contextFold.chunkCount += 1;
+      aggs.contextFold.tokensBeforeSum += ev.tokensBefore;
+      aggs.contextFold.tokensAfterSum += ev.tokensAfter;
+      if (SUMMARIZERS.includes(ev.summarizer)) {
+        aggs.contextFold.bySummarizer[ev.summarizer] += 1;
+      }
+      // ev.sessionId + ev.chunkRange never read into the aggregate.
+      break;
+    }
+    case "context.fold_skipped": {
+      aggs.contextFold.skipCount += 1;
+      if (FOLD_REASONS.includes(ev.reason)) {
+        aggs.contextFold.byReason[ev.reason] += 1;
+      }
+      break;
+    }
+    case "store.injection_rejected": {
+      aggs.injectionRejected.rejectCount += 1;
+      if (
+        (INJECTION_PATTERNS as readonly string[]).includes(ev.patternName)
+      ) {
+        aggs.injectionRejected.byPattern[
+          ev.patternName as MechanismInjectionPattern
+        ] += 1;
+      }
+      // Unknown / future pattern names fall on the floor — the
+      // cloud allowlist would drop them at the wire either way.
+      break;
+    }
+    case "cache.prompt_hit": {
+      aggs.promptCache.hitCount += 1;
+      aggs.promptCache.tokensSavedSum += ev.tokensSaved;
+      if (CACHE_SURFACES.includes(ev.surface)) {
+        aggs.promptCache.bySurface[ev.surface] += 1;
+      }
+      break;
+    }
+    default:
+      // Other event kinds (retrieval / injection / outcome / etc.)
+      // are not mechanism-side; their aggregates live elsewhere on
+      // EventAggregates.
+      break;
+  }
 }
 
 export interface AggregateOptions {
@@ -656,7 +963,16 @@ export function computeAggregates(
   // manual shadow (diagnostic only), or ineligible.
   const controlReasonByQuery = new Map<string, "shadow" | "holdout" | undefined>();
 
+  // 0.7.0 §6 stable §2 — mechanism aggregates. Tallied in the same
+  // event walk so we make exactly one pass over `events`.
+  const mechanisms = emptyMechanismAggregates();
+
   for (const ev of events) {
+    // Mechanism tally runs first — it dispatches on its own event-
+    // kind subset and is a no-op on retrieval/injection/etc. The
+    // existing switch below handles those.
+    tallyMechanismEvent(mechanisms, ev);
+
     switch (ev.event) {
       case "retrieval": {
         counts.retrieval++;
@@ -950,6 +1266,7 @@ export function computeAggregates(
       shadowControlMismatches,
       outcomesWithoutRetrieval,
     },
+    mechanisms,
     window: {
       ...(opts.afterTs !== undefined ? { afterTs: opts.afterTs } : {}),
       ...(opts.beforeTs !== undefined ? { beforeTs: opts.beforeTs } : {}),
