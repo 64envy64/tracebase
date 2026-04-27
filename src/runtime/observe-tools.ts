@@ -28,6 +28,8 @@ import { sanitizeToolArgs } from "../core/tool-arg.js";
 import { toRepoRelative } from "../core/guard.js";
 import { enqueuePending } from "../core/file-indexer.js";
 import { RecentToolCache, type CachedObservation } from "./recent-tool-cache.js";
+import { normalizeIntentKey } from "../core/intent-key.js";
+import { toolFamily } from "./tool-family.js";
 
 /**
  * 0.7.0-rc.2 §rc.2 — closed set of tool names that imply the file
@@ -175,11 +177,21 @@ export function observeToolBatch(
       const records: CachedObservation[] = [];
       for (let i = 0; i < cap; i++) {
         const input = inputs[i]!;
+        // 0.7.1 — populate `intentKey` on search-family observations
+        // so the PreToolUse intent-loop counter has data to escalate
+        // on. `normalizeIntentKey` reads only the already-sanitised
+        // argSummary; raw tool_input never enters the cache.
+        const family = toolFamily(input.toolName);
+        const intentKey =
+          family === "search"
+            ? normalizeIntentKey(input.argSummary, input.toolName)
+            : undefined;
         records.push({
           sessionId: input.sessionId,
           argKey: input.argKey,
           toolName: input.toolName,
           ts: tNow,
+          ...(intentKey ? { intentKey } : {}),
         });
       }
       cache.appendBatchToDisk(opts.workspacePath, records);

@@ -56,6 +56,25 @@ export interface CachedObservation {
   toolName: string;
   /** Wall-clock ms when the observation was recorded. */
   ts: number;
+  /**
+   * 0.7.1 — semantic-equivalence collapse for search-family tools
+   * (`Grep` / `Glob` / `ripgrep` / `ag` / `findstr`). Two calls
+   * with different `argKey` (HMAC over normalized args) can collapse
+   * to the same `intentKey` when the SEMANTIC search target is the
+   * same — `grep "auth_token"` and `rg "auth[_-]token"` both
+   * normalise to `search:* auth token`.
+   *
+   * Only set for search-family observations; left undefined for
+   * read/shell/edit/write/web/task/other so the schema stays
+   * minimal and the count-by-intent logic doesn't accidentally
+   * trip on non-search activity.
+   *
+   * Backward-compatible on-disk: serialised as the optional `i`
+   * field. Pre-0.7.1 cache rows have no `i` on disk; `hydrate()`
+   * reads them as `intentKey: undefined` and the count-by-intent
+   * logic excludes those rows.
+   */
+  intentKey?: string;
 }
 
 export interface RecentToolCacheOptions {
@@ -137,6 +156,32 @@ export class RecentToolCache {
     return this.entries.length;
   }
 
+  /**
+   * 0.7.1 — count cached observations in the given session whose
+   * `intentKey` matches `intentKey`. Used by the PreToolUse hook
+   * to decide whether the agent has tried the same SEMANTIC search
+   * intent enough times to justify a block.
+   *
+   * Pre-0.7.1 rows (no `intentKey`) are ignored — they can't
+   * collapse into the count without a recompute. The counter walks
+   * the entire ring (not a windowSize slice) so a long-running
+   * session keeps escalating once the threshold is crossed; the
+   * 14-day TTL on the underlying `tool_observations` row + the
+   * 4096-record cap make the walk cheap.
+   *
+   * `intentKey === undefined` returns 0 — non-search observations
+   * never participate in this count.
+   */
+  recentIntentCount(sessionId: string, intentKey: string | undefined): number {
+    if (!intentKey) return 0;
+    let n = 0;
+    for (const e of this.entries) {
+      if (e.sessionId !== sessionId) continue;
+      if (e.intentKey === intentKey) n += 1;
+    }
+    return n;
+  }
+
   /** Bulk-load from a file. Best-effort; corrupt lines are dropped silently. */
   hydrate(workspacePath: string): void {
     const path = cacheFilePath(workspacePath);
@@ -156,6 +201,9 @@ export class RecentToolCache {
           k: string;
           n: string;
           t: number;
+          // 0.7.1 — optional intent_key field. Absent on pre-0.7.1
+          // rows; present only for search-family observations.
+          i: string;
         }>;
         if (
           typeof parsed.s === "string" &&
@@ -168,6 +216,9 @@ export class RecentToolCache {
             argKey: parsed.k,
             toolName: parsed.n,
             ts: parsed.t,
+            ...(typeof parsed.i === "string" && parsed.i.length > 0
+              ? { intentKey: parsed.i }
+              : {}),
           });
         }
       } catch {
@@ -189,7 +240,7 @@ export class RecentToolCache {
       const tmp = path + ".tmp";
       const lines: string[] = [];
       for (const e of this.entries) {
-        lines.push(JSON.stringify({ s: e.sessionId, k: e.argKey, n: e.toolName, t: e.ts }));
+        lines.push(JSON.stringify(serializeObservation(e)));
       }
       writeFileSync(tmp, lines.join("\n") + (lines.length > 0 ? "\n" : ""));
       renameSync(tmp, path);
@@ -265,11 +316,7 @@ export class RecentToolCache {
       const fd = openSync(path, "a");
       try {
         const payload = observations
-          .map(
-            (e) =>
-              JSON.stringify({ s: e.sessionId, k: e.argKey, n: e.toolName, t: e.ts }) +
-              "\n",
-          )
+          .map((e) => JSON.stringify(serializeObservation(e)) + "\n")
           .join("");
         appendFileSync(fd, payload);
       } finally {
@@ -284,4 +331,24 @@ export class RecentToolCache {
   clear(): void {
     this.entries.length = 0;
   }
+}
+
+/**
+ * 0.7.1 — single source of truth for the on-disk record shape.
+ * Keeps the `i` field optional so search-family observations carry
+ * intent_key but every other family writes the legacy 4-field shape.
+ * Pre-0.7.1 rows are forward-compatible: they hydrate with
+ * `intentKey: undefined` and serialize back without an `i` field.
+ */
+function serializeObservation(e: CachedObservation): Record<string, unknown> {
+  const base: Record<string, unknown> = {
+    s: e.sessionId,
+    k: e.argKey,
+    n: e.toolName,
+    t: e.ts,
+  };
+  if (typeof e.intentKey === "string" && e.intentKey.length > 0) {
+    base.i = e.intentKey;
+  }
+  return base;
 }

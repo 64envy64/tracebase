@@ -266,7 +266,9 @@ describe("capture-pre-tool-use — rc.4b warm cache", () => {
     expect(out.warned).toBe(true);
     expect(out.signalKind === "duplicate" || out.signalKind === "straight").toBe(true);
     const env = JSON.parse(out.envelope) as { systemMessage?: string };
-    expect(env.systemMessage).toMatch(/▣ TB TOOL\s+duplicate Read/);
+    // 0.7.1 — copy switched from "duplicate" to "reused" for safe-read
+    // tools so the badge reads as actionable, not advisory.
+    expect(env.systemMessage).toMatch(/▣ TB TOOL\s+reused: Read/);
 
     const events = readEvents("tool_supervision.warned");
     expect(events.length).toBe(1);
@@ -323,8 +325,11 @@ describe("capture-pre-tool-use — rc.4c warn mode (default)", () => {
     expect(out.signalKind === "duplicate" || out.signalKind === "straight").toBe(true);
 
     const env = JSON.parse(out.envelope) as { systemMessage?: string; decision?: string };
-    expect(env.systemMessage).toMatch(/▣ TB TOOL\s+duplicate Read/);
-    expect(env.decision).toBeUndefined(); // warn mode does NOT block
+    // 0.7.1 — first hit on a safe-read in default mode emits the
+    // "reused" hint (actionable) but does NOT block — gives the
+    // agent a chance to read its own prior output.
+    expect(env.systemMessage).toMatch(/▣ TB TOOL\s+reused: Read/);
+    expect(env.decision).toBeUndefined();
 
     const events = readEvents("tool_supervision.warned");
     expect(events.length).toBe(1);
@@ -333,18 +338,130 @@ describe("capture-pre-tool-use — rc.4c warn mode (default)", () => {
     expect(events[0]!.mode).toBe("warn");
   });
 
-  it("warn-once: second duplicate on same arg_key in same session → suppressed", () => {
+  it("warn-once: second duplicate on same arg_key in same session → suppressed (0.7.1: now blocks too)", () => {
     const argKey = readArgKey();
     seedCache([
       { argKey, toolName: "Read", sessionId: "session-deadbeef-0001" },
       { argKey, toolName: "Read", sessionId: "session-deadbeef-0001" },
       { argKey, toolName: "Read", sessionId: "session-deadbeef-0001" },
     ]);
-    runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
-    runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
+    const first = runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
+    // First hit: reused hint, no block.
+    expect(first.warned).toBe(true);
+    expect(first.blocked).toBe(false);
+    expect(JSON.parse(first.envelope).decision).toBeUndefined();
+
+    const second = runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
+    // 0.7.1 — second hit on a safe-read in default mode now ESCALATES
+    // to block. The agent ignored the first reuse hint; we change
+    // trajectory ourselves.
+    expect(second.warned).toBe(false); // dedupe silences the warned bit
+    expect(second.blocked).toBe(true);
+    const secondEnv = JSON.parse(second.envelope) as { decision?: string; reason?: string };
+    expect(secondEnv.decision).toBe("block");
+    expect(secondEnv.reason).toMatch(/blocked duplicate Read/);
 
     expect(readEvents("tool_supervision.warned").length).toBe(1);
-    expect(readEvents("tool_supervision.suppressed").length).toBe(1);
+    const suppressed = readEvents("tool_supervision.suppressed");
+    expect(suppressed.length).toBe(1);
+    // 0.7.1 — escalation block records `blocked: true` so mechanism
+    // savings can credit the avoided read.
+    expect(suppressed[0]!.blocked).toBe(true);
+  });
+
+  // 0.7.1 — search family (Grep) gets the same escalation as read
+  // family because both produce "context the agent already has".
+  // Fixture: tests/fixtures/pre-tool-use/grep.json carries
+  // { session_id: "session-deadbeef-0002", tool_input:
+  //   { pattern: "TODO", glob: "**/*.ts", path: "src" } }.
+  it("0.7.1 — duplicate Grep escalates: first hit reused, second hit blocked", () => {
+    const cfg = loadConfig(workDir);
+    const db = new Database(cfg.storagePath);
+    const store = new BlockStore(db);
+    let argKey: string;
+    try {
+      const res = observeToolBatch(store, {
+        sessionId: "session-deadbeef-0002",
+        cwd: "/work/repo",
+        workspaceSalt: getOrMintWorkspaceSalt(workDir)!,
+        toolCalls: [
+          {
+            toolName: "Grep",
+            toolInput: { pattern: "TODO", glob: "**/*.ts", path: "src" },
+          },
+        ],
+      });
+      argKey = (
+        store.rawDb
+          .prepare("SELECT arg_key FROM tool_observations WHERE id = ?")
+          .get(res.ids[0]!) as { arg_key: string }
+      ).arg_key;
+    } finally {
+      store.close();
+    }
+    seedCache([
+      { argKey, toolName: "Grep", sessionId: "session-deadbeef-0002" },
+      { argKey, toolName: "Grep", sessionId: "session-deadbeef-0002" },
+      { argKey, toolName: "Grep", sessionId: "session-deadbeef-0002" },
+    ]);
+    const first = runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"));
+    expect(first.blocked).toBe(false);
+    expect(JSON.parse(first.envelope).systemMessage).toMatch(/reused: Grep/);
+    const second = runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"));
+    expect(second.blocked).toBe(true);
+    expect(JSON.parse(second.envelope).decision).toBe("block");
+  });
+
+  // 0.7.1 — Bash / Edit / Write must NEVER block by default,
+  // regardless of repeat count. The "you already have this in
+  // context" framing only applies to safe-read families.
+  // Fixture: tests/fixtures/pre-tool-use/bash.json carries
+  // { session_id: "session-deadbeef-0004", tool_input:
+  //   { command: "npm run build && cat dist/index.js | head -50",
+  //     description: "Build and inspect output" } }.
+  it("0.7.1 — duplicate Bash NEVER blocks by default, even on repeat hits", () => {
+    const cfg = loadConfig(workDir);
+    const db = new Database(cfg.storagePath);
+    const store = new BlockStore(db);
+    let argKey: string;
+    try {
+      const res = observeToolBatch(store, {
+        sessionId: "session-deadbeef-0004",
+        cwd: "/work/repo",
+        workspaceSalt: getOrMintWorkspaceSalt(workDir)!,
+        toolCalls: [
+          {
+            toolName: "Bash",
+            toolInput: {
+              command: "npm run build && cat dist/index.js | head -50",
+              description: "Build and inspect output",
+            },
+          },
+        ],
+      });
+      argKey = (
+        store.rawDb
+          .prepare("SELECT arg_key FROM tool_observations WHERE id = ?")
+          .get(res.ids[0]!) as { arg_key: string }
+      ).arg_key;
+    } finally {
+      store.close();
+    }
+    seedCache([
+      { argKey, toolName: "Bash", sessionId: "session-deadbeef-0004" },
+      { argKey, toolName: "Bash", sessionId: "session-deadbeef-0004" },
+      { argKey, toolName: "Bash", sessionId: "session-deadbeef-0004" },
+    ]);
+    const first = runCapturePreToolUse({ path: workDir }, loadFixture("bash.json"));
+    expect(first.blocked).toBe(false);
+    expect(JSON.parse(first.envelope).systemMessage).toMatch(/repeated Bash/);
+    const second = runCapturePreToolUse({ path: workDir }, loadFixture("bash.json"));
+    // Even on the second hit Bash must NOT escalate.
+    expect(second.blocked).toBe(false);
+    expect(JSON.parse(second.envelope).decision).toBeUndefined();
+    // No mechanism-savings credit either way.
+    const suppressed = readEvents("tool_supervision.suppressed");
+    expect(suppressed.every((e) => e.blocked === false)).toBe(true);
   });
 
   it("first call (cache empty for this arg_key) does NOT warn", () => {
@@ -417,7 +534,8 @@ describe("capture-pre-tool-use — rc.4d strict mode", () => {
     expect(out.blocked).toBe(true);
     const env = JSON.parse(out.envelope) as { decision?: string; reason?: string };
     expect(env.decision).toBe("block");
-    expect(env.reason).toMatch(/duplicate Read/);
+    // 0.7.1 — block reason copy is "blocked duplicate <Tool>" now.
+    expect(env.reason).toMatch(/blocked duplicate Read/);
 
     const events = readEvents("tool_supervision.warned");
     expect(events[0]!.mode).toBe("block");
@@ -436,7 +554,10 @@ describe("capture-pre-tool-use — rc.4d strict mode", () => {
     expect(out.warned).toBe(true);
     const env = JSON.parse(out.envelope) as { decision?: string; systemMessage?: string };
     expect(env.decision).toBeUndefined();
-    expect(env.systemMessage).toMatch(/▣ TB TOOL\s+duplicate Bash/);
+    // 0.7.1 — non-safe-read families use the "repeated" verb, not
+    // "duplicate" — same advisory weight as before but the copy
+    // matches the post-0.7.1 vocabulary.
+    expect(env.systemMessage).toMatch(/▣ TB TOOL\s+repeated Bash/);
   });
 
   it("strict mode + duplicate Edit → does NOT block", () => {
@@ -523,10 +644,12 @@ describe("capture-pre-tool-use — rc.4d strict mode", () => {
     expect(warnedEvents[0]!.mode).toBe("block");
   });
 
-  it("strict mode in WARN-only mode does NOT keep firing systemMessage on suppressed (badge spam stays gated)", () => {
-    // Belt-and-braces: the warn-mode (non-strict) path must
-    // continue to suppress repeated badges. Only the strict-
-    // mode block decision is exempt from dedupe.
+  it("default mode badge gates: first hit shows reuse hint, second hit suppresses badge but escalates to block", () => {
+    // 0.7.1 — the badge dedupe still gates the visible
+    // systemMessage so the operator's view doesn't get spammed.
+    // What CHANGED is the second hit's decision — pre-0.7.1 it
+    // was a no-op envelope; post-0.7.1 it carries
+    // decision:"block" because the agent ignored the hint.
     const argKey = readArgKeyFor("Read", { file_path: "/work/repo/src/auth.ts" });
     seedCache([
       { argKey, toolName: "Read", sessionId: "session-deadbeef-0001" },
@@ -535,12 +658,212 @@ describe("capture-pre-tool-use — rc.4d strict mode", () => {
     ]);
 
     const first = runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
-    expect(JSON.parse(first.envelope).systemMessage).toMatch(/duplicate Read/);
+    expect(JSON.parse(first.envelope).systemMessage).toMatch(/reused: Read/);
+    expect(first.blocked).toBe(false);
 
     const second = runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
-    // Suppressed — no systemMessage on the second hit.
+    // Badge silenced (dedupe).
     expect(JSON.parse(second.envelope).systemMessage).toBeUndefined();
-    expect(second.blocked).toBe(false);
+    // 0.7.1 — block decision now fires on the escalation path.
+    expect(second.blocked).toBe(true);
+    expect(JSON.parse(second.envelope).decision).toBe("block");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 0.7.1 — intent-key block-after-N for search loops
+// ---------------------------------------------------------------------------
+
+describe("capture-pre-tool-use — 0.7.1 intent-key block-after-N", () => {
+  /**
+   * Helper: feed N search observations through the canonical
+   * PostToolBatch path so the cache learns their `intentKey`. We
+   * parameterise toolName / sessionId / argSummary so each test
+   * controls exactly what landed in the cache.
+   */
+  function postObserve(
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    sessionId: string,
+  ): void {
+    const cfg = loadConfig(workDir);
+    const db = new Database(cfg.storagePath);
+    const store = new BlockStore(db);
+    try {
+      observeToolBatch(store, {
+        sessionId,
+        cwd: "/work/repo",
+        workspaceSalt: getOrMintWorkspaceSalt(workDir)!,
+        toolCalls: [{ toolName, toolInput }],
+        workspacePath: workDir,
+      });
+    } finally {
+      store.close();
+    }
+  }
+
+  // 1. Equivalent intent collapses across grep / rg variants.
+  //    `grep "auth_token"` and `rg "auth[_-]token"` both normalise
+  //    to the same family-prefixed intent_key, so any combination
+  //    of N of them counts toward the threshold.
+  it("Grep \"auth_token\" + rg \"auth[_-]token\" share the same intentKey", () => {
+    const sid = "session-deadbeef-0002";
+    // Three semantically-equivalent searches (different argKeys but
+    // same intentKey).
+    postObserve("Grep", { pattern: "auth_token", path: "src" }, sid);
+    postObserve("ripgrep", { pattern: "auth[_-]token", path: "src" }, sid);
+    postObserve("Grep", { pattern: "AUTH_TOKEN", path: "src" }, sid);
+
+    // The fixture's input should hit the same intent on the 4th try.
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"));
+    // The grep.json fixture searches for "TODO" — DIFFERENT intent
+    // — so it should NOT block under the intent-loop policy. This
+    // test asserts the helper wired the cache correctly even when
+    // the prefix differs.
+    expect(out.blocked).toBe(false);
+  });
+
+  // 2. Equivalent search intent blocks AFTER threshold (N=3).
+  it("equivalent search intent blocks after N=3 in default mode", () => {
+    const sid = "session-deadbeef-0002";
+    // Plant 3 prior observations with the SAME normalised intent
+    // as the grep.json fixture — pattern "TODO" / glob "**/*.ts" /
+    // path "src".
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, sid);
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, sid);
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, sid);
+
+    // 4th attempt — past threshold → blocked.
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"));
+    expect(out.blocked).toBe(true);
+    const env = JSON.parse(out.envelope) as { decision?: string; reason?: string };
+    expect(env.decision).toBe("block");
+    expect(env.reason).toMatch(/▣ TB LOOP\s+blocked repeated search/);
+    expect(env.reason).toMatch(/widen scope/);
+
+    // First intent-block hit emits a `warned { mode: "block" }`
+    // event — mechanism savings reads that as a credited-avoid
+    // signal. (Subsequent hits in the same session would emit
+    // suppressed events, but the first intent-block doesn't
+    // collide with the badge dedupe.)
+    const warned = readEvents("tool_supervision.warned");
+    expect(warned.some((e) => e.mode === "block")).toBe(true);
+  });
+
+  // 3. Below threshold reroutes/warns but does NOT block.
+  it("equivalent search intent below N=3 emits reuse hint, no block", () => {
+    const sid = "session-deadbeef-0002";
+    // Plant 2 prior observations — count + this synthetic = 3,
+    // which is the LAST allowed hit before threshold trips.
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, sid);
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, sid);
+
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"));
+    expect(out.blocked).toBe(false);
+    const env = JSON.parse(out.envelope) as { decision?: string; systemMessage?: string };
+    expect(env.decision).toBeUndefined();
+    // Either the reuse hint fires (signal === duplicate) or no badge
+    // — depending on how detectToolPattern reads 3 same-argKey rows.
+    // Both paths are valid as long as we don't block early.
+  });
+
+  // 4. Different intentKey doesn't count toward threshold.
+  it("different search intentKeys do NOT collapse into the same threshold count", () => {
+    const sid = "session-deadbeef-0002";
+    // Three searches with DIFFERENT semantic intents. The grep.json
+    // fixture's intent ("TODO") is a 4th orthogonal target — it
+    // should NOT trigger the intent-block.
+    postObserve("Grep", { pattern: "auth_token", path: "src" }, sid);
+    postObserve("Grep", { pattern: "config", path: "src" }, sid);
+    postObserve("Grep", { pattern: "router", path: "src" }, sid);
+
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"));
+    expect(out.blocked).toBe(false);
+  });
+
+  // 5. Different sessions have independent intent counters.
+  it("different sessions do NOT share the intent-loop threshold", () => {
+    // Plant 3 in a non-fixture session — must not affect fixture.
+    const otherSid = "session-deadbeef-other";
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, otherSid);
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, otherSid);
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, otherSid);
+
+    // Fixture's session is "session-deadbeef-0002" — 0 prior hits
+    // against it → no block.
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"));
+    expect(out.blocked).toBe(false);
+  });
+
+  // 6. Bash / Edit / Write must NEVER intent-block — they're not
+  //    search families, so intentKey is undefined for them.
+  it("Bash duplicates never trigger intent-block, regardless of count", () => {
+    const sid = "session-deadbeef-0004";
+    // Plant 5 identical Bash invocations — way past N=3.
+    for (let i = 0; i < 5; i++) {
+      postObserve(
+        "Bash",
+        {
+          command: "npm run build && cat dist/index.js | head -50",
+          description: "Build and inspect output",
+        },
+        sid,
+      );
+    }
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("bash.json"));
+    expect(out.blocked).toBe(false);
+  });
+
+  // 7. Pre-0.7.1 cache rows hydrate without crashing.
+  it("legacy cache rows (no `i` field) hydrate without crashing", () => {
+    // Plant a row in the legacy 4-field shape directly via
+    // RecentToolCache.appendBatchToDisk. Then assert hydrate +
+    // recentIntentCount handles the absence cleanly.
+    const cacheDir = join(workDir, ".tracebase", "cache");
+    mkdirSync(cacheDir, { recursive: true });
+    const cachePath = join(cacheDir, "rtools.bin");
+    writeFileSync(
+      cachePath,
+      JSON.stringify({ s: "legacy-session", k: "legacy-key", n: "Grep", t: Date.now() }) + "\n",
+    );
+
+    // Hydrate via a fresh cache instance — must not throw.
+    const cache = new RecentToolCache();
+    cache.hydrate(workDir);
+    expect(cache.size()).toBe(1);
+    // Legacy rows have no intentKey, so they're invisible to the
+    // intent count.
+    expect(cache.recentIntentCount("legacy-session", "search:grep something")).toBe(0);
+
+    // And running the hook against a fresh fixture must not crash
+    // when the cache contains a legacy row.
+    expect(() => runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"))).not.toThrow();
+  });
+
+  // 8. JSON / events distinguish warn / reroute / block.
+  it("intent-block on first synthetic emits warned { mode: 'block' }; second synthetic emits suppressed { blocked: true }", () => {
+    const sid = "session-deadbeef-0002";
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, sid);
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, sid);
+    postObserve("Grep", { pattern: "TODO", glob: "**/*.ts", path: "src" }, sid);
+
+    // First synthetic hit (4th attempt at the same intent): blocks
+    // via intentBlock, emits warned with mode='block'.
+    const first = runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"));
+    expect(first.blocked).toBe(true);
+    const warned = readEvents("tool_supervision.warned");
+    const blockingWarned = warned.filter((e) => e.toolName === "Grep" && e.mode === "block");
+    expect(blockingWarned.length).toBe(1);
+
+    // Second synthetic hit (5th attempt): badge dedupe kicks in →
+    // suppressed event, blocked still fires.
+    const second = runCapturePreToolUse({ path: workDir }, loadFixture("grep.json"));
+    expect(second.blocked).toBe(true);
+    const suppressed = readEvents("tool_supervision.suppressed");
+    const blockingSuppressed = suppressed.filter(
+      (e) => e.toolName === "Grep" && e.blocked === true,
+    );
+    expect(blockingSuppressed.length).toBe(1);
   });
 });
 

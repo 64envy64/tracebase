@@ -63,6 +63,7 @@ import {
 import { sanitizeToolArgs } from "../../core/tool-arg.js";
 import { detectToolPattern } from "../../core/tool-loop-detect.js";
 import { toolFamily } from "../../runtime/tool-family.js";
+import { normalizeIntentKey } from "../../core/intent-key.js";
 import {
   RecentToolCache,
   type CachedObservation,
@@ -139,6 +140,21 @@ export interface CapturePreToolUseOutcome {
 }
 
 const STDIN_BYTE_LIMIT = 256 * 1024;
+
+/**
+ * 0.7.1 — block-after-N threshold for the intent-loop counter.
+ *
+ * `N = 3` semantically-equivalent search invocations in the same
+ * session triggers `decision:"block"` on the next attempt. The
+ * threshold is intentionally generous: a real agent often tries
+ * 2–3 phrasings of a search before pivoting; only the 4th attempt
+ * (or beyond) at the same SEMANTIC intent is "stuck in a loop".
+ *
+ * Strict mode still blocks on the 1st duplicate hit for safe-read
+ * families — strict is for regulated workspaces that want zero
+ * duplicate-execution latency, not scope-widening hints.
+ */
+export const INTENT_LOOP_BLOCK_AT = 3;
 
 // ---------------------------------------------------------------------------
 // Commander surface
@@ -284,43 +300,103 @@ export function runCapturePreToolUse(
   const strictFromConfig = readStrictConfig(basePath);
   const strictEnabled = strictFromEnv || strictFromConfig;
 
-  // Strict ONLY blocks safe-read tools — read + search families.
+  // Family classification — drives both the escalation policy
+  // (safe-read families get preventive blocks; the rest stay
+  // warn-only) and the badge copy.
   const family = toolFamily(toolName);
-  const strictAppliesToTool = strictEnabled && (family === "read" || family === "search");
+  const isSafeRead = family === "read" || family === "search";
+
+  // 0.7.1 — intent-key block-after-N for search loops.
+  //
+  // For search-family tools (Grep / Glob / ripgrep / ag / findstr),
+  // count how many semantically-equivalent calls the agent has made
+  // in this session. Two calls collapse to the same intentKey if
+  // their normalised argSummary matches — `grep "auth_token"` and
+  // `rg "auth[_-]token"` both become `search:* auth token` after
+  // the regex/flag/quote normalisation.
+  //
+  // Threshold: INTENT_LOOP_BLOCK_AT (3 by default). Below the
+  // threshold, the supervisor still runs the warn/escalation
+  // policy below; at or above the threshold, the search family
+  // gets an intent-loop block regardless of whether this is the
+  // 1st or Nth raw-arg duplicate.
+  //
+  // intentKey is undefined for non-search families; the count is
+  // always 0 for them, so this branch is a no-op outside search.
+  const intentKey =
+    family === "search" ? normalizeIntentKey(argSummary, toolName) : undefined;
+  const priorIntentCount = cache.recentIntentCount(sessionId, intentKey);
+  // The synthetic call we're about to greenlight is the
+  // (priorIntentCount + 1)th attempt at this intent. Block when
+  // that attempt would push past the threshold — the agent has
+  // already tried the same SEMANTIC search ≥ N times this session.
+  const intentBlock =
+    intentKey !== undefined && priorIntentCount + 1 > INTENT_LOOP_BLOCK_AT;
+
+  // 0.7.1 — preventive supervision policy.
+  //
+  // Pre-0.7.1 default mode warned indefinitely; only the explicit
+  // strict opt-in actually changed agent trajectory. Result: most
+  // installs saw the badge once and the agent kept doing the same
+  // duplicate Read forever.
+  //
+  // Post-0.7.1 default policy for safe-read families (Read / Grep
+  // / Glob etc.):
+  //   - 1st duplicate hit (alreadyWarned === false):
+  //       emit an actionable "reuse" systemMessage. No block —
+  //       give the agent a chance to read its own prior output.
+  //   - 2nd+ duplicate hit (alreadyWarned === true):
+  //       block via decision:"block". The agent ignored the reuse
+  //       hint; we change trajectory ourselves rather than warning
+  //       a third time into the void.
+  //
+  // Strict mode policy is unchanged: it blocks on the FIRST hit
+  // for safe-read families. (Use case: regulated workspaces that
+  // want zero duplicate-execution latency.)
+  //
+  // Non-safe-read families (Bash / Edit / Write / Web / Task) are
+  // never blocked by default, regardless of repeat count. The
+  // duplicate Read story is "you already have this answer in
+  // context"; for shell/edit/write, repeated calls are usually
+  // the legitimate retry path.
+  const strictBlock = strictEnabled && isSafeRead;
+  const escalationBlock = !strictEnabled && isSafeRead && alreadyWarned;
+  const blocked = strictBlock || escalationBlock || intentBlock;
 
   const labelTool = toolName;
-  const warnLabel = `▣ TB TOOL  duplicate ${labelTool} · already in window (×${signal.count})`;
+  // Copy contract (0.7.1): "reused" for the first-hit hint, "blocked
+  // duplicate" for the escalated/strict block. Avoid the weak
+  // "warning" / "duplicate" verbs when describing safe-read activity
+  // — they read as advisory, not actionable.
+  const reuseHint = isSafeRead
+    ? `▣ TB TOOL  reused: ${labelTool} already returned this in the last ${signal.count} turn(s) — use the prior output instead`
+    : `▣ TB TOOL  repeated ${labelTool} · already ran with same args in the last ${signal.count} turn(s) — verify before re-running`;
+  // Three block-reason variants. intentBlock dominates the message
+  // when it fires because the agent's repeat-search behaviour is
+  // a stronger signal than "already flagged once" — the wording
+  // tells the agent to widen scope rather than retry.
+  const intentAttempts = priorIntentCount + 1;
+  const blockReason = intentBlock
+    ? `▣ TB LOOP  blocked repeated search · same intent already tried ${intentAttempts} times — widen scope or use the prior matched context`
+    : strictBlock
+      ? `▣ TB TOOL  blocked duplicate ${labelTool} (strict mode) — read prior ${family} output instead of re-running.`
+      : `▣ TB TOOL  blocked duplicate ${labelTool} — already flagged once in this session, escalating to block. Use the prior output or pass different args.`;
 
-  // 0.7.0-rc.4 hardening — strict-mode block is INDEPENDENT of
-  // the warn-once-per-arg-per-session dedupe.
-  //
-  // Pre-hardening, the second duplicate Read in strict mode hit
-  // the `alreadyWarned` branch, emitted `tool_supervision.suppressed`,
-  // and returned an empty envelope. That LET THE DUPLICATE
-  // EXECUTE — exactly the failure strict mode is supposed to
-  // prevent. The dedupe guard's only purpose is to silence the
-  // analytics + badge spam, never the security decision.
-  //
-  // Post-hardening: the decision:"block" envelope fires every
-  // duplicate hit while strict + safe-read; dedupe controls only
-  // (warned vs suppressed) analytics + the visible badge text.
-  let blocked = false;
   const envelopePayload: Record<string, unknown> = {};
 
-  if (strictAppliesToTool) {
+  if (blocked) {
     envelopePayload.decision = "block";
-    envelopePayload.reason = warnLabel + " — strict mode blocks duplicate read tools.";
-    blocked = true;
+    envelopePayload.reason = blockReason;
   }
 
   if (alreadyWarned) {
-    // Suppressed — emit silently, no badge. Strict-mode decision
-    // (above) still stands for safe-read tools.
+    // Subsequent hit. In default mode for safe-read families, this
+    // path now ALSO blocks (escalationBlock above). The dedupe
+    // guard still silences badge spam — the block decision is
+    // surfaced via envelope.reason.
     //
-    // 0.7.0-rc.7 hardening — record whether the strict-mode block
-    // ALSO fired this hit. Mechanism-savings counts only blocked
-    // suppressions; warn-mode dedupe contributes zero (the
-    // duplicate Read still ran, so there are no avoided tokens).
+    // 0.7.0-rc.7 hardening — record `blocked` so mechanism savings
+    // only counts events that actually changed agent trajectory.
     appendAnalyticsEvent(config.storagePath, {
       event: "tool_supervision.suppressed",
       argKey,
@@ -328,17 +404,28 @@ export function runCapturePreToolUse(
       blocked,
     });
   } else {
+    // First hit. Mode tag reflects whether the supervisor actually
+    // changed agent trajectory on this call:
+    //   - "block": ANY block kind fired (strict / intent-loop /
+    //             escalation can't reach this branch yet because
+    //             alreadyWarned must be false here, but strict and
+    //             intent-loop both can fire on a first hit)
+    //   - "warn":  no block fired — the badge is advisory
+    //
+    // Mechanism savings reads `mode === "block"` on warned events
+    // (rc.7 hardening) so this is the canonical "did we credit
+    // an avoided tool call" flag for first-hit events.
     appendAnalyticsEvent(config.storagePath, {
       event: "tool_supervision.warned",
       argKey,
       toolName,
-      mode: strictAppliesToTool ? "block" : "warn",
+      mode: blocked ? "block" : "warn",
     });
-    // Visible badge fires ONLY in warn mode — strict mode already
-    // surfaces the reason via the decision:"block" envelope, and
-    // doubling the channel would just spam the operator's view.
-    if (!strictAppliesToTool) {
-      envelopePayload.systemMessage = warnLabel;
+    // Visible badge: surface the reuse/repeat hint when we're NOT
+    // already blocking via decision (strict mode already conveys
+    // the reason via envelope.reason; doubling channels is noise).
+    if (!strictBlock) {
+      envelopePayload.systemMessage = reuseHint;
     }
     dedupe.add(dedupeKey);
     writeWarnDedupe(config.storagePath, dedupe);
