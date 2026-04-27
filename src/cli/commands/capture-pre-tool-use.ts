@@ -284,43 +284,69 @@ export function runCapturePreToolUse(
   const strictFromConfig = readStrictConfig(basePath);
   const strictEnabled = strictFromEnv || strictFromConfig;
 
-  // Strict ONLY blocks safe-read tools — read + search families.
+  // Family classification — drives both the escalation policy
+  // (safe-read families get preventive blocks; the rest stay
+  // warn-only) and the badge copy.
   const family = toolFamily(toolName);
-  const strictAppliesToTool = strictEnabled && (family === "read" || family === "search");
+  const isSafeRead = family === "read" || family === "search";
+
+  // 0.7.1 — preventive supervision policy.
+  //
+  // Pre-0.7.1 default mode warned indefinitely; only the explicit
+  // strict opt-in actually changed agent trajectory. Result: most
+  // installs saw the badge once and the agent kept doing the same
+  // duplicate Read forever.
+  //
+  // Post-0.7.1 default policy for safe-read families (Read / Grep
+  // / Glob etc.):
+  //   - 1st duplicate hit (alreadyWarned === false):
+  //       emit an actionable "reuse" systemMessage. No block —
+  //       give the agent a chance to read its own prior output.
+  //   - 2nd+ duplicate hit (alreadyWarned === true):
+  //       block via decision:"block". The agent ignored the reuse
+  //       hint; we change trajectory ourselves rather than warning
+  //       a third time into the void.
+  //
+  // Strict mode policy is unchanged: it blocks on the FIRST hit
+  // for safe-read families. (Use case: regulated workspaces that
+  // want zero duplicate-execution latency.)
+  //
+  // Non-safe-read families (Bash / Edit / Write / Web / Task) are
+  // never blocked by default, regardless of repeat count. The
+  // duplicate Read story is "you already have this answer in
+  // context"; for shell/edit/write, repeated calls are usually
+  // the legitimate retry path.
+  const strictBlock = strictEnabled && isSafeRead;
+  const escalationBlock = !strictEnabled && isSafeRead && alreadyWarned;
+  const blocked = strictBlock || escalationBlock;
 
   const labelTool = toolName;
-  const warnLabel = `▣ TB TOOL  duplicate ${labelTool} · already in window (×${signal.count})`;
+  // Copy contract (0.7.1): "reused" for the first-hit hint, "blocked
+  // duplicate" for the escalated/strict block. Avoid the weak
+  // "warning" / "duplicate" verbs when describing safe-read activity
+  // — they read as advisory, not actionable.
+  const reuseHint = isSafeRead
+    ? `▣ TB TOOL  reused: ${labelTool} already returned this in the last ${signal.count} turn(s) — use the prior output instead`
+    : `▣ TB TOOL  repeated ${labelTool} · already ran with same args in the last ${signal.count} turn(s) — verify before re-running`;
+  const blockReason = strictBlock
+    ? `▣ TB TOOL  blocked duplicate ${labelTool} (strict mode) — read prior ${family} output instead of re-running.`
+    : `▣ TB TOOL  blocked duplicate ${labelTool} — already flagged once in this session, escalating to block. Use the prior output or pass different args.`;
 
-  // 0.7.0-rc.4 hardening — strict-mode block is INDEPENDENT of
-  // the warn-once-per-arg-per-session dedupe.
-  //
-  // Pre-hardening, the second duplicate Read in strict mode hit
-  // the `alreadyWarned` branch, emitted `tool_supervision.suppressed`,
-  // and returned an empty envelope. That LET THE DUPLICATE
-  // EXECUTE — exactly the failure strict mode is supposed to
-  // prevent. The dedupe guard's only purpose is to silence the
-  // analytics + badge spam, never the security decision.
-  //
-  // Post-hardening: the decision:"block" envelope fires every
-  // duplicate hit while strict + safe-read; dedupe controls only
-  // (warned vs suppressed) analytics + the visible badge text.
-  let blocked = false;
   const envelopePayload: Record<string, unknown> = {};
 
-  if (strictAppliesToTool) {
+  if (blocked) {
     envelopePayload.decision = "block";
-    envelopePayload.reason = warnLabel + " — strict mode blocks duplicate read tools.";
-    blocked = true;
+    envelopePayload.reason = blockReason;
   }
 
   if (alreadyWarned) {
-    // Suppressed — emit silently, no badge. Strict-mode decision
-    // (above) still stands for safe-read tools.
+    // Subsequent hit. In default mode for safe-read families, this
+    // path now ALSO blocks (escalationBlock above). The dedupe
+    // guard still silences badge spam — the block decision is
+    // surfaced via envelope.reason.
     //
-    // 0.7.0-rc.7 hardening — record whether the strict-mode block
-    // ALSO fired this hit. Mechanism-savings counts only blocked
-    // suppressions; warn-mode dedupe contributes zero (the
-    // duplicate Read still ran, so there are no avoided tokens).
+    // 0.7.0-rc.7 hardening — record `blocked` so mechanism savings
+    // only counts events that actually changed agent trajectory.
     appendAnalyticsEvent(config.storagePath, {
       event: "tool_supervision.suppressed",
       argKey,
@@ -328,17 +354,23 @@ export function runCapturePreToolUse(
       blocked,
     });
   } else {
+    // First hit. Mode tag distinguishes the three observable states
+    // for downstream aggregation:
+    //   - "block": the strict-mode block fired on first hit
+    //   - "warn":  default mode, first hit on a safe-read or
+    //             any-hit on a non-safe-read family — agent gets
+    //             an actionable reuse/repeat hint, tool still runs
     appendAnalyticsEvent(config.storagePath, {
       event: "tool_supervision.warned",
       argKey,
       toolName,
-      mode: strictAppliesToTool ? "block" : "warn",
+      mode: strictBlock ? "block" : "warn",
     });
-    // Visible badge fires ONLY in warn mode — strict mode already
-    // surfaces the reason via the decision:"block" envelope, and
-    // doubling the channel would just spam the operator's view.
-    if (!strictAppliesToTool) {
-      envelopePayload.systemMessage = warnLabel;
+    // Visible badge: surface the reuse/repeat hint when we're NOT
+    // already blocking via decision (strict mode already conveys
+    // the reason via envelope.reason; doubling channels is noise).
+    if (!strictBlock) {
+      envelopePayload.systemMessage = reuseHint;
     }
     dedupe.add(dedupeKey);
     writeWarnDedupe(config.storagePath, dedupe);
