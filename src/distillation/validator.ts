@@ -33,6 +33,21 @@ export const SCHEMA_LIMITS = {
   deadEndMaxWords: 20,
   deadEndsMin: 0,
   deadEndsMax: 5,
+  /**
+   * Guardrails are failure-lane "if you see X, stop" signals. Optional
+   * on success blocks, meaningful on pitfall blocks. Tight cap (≤ 3)
+   * keeps the injection format small and forces the distiller to pick
+   * the highest-leverage early signals.
+   */
+  guardrailsMin: 0,
+  guardrailsMax: 3,
+  guardrailMaxWords: 20,
+  /**
+   * Minimum deadEnds for a pitfall block. A pitfall with zero concrete
+   * trap manifestations carries no reusable signal — reject it so we
+   * don't pollute the library with empty-body candidates.
+   */
+  pitfallDeadEndsMin: 1,
 } as const;
 
 export interface ValidateOptions {
@@ -48,17 +63,31 @@ export interface ValidateOptions {
  * This function never throws and never mutates the input block; the
  * caller decides what to do with a failed report (reject, store as
  * `candidate` pending human review, etc.).
+ *
+ * Kind-aware rules (for `kind: "pitfall"` blocks specifically):
+ *   • `body.deadEnds` must have at least one entry. An empty pitfall
+ *     body has no reusable signal and is rejected before it reaches
+ *     the store.
+ * All other rules apply uniformly to success and pitfall blocks.
+ * `unlock` and `verification` remain required (non-empty) on every
+ * kind; their semantics differ per kind (see BlockBody docs) but the
+ * fields themselves are still load-bearing on both lanes.
  */
 export function validateCandidate(
-  block: Pick<ReasoningBlock, "trigger" | "body">,
+  block: Pick<ReasoningBlock, "trigger" | "body"> & Partial<Pick<ReasoningBlock, "kind">>,
   opts: ValidateOptions = {},
 ): ValidationReport {
   const now = opts.now ?? Date.now();
   const limits = { ...SCHEMA_LIMITS, ...opts.limits };
   const checks: ValidationCheck[] = [];
+  // Default kind = "success" so callers passing a bare {trigger, body}
+  // pair (pre-failure-lane tests, manual audits) keep their behaviour.
+  const kind: ReasoningBlock["kind"] = block.kind ?? "success";
 
   // ------------------------------------------------------------------
-  // Leakage guards — hard rejection of gold-truth material
+  // Leakage guards — hard rejection of gold-truth material.
+  // detectLeakage scans guardrails, so no separate check is needed for
+  // guardrails leakage here.
   // ------------------------------------------------------------------
   const leak = detectLeakage(block);
   checks.push({
@@ -68,7 +97,9 @@ export function validateCandidate(
   });
 
   // ------------------------------------------------------------------
-  // Required non-empty fields
+  // Required non-empty fields. `unlock` and `verification` stay
+  // required on both kinds — their semantic flips per kind but the
+  // slot is still load-bearing.
   // ------------------------------------------------------------------
   checks.push(nonEmpty("schema:situation-nonempty", block.trigger.situation));
   checks.push(nonEmpty("schema:mechanism-nonempty", block.body.mechanism));
@@ -84,20 +115,50 @@ export function validateCandidate(
   checks.push(maxWords("schema:verification-length", block.body.verification, limits.verificationMaxWords));
 
   // ------------------------------------------------------------------
-  // Dead ends — count + per-item length
+  // Dead ends — count + per-item length.
+  // For pitfall blocks, the minimum is raised to `pitfallDeadEndsMin`
+  // (default 1) because an empty pitfall body has no signal.
   // ------------------------------------------------------------------
   const deadEndsCount = block.body.deadEnds.length;
+  const effectiveMin = kind === "pitfall" ? limits.pitfallDeadEndsMin : limits.deadEndsMin;
   checks.push({
     name: "schema:dead-ends-count",
-    passed: deadEndsCount >= limits.deadEndsMin && deadEndsCount <= limits.deadEndsMax,
-    reason: deadEndsCount > limits.deadEndsMax
-      ? `${deadEndsCount} dead ends > ${limits.deadEndsMax}`
-      : undefined,
+    passed: deadEndsCount >= effectiveMin && deadEndsCount <= limits.deadEndsMax,
+    reason:
+      deadEndsCount > limits.deadEndsMax
+        ? `${deadEndsCount} dead ends > ${limits.deadEndsMax}`
+        : deadEndsCount < effectiveMin
+        ? `${deadEndsCount} dead ends < ${effectiveMin} (kind=${kind})`
+        : undefined,
   });
   for (let i = 0; i < block.body.deadEnds.length; i++) {
     const de = block.body.deadEnds[i];
     if (de === undefined) continue;
     checks.push(maxWords(`schema:dead-end-${i}-length`, de, limits.deadEndMaxWords));
+  }
+
+  // ------------------------------------------------------------------
+  // Guardrails — count + per-item length. Applies uniformly across
+  // kinds; `guardrails` is optional on success blocks and meaningful
+  // on pitfall blocks. An undefined / missing array is treated as 0.
+  // ------------------------------------------------------------------
+  const guardrails = block.body.guardrails ?? [];
+  checks.push({
+    name: "schema:guardrails-count",
+    passed:
+      guardrails.length >= limits.guardrailsMin &&
+      guardrails.length <= limits.guardrailsMax,
+    reason:
+      guardrails.length > limits.guardrailsMax
+        ? `${guardrails.length} guardrails > ${limits.guardrailsMax}`
+        : guardrails.length < limits.guardrailsMin
+        ? `${guardrails.length} guardrails < ${limits.guardrailsMin}`
+        : undefined,
+  });
+  for (let i = 0; i < guardrails.length; i++) {
+    const g = guardrails[i];
+    if (g === undefined) continue;
+    checks.push(maxWords(`schema:guardrail-${i}-length`, g, limits.guardrailMaxWords));
   }
 
   return {

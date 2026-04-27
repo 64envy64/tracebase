@@ -5,8 +5,10 @@ import type { ReasoningBlock } from "../../src/types.js";
 function candidate(
   over: Partial<ReasoningBlock["trigger"]> = {},
   body: Partial<ReasoningBlock["body"]> = {},
-): Pick<ReasoningBlock, "trigger" | "body"> {
+  kind?: ReasoningBlock["kind"],
+): Pick<ReasoningBlock, "trigger" | "body"> & Partial<Pick<ReasoningBlock, "kind">> {
   return {
+    ...(kind ? { kind } : {}),
     trigger: {
       situation: "metaclass iterates members using inspect isfunction skipping properties",
       invariants: { language: "python" },
@@ -123,6 +125,67 @@ describe("validator — schema", () => {
       limits: { unlockMaxWords: 10 },
     });
     expect(pass.passed).toBe(true);
+  });
+});
+
+describe("validator — pitfall kind", () => {
+  it("rejects a pitfall block with no deadEnds", () => {
+    const report = validateCandidate(candidate({}, { deadEnds: [] }, "pitfall"));
+    expect(report.passed).toBe(false);
+    expect(failedChecks(report)).toContain("schema:dead-ends-count");
+  });
+
+  it("accepts a pitfall block with exactly one deadEnd", () => {
+    const report = validateCandidate(
+      candidate({}, { deadEnds: ["single trap signature"] }, "pitfall"),
+    );
+    expect(report.passed).toBe(true);
+  });
+
+  it("still enforces the max deadEnds cap on pitfall blocks", () => {
+    const tooMany = Array(SCHEMA_LIMITS.deadEndsMax + 1).fill("trap");
+    const report = validateCandidate(candidate({}, { deadEnds: tooMany }, "pitfall"));
+    expect(report.passed).toBe(false);
+    expect(failedChecks(report)).toContain("schema:dead-ends-count");
+  });
+});
+
+describe("validator — guardrails", () => {
+  it("accepts an absent guardrails array", () => {
+    const report = validateCandidate(candidate());
+    expect(report.passed).toBe(true);
+    const names = report.checks.map((c) => c.name);
+    expect(names).toContain("schema:guardrails-count");
+  });
+
+  it("accepts up to the guardrails cap", () => {
+    const report = validateCandidate(
+      candidate({}, { guardrails: ["g1", "g2", "g3"] }),
+    );
+    expect(report.passed).toBe(true);
+  });
+
+  it("fails when guardrails count exceeds the cap", () => {
+    const report = validateCandidate(
+      candidate({}, { guardrails: ["g1", "g2", "g3", "g4"] }),
+    );
+    expect(report.passed).toBe(false);
+    expect(failedChecks(report)).toContain("schema:guardrails-count");
+  });
+
+  it("fails when an individual guardrail exceeds the per-item cap", () => {
+    const long = Array(SCHEMA_LIMITS.guardrailMaxWords + 2).fill("w").join(" ");
+    const report = validateCandidate(candidate({}, { guardrails: [long] }));
+    expect(report.passed).toBe(false);
+    expect(failedChecks(report).some((n) => n.startsWith("schema:guardrail-"))).toBe(true);
+  });
+
+  it("applies the leakage regex to guardrails", () => {
+    const report = validateCandidate(
+      candidate({}, { guardrails: ["stop if you run tests.py::test_bad"] }),
+    );
+    expect(report.passed).toBe(false);
+    expect(failedChecks(report).some((n) => n.startsWith("leakage"))).toBe(true);
   });
 });
 

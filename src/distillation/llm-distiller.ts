@@ -62,10 +62,28 @@ export interface DistillerOutput {
   model: string;
 }
 
+/**
+ * Which prompt pair the distiller should use. Adds the failure-
+ * distillation lane without breaking existing callers — the default
+ * `"success"` preserves pre-failure-lane behaviour byte-for-byte.
+ *
+ * The distiller never infers the mode on its own (no heuristic looks
+ * at the trajectory outcome here); the pipeline passes the mode
+ * explicitly on each call. This keeps the llm-distiller module
+ * free of policy: it does not decide whether a trace is success or
+ * failure, it only emits the requested prompt.
+ */
+export type DistillationMode = "success" | "failure";
+
 export interface LlmDistiller {
   /** Human-readable name; goes into provenance.distilledWithModel. */
   readonly name: string;
-  distill(input: DistillerInput): Promise<DistillerOutput>;
+  /**
+   * Run distillation. `mode` picks between the success and failure
+   * prompt pairs; defaults to "success" so pre-failure-lane callers
+   * compile and behave unchanged.
+   */
+  distill(input: DistillerInput, mode?: DistillationMode): Promise<DistillerOutput>;
 }
 
 export class DistillerError extends Error {
@@ -136,11 +154,26 @@ export class AnthropicDistiller implements LlmDistiller {
     this.temperature = opts.temperature ?? 0;
   }
 
-  async distill(input: DistillerInput): Promise<DistillerOutput> {
-    const { DISTILL_SYSTEM_PROMPT, buildDistillUserMessage } = await import("./prompts.js");
+  async distill(
+    input: DistillerInput,
+    mode: DistillationMode = "success",
+  ): Promise<DistillerOutput> {
+    const {
+      DISTILL_SYSTEM_PROMPT,
+      buildDistillUserMessage,
+      DISTILL_FAILURE_SYSTEM_PROMPT,
+      buildFailureUserMessage,
+    } = await import("./prompts.js");
     const model =
       input.modelOverride ??
       (this.useQualityModel ? this.qualityModel : this.defaultModel);
+
+    const systemPrompt =
+      mode === "failure" ? DISTILL_FAILURE_SYSTEM_PROMPT : DISTILL_SYSTEM_PROMPT;
+    const userMessage =
+      mode === "failure"
+        ? buildFailureUserMessage(input)
+        : buildDistillUserMessage(input);
 
     let response;
     try {
@@ -148,10 +181,8 @@ export class AnthropicDistiller implements LlmDistiller {
         model,
         max_tokens: this.maxOutputTokens,
         temperature: this.temperature,
-        system: DISTILL_SYSTEM_PROMPT,
-        messages: [
-          { role: "user", content: buildDistillUserMessage(input) },
-        ],
+        system: systemPrompt,
+        messages: [{ role: "user", content: userMessage }],
       });
     } catch (err) {
       throw new DistillerError(
@@ -181,19 +212,22 @@ export class MockDistiller implements LlmDistiller {
   readonly name = "mock-distiller";
   private responseOrFn:
     | DistillerOutput
-    | ((input: DistillerInput) => DistillerOutput | Promise<DistillerOutput>);
+    | ((input: DistillerInput, mode: DistillationMode) => DistillerOutput | Promise<DistillerOutput>);
 
   constructor(
     responseOrFn:
       | DistillerOutput
-      | ((input: DistillerInput) => DistillerOutput | Promise<DistillerOutput>),
+      | ((input: DistillerInput, mode: DistillationMode) => DistillerOutput | Promise<DistillerOutput>),
   ) {
     this.responseOrFn = responseOrFn;
   }
 
-  async distill(input: DistillerInput): Promise<DistillerOutput> {
+  async distill(
+    input: DistillerInput,
+    mode: DistillationMode = "success",
+  ): Promise<DistillerOutput> {
     if (typeof this.responseOrFn === "function") {
-      return await this.responseOrFn(input);
+      return await this.responseOrFn(input, mode);
     }
     return this.responseOrFn;
   }
@@ -275,6 +309,20 @@ export function parseDistillerJson(raw: string): Omit<DistillerOutput, "model"> 
     deadEnds = bd.deadEnds.filter((s): s is string => typeof s === "string");
   }
 
+  // Optional guardrails (failure-mode prompts produce them; success-mode
+  // prompts can too). Parser is permissive: non-string entries are
+  // silently dropped, same policy as apiSurface. The validator enforces
+  // count + per-item word caps downstream — we do not clamp here so
+  // validation reports remain honest about what the model actually sent.
+  // `kind` is never parsed from the model: the pipeline stamps it.
+  let guardrails: string[] | undefined;
+  if (Array.isArray(bd.guardrails)) {
+    const filtered = bd.guardrails.filter(
+      (s): s is string => typeof s === "string",
+    );
+    if (filtered.length > 0) guardrails = filtered;
+  }
+
   // distillationConfidence
   const conf = o.distillationConfidence;
   if (typeof conf !== "number" || !Number.isFinite(conf) || conf < 0 || conf > 1) {
@@ -294,6 +342,7 @@ export function parseDistillerJson(raw: string): Omit<DistillerOutput, "model"> 
       deadEnds,
       unlock: (bd.unlock as string).trim(),
       verification: (bd.verification as string).trim(),
+      ...(guardrails !== undefined ? { guardrails } : {}),
     },
     distillationConfidence: conf,
   };

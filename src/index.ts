@@ -129,6 +129,10 @@ export {
   findUnlockStep,
   mineDeadEnds,
   summarizeDeadEnd,
+  normalizeStepOutput,
+  normalizeToolOutputString,
+  stripTerminalEscapes,
+  dedupeSequentialLines,
 } from "./distillation/heuristics.js";
 export type {
   TrajectoryStep,

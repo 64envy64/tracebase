@@ -2,8 +2,12 @@ import { describe, it, expect } from "vitest";
 import {
   extractTrajectory,
   findUnlockStep,
+  findFailureStep,
   mineDeadEnds,
   summarizeDeadEnd,
+  stripTerminalEscapes,
+  dedupeSequentialLines,
+  normalizeToolOutputString,
   type ExtractedTrajectory,
 } from "../../src/distillation/heuristics.js";
 import type { ReasoningTrace, SolutionStep } from "../../src/types.js";
@@ -63,6 +67,62 @@ describe("heuristics — extractTrajectory", () => {
     const t = extractTrajectory(trace);
     expect(t.steps[0].toolCall?.tool).toBe("editFile");
   });
+
+  it("normalizes toolCall.output only — leaves input and description intact", () => {
+    const trace = traceFromSteps([
+      {
+        type: "action",
+        description: "run tests",
+        toolCall: {
+          tool: "bash",
+          input: { cmd: "pytest -q" },
+          output: "\u001b[31mFAIL\u001b[0m\nFAIL\nFAIL\nFAIL\n",
+        },
+      },
+    ]);
+    const t = extractTrajectory(trace);
+    expect(t.steps[0].description).toBe("run tests");
+    expect(t.steps[0].toolCall?.input).toEqual({ cmd: "pytest -q" });
+    expect(t.steps[0].toolCall?.output).toContain("FAIL");
+    expect(t.steps[0].toolCall?.output).not.toMatch(/\u001b/);
+    expect(t.steps[0].toolCall?.output).toContain("[repeated 3 lines by tracebase]");
+  });
+
+  it("does not add a toolCall when output is missing", () => {
+    const trace = traceFromSteps([
+      { type: "action", description: "x", toolCall: { tool: "t", input: {} } },
+    ]);
+    const t = extractTrajectory(trace);
+    expect(t.steps[0].toolCall).toEqual({ tool: "t", input: {} });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stripTerminalEscapes / dedupeSequentialLines / normalizeToolOutputString
+// ---------------------------------------------------------------------------
+
+describe("heuristics — terminal output helpers", () => {
+  it("stripTerminalEscapes removes SGR and OSC (BEL + ST)", () => {
+    const raw = "\u001b[31mred\u001b[0m \u001b]0;title\u0007plain\u001b]8;;\u001b\\";
+    expect(stripTerminalEscapes(raw)).toBe("red plain");
+  });
+
+  it("stripTerminalEscapes removes C1 CSI (0x9B)", () => {
+    expect(stripTerminalEscapes("\u009b31mX\u009b0m")).toBe("X");
+  });
+
+  it("dedupeSequentialLines keeps one copy and a count marker", () => {
+    const s = dedupeSequentialLines("a\na\na\nb");
+    expect(s).toBe("a\n... [repeated 2 lines by tracebase]\nb");
+  });
+
+  it("normalizeToolOutputString truncates after dedupe with an explicit marker", () => {
+    // Distinct lines so dedupe does not shrink below the cap.
+    const many = Array.from({ length: 200 }, (_, i) => `line-${i}:` + "y".repeat(40)).join("\n");
+    const out = normalizeToolOutputString(many);
+    expect(out.length).toBeGreaterThan(4096);
+    expect(out).toMatch(/truncated by tracebase/);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -117,6 +177,65 @@ describe("heuristics — findUnlockStep", () => {
     ]);
     const a = findUnlockStep(extractTrajectory(trace));
     const b = findUnlockStep(extractTrajectory(trace));
+    expect(a?.index).toBe(b?.index);
+    expect(a?.description).toBe(b?.description);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findFailureStep
+// ---------------------------------------------------------------------------
+
+describe("heuristics — findFailureStep", () => {
+  it("returns null on a success trajectory", () => {
+    const trace = traceFromSteps(
+      [{ type: "analysis", description: "something" }],
+      "success",
+    );
+    expect(findFailureStep(extractTrajectory(trace))).toBeNull();
+  });
+
+  it("returns null on a partial trajectory (lane out of scope)", () => {
+    const trace = traceFromSteps(
+      [{ type: "analysis", description: "partial attempt" }],
+      "partial",
+    );
+    expect(findFailureStep(extractTrajectory(trace))).toBeNull();
+  });
+
+  it("returns the last analysis step on a failure trajectory", () => {
+    const trace = traceFromSteps(
+      [
+        { type: "analysis", description: "early belief A" },
+        { type: "action", description: "edit" },
+        { type: "analysis", description: "terminal belief B before giving up" },
+        { type: "action", description: "edit" },
+      ],
+      "failure",
+    );
+    const step = findFailureStep(extractTrajectory(trace));
+    expect(step?.description).toContain("terminal belief");
+  });
+
+  it("returns null when the failure trajectory has no analysis step", () => {
+    const trace = traceFromSteps(
+      [{ type: "action", description: "edit" }],
+      "failure",
+    );
+    expect(findFailureStep(extractTrajectory(trace))).toBeNull();
+  });
+
+  it("is deterministic across repeated runs", () => {
+    const trace = traceFromSteps(
+      [
+        { type: "analysis", description: "first" },
+        { type: "analysis", description: "second" },
+        { type: "action", description: "edit" },
+      ],
+      "failure",
+    );
+    const a = findFailureStep(extractTrajectory(trace));
+    const b = findFailureStep(extractTrajectory(trace));
     expect(a?.index).toBe(b?.index);
     expect(a?.description).toBe(b?.description);
   });

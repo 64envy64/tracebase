@@ -157,7 +157,7 @@ describe("BlockStore — block CRUD", () => {
     expect(() => store.storeBlock(b)).toThrow(BlockIntegrityError);
   });
 
-  it("rejects duplicate fingerprint on second insert", () => {
+  it("rejects duplicate fingerprint on second insert (same kind)", () => {
     const b1 = createBlock(SAMPLE);
     b1.status = "candidate";
     store.storeBlock(b1);
@@ -165,7 +165,74 @@ describe("BlockStore — block CRUD", () => {
     b2.status = "candidate";
     expect(b2.id).not.toBe(b1.id);
     expect(b2.trigger.fingerprint).toBe(b1.trigger.fingerprint);
+    expect(b1.kind).toBe("success");
+    expect(b2.kind).toBe("success");
     expect(() => store.storeBlock(b2)).toThrow(BlockIntegrityError);
+  });
+
+  it("allows success + pitfall blocks to coexist under the same fingerprint", () => {
+    const b1 = createBlock(SAMPLE);
+    b1.status = "candidate";
+    store.storeBlock(b1);
+
+    // Pitfall block with the same trigger — should NOT collide on fingerprint.
+    const pitfall = createBlock({
+      ...SAMPLE,
+      kind: "pitfall",
+      body: {
+        ...SAMPLE.body,
+        guardrails: ["stop if you touch private descriptor dicts"],
+      },
+    });
+    pitfall.status = "candidate";
+    expect(pitfall.trigger.fingerprint).toBe(b1.trigger.fingerprint);
+    expect(() => store.storeBlock(pitfall)).not.toThrow();
+
+    expect(store.countBlocks()).toBe(2);
+    const success = store.findBlockByFingerprintAndKind(b1.trigger.fingerprint, "success");
+    const pitfallLookup = store.findBlockByFingerprintAndKind(b1.trigger.fingerprint, "pitfall");
+    expect(success?.id).toBe(b1.id);
+    expect(pitfallLookup?.id).toBe(pitfall.id);
+    expect(pitfallLookup?.kind).toBe("pitfall");
+  });
+
+  it("round-trips kind + guardrails through storage", () => {
+    const pitfall = createBlock({
+      ...SAMPLE,
+      kind: "pitfall",
+      body: {
+        ...SAMPLE.body,
+        guardrails: [
+          "stop if you start special-casing by member name",
+          "stop if you touch __dict__ directly",
+        ],
+      },
+    });
+    pitfall.status = "candidate";
+    store.storeBlock(pitfall);
+
+    const got = store.getBlock(pitfall.id)!;
+    expect(got.kind).toBe("pitfall");
+    expect(got.body.guardrails).toEqual([
+      "stop if you start special-casing by member name",
+      "stop if you touch __dict__ directly",
+    ]);
+  });
+
+  it("mergeBlocks refuses to merge blocks of different kinds", () => {
+    const s = createBlock(SAMPLE);
+    s.status = "candidate";
+    store.storeBlock(s);
+
+    const p = createBlock({
+      ...SAMPLE,
+      kind: "pitfall",
+      body: { ...SAMPLE.body, guardrails: ["x"] },
+    });
+    p.status = "candidate";
+    store.storeBlock(p);
+
+    expect(() => store.mergeBlocks(s.id, p.id)).toThrow(BlockIntegrityError);
   });
 
   it("rejects block with leaked diff header", () => {

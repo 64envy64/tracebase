@@ -21,6 +21,81 @@
  */
 import type { ReasoningTrace, ToolCallRecord } from "../types.js";
 
+/** Max characters kept in a tool output string after normalization (UTF-16 code units). */
+const MAX_TOOL_OUTPUT_CHARS = 4096;
+
+// ---------------------------------------------------------------------------
+// Tool output normalization (distiller input only — no LLM)
+// ---------------------------------------------------------------------------
+
+/**
+ * Strip common terminal escape sequences (CSI/SGR, OSC, simple 2-byte ESC).
+ * Covers more than SGR-only (`\x1b[…m`): BEL-terminated OSC, ST-terminated OSC,
+ * C1 CSI (0x9B), and ISO 2022 two-byte sequences.
+ */
+export function stripTerminalEscapes(input: string): string {
+  let s = input;
+  // BEL-terminated OSC first — otherwise an ST regex can span across a BEL
+  // and swallow plaintext between two OSC sequences.
+  s = s.replace(/\u001b\][^\u0007]*\u0007/g, "");
+  // OSC with ST terminator (ESC \)
+  s = s.replace(/\u001b\][\s\S]*?\u001b\\/g, "");
+  // CSI / SGR: ESC [ … final byte @–~
+  s = s.replace(/\u001b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, "");
+  // C1 CSI introducer (0x9B) — same parameter + final-byte shape
+  s = s.replace(/\u009b[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, "");
+  // ISO 2022 locking shifts and similar 2-byte ESC sequences
+  s = s.replace(/\u001b[\x20-\x2f][\x30-\x7e]/g, "");
+  // Legacy single-final-byte control (ESC + 0x30–0x7F)
+  s = s.replace(/\u001b[\x30-\x7f]/g, "");
+  return s;
+}
+
+/**
+ * Collapse runs of identical *consecutive* lines; keep one copy plus an explicit marker.
+ * Line breaks normalized to `\n` in the output (no `\r` left in line bodies).
+ */
+export function dedupeSequentialLines(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i]!;
+    let run = 1;
+    while (i + run < lines.length && lines[i + run] === line) run++;
+    out.push(line);
+    if (run > 1) {
+      out.push(`... [repeated ${run - 1} lines by tracebase]`);
+    }
+    i += run;
+  }
+  return out.join("\n");
+}
+
+function truncateNormalizedToolOutput(text: string): string {
+  if (text.length <= MAX_TOOL_OUTPUT_CHARS) return text;
+  const kept = text.slice(0, MAX_TOOL_OUTPUT_CHARS);
+  const fullLines = text.split(/\r?\n/).length;
+  const keptLines = kept.split(/\r?\n/).length;
+  const droppedLines = Math.max(0, fullLines - keptLines);
+  const marker =
+    droppedLines > 0
+      ? `\n... [${droppedLines} lines truncated by tracebase]`
+      : `\n... [truncated by tracebase: ${text.length - MAX_TOOL_OUTPUT_CHARS} chars omitted]`;
+  return kept + marker;
+}
+
+/**
+ * Normalize tool stdout/stderr for distillation: strip escapes, dedupe repeated
+ * consecutive lines, then cap size. Deterministic and lossy only at the final cap
+ * (explicit marker).
+ */
+export function normalizeToolOutputString(raw: string): string {
+  const stripped = stripTerminalEscapes(raw);
+  const deduped = dedupeSequentialLines(stripped);
+  return truncateNormalizedToolOutput(deduped);
+}
+
 // ---------------------------------------------------------------------------
 // Trajectory view
 // ---------------------------------------------------------------------------
@@ -40,16 +115,30 @@ export interface ExtractedTrajectory {
 }
 
 /**
+ * Apply {@link normalizeToolOutputString} to `step.toolCall.output` only.
+ * Does not touch `description`, `summary`, `problemDescription`, or `toolCall.input`.
+ */
+export function normalizeStepOutput(step: TrajectoryStep): TrajectoryStep {
+  const tc = step.toolCall;
+  if (!tc?.output) return step;
+  const nextOut = normalizeToolOutputString(tc.output);
+  if (nextOut === tc.output) return step;
+  return { ...step, toolCall: { ...tc, output: nextOut } };
+}
+
+/**
  * Convert a v1 ReasoningTrace into a distiller-friendly trajectory view.
  * Never mutates the source trace.
  */
 export function extractTrajectory(trace: ReasoningTrace): ExtractedTrajectory {
-  const steps: TrajectoryStep[] = trace.solution.steps.map((s, i) => ({
-    index: i,
-    type: s.type,
-    description: s.description,
-    toolCall: s.toolCall,
-  }));
+  const steps: TrajectoryStep[] = trace.solution.steps.map((s, i) =>
+    normalizeStepOutput({
+      index: i,
+      type: s.type,
+      description: s.description,
+      toolCall: s.toolCall,
+    }),
+  );
   return {
     steps,
     outcome: trace.solution.outcome,
@@ -97,6 +186,41 @@ export function findUnlockStep(t: ExtractedTrajectory): TrajectoryStep | null {
     if (step && step.type === "analysis") return step;
   }
 
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Failure step detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Heuristic: on a FAILED trajectory, the pivotal step is the final
+ * analysis — the agent's last recorded explanation of what it believed
+ * was going on before it gave up. That step is what a pitfall prompt
+ * will distill into "the misleading intuition" (`body.mechanism` on a
+ * `kind: "pitfall"` block).
+ *
+ * Rules, in order:
+ *   1. Only failure trajectories produce a failure step. Success and
+ *      partial outcomes return null (partial lanes are out of scope
+ *      for this change).
+ *   2. Prefer the last `analysis` step in the trajectory (the agent's
+ *      terminal belief).
+ *   3. If there are no `analysis` steps at all, return null — the
+ *      pipeline rejects the trace as unusable (no reasoning to
+ *      distill from).
+ *
+ * Deliberately simple. False positives (treating a recovery step as
+ * the trap) are bounded by the LLM prompt, which is given the entire
+ * step list for context; this heuristic only picks the anchor for
+ * seeding the prompt.
+ */
+export function findFailureStep(t: ExtractedTrajectory): TrajectoryStep | null {
+  if (t.outcome !== "failure") return null;
+  for (let i = t.steps.length - 1; i >= 0; i--) {
+    const step = t.steps[i];
+    if (step && step.type === "analysis") return step;
+  }
   return null;
 }
 

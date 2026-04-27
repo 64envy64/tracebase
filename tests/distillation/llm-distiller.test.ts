@@ -73,6 +73,62 @@ describe("parseDistillerJson — happy path", () => {
   });
 });
 
+describe("parseDistillerJson — guardrails", () => {
+  it("picks up guardrails when present", () => {
+    const raw = `{
+      "trigger": { "situation": "s", "invariants": {} },
+      "body": {
+        "mechanism": "m",
+        "deadEnds": ["x"],
+        "unlock": "u",
+        "verification": "v",
+        "guardrails": ["stop-if-x", "stop-if-y"]
+      },
+      "distillationConfidence": 0.5
+    }`;
+    const out = parseDistillerJson(raw);
+    expect(out.body.guardrails).toEqual(["stop-if-x", "stop-if-y"]);
+  });
+
+  it("leaves guardrails undefined when missing", () => {
+    const out = parseDistillerJson(SAMPLE_RESPONSE_JSON);
+    expect(out.body.guardrails).toBeUndefined();
+  });
+
+  it("drops non-string guardrail entries silently", () => {
+    const raw = `{
+      "trigger": { "situation": "s", "invariants": {} },
+      "body": {
+        "mechanism": "m",
+        "deadEnds": ["x"],
+        "unlock": "u",
+        "verification": "v",
+        "guardrails": ["ok", 42, null]
+      },
+      "distillationConfidence": 0.5
+    }`;
+    const out = parseDistillerJson(raw);
+    expect(out.body.guardrails).toEqual(["ok"]);
+  });
+
+  it("never parses a kind field from the model (parser ignores it)", () => {
+    const raw = `{
+      "kind": "pitfall",
+      "trigger": { "situation": "s", "invariants": {} },
+      "body": {
+        "mechanism": "m",
+        "deadEnds": ["x"],
+        "unlock": "u",
+        "verification": "v"
+      },
+      "distillationConfidence": 0.5
+    }`;
+    const out = parseDistillerJson(raw);
+    // Parser output shape has no `kind`: the pipeline stamps it.
+    expect((out as unknown as { kind?: string }).kind).toBeUndefined();
+  });
+});
+
 describe("parseDistillerJson — failure modes", () => {
   it("throws parse-error on malformed JSON", () => {
     expect(() => parseDistillerJson("not json")).toThrow(DistillerError);

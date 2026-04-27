@@ -203,7 +203,9 @@ describe("DistillationPipeline — rejections", () => {
   let store: BlockStore;
   beforeEach(() => { store = makeStore(); });
 
-  it("rejects non-success outcomes without calling the distiller", async () => {
+  it("rejects 'partial' outcomes without calling the distiller", async () => {
+    // Partial trajectories are explicitly out of scope for the
+    // dispatcher; they fall through to `unsupported-outcome`.
     let called = false;
     const pipeline = new DistillationPipeline({
       store,
@@ -212,10 +214,12 @@ describe("DistillationPipeline — rejections", () => {
         return goodMockOutput();
       }),
     });
-    const res = await pipeline.distillTrace(traceOf(GOOD_STEPS, {}, "failure"));
+    const res = await pipeline.distillTrace(traceOf(GOOD_STEPS, {}, "partial"));
     expect(res.status).toBe("rejected");
     if (res.status !== "rejected") throw new Error("unreachable");
-    expect(res.reason.kind).toBe("not-success-outcome");
+    expect(res.reason.kind).toBe("unsupported-outcome");
+    if (res.reason.kind !== "unsupported-outcome") throw new Error("unreachable");
+    expect(res.reason.outcome).toBe("partial");
     expect(called).toBe(false);
     expect(store.countBlocks()).toBe(0);
   });

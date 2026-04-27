@@ -285,14 +285,25 @@ describe("tracebase init --agent claude-code (fresh project)", () => {
         args: ["-y", "tracebase-ai@latest", "serve", "--mcp"],
       });
 
-      // We do NOT write to .claude/settings.json — that file was the
-      // old surface and is inert at Claude Code runtime. Asserting its
-      // absence locks in the fix.
-      expect(existsSync(join(projectDir, ".claude", "settings.json"))).toBe(false);
+      // Claude MCP stays in the runtime registry; .claude/settings.json
+      // is used only for the UserPromptSubmit hook that performs silent
+      // pre-prompt injection.
+      const claudeSettings = JSON.parse(
+        readFileSync(join(projectDir, ".claude", "settings.json"), "utf-8"),
+      ) as {
+        mcpServers?: Record<string, unknown>;
+        hooks?: { UserPromptSubmit?: Array<{ hooks?: Array<{ command?: string }> }> };
+      };
+      expect(claudeSettings.mcpServers).toBeUndefined();
+      const hookCommands = claudeSettings.hooks?.UserPromptSubmit?.flatMap((entry) =>
+        entry.hooks?.map((h) => h.command ?? "") ?? [],
+      ) ?? [];
+      expect(hookCommands.some((cmd) => cmd.includes("inject-context --host claude-code"))).toBe(true);
 
       // Instruction block.
       const claudeMd = readFileSync(join(projectDir, "CLAUDE.md"), "utf-8");
       expect(claudeMd).toContain("tracebase:begin");
+      expect(claudeMd).toContain("<tracebase queryId");
       expect(claudeMd).toContain("get_reasoning_patterns");
       // No secrets ever land in instruction files.
       expect(claudeMd).not.toMatch(/apiKey|Bearer /i);
