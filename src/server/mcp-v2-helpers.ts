@@ -7,6 +7,7 @@
 import { randomUUID } from "node:crypto";
 import type { BlockStore } from "../core/block-store.js";
 import { createBlock } from "../core/block.js";
+import { classifyForCapture } from "../core/capture-gate.js";
 import type { BlockInvariants, StoreBlockInput } from "../types.js";
 
 /**
@@ -168,6 +169,17 @@ export function storeReasoningPattern(
     }
   }
 
+  // Capture gate — refuses the two dominant junk classes (release-noise
+  // and template-verify boilerplate) at storage time, before they
+  // pollute the dedupe index or surface in retrieval. See
+  // src/core/capture-gate.ts for rationale.
+  const gate = classifyForCapture({ situation, mechanism, unlock, verification });
+  if (gate.kind === "reject") {
+    throw new StorePatternValidationError(
+      `pattern rejected by capture gate (${gate.reason}): ${gate.detail}`,
+    );
+  }
+
   const invariants: BlockInvariants = {};
   if (args.language) invariants.language = args.language;
   if (args.framework) invariants.framework = args.framework;
@@ -245,15 +257,22 @@ export function storeReasoningPattern(
 
   // Insert flow: candidate → origin ref → promote. storeBlock rejects
   // inserting active-without-origin, so we force candidate here.
+  // Wrapped in a single transaction so a mid-sequence failure rolls
+  // back as a unit — without this, a crash between any two writes
+  // would leave a `candidate`-status block invisible to readers
+  // (which filter `status='active'`) and orphaned from the case-ref
+  // graph.
   const candidate = { ...fresh, status: "candidate" as const };
-  store.storeBlock(candidate);
-  store.attachCaseRef({
-    blockId: candidate.id,
-    traceId,
-    role: "origin",
-    evidenceQuality: "strong",
+  store.transaction(() => {
+    store.storeBlock(candidate);
+    store.attachCaseRef({
+      blockId: candidate.id,
+      traceId,
+      role: "origin",
+      evidenceQuality: "strong",
+    });
+    store.updateBlockStatus(candidate.id, "active");
   });
-  store.updateBlockStatus(candidate.id, "active");
 
   return { blockId: candidate.id, isNew: true, situation };
 }

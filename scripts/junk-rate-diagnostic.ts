@@ -27,6 +27,7 @@
 import Database from "better-sqlite3";
 import { resolve } from "node:path";
 import { existsSync } from "node:fs";
+import { classifyForCapture } from "../src/core/capture-gate.js";
 
 interface BlockRow {
   id: string;
@@ -170,6 +171,14 @@ function main(): void {
   const byStatus: Record<string, number> = {};
   const byKind: Record<string, number> = {};
 
+  // Retroactive simulation of the 0.7.1 capture gate against the
+  // existing store. Lets us report gate recall (junk caught) and
+  // false-positive rate (reusable wrongly rejected) on real data
+  // without waiting on a forward-rate measurement.
+  let gateBlockedJunk = 0;
+  let gateBlockedReusable = 0;
+  let gateBlockedTotal = 0;
+
   console.log(`Junk-rate diagnostic — ${dbPath}`);
   console.log(`Total reasoning_blocks: ${total}\n`);
 
@@ -197,7 +206,21 @@ function main(): void {
     byStatus[row.status] = (byStatus[row.status] ?? 0) + 1;
     byKind[row.kind] = (byKind[row.kind] ?? 0) + 1;
 
+    const gate = classifyForCapture({
+      situation: row.trig_situation,
+      mechanism: row.body_mechanism,
+      unlock: row.body_unlock,
+      verification: row.body_verification ?? "",
+    });
+    const wouldBlock = gate.kind === "reject";
+    if (wouldBlock) {
+      gateBlockedTotal += 1;
+      if (cls.category === "reusable") gateBlockedReusable += 1;
+      else gateBlockedJunk += 1;
+    }
+
     const idShort = row.id.slice(0, 8);
+    const gateMark = wouldBlock ? `BLOCK[${gate.kind === "reject" ? gate.reason : ""}]` : "pass";
     console.log(
       idShort.padEnd(10) +
         " | " +
@@ -211,7 +234,9 @@ function main(): void {
         " | " +
         cls.category.padEnd(20) +
         " | " +
-        preview(row.trig_situation, 60),
+        gateMark.padEnd(22) +
+        " | " +
+        preview(row.trig_situation, 50),
     );
     if (cls.reasons.length > 0) {
       console.log(`           reasons: ${cls.reasons.join("; ")}`);
@@ -234,6 +259,24 @@ function main(): void {
     byCategory["junk-empty"];
   const junkPct = total > 0 ? ((junk / total) * 100).toFixed(1) : "0.0";
   console.log(`\nOverall junk-rate: ${junk}/${total} = ${junkPct}%`);
+
+  // Retroactive capture-gate simulation
+  const reusable = byCategory.reusable;
+  const gateRecall = junk > 0 ? ((gateBlockedJunk / junk) * 100).toFixed(1) : "n/a";
+  const gateFpr =
+    reusable > 0 ? ((gateBlockedReusable / reusable) * 100).toFixed(1) : "n/a";
+  const postGateJunk = Math.max(0, junk - gateBlockedJunk);
+  const postGateTotal = total - gateBlockedTotal;
+  const postGatePct =
+    postGateTotal > 0 ? ((postGateJunk / postGateTotal) * 100).toFixed(1) : "n/a";
+  console.log("");
+  console.log("=== Retroactive capture-gate simulation (0.7.1) ===");
+  console.log(`Gate would have blocked at extraction time: ${gateBlockedTotal}/${total}`);
+  console.log(`  of which junk:     ${gateBlockedJunk}/${junk} (${gateRecall}% gate recall on junk)`);
+  console.log(`  of which reusable: ${gateBlockedReusable}/${reusable} (${gateFpr}% false-positive rate on reusable)`);
+  console.log(
+    `Post-gate store would carry: ${postGateJunk} junk / ${postGateTotal} total = ${postGatePct}% junk-rate`,
+  );
 
   db.close();
 }

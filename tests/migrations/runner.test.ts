@@ -89,6 +89,7 @@ describe("migrations — fresh DB", () => {
       "indexer_pending",
       "loop_redirect_dedupe",
       "session_chunks",
+      "audit_deletes",
     ]) {
       expect(tables).toContain(t);
     }

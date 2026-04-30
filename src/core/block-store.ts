@@ -45,13 +45,12 @@ import { detectPromptInjectionPatterns } from "./guard.js";
 // Schema
 // ---------------------------------------------------------------------------
 
-// 0.7.0-rc.6 bumps to 13 — chunk-based context compression
-// (PLAN-0.7 §rc.6). Adds `session_chunks(id, session_id,
-// chunk_start_turn, chunk_end_turn, turn_hash, summary, tokens_*,
-// summarizer, expires_at, created_at)` so PreCompact can fold
-// transcript tail into rolling chunks the next UserPromptSubmit
-// in the same session can recall.
-const V2_SCHEMA_VERSION = 13;
+// 0.7.1 bumps to 14 — GDPR Art. 17 hard-delete audit trail. Adds
+// `audit_deletes(id, block_id, deleted_at, reason,
+// requesting_principal)` so BlockStore.hardDeleteBlock can both
+// remove a reasoning_blocks row (CASCADE sweeping its case refs)
+// and write an immutable tombstone for compliance audit.
+const V2_SCHEMA_VERSION = 14;
 
 const V2_SCHEMA = `
 CREATE TABLE IF NOT EXISTS reasoning_blocks (
@@ -484,6 +483,24 @@ CREATE TABLE IF NOT EXISTS calibrator_models (
   payload    TEXT NOT NULL,
   fitted_at  INTEGER NOT NULL
 );
+
+-- 0.7.1 — GDPR Art. 17 hard-delete audit trail. Append-only ledger
+-- of every hardDeleteBlock call. Body of the deleted block is
+-- intentionally NOT preserved (that would defeat erasure); we keep
+-- block_id, timestamp, reason, and an optional requesting_principal
+-- so the deletion remains auditable while the content itself is
+-- gone. Reconciliation against prior analytics_events references
+-- the same block_id.
+CREATE TABLE IF NOT EXISTS audit_deletes (
+  id                    TEXT PRIMARY KEY,
+  block_id              TEXT NOT NULL,
+  deleted_at            INTEGER NOT NULL,
+  reason                TEXT NOT NULL,
+  requesting_principal  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_deletes_block ON audit_deletes(block_id);
+CREATE INDEX IF NOT EXISTS idx_audit_deletes_ts    ON audit_deletes(deleted_at);
 `;
 
 /**
@@ -928,6 +945,22 @@ const V2_MIGRATIONS: Record<number, MigrationStep[]> = {
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_session_chunks_dedupe
        ON session_chunks(session_id, turn_hash)`,
   ],
+  // v13 → v14: 0.7.1 GDPR Art. 17 — hard-delete audit trail.
+  // Pure additive table + two indexes; existing data untouched.
+  // Powers BlockStore.hardDeleteBlock: each call deletes the
+  // reasoning_blocks row (CASCADE on block_case_refs) and writes
+  // a tombstone here in a single transaction.
+  14: [
+    `CREATE TABLE IF NOT EXISTS audit_deletes (
+       id                    TEXT PRIMARY KEY,
+       block_id              TEXT NOT NULL,
+       deleted_at            INTEGER NOT NULL,
+       reason                TEXT NOT NULL,
+       requesting_principal  TEXT
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_deletes_block ON audit_deletes(block_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_deletes_ts    ON audit_deletes(deleted_at)`,
+  ],
 };
 
 // ---------------------------------------------------------------------------
@@ -1161,6 +1194,27 @@ export class BlockStore {
 
   get rawDb(): Database.Database {
     return this.db;
+  }
+
+  /**
+   * Run a function inside a single SQLite transaction.
+   *
+   * Thin wrapper over `this.db.transaction(fn)()` for higher-layer
+   * helpers that need to compose multiple `BlockStore` writes
+   * atomically without reaching for `rawDb`. The canonical caller is
+   * `storeReasoningPattern` (mcp-v2-helpers): the 3-step candidate →
+   * origin-ref → active sequence must roll back as a unit on partial
+   * failure, otherwise a mid-sequence crash leaves a `candidate`
+   * block invisible to read paths (which filter `status='active'`)
+   * and orphaned from the case-ref graph.
+   *
+   * better-sqlite3 implements nested transactions via savepoints, so
+   * calling existing methods that internally start their own
+   * `db.transaction(...)` (e.g. `attachCaseRef`) from inside this
+   * wrapper is safe.
+   */
+  transaction<T>(fn: () => T): T {
+    return this.db.transaction(fn)();
   }
 
   // -------------------------------------------------------------------------
@@ -1615,6 +1669,54 @@ export class BlockStore {
       locator: input.locator,
       createdAt,
     };
+  }
+
+  /**
+   * GDPR Art. 17 hard-delete with audit trail.
+   *
+   * Removes the reasoning_blocks row (CASCADE sweeps every attached
+   * `block_case_refs` row automatically — see schema FK) and writes a
+   * tombstone to `audit_deletes`. Both writes happen in a single
+   * transaction; on failure neither side persists.
+   *
+   * Body of the deleted block is intentionally NOT preserved in the
+   * audit row — that would defeat the erasure purpose. We keep
+   * `block_id`, `deleted_at`, `reason`, and an optional
+   * `requesting_principal` so the deletion remains auditable while
+   * the content itself is gone. Existing `analytics_events` rows that
+   * referenced this block_id are intentionally left in place: they're
+   * append-only audit telemetry and the bare id alone is not personal
+   * data.
+   *
+   * Returns true if a block was deleted, false if it did not exist
+   * (idempotent — repeat calls are no-ops and write no audit row).
+   */
+  hardDeleteBlock(
+    blockId: string,
+    reason: string,
+    requestingPrincipal?: string,
+  ): boolean {
+    const found = this.db
+      .prepare("SELECT 1 FROM reasoning_blocks WHERE id = ?")
+      .get(blockId);
+    if (!found) return false;
+
+    this.transaction(() => {
+      this.db.prepare("DELETE FROM reasoning_blocks WHERE id = ?").run(blockId);
+      this.db
+        .prepare(
+          `INSERT INTO audit_deletes (id, block_id, deleted_at, reason, requesting_principal)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(
+          randomUUID(),
+          blockId,
+          this.now(),
+          reason,
+          requestingPrincipal ?? null,
+        );
+    });
+    return true;
   }
 
   listCaseRefs(blockId: string, role?: BlockCaseRole): BlockCaseRef[] {

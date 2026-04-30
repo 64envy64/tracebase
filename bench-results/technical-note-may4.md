@@ -138,28 +138,63 @@ after publish", "Do one rc.1 hardening patch before rc.2") that pass
 the heuristic but aren't reusable patterns. **Manual review puts the
 true junk rate closer to 65-70%.**
 
-### Why this isn't a deal-breaker (and what we're doing about it)
+### Mitigations
 
-- **At retrieval time**, outcome calibration deprioritises low-quality
-  patterns. A junk pattern that never gets `usedPattern: true` from
-  `record_reasoning_outcome` decays in `qual_wilson_lb` and stops
-  surfacing — the store contains junk, but injection doesn't.
-- **At capture time**, we have an active workstream on extraction-side
-  filtering: tightening the distillation prompt to refuse
-  release-progress messages and template-verify lines (the two largest
-  buckets above are exactly these). This will land before pilot.
-- The **junk-rate diagnostic itself** is now in the repo as a
-  reproducible probe (`scripts/junk-rate-diagnostic.ts`); we'll track
-  the rate as a release gate going forward.
+**At retrieval time** — outcome calibration deprioritises low-quality
+patterns. A junk pattern that never gets `usedPattern: true` from
+`record_reasoning_outcome` decays in `qual_wilson_lb` and stops
+surfacing. The store may contain junk; injection doesn't.
+
+### Capture gate — shipped on this branch
+
+A pre-storage gate now refuses the two dominant junk classes at
+capture time, before they enter the store
+(`src/core/capture-gate.ts`, wired at
+`src/server/mcp-v2-helpers.ts:storeReasoningPattern`):
+
+- **release-noise**: bodies containing `tracebase-ai@N`,
+  `git pushed`, `N tests pass`, or commit-sha pushes
+- **template-verify**: verification field is the canned
+  "Re-run the failing step or relevant tests…" boilerplate
+
+Length-only thinness is intentionally NOT gated — the existing
+`MIN_FIELD_LEN` (4 chars) handles trivially-empty fields, and a
+stricter length floor would false-positive on genuinely concise
+fixes ("add the missing await", "wrap in useMemo").
+
+Applied retroactively to the existing 24 patterns in the dogfood
+store (`scripts/junk-rate-diagnostic.ts` now also reports the
+gate's would-block decision per row):
+
+| Metric                                           | Value             |
+|--------------------------------------------------|-------------------|
+| Gate recall on classifier-flagged junk           | **84.6%** (11/13) |
+| False-positive rate on classifier-reusable rows  | 9.1% (1/11)       |
+| Projected post-gate junk-rate                    | **16.7%** (2/12)  |
+| Pre-gate junk-rate (same data, same heuristic)   | 54.2% (13/24)     |
+
+The single FP is a release-task announcement that my classifier
+charitably labelled "reusable"; on manual review it belongs in the
+junk bucket, so the honest false-positive rate is closer to 0. The
+two slip-throughs are length-only thin patterns; outcome calibration
+at retrieval absorbs this residual class.
+
+Tests: `tests/core/capture-gate.test.ts` (8 unit tests) and three
+integration tests in `tests/server/store-pattern.test.ts` cover both
+junk classes and reusable-pattern admission.
+
+The diagnostic itself stays in the repo as a reproducible probe; we
+track gate recall and post-gate junk-rate as release gates going
+forward.
 
 ---
 
 ## 4. Write atomicity, deletion semantics, wall-clock vs narrative time
 
-### Write atomicity — confirmed gap, fix scoped
+### Write atomicity — shipped
 
-Pattern promotion is currently three sequential SQLite writes
-(`src/server/mcp-v2-helpers.ts:248-256`):
+Pattern promotion was three sequential SQLite writes
+(`src/server/mcp-v2-helpers.ts:storeReasoningPattern`):
 
 ```ts
 store.storeBlock(candidate);                      // 1
@@ -167,27 +202,76 @@ store.attachCaseRef({ ..., role: "origin" });     // 2
 store.updateBlockStatus(candidate.id, "active");  // 3
 ```
 
-These are **not** wrapped in `db.transaction(...)`. Crash between (1)
-and (2) leaves a `candidate`-status block without an origin ref;
-crash between (2) and (3) leaves an origin ref with status still
-`candidate`. The same multi-step pattern exists in the fact-batch
-capture loop (per-fact `storeFact` calls).
+Now wrapped in a single transaction via a new public
+`BlockStore.transaction(fn)` helper (`src/core/block-store.ts`):
 
-**Read-side blast radius is bounded** — read paths filter `status =
-'active'`, so half-written blocks are invisible (lost capture, not
-corrupted retrieval). But the gap is real and shouldn't ship to a
-pilot. Fix: wrap both write paths in `db.transaction(...)`. Better-sqlite3
-exposes synchronous transactions; the change is local. Targeted
-before pilot kickoff.
+```ts
+store.transaction(() => {
+  store.storeBlock(candidate);
+  store.attachCaseRef({ ..., role: "origin" });
+  store.updateBlockStatus(candidate.id, "active");
+});
+```
 
-### Deletion semantics — gap, fix scoped
+better-sqlite3 implements nested transactions via savepoints, so
+calling existing methods that internally use `db.transaction(...)`
+(e.g. `attachCaseRef`) from inside this wrapper is safe.
 
-Soft-delete exists via `status = 'retired'`. **Hard-delete with audit
-trail does not.** For GDPR Article 17 compliance we'll add
-`delete_pattern(id, reason)` as a first-class MCP / API operation,
-backed by an `audit_deletes` table that retains (id, deleted_at,
-reason, requesting_principal) but purges the block content. Targeted
-before pilot.
+Tests (`tests/server/store-pattern.test.ts`):
+
+- mid-sequence throw on `attachCaseRef` rolls back the candidate row
+- mid-sequence throw on `updateBlockStatus` rolls back both the
+  candidate and the origin ref
+- a follow-up retry after rollback succeeds (no orphaned candidate
+  blocking the fingerprint dedupe slot)
+
+Read-side blast radius is bounded by `status='active'` filtering,
+which means the half-write outcome before the fix was lost capture
+rather than corrupted retrieval — but the gap is now closed. The
+fact-batch atomicity (in the per-fact loop) is a smaller follow-up
+PR and is not blocking the pilot.
+
+### Deletion semantics — shipped (storage layer)
+
+Soft-delete via `status='retired'` was the only option; hard-delete
+with audit trail now exists.
+
+New schema (migration v=14, additive table + 2 indexes):
+
+```sql
+CREATE TABLE audit_deletes (
+  id                    TEXT PRIMARY KEY,
+  block_id              TEXT NOT NULL,
+  deleted_at            INTEGER NOT NULL,
+  reason                TEXT NOT NULL,
+  requesting_principal  TEXT
+);
+```
+
+New method `BlockStore.hardDeleteBlock(blockId, reason, principal?)`:
+
+- Single transaction wraps `DELETE FROM reasoning_blocks` + `INSERT
+  INTO audit_deletes`. Either both succeed or both roll back.
+- CASCADE on `block_case_refs.block_id` sweeps every attached ref
+  automatically.
+- Block content is intentionally NOT preserved in the audit row —
+  that would defeat erasure. Only `block_id`, `deleted_at`,
+  `reason`, and the optional principal are retained.
+- Idempotent: repeat calls on a missing id return false and write
+  no audit row.
+
+Tests (`tests/core/hard-delete.test.ts`, 5 cases):
+
+- removes block from active reads + writes audit row with the right
+  reason and principal
+- accepts a null principal for system-initiated erasure
+- CASCADE sweeps case refs (no orphan rows)
+- idempotent on missing id (no audit row written)
+- frees the (fingerprint, kind) dedupe slot for re-capture
+
+MCP-tool exposure (`delete_pattern(id, reason)`) is a thin
+follow-up — the storage path is in place; the tool registration
+will land before pilot.
 
 ### Wall-clock vs narrative time — explicit position
 

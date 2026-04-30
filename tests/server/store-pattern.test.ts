@@ -7,7 +7,7 @@
  * reads the v2 reasoning_blocks table and the legacy `store` tool
  * writes v1 traces.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import Database from "better-sqlite3";
 import { BlockStore } from "../../src/core/block-store.js";
 import { BlockServer } from "../../src/core/block-serving.js";
@@ -223,5 +223,120 @@ describe("storeReasoningPattern — round-trip with get_reasoning_patterns", () 
     expect(after.blocks.length).toBeGreaterThan(0);
     expect(after.blocks[0]!.block.id).toBe(stored.blockId);
     expect(after.shouldInject).toBe(true);
+  });
+});
+
+describe("storeReasoningPattern — capture gate", () => {
+  // Refuses the two largest junk classes measured in the dogfood store
+  // (release-progress chat captured as patterns, and template-verify
+  // boilerplate). Length-only thinness is intentionally still allowed
+  // through MIN_FIELD_LEN — gate logic shouldn't false-positive on
+  // genuinely concise fixes.
+  it("rejects bodies that contain release-progress version markers", () => {
+    const store = makeStore();
+    expect(() =>
+      storeReasoningPattern(store, {
+        situation: "Bug in 0.5.7 memory prune over-prunes valid reusable blocks.",
+        mechanism: "tracebase-ai@0.5.8 is latest. git pushed (ec34fc5..8b2587b).",
+        unlock: "set the candidate filter to skip no-problem-signal patterns",
+        verification: "1093 tests pass after the fix",
+      }),
+    ).toThrow(/capture gate.*release-noise/);
+  });
+
+  it("rejects when verification is the canned 'Re-run the failing step' boilerplate", () => {
+    const store = makeStore();
+    expect(() =>
+      storeReasoningPattern(store, {
+        situation: "fixture about a real reusable bug pattern with adequate detail",
+        mechanism: "the underlying mechanism is genuinely useful and explained well",
+        unlock: "the fix is to apply a guard at the boundary",
+        verification: "Re-run the failing step or relevant tests to confirm the fix holds.",
+      }),
+    ).toThrow(/capture gate.*template-verify/);
+  });
+
+  it("accepts a real reusable pattern with no junk markers", () => {
+    const store = makeStore();
+    const result = storeReasoningPattern(store, {
+      situation: "React effect loops when the dependency array holds a fresh object each render",
+      mechanism: "referential equality fails every render so the effect re-runs indefinitely",
+      unlock: "memoize the dependency with useMemo, or lift the object into module scope",
+      verification: "render count stays constant after the initial mount",
+    });
+    expect(result.isNew).toBe(true);
+  });
+});
+
+describe("storeReasoningPattern — atomicity", () => {
+  // The promote sequence (storeBlock → attachCaseRef → updateBlockStatus)
+  // must roll back as a unit. Without the surrounding transaction, a
+  // mid-sequence failure leaves a candidate-status block invisible to
+  // the read path but still occupying the (fingerprint, kind) dedupe
+  // slot, blocking future captures.
+  function countBlocks(store: BlockStore): number {
+    return (store.rawDb.prepare("SELECT COUNT(*) AS c FROM reasoning_blocks").get() as { c: number }).c;
+  }
+  function countCaseRefs(store: BlockStore): number {
+    return (store.rawDb.prepare("SELECT COUNT(*) AS c FROM block_case_refs").get() as { c: number }).c;
+  }
+
+  const validInput = {
+    situation: "atomicity test — distinct trigger phrase",
+    mechanism: "the three-step promote sequence must be all-or-nothing",
+    unlock: "wrap storeBlock + attachCaseRef + updateBlockStatus in a single transaction",
+    verification: "after a forced mid-sequence throw, no block or case ref persists",
+  };
+
+  it("rolls back the candidate block when attachCaseRef fails", () => {
+    const store = makeStore();
+    const spy = vi.spyOn(store, "attachCaseRef").mockImplementation(() => {
+      throw new Error("simulated attachCaseRef failure");
+    });
+
+    expect(() => storeReasoningPattern(store, validInput)).toThrow(/simulated attachCaseRef/);
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    spy.mockRestore();
+    expect(countBlocks(store)).toBe(0);
+    expect(countCaseRefs(store)).toBe(0);
+  });
+
+  it("rolls back the block AND the origin ref when updateBlockStatus fails", () => {
+    const store = makeStore();
+    const spy = vi.spyOn(store, "updateBlockStatus").mockImplementation(() => {
+      throw new Error("simulated updateBlockStatus failure");
+    });
+
+    expect(() => storeReasoningPattern(store, validInput)).toThrow(/simulated updateBlockStatus/);
+
+    spy.mockRestore();
+    // Both the candidate block and the (already-attached) origin ref
+    // must be gone — partial state would leave the next capture
+    // colliding on the fingerprint-kind dedupe index.
+    expect(countBlocks(store)).toBe(0);
+    expect(countCaseRefs(store)).toBe(0);
+  });
+
+  it("does not block subsequent captures of the same fingerprint after a rolled-back failure", () => {
+    const store = makeStore();
+    const spy = vi.spyOn(store, "updateBlockStatus").mockImplementation(() => {
+      throw new Error("simulated updateBlockStatus failure");
+    });
+    expect(() => storeReasoningPattern(store, validInput)).toThrow();
+    spy.mockRestore();
+
+    // Now retry — same logical pattern, same fingerprint. Without
+    // rollback, the orphaned candidate would trigger the (fingerprint,
+    // kind) dedupe path and we'd attach a `supporting` ref to a stuck
+    // candidate instead of cleanly inserting a fresh active block.
+    const retry = storeReasoningPattern(store, validInput);
+    expect(retry.isNew).toBe(true);
+
+    const block = store.getBlock(retry.blockId)!;
+    expect(block.status).toBe("active");
+    const refs = store.listCaseRefs(retry.blockId);
+    expect(refs.length).toBe(1);
+    expect(refs[0]!.role).toBe("origin");
   });
 });
