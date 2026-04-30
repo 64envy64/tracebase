@@ -1,0 +1,148 @@
+{
+  "timestamp": 1777565817492,
+  "fixtureCount": 10,
+  "gateFull": 0.85,
+  "gateHint": 0.72,
+  "rows": [
+    {
+      "queryFixtureId": "fix-async-race",
+      "queryDescription": "processItems() returns before async operations complete because forEach with async callback does not await",
+      "tracebase": {
+        "matchedFixtureId": "fix-event-leak",
+        "score": 0.6234848482620003,
+        "tier": "refused"
+      },
+      "naive": {
+        "matchedFixtureId": "fix-event-leak",
+        "score": 0.06172839506172839
+      }
+    },
+    {
+      "queryFixtureId": "fix-cache-invalidation",
+      "queryDescription": "LRU cache evicts most recently used item instead of least recently used because get() does not refresh recency",
+      "tracebase": {
+        "matchedFixtureId": "fix-rate-limiter",
+        "score": 0.6273148147256755,
+        "tier": "refused"
+      },
+      "naive": {
+        "matchedFixtureId": "fix-tree-depth",
+        "score": 0.03571428571428571
+      }
+    },
+    {
+      "queryFixtureId": "fix-debounce",
+      "queryDescription": "Debounce function does not pass arguments to the debounced function callback",
+      "tracebase": {
+        "matchedFixtureId": "fix-event-leak",
+        "score": 0.6245791243117067,
+        "tier": "refused"
+      },
+      "naive": {
+        "matchedFixtureId": "fix-event-leak",
+        "score": 0.05128205128205128
+      }
+    },
+    {
+      "queryFixtureId": "fix-deep-clone",
+      "queryDescription": "Deep clone crashes on circular references and converts Date objects to plain objects",
+      "tracebase": {
+        "matchedFixtureId": "fix-debounce",
+        "score": 0.6203703701475222,
+        "tier": "refused"
+      },
+      "naive": {
+        "matchedFixtureId": "fix-rate-limiter",
+        "score": 0.022988505747126436
+      }
+    },
+    {
+      "queryFixtureId": "fix-event-leak",
+      "queryDescription": "Event emitter listener accumulates because unsubscribe() cannot match the anonymous wrapper created in subscribe()",
+      "tracebase": {
+        "matchedFixtureId": "fix-debounce",
+        "score": 0.6407407405178925,
+        "tier": "refused"
+      },
+      "naive": {
+        "matchedFixtureId": "fix-debounce",
+        "score": 0.037037037037037035
+      }
+    },
+    {
+      "queryFixtureId": "fix-merge-sort",
+      "queryDescription": "Merge sort produces incorrect results for arrays with duplicate values because merge step uses strict less-than",
+      "tracebase": {
+        "matchedFixtureId": "fix-rate-limiter",
+        "score": 0.6203703702812311,
+        "tier": "refused"
+      },
+      "naive": {
+        "matchedFixtureId": "fix-null-coalesce",
+        "score": 0.05333333333333334
+      }
+    },
+    {
+      "queryFixtureId": "fix-null-coalesce",
+      "queryDescription": "Config merge uses || instead of ?? causing falsy values (0, empty string, false) to be overridden by defaults",
+      "tracebase": {
+        "matchedFixtureId": "fix-tree-depth",
+        "score": 0.6372579964992877,
+        "tier": "refused"
+      },
+      "naive": {
+        "matchedFixtureId": "fix-async-race",
+        "score": 0.024691358024691357
+      }
+    },
+    {
+      "queryFixtureId": "fix-off-by-one",
+      "queryDescription": "Binary search returns -1 for last element and single-element arrays due to off-by-one in loop condition",
+      "tracebase": {
+        "matchedFixtureId": "fix-async-race",
+        "score": 0.6395795996273425,
+        "tier": "refused"
+      },
+      "naive": {
+        "matchedFixtureId": "fix-async-race",
+        "score": 0.04938271604938271
+      }
+    },
+    {
+      "queryFixtureId": "fix-rate-limiter",
+      "queryDescription": "Rate limiter allows burst at window boundary because cleanup uses wrong comparison operator for timestamps",
+      "tracebase": {
+        "matchedFixtureId": "fix-event-leak",
+        "score": 0.6223262031194169,
+        "tier": "refused"
+      },
+      "naive": {
+        "matchedFixtureId": "fix-merge-sort",
+        "score": 0.05952380952380952
+      }
+    },
+    {
+      "queryFixtureId": "fix-tree-depth",
+      "queryDescription": "maxDepth() returns 0 for leaf nodes and single-node trees because base case is wrong",
+      "tracebase": {
+        "matchedFixtureId": "fix-merge-sort",
+        "score": 0.6443783068337372,
+        "tier": "refused"
+      },
+      "naive": {
+        "matchedFixtureId": "fix-event-leak",
+        "score": 0.06172839506172839
+      }
+    }
+  ],
+  "aggregate": {
+    "tbAnyPick": 10,
+    "tbFull": 0,
+    "tbHint": 0,
+    "tbRefused": 10,
+    "naiveAnyPick": 10,
+    "agreedPick": 4,
+    "disagreedPick": 6,
+    "naiveInjectsWhereTbRefuses": 10
+  }
+}
