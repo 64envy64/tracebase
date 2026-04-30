@@ -1,0 +1,41 @@
+{
+  "version": "0.5.1",
+  "timestamp": "2026-04-24T23:41:22.710Z",
+  "runs": 100,
+  "warmup": 5,
+  "results": [
+    {
+      "hook": "inject-context",
+      "target_ms": 150,
+      "release_gate": true,
+      "runs": 100,
+      "p50_ms": 53.32,
+      "p95_ms": 63.11,
+      "p99_ms": 200.5,
+      "max_ms": 200.5,
+      "exceedsBudget": false
+    },
+    {
+      "hook": "capture-turn",
+      "target_ms": 500,
+      "release_gate": true,
+      "runs": 100,
+      "p50_ms": 49.48,
+      "p95_ms": 55.48,
+      "p99_ms": 57.9,
+      "max_ms": 57.9,
+      "exceedsBudget": false
+    },
+    {
+      "hook": "capture-context",
+      "target_ms": 2000,
+      "release_gate": true,
+      "runs": 100,
+      "p50_ms": 51.29,
+      "p95_ms": 55.93,
+      "p99_ms": 60.78,
+      "max_ms": 60.78,
+      "exceedsBudget": false
+    }
+  ]
+}

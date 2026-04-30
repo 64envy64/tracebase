@@ -1,0 +1,60 @@
+{
+  "version": "0.7.0",
+  "timestamp": "2026-04-27T12:40:02.411Z",
+  "runs": 100,
+  "warmup": 5,
+  "results": [
+    {
+      "hook": "inject-context",
+      "target_ms": 150,
+      "ceiling_ms": 400,
+      "release_gate": true,
+      "runs": 100,
+      "p50_ms": 59.41,
+      "p95_ms": 78.08,
+      "p99_ms": 109.92,
+      "max_ms": 109.92,
+      "exceedsBudget": false,
+      "exceedsCeiling": false
+    },
+    {
+      "hook": "capture-turn",
+      "target_ms": 500,
+      "ceiling_ms": 1500,
+      "release_gate": true,
+      "runs": 100,
+      "p50_ms": 56.12,
+      "p95_ms": 88.91,
+      "p99_ms": 182.58,
+      "max_ms": 182.58,
+      "exceedsBudget": false,
+      "exceedsCeiling": false
+    },
+    {
+      "hook": "capture-context",
+      "target_ms": 2000,
+      "ceiling_ms": 6000,
+      "release_gate": true,
+      "runs": 100,
+      "p50_ms": 60.32,
+      "p95_ms": 68.06,
+      "p99_ms": 85.36,
+      "max_ms": 85.36,
+      "exceedsBudget": false,
+      "exceedsCeiling": false
+    },
+    {
+      "hook": "capture-tool-use",
+      "target_ms": 200,
+      "ceiling_ms": 600,
+      "release_gate": true,
+      "runs": 100,
+      "p50_ms": 56.71,
+      "p95_ms": 150.47,
+      "p99_ms": 462.65,
+      "max_ms": 462.65,
+      "exceedsBudget": false,
+      "exceedsCeiling": false
+    }
+  ]
+}

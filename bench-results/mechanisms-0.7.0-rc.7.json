@@ -1,0 +1,45 @@
+{
+  "version": "0.7.0-rc.7",
+  "ts": "2026-04-27T11:05:31.025Z",
+  "results": [
+    {
+      "hook": "prompt-cache.attach.string",
+      "target_ms": 0.05,
+      "ceiling_ms": 1,
+      "release_gate": true,
+      "runs": 1000,
+      "p50_ms": 0,
+      "p95_ms": 0.001,
+      "p99_ms": 0.002,
+      "max_ms": 0.011,
+      "exceedsTarget": false,
+      "exceedsCeiling": false
+    },
+    {
+      "hook": "prompt-cache.attach.array8",
+      "target_ms": 0.1,
+      "ceiling_ms": 1,
+      "release_gate": true,
+      "runs": 1000,
+      "p50_ms": 0,
+      "p95_ms": 0.001,
+      "p99_ms": 0.002,
+      "max_ms": 0.471,
+      "exceedsTarget": false,
+      "exceedsCeiling": false
+    },
+    {
+      "hook": "mechanism-savings.compute.1k",
+      "target_ms": 30,
+      "ceiling_ms": 200,
+      "release_gate": true,
+      "runs": 1000,
+      "p50_ms": 1.966,
+      "p95_ms": 2.368,
+      "p99_ms": 3.05,
+      "max_ms": 4.05,
+      "exceedsTarget": false,
+      "exceedsCeiling": false
+    }
+  ]
+}
