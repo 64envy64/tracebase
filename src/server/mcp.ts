@@ -7,6 +7,7 @@ import { EventEmitter, emitAgentUsed, emitFactAgentUsed, emitOutcome } from "../
 import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
 import {
   collectInjectedFromQuery,
+  deletePattern,
   resolveUsedItems,
   storeReasoningPattern,
   StorePatternValidationError,
@@ -598,6 +599,68 @@ export async function startMcpServer(
                   "Each of situation / mechanism / unlock / verification must be a short, " +
                   "concrete sentence. A pattern with empty fields is noise, not memory.",
               },
+            ],
+            isError: true,
+          };
+        }
+        throw error;
+      }
+    },
+  );
+
+  // --- Tool: delete_pattern (GDPR Art. 17 hard-delete) ---
+  //
+  // Hard-deletes a reasoning_blocks row by id and writes an
+  // audit_deletes tombstone in a single transaction. The deleted
+  // block's body is NEVER preserved in the audit row — only id,
+  // timestamp, reason, and the calling tool surface as the
+  // requesting_principal. CASCADE on block_case_refs sweeps
+  // attached refs so erasure is total at the storage layer.
+  server.tool(
+    "delete_pattern",
+    "Hard-delete a stored reasoning pattern by id. Removes the block " +
+    "from retrieval and writes an audit row to audit_deletes for " +
+    "compliance trail (id, reason, timestamp, calling tool surface). " +
+    "Block content is NEVER preserved in the audit row. Use when a " +
+    "user requests erasure (GDPR Art. 17) or a captured pattern is " +
+    "known wrong / stale and outcome calibration alone is too slow. " +
+    "Returns { ok: true, deleted: boolean, id }; deleted=false when " +
+    "the id did not exist (no audit row written, no error).",
+    {
+      id: z.string().describe(
+        "Block id to delete. Returned by get_reasoning_patterns / " +
+        "list_patterns / store_reasoning_pattern.",
+      ),
+      reason: z.string().min(4).max(500).describe(
+        "Human-readable reason for deletion (4..500 chars). Stored " +
+        "verbatim in audit_deletes.reason; do not include block " +
+        "body content here — the audit log is meant to outlive the " +
+        "block, but its content is not.",
+      ),
+    },
+    async (args) => {
+      try {
+        const result = deletePattern(blockStore, {
+          id: args.id,
+          reason: args.reason,
+          requestingPrincipal: "mcp:delete_pattern",
+        });
+        const tag = result.deleted
+          ? `hard-deleted pattern ${result.id} and wrote audit row`
+          : `no pattern with id ${result.id} found (no-op; no audit row written)`;
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `${tag}\nresult: ${JSON.stringify(result)}`,
+            },
+          ],
+        };
+      } catch (error) {
+        if (error instanceof StorePatternValidationError) {
+          return {
+            content: [
+              { type: "text" as const, text: `delete_pattern rejected: ${error.message}` },
             ],
             isError: true,
           };

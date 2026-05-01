@@ -276,3 +276,79 @@ export function storeReasoningPattern(
 
   return { blockId: candidate.id, isNew: true, situation };
 }
+
+// ---------------------------------------------------------------------------
+// delete_pattern (GDPR Art. 17 hard-delete) — capture-side erasure
+// ---------------------------------------------------------------------------
+
+const DELETE_REASON_MIN_LEN = 4;
+const DELETE_REASON_MAX_LEN = 500;
+
+export interface DeletePatternArgs {
+  /** Block id to hard-delete. */
+  id: string;
+  /** Human-readable reason; stored verbatim in `audit_deletes.reason`. */
+  reason: string;
+  /**
+   * Identity of the caller. The MCP tool wires this to a fixed surface
+   * tag (`"mcp:delete_pattern"`) so the audit log distinguishes
+   * tool-driven erasures from CLI / SDK paths. Optional for direct
+   * library callers.
+   */
+  requestingPrincipal?: string;
+}
+
+export interface DeletePatternResult {
+  ok: true;
+  /** False when the id did not exist (no audit row written). */
+  deleted: boolean;
+  id: string;
+}
+
+/**
+ * Hard-delete a reasoning pattern by id and write a tombstone to
+ * `audit_deletes`. Thin wrapper over `BlockStore.hardDeleteBlock`
+ * that adds input validation:
+ *
+ *   - `id` must be a non-empty string.
+ *   - `reason` must be 4..500 chars after trim.
+ *
+ * Both writes (block delete + audit insert) happen in a single
+ * transaction inside `hardDeleteBlock`; on failure neither side
+ * persists.
+ *
+ * Privacy invariant: the audit row stores only `(id, block_id,
+ * deleted_at, reason, requesting_principal)`. The deleted block's
+ * body fields (situation / mechanism / unlock / verification) are
+ * NEVER preserved — that would defeat the erasure purpose. Callers
+ * MUST NOT pass block content as the `reason` field; the gate above
+ * caps reason length at 500 chars and the audit schema has no
+ * column for body text.
+ *
+ * Idempotent: a missing id returns `{ ok: true, deleted: false }`
+ * with no audit row written and no error.
+ */
+export function deletePattern(
+  store: BlockStore,
+  args: DeletePatternArgs,
+): DeletePatternResult {
+  const id = (args.id ?? "").trim();
+  const reason = (args.reason ?? "").trim();
+
+  if (id.length === 0) {
+    throw new StorePatternValidationError(`field "id" is required`);
+  }
+  if (reason.length < DELETE_REASON_MIN_LEN) {
+    throw new StorePatternValidationError(
+      `field "reason" is too short (min ${DELETE_REASON_MIN_LEN} chars after trim)`,
+    );
+  }
+  if (reason.length > DELETE_REASON_MAX_LEN) {
+    throw new StorePatternValidationError(
+      `field "reason" is too long (max ${DELETE_REASON_MAX_LEN} chars)`,
+    );
+  }
+
+  const deleted = store.hardDeleteBlock(id, reason, args.requestingPrincipal);
+  return { ok: true, deleted, id };
+}
