@@ -313,9 +313,17 @@ Tests (`tests/core/hard-delete.test.ts`, 5 cases):
 - idempotent on missing id (no audit row written)
 - frees the (fingerprint, kind) dedupe slot for re-capture
 
-MCP-tool exposure (`delete_pattern(id, reason)`) is a thin
-follow-up — the storage path is in place; the tool registration
-will land before pilot.
+MCP-tool exposure (`delete_pattern`) is also shipped on this branch
+(`src/server/mcp.ts`). Input schema is `{ id: string, reason:
+string (4..500 chars) }`; result shape is `{ ok: true, deleted:
+boolean, id }`. The tool wires `requesting_principal` to the fixed
+surface tag `"mcp:delete_pattern"` so the audit log distinguishes
+tool-driven erasures from CLI / SDK paths. Tests
+(`tests/server/delete-pattern.test.ts`, 11 cases) cover input
+validation, privacy invariants (schema columns + body-content
+absence in audit values), idempotent missing-id behaviour, and a
+round-trip showing a deleted block does not surface in
+`runReasoningPatternsRecall` while the audit row persists.
 
 ### Wall-clock vs narrative time — explicit position
 
