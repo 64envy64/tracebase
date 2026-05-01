@@ -30,3 +30,8 @@ coverage/
 www/node_modules/
 www/.next/
 www/out/
+
+# YC demo harness — workspace dirs are scratch state copied from
+# demo-tasks/<id>/state-<variant>/ before each verifier run. The
+# JSON outputs and summary.md under demo-runs/ stay tracked.
+demo-runs/**/*-workspace/

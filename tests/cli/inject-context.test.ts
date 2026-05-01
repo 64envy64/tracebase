@@ -867,3 +867,65 @@ describe("runInjectContext — TB TOOL / TB LOOP composite badges", () => {
     expect(envelope(out).systemMessage).toBeUndefined();
   });
 });
+
+describe("runInjectContext — TRACEBASE_DISABLED kill switch", () => {
+  // Used by the YC demo harness (off variant) and as a one-off
+  // global suppression. Must short-circuit to the trivial-shape
+  // empty envelope without touching the store or running recall.
+  it("returns an empty envelope when TRACEBASE_DISABLED=1, even with a matching pattern", () => {
+    const config = initConfig(projectDir);
+    const db = new Database(config.storagePath);
+    const store = new BlockStore(db);
+    storeActive(store, PY_BLOCK);
+    store.close();
+
+    // Sanity: without the switch, a matching pattern is injected.
+    const before = runInjectContext(
+      { path: projectDir },
+      { prompt: "pytest is collecting the wrong package — sys.path looks suspicious" },
+    );
+    expect(before.injected).toBe(true);
+    expect(envelope(before).hookSpecificOutput.additionalContext).toContain("<tracebase queryId=");
+
+    const prev = process.env.TRACEBASE_DISABLED;
+    process.env.TRACEBASE_DISABLED = "1";
+    try {
+      const out = runInjectContext(
+        { path: projectDir },
+        { prompt: "pytest is collecting the wrong package — sys.path looks suspicious" },
+      );
+      expect(out.injected).toBe(false);
+      const parsed = envelope(out);
+      // Same well-formed shape — host doesn't see a crash.
+      expect(parsed.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
+      // No <tracebase> block — store wasn't touched.
+      expect(parsed.hookSpecificOutput.additionalContext).not.toContain("<tracebase queryId=");
+    } finally {
+      if (prev === undefined) delete process.env.TRACEBASE_DISABLED;
+      else process.env.TRACEBASE_DISABLED = prev;
+    }
+  });
+
+  it("ignores any value other than the literal string '1' (avoid accidental disables)", () => {
+    const config = initConfig(projectDir);
+    const db = new Database(config.storagePath);
+    const store = new BlockStore(db);
+    storeActive(store, PY_BLOCK);
+    store.close();
+
+    const prev = process.env.TRACEBASE_DISABLED;
+    process.env.TRACEBASE_DISABLED = "true"; // common trap
+    try {
+      const out = runInjectContext(
+        { path: projectDir },
+        { prompt: "pytest is collecting the wrong package — sys.path looks suspicious" },
+      );
+      // 'true' must not disable — only the literal '1' does. This
+      // keeps the surface unambiguous and catches typos at review.
+      expect(out.injected).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.TRACEBASE_DISABLED;
+      else process.env.TRACEBASE_DISABLED = prev;
+    }
+  });
+});

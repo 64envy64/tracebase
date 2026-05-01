@@ -1,0 +1,7 @@
+{
+  "id": "recurring-pipeline-failure",
+  "description": "Python ETL pipeline crashes because the CSV header is upper-case (AMOUNT) but the script reads row['amount']. A previous incident solved an identical case-sensitivity bug; with TraceBase ON the agent recalls that fix and applies it directly.",
+  "verifier": "bash check.sh",
+  "model": "claude-haiku-4-5-20251001",
+  "notes": "Synthetic transcripts authored by hand to illustrate the harness contract. Replace runs/{off,on}.json with real-agent recordings before any external demo."
+}

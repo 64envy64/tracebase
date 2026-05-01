@@ -1,0 +1,30 @@
+{
+  "task": "recurring-pipeline-failure",
+  "variant": "off",
+  "timestamp": 1714579200000,
+  "model": "claude-haiku-4-5-20251001",
+  "wallClockMs": 47200,
+  "tokens": {
+    "input": 6400,
+    "output": 1100,
+    "total": 7500,
+    "source": "estimate"
+  },
+  "toolCalls": {
+    "total": 14,
+    "duplicates": 4,
+    "byName": {
+      "Read": 6,
+      "Bash": 5,
+      "Grep": 3
+    }
+  },
+  "tracebase": null,
+  "verifier": {
+    "command": "bash check.sh",
+    "exitCode": 1,
+    "pass": false,
+    "outputExcerpt": "Traceback (most recent call last):\n  File \"/Users/worldwide/Desktop/reasoninglayer/demo-runs/recurring-pipeline-failure/off-workspace/pipeline.py\", line 14, in <module>\n    total += int(row[\"amount\"])\n                 ~~~^^^^^^^^^^\nKeyError: 'amount'\n"
+  },
+  "notes": "Synthetic baseline — agent loops on Grep / Read across the repo trying to localize the KeyError, never reaches the case-fix. Numbers illustrative."
+}

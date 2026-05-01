@@ -170,6 +170,22 @@ export function runInjectContext(
   const budget = parseBudget(opts.budget);
   const statusMode = resolveStatusMode(opts.status);
 
+  // TRACEBASE_DISABLED=1 short-circuits the hook to a no-op empty
+  // envelope without touching the store or running the recall path.
+  // Used by the YC demo harness (off variant), and as a global
+  // kill-switch for users who want to keep the install present but
+  // suppress all activity for a single session. The trivial-prompt
+  // shape is reused — it's already a no-injection envelope the host
+  // accepts cleanly.
+  if (process.env.TRACEBASE_DISABLED === "1") {
+    return wrapEnvelope(
+      host,
+      eventName,
+      "",
+      formatStatus({ kind: "trivial" }, NO_TOOL_SIGNAL, statusMode),
+    );
+  }
+
   try {
     const prompt = extractPrompt(stdin);
     const basePath = resolveBasePath(opts.path, stdin);

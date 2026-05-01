@@ -1,0 +1,37 @@
+{
+  "task": "recurring-pipeline-failure",
+  "variant": "on",
+  "timestamp": 1714579200000,
+  "model": "claude-haiku-4-5-20251001",
+  "wallClockMs": 9300,
+  "tokens": {
+    "input": 1450,
+    "output": 220,
+    "total": 1670,
+    "source": "estimate"
+  },
+  "toolCalls": {
+    "total": 4,
+    "duplicates": 0,
+    "byName": {
+      "Read": 1,
+      "Edit": 1,
+      "Bash": 2
+    }
+  },
+  "tracebase": {
+    "injectedTokens": 240,
+    "overheadMs": 60,
+    "queryIds": [
+      "q-pipeline-failure-2026-04-29"
+    ],
+    "blockedToolCalls": 0
+  },
+  "verifier": {
+    "command": "bash check.sh",
+    "exitCode": 0,
+    "pass": true,
+    "outputExcerpt": "verifier: pass\n"
+  },
+  "notes": "Synthetic — TraceBase recalls prior CSV DictReader case-sensitivity pattern; agent skips diagnosis, edits row['amount'] → row['AMOUNT'], reruns. Numbers illustrative."
+}
