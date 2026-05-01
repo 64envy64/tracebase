@@ -34,6 +34,14 @@ export function computeComparison(
       `variant mismatch: expected (off, on); got (${off.variant}, ${on.variant})`,
     );
   }
+  // Refuse to compare a synthetic OFF against a real ON (or vice
+  // versa) — the demo report must never surface a delta that mixes
+  // illustrative fixture numbers with real-agent measurements.
+  if (off.source !== on.source) {
+    throw new Error(
+      `source mismatch: cannot compare ${off.source} OFF against ${on.source} ON — synthetic and real artifacts must not be paired`,
+    );
+  }
 
   // The on-run may legally carry tracebase=null when an ON run
   // produced no TraceBase activity (e.g. retrieval refused every
@@ -76,7 +84,11 @@ function pickAgreement(
 export function renderComparisonMarkdown(report: ComparisonReport): string {
   const { task, off, on, delta } = report;
   const lines: string[] = [];
-  lines.push(`## ${task}`);
+  const sourceTag =
+    off.source === "real"
+      ? "**Real-agent recording**"
+      : "_Synthetic fixture — illustrative numbers only_";
+  lines.push(`## ${task}  ·  ${sourceTag}`);
   lines.push("");
   lines.push(
     `Off model: ${off.model} · On model: ${on.model} · token source: off=${off.tokens.source} / on=${on.tokens.source}`,

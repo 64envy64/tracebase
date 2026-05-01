@@ -1,10 +1,10 @@
-# YC demo — TraceBase OFF vs ON
+# YC demo — TraceBase OFF vs ON · Synthetic fixtures (illustrative)
 
-Generated: 2026-05-01T11:07:44.642Z
+Generated: 2026-05-01T11:24:58.537Z
 
-Each task ran twice against an identical model + verifier. The OFF variant had no `tracebase inject-context` hook, no PreToolUse supervision, no Stop capture. The ON variant ran the normal TraceBase runtime. The verifier is a real shell command run against a freshly-reset workspace; the agent-side metrics come from the recorded transcript at `demo-tasks/<task>/runs/<variant>.json`.
+Each task ran twice against the same model, prompt, and verifier. The agent-side metrics come from synthetic transcripts checked into `demo-tasks/<task>/runs/<variant>.json` — they are illustrative for the harness contract and **must not** be used in any external demo. Replace them with real-agent recordings via `scripts/demo-real-runner.ts` for the YC overlay. The verifier is real either way: state-off is broken, state-on is fixed, so the off-fail-on-pass column is honest in both modes.
 
-## recurring-pipeline-failure
+## recurring-pipeline-failure  ·  _Synthetic fixture — illustrative numbers only_
 
 Off model: claude-haiku-4-5-20251001 · On model: claude-haiku-4-5-20251001 · token source: off=estimate / on=estimate
 Notes: off=Synthetic baseline — agent loops on Grep / Read across the repo trying to localize the KeyError, never reaches the case-fix. Numbers illustrative. · on=Synthetic — TraceBase recalls prior CSV DictReader case-sensitivity pattern; agent skips diagnosis, edits row['amount'] → row['AMOUNT'], reruns. Numbers illustrative.
@@ -21,7 +21,7 @@ Notes: off=Synthetic baseline — agent loops on Grep / Read across the repo try
 | TraceBase overhead (ms) | — | 60 | — |
 | Verifier | FAIL | PASS | off-fail-on-pass |
 
-## search-read-loop
+## search-read-loop  ·  _Synthetic fixture — illustrative numbers only_
 
 Off model: claude-haiku-4-5-20251001 · On model: claude-haiku-4-5-20251001 · token source: off=estimate / on=estimate
 Notes: off=Synthetic baseline — agent re-greps and re-reads the same files multiple times, never connects the test failure to the off-by-one in main.ts. Numbers illustrative. · on=Synthetic — TraceBase injects the prior 'arr[i+1] off-by-one' pattern, agent goes directly to main.ts; safe-read dedup blocks 3 redundant re-reads. Numbers illustrative.

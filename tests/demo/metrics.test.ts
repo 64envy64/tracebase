@@ -16,6 +16,7 @@ function baseRun(variant: Variant, overrides: Partial<RunArtifact> = {}): RunArt
   return {
     task: "demo-task",
     variant,
+    source: "synthetic",
     timestamp: 1735689600000,
     model: "claude-haiku-4-5-20251001",
     wallClockMs: 5000,
@@ -164,6 +165,33 @@ describe("computeComparison — defensive checks against mis-pairing", () => {
     const onShape = baseRun("off");
     expect(() => computeComparison(offShape, onShape)).toThrow(/variant mismatch/);
   });
+  it("throws when off is synthetic and on is real (must never mix)", () => {
+    const off = baseRun("off", { source: "synthetic" });
+    const on = baseRun("on", { source: "real" });
+    expect(() => computeComparison(off, on)).toThrow(/source mismatch/);
+  });
+  it("throws when off is real and on is synthetic", () => {
+    const off = baseRun("off", { source: "real" });
+    const on = baseRun("on", { source: "synthetic" });
+    expect(() => computeComparison(off, on)).toThrow(/source mismatch/);
+  });
+});
+
+describe("renderComparisonMarkdown — source-tagged header", () => {
+  it("labels synthetic runs as illustrative-only", () => {
+    const off = baseRun("off", { source: "synthetic" });
+    const on = baseRun("on", { source: "synthetic" });
+    const md = renderComparisonMarkdown(computeComparison(off, on));
+    expect(md).toContain("Synthetic fixture");
+    expect(md).toContain("illustrative");
+  });
+  it("labels real runs as real-agent recording", () => {
+    const off = baseRun("off", { source: "real" });
+    const on = baseRun("on", { source: "real" });
+    const md = renderComparisonMarkdown(computeComparison(off, on));
+    expect(md).toContain("Real-agent recording");
+    expect(md).not.toContain("Synthetic fixture");
+  });
 });
 
 describe("renderComparisonMarkdown", () => {
@@ -190,5 +218,20 @@ describe("renderComparisonMarkdown", () => {
     expect(md).toContain("Net tokens saved");
     expect(md).toContain("+700"); // 800 - 100 = 700
     expect(md).toContain("off-fail-on-pass");
+  });
+});
+
+describe("char/4 token estimate — labelled, never confused with provider", () => {
+  it("a token usage with source=estimate must surface that string in the rendered header", () => {
+    const off = baseRun("off", {
+      source: "real",
+      tokens: { input: 800, output: 200, total: 1000, source: "estimate" },
+    });
+    const on = baseRun("on", {
+      source: "real",
+      tokens: { input: 600, output: 200, total: 800, source: "provider" },
+    });
+    const md = renderComparisonMarkdown(computeComparison(off, on));
+    expect(md).toContain("token source: off=estimate / on=provider");
   });
 });

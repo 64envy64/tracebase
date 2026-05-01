@@ -3,5 +3,8 @@
   "description": "Off-by-one in arr[i+1] === target index lookup; the test fails with 'expected 2, got 1'. Without TraceBase the agent loops Grep/Read across the repo. With TraceBase ON, the prior 'arr[i+1] off-by-one' pattern is recalled and supervision blocks the duplicate file reads.",
   "verifier": "bash check.sh",
   "model": "claude-haiku-4-5-20251001",
+  "prompt": "prompt.md",
+  "seededPatterns": "seeded-patterns.json",
+  "maxTurns": 20,
   "notes": "Synthetic transcripts authored by hand to illustrate the harness contract. Replace runs/{off,on}.json with real-agent recordings before any external demo."
 }

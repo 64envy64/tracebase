@@ -1,0 +1,24 @@
+{
+  "patterns": [
+    {
+      "trigger": {
+        "situation": "Python CSV DictReader raises KeyError because the script accesses row['amount'] but the file's header is upper-case (AMOUNT). The same class of bug recurs whenever a CSV pipeline's column names don't match the script's case.",
+        "invariants": { "language": "python" }
+      },
+      "body": {
+        "mechanism": "csv.DictReader keys are case-sensitive. It returns row dicts keyed by the literal header strings, so any case mismatch surfaces as KeyError at the access site.",
+        "deadEnds": [
+          "wrapping the access in try/except is a band-aid that hides every other column typo too",
+          "lower-casing every header at read time is invasive and silently breaks downstream consumers that expect original case"
+        ],
+        "unlock": "match the dict access to the actual header case (e.g. row['AMOUNT'] when the header line is 'ID,AMOUNT'); if you don't control the header, normalise once at the read boundary with an explicit header transformer.",
+        "verification": "rerun the pipeline; KeyError disappears and output.txt contains the expected aggregate."
+      },
+      "provenance": {
+        "sourceTaskId": "demo-seed-pipeline",
+        "extractedFrom": "trajectory",
+        "distilledBy": "manual-seed-for-demo"
+      }
+    }
+  ]
+}

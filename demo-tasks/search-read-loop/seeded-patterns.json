@@ -1,0 +1,24 @@
+{
+  "patterns": [
+    {
+      "trigger": {
+        "situation": "TypeScript array index lookup returns the wrong index because the function reads arr[i+1] === target instead of arr[i] === target. Off-by-one introduced when a loop body was edited but the access wasn't kept in step.",
+        "invariants": { "language": "typescript" }
+      },
+      "body": {
+        "mechanism": "the loop visits indices 0..length-1 and the natural test is arr[i] === target. Reading arr[i+1] shifts every comparison one step ahead, falls off the end on the last iteration, and reports an off-by-one for any value present in the array.",
+        "deadEnds": [
+          "extending the loop to length+1 papers over the symptom but introduces undefined access at the end",
+          "tweaking the test value rather than the indexing direction is the classic 'fix the test instead of the code' anti-pattern"
+        ],
+        "unlock": "change arr[i+1] to arr[i] in the comparison line of the search loop.",
+        "verification": "rerun the test; the expected index is now returned for a value that exists in the array."
+      },
+      "provenance": {
+        "sourceTaskId": "demo-seed-search",
+        "extractedFrom": "trajectory",
+        "distilledBy": "manual-seed-for-demo"
+      }
+    }
+  ]
+}

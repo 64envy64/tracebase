@@ -11,6 +11,14 @@
 
 export type Variant = "off" | "on";
 
+/**
+ * Provenance of a `RunArtifact`. The two are NOT interchangeable in
+ * the report — synthetic numbers are illustrative for the harness
+ * contract; only `real` numbers are eligible for an external demo
+ * overlay or investor-facing claim.
+ */
+export type RunSource = "synthetic" | "real";
+
 export interface TokenUsage {
   /** Input tokens charged by the provider, or estimated by char/4. */
   input: number;
@@ -71,6 +79,17 @@ export interface TraceBaseTelemetry {
 export interface RunArtifact {
   task: string;
   variant: Variant;
+  /**
+   * Where the agent-side numbers came from. The verifier result is
+   * always real (the runner re-runs the verifier command against a
+   * fresh workspace before writing the JSON), but the wall-clock,
+   * token, and tool-call numbers may be:
+   *   - "synthetic": authored-by-hand fixture (illustrative, NOT for
+   *     external demos);
+   *   - "real": captured from a real-agent recording (Anthropic API
+   *     usage + tool-use trace).
+   */
+  source: RunSource;
   /** Epoch ms when the run started. */
   timestamp: number;
   model: string;
@@ -125,6 +144,12 @@ export interface TaskDefinition {
   verifier: string;
   /** Agent model used for the recorded transcripts (informational). */
   model: string;
+  /** Path (relative to the task dir) to the user prompt — required by the real-agent runner; the synthetic runner ignores it. */
+  prompt?: string;
+  /** Path (relative to the task dir) to a seeded-patterns JSON file used by the ON variant of the real-agent runner. */
+  seededPatterns?: string;
+  /** Hard ceiling on agent turns in the real-agent runner. */
+  maxTurns?: number;
   /** Free-form note describing how the recorded numbers were obtained. */
   notes?: string;
 }

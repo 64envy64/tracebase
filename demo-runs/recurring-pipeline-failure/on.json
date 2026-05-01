@@ -1,6 +1,7 @@
 {
   "task": "recurring-pipeline-failure",
   "variant": "on",
+  "source": "synthetic",
   "timestamp": 1714579200000,
   "model": "claude-haiku-4-5-20251001",
   "wallClockMs": 9300,
