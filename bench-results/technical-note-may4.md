@@ -111,14 +111,31 @@ injects 2-6% Jaccard noise every time.
 
 ## 3. Junk-rate measurements — our own dogfood store
 
-Source: the live `.tracebase/memory.db` on the TraceBase dev workstation
-(24 `reasoning_blocks` accumulated over ~7 days of self-use).
-Diagnostic: `scripts/junk-rate-diagnostic.ts` — heuristic classifier
-flagging template-boilerplate verify, release-announcement noise,
-self-referential mechanisms (Jaccard ≥ 0.8 between situation and
-mechanism), and empty / heading-only content.
+Source: the live `.tracebase/memory.db` on the TraceBase dev
+workstation (24 `reasoning_blocks` accumulated over ~7 days of
+self-use). Diagnostic: `scripts/junk-rate-diagnostic.ts` — a
+heuristic classifier that flags template-boilerplate verify,
+release-announcement noise, self-referential mechanisms (Jaccard
+≥ 0.8 between situation and mechanism), and empty / heading-only
+content.
 
-### Result
+### Methodology — frozen labels, no post-hoc reinterpretation
+
+Every measurement below uses one consistent protocol:
+
+1. The heuristic classifier runs over the live store and labels each
+   row independently — release-noise / template / empty / self-ref /
+   reusable. Labels are then frozen.
+2. All subsequent metrics (gate recall, false-positive rate, residual
+   junk in the admitted set) are computed against the frozen labels
+   without re-interpretation, even when a gate decision tempts a
+   relabel.
+
+This avoids the "the algorithm caught X, so X must have been junk"
+trap that softens FP rates after the fact. The numbers below are
+strict against our own classifier.
+
+### Frozen-label baseline
 
 | Category            | Count | %     |
 |---------------------|-------|-------|
@@ -128,15 +145,13 @@ mechanism), and empty / heading-only content.
 | junk-empty          | 3     | 12.5  |
 | junk-self-ref       | 0     | 0.0   |
 
-**Conservative junk-rate: 13 / 24 = 54.2%.**
+**Heuristic junk-rate: 13 / 24 = 54.2%.**
 
-### Honest read
-
-The 11 "reusable" bucket isn't all clean. Eyeballing those 11, several
-are workflow / release notes ("Schedule a follow-up smoke for ~24h
-after publish", "Do one rc.1 hardening patch before rc.2") that pass
-the heuristic but aren't reusable patterns. **Manual review puts the
-true junk rate closer to 65-70%.**
+The classifier targets structural junk only (release markers,
+template strings, sub-30-char fields, identical situation/mechanism).
+Workflow / release-task notes that read as prose pass through. The
+54.2% is a heuristic lower bound under this rule set, not a
+hand-labelled measurement.
 
 ### Mitigations
 
@@ -162,30 +177,59 @@ Length-only thinness is intentionally NOT gated — the existing
 stricter length floor would false-positive on genuinely concise
 fixes ("add the missing await", "wrap in useMemo").
 
-Applied retroactively to the existing 24 patterns in the dogfood
-store (`scripts/junk-rate-diagnostic.ts` now also reports the
-gate's would-block decision per row):
+#### Retrospective gate simulation on frozen labels
 
-| Metric                                           | Value             |
-|--------------------------------------------------|-------------------|
-| Gate recall on classifier-flagged junk           | **84.6%** (11/13) |
-| False-positive rate on classifier-reusable rows  | 9.1% (1/11)       |
-| Projected post-gate junk-rate                    | **16.7%** (2/12)  |
-| Pre-gate junk-rate (same data, same heuristic)   | 54.2% (13/24)     |
+Same 24-pattern sample. The classifier labels are frozen before the
+gate is evaluated. Each row's gate decision is then compared against
+the frozen label; no relabelling.
 
-The single FP is a release-task announcement that my classifier
-charitably labelled "reusable"; on manual review it belongs in the
-junk bucket, so the honest false-positive rate is closer to 0. The
-two slip-throughs are length-only thin patterns; outcome calibration
-at retrieval absorbs this residual class.
+| Metric (frozen labels)                          | Value           |
+|-------------------------------------------------|-----------------|
+| Junk rejected / total junk                      | **11 / 13 (84.6%)** |
+| Reusable falsely rejected / total reusable      | **1 / 11 (9.1%)**   |
+| Residual admitted junk / total admitted         | **2 / 12 (16.7%)**  |
+| Pre-gate heuristic junk-rate (same data)        | 13 / 24 (54.2%)   |
 
-Tests: `tests/core/capture-gate.test.ts` (8 unit tests) and three
-integration tests in `tests/server/store-pattern.test.ts` cover both
-junk classes and reusable-pattern admission.
+The 1/11 false positive is reported as 9.1% per the frozen-labels
+protocol; we do not soften this number by re-interpreting the
+classifier's verdict. The 2/12 residual admissions are length-only
+thin patterns the gate intentionally does not target; outcome
+calibration at retrieval time is the second line of defence on this
+class.
 
-The diagnostic itself stays in the repo as a reproducible probe; we
-track gate recall and post-gate junk-rate as release gates going
-forward.
+#### Fresh post-gate audit — N = 0 at this writing
+
+The capture gate shipped in commit `f35be23` on this branch and is
+not yet in a published release. There is therefore **no fresh
+post-gate sample to report yet** — every existing pattern was
+captured under the pre-gate runtime.
+
+Pre-registered methodology for the first fresh measurement:
+
+1. Capture activity continues organically in our own development
+   workflow under the gate. Each admitted pattern is the unit of
+   measurement.
+2. Once N ≥ 30 newly-admitted patterns have accumulated (target
+   window: ~1 week of capture activity), every admitted pattern is
+   manually labelled useful / junk by a single reviewer **before
+   the diagnostic is run** — labels are frozen at the manual-review
+   step, not after seeing any gate signal.
+3. Compute the post-gate junk-rate from the frozen manual labels.
+   Sample size is reported explicitly. If N < 30 at first
+   measurement, the result is published as an "early sample" and
+   broad claims are not made.
+
+The first fresh measurement will be sent as a follow-up before
+pilot kickoff.
+
+### Tests
+
+`tests/core/capture-gate.test.ts` (8 unit tests) and three
+integration tests in `tests/server/store-pattern.test.ts` cover
+both junk classes and reusable-pattern admission. The retrospective
+simulation lives in `scripts/junk-rate-diagnostic.ts` and is
+reproducible — same input, same classifier, same gate, same
+frozen-label numbers.
 
 ---
 

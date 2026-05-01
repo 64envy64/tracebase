@@ -171,10 +171,12 @@ function main(): void {
   const byStatus: Record<string, number> = {};
   const byKind: Record<string, number> = {};
 
-  // Retroactive simulation of the 0.7.1 capture gate against the
-  // existing store. Lets us report gate recall (junk caught) and
-  // false-positive rate (reusable wrongly rejected) on real data
-  // without waiting on a forward-rate measurement.
+  // Retrospective simulation of the 0.7.1 capture gate against the
+  // existing store, on frozen heuristic labels. Reports gate recall
+  // (labelled junk caught), false-positive rate (labelled reusable
+  // rejected), and the residual junk rate in the gate-admitted set.
+  // Labels are frozen at classify() above; the gate decision below
+  // is independent and we do NOT re-interpret labels after seeing it.
   let gateBlockedJunk = 0;
   let gateBlockedReusable = 0;
   let gateBlockedTotal = 0;
@@ -260,23 +262,24 @@ function main(): void {
   const junkPct = total > 0 ? ((junk / total) * 100).toFixed(1) : "0.0";
   console.log(`\nOverall junk-rate: ${junk}/${total} = ${junkPct}%`);
 
-  // Retroactive capture-gate simulation
+  // Retrospective capture-gate simulation on frozen labels.
   const reusable = byCategory.reusable;
   const gateRecall = junk > 0 ? ((gateBlockedJunk / junk) * 100).toFixed(1) : "n/a";
   const gateFpr =
     reusable > 0 ? ((gateBlockedReusable / reusable) * 100).toFixed(1) : "n/a";
-  const postGateJunk = Math.max(0, junk - gateBlockedJunk);
-  const postGateTotal = total - gateBlockedTotal;
-  const postGatePct =
-    postGateTotal > 0 ? ((postGateJunk / postGateTotal) * 100).toFixed(1) : "n/a";
+  const admittedJunk = Math.max(0, junk - gateBlockedJunk);
+  const admittedTotal = total - gateBlockedTotal;
+  const admittedJunkPct =
+    admittedTotal > 0 ? ((admittedJunk / admittedTotal) * 100).toFixed(1) : "n/a";
   console.log("");
-  console.log("=== Retroactive capture-gate simulation (0.7.1) ===");
-  console.log(`Gate would have blocked at extraction time: ${gateBlockedTotal}/${total}`);
-  console.log(`  of which junk:     ${gateBlockedJunk}/${junk} (${gateRecall}% gate recall on junk)`);
-  console.log(`  of which reusable: ${gateBlockedReusable}/${reusable} (${gateFpr}% false-positive rate on reusable)`);
-  console.log(
-    `Post-gate store would carry: ${postGateJunk} junk / ${postGateTotal} total = ${postGatePct}% junk-rate`,
-  );
+  console.log("=== Retrospective gate simulation (0.7.1) — frozen heuristic labels ===");
+  console.log(`Total blocked at extraction:      ${gateBlockedTotal}/${total}`);
+  console.log(`Blocked & labelled junk:          ${gateBlockedJunk}/${junk} (${gateRecall}% recall on labelled junk)`);
+  console.log(`Blocked & labelled reusable:      ${gateBlockedReusable}/${reusable} (${gateFpr}% false-positive rate on labelled reusable)`);
+  console.log(`Admitted & labelled junk:         ${admittedJunk}/${admittedTotal} (${admittedJunkPct}% residual junk in admitted set)`);
+  console.log("");
+  console.log("Note: numbers above are retrospective on a frozen-label sample.");
+  console.log("      Fresh post-gate audit on newly captured patterns is a separate measurement.");
 
   db.close();
 }

@@ -54,8 +54,11 @@ By category:
 
 Overall junk-rate: 13/24 = 54.2%
 
-=== Retroactive capture-gate simulation (0.7.1) ===
-Gate would have blocked at extraction time: 12/24
-  of which junk:     11/13 (84.6% gate recall on junk)
-  of which reusable: 1/11 (9.1% false-positive rate on reusable)
-Post-gate store would carry: 2 junk / 12 total = 16.7% junk-rate
+=== Retrospective gate simulation (0.7.1) — frozen heuristic labels ===
+Total blocked at extraction:      12/24
+Blocked & labelled junk:          11/13 (84.6% recall on labelled junk)
+Blocked & labelled reusable:      1/11 (9.1% false-positive rate on labelled reusable)
+Admitted & labelled junk:         2/12 (16.7% residual junk in admitted set)
+
+Note: numbers above are retrospective on a frozen-label sample.
+      Fresh post-gate audit on newly captured patterns is a separate measurement.
