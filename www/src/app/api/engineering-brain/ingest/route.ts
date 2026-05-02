@@ -16,12 +16,14 @@ import {
   resolveGithubTokenFromEnv,
 } from "@/lib/control-plane/github-client";
 import { ingestRepo } from "@/lib/control-plane/github-ingest";
-import { requireAuthenticatedWorkspace } from "@/lib/control-plane/engineering-brain-server";
+import { requireAuthenticatedWorkspaceForApi } from "@/lib/control-plane/engineering-brain-server";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  const workspace = await requireAuthenticatedWorkspace();
+  const auth = await requireAuthenticatedWorkspaceForApi();
+  if (!auth.ok) return auth.response;
+  const workspace = auth.workspace;
   const body = (await req.json().catch(() => null)) as {
     integrationId?: string;
   } | null;

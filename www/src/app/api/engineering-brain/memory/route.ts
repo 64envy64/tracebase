@@ -11,7 +11,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getEngineeringBrainStore } from "@/lib/control-plane/engineering-brain";
-import { requireAuthenticatedWorkspace } from "@/lib/control-plane/engineering-brain-server";
+import { requireAuthenticatedWorkspaceForApi } from "@/lib/control-plane/engineering-brain-server";
 import type { MemoryEventActorKind } from "@/lib/control-plane/types";
 
 export const runtime = "nodejs";
@@ -19,7 +19,9 @@ export const runtime = "nodejs";
 type Action = "retire" | "delete" | "supersede" | "rollback" | "upsert";
 
 export async function POST(req: NextRequest) {
-  const workspace = await requireAuthenticatedWorkspace();
+  const auth = await requireAuthenticatedWorkspaceForApi();
+  if (!auth.ok) return auth.response;
+  const workspace = auth.workspace;
   const body = (await req.json().catch(() => null)) as {
     action?: Action;
     memoryId?: string;

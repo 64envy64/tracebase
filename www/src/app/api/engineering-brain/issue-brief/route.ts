@@ -8,12 +8,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEngineeringBrainStore } from "@/lib/control-plane/engineering-brain";
 import { buildIssueBrief, renderIssueBriefAsContext } from "@/lib/control-plane/issue-brief";
-import { requireAuthenticatedWorkspace } from "@/lib/control-plane/engineering-brain-server";
+import { requireAuthenticatedWorkspaceForApi } from "@/lib/control-plane/engineering-brain-server";
 
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-  const workspace = await requireAuthenticatedWorkspace();
+  const auth = await requireAuthenticatedWorkspaceForApi();
+  if (!auth.ok) return auth.response;
+  const workspace = auth.workspace;
   const itemId = req.nextUrl.searchParams.get("itemId");
   if (!itemId) {
     return NextResponse.json({ error: "itemId is required" }, { status: 400 });

@@ -42,6 +42,25 @@ const issueBrief = readFileSync(ISSUE_BRIEF, "utf-8");
 const memoryRoute = readFileSync(MEMORY_ROUTE, "utf-8");
 const runsRoute = readFileSync(RUNS_ROUTE, "utf-8");
 
+describe("Engineering Brain — auth-route contract", () => {
+  it("Clerk-protected API routes use the API auth helper, not the page-level throw helper", () => {
+    const ROUTES = [
+      resolve(__dirname, "../../www/src/app/api/engineering-brain/integrations/route.ts"),
+      resolve(__dirname, "../../www/src/app/api/engineering-brain/ingest/route.ts"),
+      resolve(__dirname, "../../www/src/app/api/engineering-brain/issue-brief/route.ts"),
+      resolve(__dirname, "../../www/src/app/api/engineering-brain/memory/route.ts"),
+    ];
+    for (const path of ROUTES) {
+      const src = readFileSync(path, "utf-8");
+      // Must use the *ForApi variant (returns NextResponse on miss).
+      expect(src).toContain("requireAuthenticatedWorkspaceForApi");
+      // Must NOT use the throwing page-level variant — it would 500
+      // on unauth API calls.
+      expect(src).not.toMatch(/\brequireAuthenticatedWorkspace\(\s*\)/);
+    }
+  });
+});
+
 describe("Engineering Brain — privacy guards", () => {
   it("github body summaries are clamped to MAX_BODY_SUMMARY_CHARS", () => {
     expect(engBrain).toMatch(/const MAX_BODY_SUMMARY_CHARS\s*=\s*\d+/);
