@@ -45,6 +45,26 @@ const PRICING_PLANS: readonly PricingPlan[] = [
     ctaHref: "/docs#quickstart",
   },
   {
+    name: "Hobby",
+    badge: "Solo dev",
+    monthlyPrice: 15,
+    annualMonthlyPrice: 12,
+    annualSavings: "Save $36 / year",
+    monthlySubtitle: "Hosted traces and analytics for solo builders who want a managed runtime without team plumbing.",
+    annualSubtitle: "Same managed runtime with a small annual discount for solo developers committing to a yearly cadence.",
+    features: [
+      "5,000 injections / mo",
+      "1 API key",
+      "Hosted traces + analytics",
+      "Email support",
+    ],
+    accent: false,
+    ctaLabel: "Start hobby",
+    ctaStyle: "quiet",
+    ctaArrow: true,
+    ctaHref: CALENDLY_URL,
+  },
+  {
     name: "Startup",
     badge: "Managed tier",
     monthlyPrice: 159,
@@ -347,7 +367,7 @@ export function PricingGrid() {
         </div>
       </div>
 
-      <div className="grid gap-px lg:grid-cols-3" style={{ background: "var(--border)" }}>
+      <div className="grid gap-px md:grid-cols-2 lg:grid-cols-4" style={{ background: "var(--border)" }}>
         {PRICING_PLANS.map((plan) => (
           <PricingCard key={plan.name} plan={plan} billing={deferredBilling} />
         ))}

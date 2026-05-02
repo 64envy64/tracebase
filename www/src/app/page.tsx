@@ -73,9 +73,14 @@ function Tile({
   href?: string;
   cta?: string;
 }) {
+  // h-full + flex-col on the inner div so each cell stretches to the
+  // tallest row member. Without this, when one tile's body wraps to
+  // an extra line (e.g. Integrations) the surrounding `gap-px` rule
+  // shows a visible gap below the shorter tiles — looks like the
+  // outline is "missing one stripe".
   const inner = (
     <div
-      className="flex min-h-[190px] flex-col justify-between gap-4 p-6 md:min-h-[210px] md:p-7"
+      className="flex h-full min-h-[190px] flex-col justify-between gap-4 p-6 md:min-h-[210px] md:p-7"
       style={{ background: INK.inkDeep }}
     >
       <div>
@@ -102,12 +107,19 @@ function Tile({
   );
   if (href) {
     return (
-      <Link href={href} className="group transition-colors hover:bg-[rgba(232,217,184,0.02)]">
+      <Link
+        href={href}
+        // block + h-full make the Link a proper grid-cell-filling box;
+        // without it the cell collapses to content height and the
+        // bottom border of the rounded outline sits above the
+        // tallest tile's content.
+        className="group block h-full transition-colors hover:bg-[rgba(232,217,184,0.02)]"
+      >
         {inner}
       </Link>
     );
   }
-  return <article>{inner}</article>;
+  return <article className="h-full">{inner}</article>;
 }
 
 /* ============================================================ */

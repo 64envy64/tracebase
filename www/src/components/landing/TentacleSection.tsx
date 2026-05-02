@@ -199,7 +199,14 @@ function CapabilityCard({
           </div>
         </header>
         <div className="px-5 py-5 md:px-7 md:py-6">
-          <CapabilityDemo id={cap.id as CapabilityId} key={revealed ? "rev" : "hid"} />
+          {/*
+            No `key={revealed ? "rev" : "hid"}` here — pre-fix that
+            forced a remount every time the row entered/left view,
+            tearing down the demo's internal timer chain mid-flight
+            and causing visible layout jumps. CapabilityDemo's own
+            useInView gate handles when to start/stop animating.
+          */}
+          <CapabilityDemo id={cap.id as CapabilityId} />
         </div>
       </div>
     </article>
