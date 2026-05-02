@@ -18,6 +18,19 @@ const PRIMARY_NAV: NavItem[] = [
   { href: "/dashboard/api-keys", label: "API keys" },
 ];
 
+// Engineering Brain — the GitHub × agent × memory surface. Labels are
+// plain English; technical terms (memory, run) live in tooltips and
+// page descriptions, not in the nav.
+const ENGINEERING_BRAIN_NAV: NavItem[] = [
+  { href: "/dashboard/graph", label: "How work flows" },
+  { href: "/dashboard/integrations", label: "Connections" },
+  { href: "/dashboard/issues", label: "Work coming in" },
+  { href: "/dashboard/agents", label: "Agents" },
+  { href: "/dashboard/runs", label: "Activity" },
+  { href: "/dashboard/team", label: "People" },
+  { href: "/dashboard/memory", label: "Lessons learned" },
+];
+
 const SECONDARY_NAV: NavItem[] = [
   { href: "/whitepaper", label: "Whitepaper" },
   { href: "/", label: "Home" },
@@ -52,6 +65,37 @@ export function DashboardSidebar() {
 
         <nav className="flex flex-col gap-1" aria-label="Workspace">
           {PRIMARY_NAV.map((item) => {
+            const active = isActive(pathname, item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="rounded-sm border-l-2 border-transparent py-2 pl-[10px] pr-3 text-sm font-light transition-[background-color,color,border-color]"
+                style={{
+                  background: active ? "var(--surface)" : "transparent",
+                  color: active ? "var(--text)" : "var(--text-secondary)",
+                  borderLeftColor: active ? "var(--accent)" : "transparent",
+                }}
+                aria-current={active ? "page" : undefined}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <nav
+          className="flex flex-col gap-1 border-t pt-6"
+          style={{ borderColor: "var(--border)" }}
+          aria-label="Engineering Brain"
+        >
+          <p
+            className="px-1 pb-1 text-[10px] font-mono uppercase tracking-[0.22em]"
+            style={{ color: "var(--text-tertiary)" }}
+          >
+            Engineering Brain
+          </p>
+          {ENGINEERING_BRAIN_NAV.map((item) => {
             const active = isActive(pathname, item.href);
             return (
               <Link

@@ -184,6 +184,152 @@ CREATE TABLE IF NOT EXISTS tracebase_device_sessions (
   approved_at TIMESTAMPTZ,
   consumed_at TIMESTAMPTZ
 );
+
+-- ---------------------------------------------------------------------------
+-- Engineering Brain (Phase 1 — additive, idempotent migration).
+-- All tables CASCADE off tracebase_workspaces so a deleted workspace
+-- takes its Engineering Brain reflection with it.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS tracebase_integrations (
+  id UUID PRIMARY KEY,
+  workspace_id UUID NOT NULL REFERENCES tracebase_workspaces(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  account_login TEXT NOT NULL,
+  installation_id TEXT,
+  repo_full_name TEXT,
+  status TEXT NOT NULL DEFAULT 'connected',
+  last_sync_at TIMESTAMPTZ,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS tracebase_integrations_workspace_provider_account_idx
+  ON tracebase_integrations (workspace_id, provider, account_login, COALESCE(repo_full_name, ''));
+
+CREATE TABLE IF NOT EXISTS tracebase_github_items (
+  id UUID PRIMARY KEY,
+  integration_id UUID NOT NULL REFERENCES tracebase_integrations(id) ON DELETE CASCADE,
+  workspace_id UUID NOT NULL REFERENCES tracebase_workspaces(id) ON DELETE CASCADE,
+  repo_full_name TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  number INTEGER,
+  title TEXT,
+  state TEXT,
+  url TEXT NOT NULL,
+  author_login TEXT,
+  body_summary TEXT,
+  labels JSONB NOT NULL DEFAULT '[]'::jsonb,
+  linked_files JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at_remote TIMESTAMPTZ,
+  updated_at_remote TIMESTAMPTZ,
+  ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Provider-item identity: (integration, kind, external_id) is the natural key.
+CREATE UNIQUE INDEX IF NOT EXISTS tracebase_github_items_identity_idx
+  ON tracebase_github_items (integration_id, kind, external_id);
+
+CREATE INDEX IF NOT EXISTS tracebase_github_items_workspace_repo_idx
+  ON tracebase_github_items (workspace_id, repo_full_name);
+
+CREATE TABLE IF NOT EXISTS tracebase_agents (
+  id UUID PRIMARY KEY,
+  workspace_id UUID NOT NULL REFERENCES tracebase_workspaces(id) ON DELETE CASCADE,
+  display_name TEXT NOT NULL,
+  owner_label TEXT,
+  host TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS tracebase_agents_workspace_idx
+  ON tracebase_agents (workspace_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS tracebase_agents_workspace_name_idx
+  ON tracebase_agents (workspace_id, display_name);
+
+CREATE TABLE IF NOT EXISTS tracebase_agent_runs (
+  id UUID PRIMARY KEY,
+  workspace_id UUID NOT NULL REFERENCES tracebase_workspaces(id) ON DELETE CASCADE,
+  agent_id UUID REFERENCES tracebase_agents(id) ON DELETE SET NULL,
+  session_id TEXT NOT NULL,
+  task_title TEXT,
+  task_source_kind TEXT NOT NULL DEFAULT 'manual',
+  task_source_id TEXT,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ended_at TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'running',
+  tokens_injected INTEGER NOT NULL DEFAULT 0,
+  tokens_saved_estimated INTEGER NOT NULL DEFAULT 0,
+  tool_calls_count INTEGER NOT NULL DEFAULT 0,
+  blocked_calls_count INTEGER NOT NULL DEFAULT 0,
+  recalled_patterns_count INTEGER NOT NULL DEFAULT 0,
+  recalled_files_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS tracebase_agent_runs_workspace_started_idx
+  ON tracebase_agent_runs (workspace_id, started_at DESC);
+
+CREATE INDEX IF NOT EXISTS tracebase_agent_runs_session_idx
+  ON tracebase_agent_runs (session_id);
+
+-- memory_status: light catalog of memory IDs and their current status.
+-- The full memory body lives in the SDK store (SQLite); this table is the
+-- governance/audit reflection that the dashboard reads. Hard delete only
+-- nulls bodyPreview/trigSituation; the row itself is kept so audit chains
+-- (memory_events, rollback_events) keep referencing a real id.
+CREATE TABLE IF NOT EXISTS tracebase_memory_status (
+  workspace_id UUID NOT NULL REFERENCES tracebase_workspaces(id) ON DELETE CASCADE,
+  memory_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  trig_situation TEXT,
+  body_preview TEXT,
+  provenance_kind TEXT,
+  provenance_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (workspace_id, memory_id)
+);
+
+CREATE INDEX IF NOT EXISTS tracebase_memory_status_workspace_status_idx
+  ON tracebase_memory_status (workspace_id, status);
+
+CREATE TABLE IF NOT EXISTS tracebase_memory_events (
+  id UUID PRIMARY KEY,
+  workspace_id UUID NOT NULL REFERENCES tracebase_workspaces(id) ON DELETE CASCADE,
+  memory_id TEXT NOT NULL,
+  actor_kind TEXT NOT NULL,
+  actor_id TEXT,
+  action TEXT NOT NULL,
+  source_run_id UUID REFERENCES tracebase_agent_runs(id) ON DELETE SET NULL,
+  source_github_item_id UUID REFERENCES tracebase_github_items(id) ON DELETE SET NULL,
+  reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS tracebase_memory_events_workspace_memory_idx
+  ON tracebase_memory_events (workspace_id, memory_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS tracebase_memory_events_workspace_created_idx
+  ON tracebase_memory_events (workspace_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS tracebase_rollback_events (
+  id UUID PRIMARY KEY,
+  workspace_id UUID NOT NULL REFERENCES tracebase_workspaces(id) ON DELETE CASCADE,
+  actor_id TEXT,
+  target_kind TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  rollback_to_id TEXT,
+  reason TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS tracebase_rollback_events_workspace_target_idx
+  ON tracebase_rollback_events (workspace_id, target_kind, target_id, created_at DESC);
 `;
 
 let cachedStorePromise: Promise<ControlPlaneStore> | null = null;
