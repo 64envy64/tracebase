@@ -50,7 +50,7 @@ import { detectPromptInjectionPatterns } from "./guard.js";
 // requesting_principal)` so BlockStore.hardDeleteBlock can both
 // remove a reasoning_blocks row (CASCADE sweeping its case refs)
 // and write an immutable tombstone for compliance audit.
-const V2_SCHEMA_VERSION = 14;
+const V2_SCHEMA_VERSION = 15;
 
 const V2_SCHEMA = `
 CREATE TABLE IF NOT EXISTS reasoning_blocks (
@@ -501,6 +501,23 @@ CREATE TABLE IF NOT EXISTS audit_deletes (
 
 CREATE INDEX IF NOT EXISTS idx_audit_deletes_block ON audit_deletes(block_id);
 CREATE INDEX IF NOT EXISTS idx_audit_deletes_ts    ON audit_deletes(deleted_at);
+
+-- 0.7.1 — GDPR Art. 17 hard-delete audit trail for project facts
+-- (L4 semantic memory). Parallel to audit_deletes but keyed by
+-- fact_id; same privacy contract — body of the deleted fact is
+-- intentionally NOT preserved. Without a separate ledger, fact
+-- erasure would either pollute the block-keyed audit table or
+-- silently bypass the audit path entirely.
+CREATE TABLE IF NOT EXISTS audit_fact_deletes (
+  id                    TEXT PRIMARY KEY,
+  fact_id               TEXT NOT NULL,
+  deleted_at            INTEGER NOT NULL,
+  reason                TEXT NOT NULL,
+  requesting_principal  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_fact_deletes_fact ON audit_fact_deletes(fact_id);
+CREATE INDEX IF NOT EXISTS idx_audit_fact_deletes_ts   ON audit_fact_deletes(deleted_at);
 `;
 
 /**
@@ -960,6 +977,22 @@ const V2_MIGRATIONS: Record<number, MigrationStep[]> = {
      )`,
     `CREATE INDEX IF NOT EXISTS idx_audit_deletes_block ON audit_deletes(block_id)`,
     `CREATE INDEX IF NOT EXISTS idx_audit_deletes_ts    ON audit_deletes(deleted_at)`,
+  ],
+  // v14 → v15: parallel audit ledger for project_facts erasure.
+  // Same shape as audit_deletes, keyed by fact_id. Adding a
+  // separate table (rather than widening audit_deletes) keeps the
+  // foreign-key narrative clean — the existing audit_deletes
+  // contract "block_id NOT NULL" remains intact.
+  15: [
+    `CREATE TABLE IF NOT EXISTS audit_fact_deletes (
+       id                    TEXT PRIMARY KEY,
+       fact_id               TEXT NOT NULL,
+       deleted_at            INTEGER NOT NULL,
+       reason                TEXT NOT NULL,
+       requesting_principal  TEXT
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_fact_deletes_fact ON audit_fact_deletes(fact_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_fact_deletes_ts   ON audit_fact_deletes(deleted_at)`,
   ],
 };
 
@@ -1711,6 +1744,56 @@ export class BlockStore {
         .run(
           randomUUID(),
           blockId,
+          this.now(),
+          reason,
+          requestingPrincipal ?? null,
+        );
+    });
+    return true;
+  }
+
+  /**
+   * Hard-delete a project fact (L4 semantic memory) and write a
+   * tombstone to `audit_fact_deletes` in a single transaction.
+   *
+   * Same privacy contract as `hardDeleteBlock`: the fact's
+   * `statement` is intentionally NOT preserved in the audit row —
+   * we keep `fact_id`, `deleted_at`, `reason`, and an optional
+   * `requesting_principal` so the deletion remains auditable while
+   * the content is gone. The existing AFTER DELETE trigger on
+   * `project_facts` sweeps the FTS index entry; no separate cleanup
+   * is required.
+   *
+   * Returns true if a fact was deleted, false if it did not exist
+   * (idempotent — repeat calls write no audit row).
+   *
+   * Surfaces the GDPR Art. 17 erasure path for the semantic-memory
+   * substrate at parity with the procedural one. Without it, an
+   * integrator that turns on fact serving would have a soft-only
+   * deletion path (`deleteFact`) with no audit trail — which fails
+   * the regulator-facing "what got deleted, when, why, by whom"
+   * test the procedural side already passes.
+   */
+  hardDeleteFact(
+    factId: string,
+    reason: string,
+    requestingPrincipal?: string,
+  ): boolean {
+    const found = this.db
+      .prepare("SELECT 1 FROM project_facts WHERE id = ?")
+      .get(factId);
+    if (!found) return false;
+
+    this.transaction(() => {
+      this.db.prepare("DELETE FROM project_facts WHERE id = ?").run(factId);
+      this.db
+        .prepare(
+          `INSERT INTO audit_fact_deletes (id, fact_id, deleted_at, reason, requesting_principal)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(
+          randomUUID(),
+          factId,
           this.now(),
           reason,
           requestingPrincipal ?? null,

@@ -9,6 +9,231 @@ import type { BlockStore } from "../core/block-store.js";
 import { createBlock } from "../core/block.js";
 import { classifyForCapture } from "../core/capture-gate.js";
 import type { BlockInvariants, StoreBlockInput } from "../types.js";
+import type {
+  BlockHit,
+  FactHit,
+  RecallV2Result,
+} from "../core/block-serving.js";
+import { buildInjectionPayload } from "../core/build-injection-payload.js";
+
+// ---------------------------------------------------------------------------
+// 0.7.1 Contextual Runtime — structured MCP outputs
+//
+// Every MCP tool that participates in the contextual-runtime contract
+// returns a `structuredContent` payload tagged with a stable protocol
+// id. External consumers parse this payload directly — no markdown
+// parsing required, no string-format drift across releases.
+// The text `content` field is preserved for human-readable Claude /
+// Cursor display, but it is NOT the integration surface.
+//
+// The protocol literal is exported so external code (provider
+// implementations, tests, downstream MCP clients) can pin to it
+// rather than re-typing the string.
+// ---------------------------------------------------------------------------
+
+/** Stable protocol id for the contextual-runtime structured payloads. */
+export const CONTEXTUAL_RUNTIME_PROTOCOL =
+  "tracebase.contextual_runtime.v1" as const;
+
+/**
+ * Coerce a precisely-typed structured payload into the
+ * `Record<string, unknown>` shape the MCP SDK expects at the
+ * `structuredContent` boundary.
+ *
+ * The SDK declares `structuredContent` as
+ * `z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>` which
+ * compiles to `Record<string, unknown>`. Object literals in TS do
+ * not widen to that automatically (no implicit index signature on
+ * named types), so we localize the coercion to one helper rather
+ * than scattering `as unknown as Record<…>` casts across handlers.
+ *
+ * The runtime shape is the source of truth — this assertion only
+ * adjusts the type, never the value.
+ */
+export function toMcpStructured<T extends object>(
+  payload: T,
+): Record<string, unknown> {
+  return payload as unknown as Record<string, unknown>;
+}
+
+/** Narrow shape of a single block hit as it appears on the wire. */
+export interface StructuredBlockHit {
+  id: string;
+  situation: string;
+  calibratedProb: number;
+  evidenceRefs: Array<{ traceId: string; role: string }>;
+}
+
+/** Narrow shape of a single fact hit as it appears on the wire. */
+export interface StructuredFactHit {
+  id: string;
+  statement: string;
+  confidence: number;
+}
+
+/** Narrow shape of an injection summary as it appears on the wire. */
+export interface StructuredInjectionSummary {
+  blockIds: string[];
+  factIds: string[];
+  tokensEstimate: number;
+}
+
+/**
+ * Structured payload returned by `get_reasoning_patterns`.
+ *
+ * `shouldInject` is the binding gate for the integrator: it mirrors
+ * `passesGate` semantics from `BlockServer.recall` — when false, the
+ * agent must not surface any of the listed blocks/facts as injected
+ * context. Blocks and facts are still listed (with calibrated
+ * probability) so analytics and shadow-arm tooling have something to
+ * audit; `injected` is undefined when `shouldInject === false`.
+ *
+ * `controlReason` is set whenever the query landed in a control arm
+ * (manual `shadow:true` or experimental holdout). Treat it as a
+ * structured tag, not a marketing label — `holdout` runs feed the
+ * causal cohort, `shadow` runs feed the wall-clock estimate.
+ */
+export interface ReasoningPatternsStructured {
+  protocol: typeof CONTEXTUAL_RUNTIME_PROTOCOL;
+  queryId: string;
+  shouldInject: boolean;
+  shadow: boolean;
+  controlReason?: "holdout" | "shadow";
+  blocks: StructuredBlockHit[];
+  facts: StructuredFactHit[];
+  injected?: StructuredInjectionSummary;
+}
+
+/**
+ * Build the structured payload for `get_reasoning_patterns`.
+ *
+ * Parameters mirror what `mcp.ts` already computes (the recall result
+ * + its rendered injection payload), so this helper is a pure
+ * shape-shifter — the source-of-truth values stay in
+ * `BlockServer.recall` / `buildInjectionPayload`. Pulling the wire
+ * shape here keeps the MCP handler small and lets unit tests assert
+ * the contract without a full SDK boot.
+ */
+export function toReasoningPatternsStructured(
+  result: RecallV2Result,
+): ReasoningPatternsStructured {
+  const passingBlocks = result.blocks.filter((h) => h.passesGate);
+  const passingFacts = result.facts.filter((h) => h.passesGate);
+
+  const blocks: StructuredBlockHit[] = result.blocks.map(
+    blockHitToStructured,
+  );
+  const facts: StructuredFactHit[] = result.facts.map(factHitToStructured);
+
+  const out: ReasoningPatternsStructured = {
+    protocol: CONTEXTUAL_RUNTIME_PROTOCOL,
+    queryId: result.queryId,
+    shouldInject: result.shouldInject,
+    shadow: result.shadow,
+    blocks,
+    facts,
+  };
+  if (result.controlReason) out.controlReason = result.controlReason;
+
+  if (result.shouldInject) {
+    // Reuse the production injection-payload builder so the token
+    // estimate the integrator sees matches the cost actually paid
+    // when the rendered text is forwarded into the model context.
+    // No re-implementation; same code path, same numbers.
+    const payload = buildInjectionPayload(result);
+    out.injected = {
+      blockIds: passingBlocks.map((h) => h.block.id),
+      factIds: passingFacts.map((h) => h.fact.id),
+      tokensEstimate: payload.tokensEstimate,
+    };
+  }
+
+  return out;
+}
+
+function blockHitToStructured(hit: BlockHit): StructuredBlockHit {
+  // refs come from BlockServer.recall already capped to refLimit (3
+  // by default). They're audit-bearing, so always surface them — but
+  // only the (traceId, role) pair, never any free-form notes.
+  const evidenceRefs = (hit.refs ?? []).map((ref) => ({
+    traceId: ref.traceId,
+    role: ref.role,
+  }));
+  return {
+    id: hit.block.id,
+    situation: hit.block.trigger.situation,
+    calibratedProb: hit.calibratedProb,
+    evidenceRefs,
+  };
+}
+
+function factHitToStructured(hit: FactHit): StructuredFactHit {
+  return {
+    id: hit.fact.id,
+    statement: hit.fact.statement,
+    confidence: hit.fact.confidence,
+  };
+}
+
+/**
+ * Structured payload returned by `record_reasoning_outcome`.
+ *
+ * Mirrors the inputs the MCP handler already attributed to the query
+ * (intersected with what was actually injected — see
+ * `resolveUsedItems`), plus the wall-clock duration the runtime
+ * recorded for the run when the agent supplied one. The outcome ledger
+ * is the canonical source of `usedBlockIds` / `usedFactIds`; this
+ * payload is just the synchronous read-back so the calling provider
+ * can confirm what was credited.
+ */
+export interface OutcomeStructured {
+  protocol: typeof CONTEXTUAL_RUNTIME_PROTOCOL;
+  outcome: {
+    queryId: string;
+    resolved: boolean;
+    usedBlockIds: string[];
+    usedFactIds: string[];
+    durationMs?: number;
+  };
+}
+
+/**
+ * Structured payload returned by `store_reasoning_pattern`.
+ *
+ * `isNew=false` means the pattern collapsed onto an existing block
+ * with the same trigger fingerprint — the original block id is
+ * returned and a `supporting` case ref attached. Callers don't have
+ * to do anything different; the pattern is reusable either way.
+ */
+export interface StorePatternStructured {
+  protocol: typeof CONTEXTUAL_RUNTIME_PROTOCOL;
+  pattern: {
+    blockId: string;
+    isNew: boolean;
+    situation: string;
+  };
+}
+
+/**
+ * Structured payload returned by `delete_pattern` and
+ * `delete_project_fact`. `kind` distinguishes the two surfaces so a
+ * provider can route the deletion event to the right audit ledger.
+ *
+ * `deleted=false` is NOT an error — it means the id was not present
+ * in the store (no-op, no audit row). The wrapping `ok:true` reflects
+ * "the request was processed cleanly", not "something was actually
+ * removed". This matches `BlockStore.hardDeleteBlock` /
+ * `BlockStore.hardDeleteFact` semantics.
+ */
+export interface DeletionStructured {
+  protocol: typeof CONTEXTUAL_RUNTIME_PROTOCOL;
+  deletion: {
+    ok: true;
+    deleted: boolean;
+    id: string;
+    kind: "block" | "fact";
+  };
+}
 
 /**
  * Collect the block ids and fact ids that were actually injected for a
@@ -350,5 +575,69 @@ export function deletePattern(
   }
 
   const deleted = store.hardDeleteBlock(id, reason, args.requestingPrincipal);
+  return { ok: true, deleted, id };
+}
+
+// ---------------------------------------------------------------------------
+// delete_project_fact (GDPR Art. 17 hard-delete) — semantic-side erasure.
+//
+// Parallels deletePattern. Project facts (L4 semantic memory) are
+// served by the same recall path that surfaces blocks; if a user
+// requests erasure of a captured fact, the deletion must be just as
+// total — body removed from project_facts, FTS index swept by the
+// existing AFTER DELETE trigger, audit row written to
+// audit_fact_deletes for compliance. Same input contract, same
+// idempotency: missing id → ok:true, deleted:false, no audit row.
+// ---------------------------------------------------------------------------
+
+export interface DeleteProjectFactArgs {
+  /** Fact id to hard-delete. */
+  id: string;
+  /** Human-readable reason; stored verbatim in `audit_fact_deletes.reason`. */
+  reason: string;
+  /** Optional caller identity (default: "mcp:delete_project_fact" at the tool layer). */
+  requestingPrincipal?: string;
+}
+
+export interface DeleteProjectFactResult {
+  ok: true;
+  /** False when the id did not exist (no audit row written). */
+  deleted: boolean;
+  id: string;
+}
+
+/**
+ * Hard-delete a project fact by id and write a tombstone to
+ * `audit_fact_deletes`. Validation contract is identical to
+ * `deletePattern`:
+ *   - `id` must be a non-empty string.
+ *   - `reason` must be 4..500 chars after trim.
+ *
+ * Privacy invariant: the audit row stores only `(id, fact_id,
+ * deleted_at, reason, requesting_principal)`. The deleted fact's
+ * statement is NEVER preserved.
+ */
+export function deleteProjectFact(
+  store: BlockStore,
+  args: DeleteProjectFactArgs,
+): DeleteProjectFactResult {
+  const id = (args.id ?? "").trim();
+  const reason = (args.reason ?? "").trim();
+
+  if (id.length === 0) {
+    throw new StorePatternValidationError(`field "id" is required`);
+  }
+  if (reason.length < DELETE_REASON_MIN_LEN) {
+    throw new StorePatternValidationError(
+      `field "reason" is too short (min ${DELETE_REASON_MIN_LEN} chars after trim)`,
+    );
+  }
+  if (reason.length > DELETE_REASON_MAX_LEN) {
+    throw new StorePatternValidationError(
+      `field "reason" is too long (max ${DELETE_REASON_MAX_LEN} chars)`,
+    );
+  }
+
+  const deleted = store.hardDeleteFact(id, reason, args.requestingPrincipal);
   return { ok: true, deleted, id };
 }

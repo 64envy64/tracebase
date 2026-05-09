@@ -367,6 +367,15 @@ export function emitOutcome(
     regressed?: boolean;
     tokens?: number;
     steps?: number;
+    /**
+     * Wall-clock duration in ms. Required by `computeUsageMetrics`
+     * for the causal latency lift — the headline integration
+     * metric. 0.7.1 wires this end-to-end via the MCP
+     * `record_reasoning_outcome` tool and the
+     * `ContextualRuntimeProvider.recordOutcome` boundary; older
+     * call sites that omit it stay backwards-compatible.
+     */
+    durationMs?: number;
     ts?: number;
     runId?: string;
   },
@@ -380,6 +389,7 @@ export function emitOutcome(
     ...(args.regressed !== undefined ? { regressed: args.regressed } : {}),
     ...(args.tokens !== undefined ? { tokens: args.tokens } : {}),
     ...(args.steps !== undefined ? { steps: args.steps } : {}),
+    ...(args.durationMs !== undefined ? { durationMs: args.durationMs } : {}),
   };
   toEmitter(target).emit(ev, args.runId !== undefined ? { runId: args.runId } : undefined);
   return ev;

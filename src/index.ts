@@ -43,6 +43,36 @@ export { wrapOpenAI } from "./middleware/openai.js";
 export { wrapAnthropic } from "./middleware/anthropic.js";
 // 0.5.4 — framework-neutral runtime + onBadge surface (PLAN-0.5.4 §3, §8.6)
 export { createRuntime } from "./sdk/runtime.js";
+// 0.7.1 — Contextual Runtime provider boundary (external-integrator surface)
+export {
+  TracebaseRuntimeProvider,
+  createTracebaseRuntimeProvider,
+} from "./sdk/contextual-runtime-provider.js";
+export type {
+  ContextualRuntimeProvider,
+  BeforeTaskInput,
+  BeforeTaskResult,
+  RecordOutcomeInput,
+  RecordOutcomeResult,
+  CapturePatternInput,
+  CapturePatternResult,
+  EraseMemoryInput,
+  EraseMemoryResult,
+  CreateTracebaseRuntimeProviderOptions,
+} from "./sdk/contextual-runtime-provider.js";
+// 0.7.1 — Contextual Runtime structured-output protocol (shared MCP / provider envelope)
+export {
+  CONTEXTUAL_RUNTIME_PROTOCOL,
+} from "./server/mcp-v2-helpers.js";
+export type {
+  ReasoningPatternsStructured,
+  StructuredBlockHit,
+  StructuredFactHit,
+  StructuredInjectionSummary,
+  OutcomeStructured,
+  StorePatternStructured,
+  DeletionStructured,
+} from "./server/mcp-v2-helpers.js";
 export { performRecall, injectIntoOpenAIMessages, injectIntoAnthropicSystem } from "./middleware/recall-inject.js";
 
 // Knowledge Base utilities
