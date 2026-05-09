@@ -11,7 +11,7 @@
  *   - Naive cache: bag-of-words Jaccard, no gate.
  *
  * No model API calls — this is purely a retrieval-quality probe. It
- * answers the design-partner question "is the lift due to TraceBase's
+ * answers the question "is the lift due to TraceBase's
  * retrieval/weighting, or just to having memory at all?" without burning
  * agent-trajectory token budget.
  *

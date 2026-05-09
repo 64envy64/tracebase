@@ -869,7 +869,7 @@ describe("runInjectContext — TB TOOL / TB LOOP composite badges", () => {
 });
 
 describe("runInjectContext — TRACEBASE_DISABLED kill switch", () => {
-  // Used by the YC demo harness (off variant) and as a one-off
+  // Used by the demo harness (off variant) and as a one-off
   // global suppression. Must short-circuit to the trivial-shape
   // empty envelope without touching the store or running recall.
   it("returns an empty envelope when TRACEBASE_DISABLED=1, even with a matching pattern", () => {

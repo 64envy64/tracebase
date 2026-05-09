@@ -1,5 +1,5 @@
 /**
- * Pure-function unit tests for the YC demo harness metric pipeline.
+ * Pure-function unit tests for the agentic demo harness metric pipeline.
  *
  * The runner script and the report script both lean on
  * `computeComparison`; this is where the contract for net-savings

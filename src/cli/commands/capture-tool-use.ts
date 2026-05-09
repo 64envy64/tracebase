@@ -187,7 +187,7 @@ export function runCaptureToolUse(
   }
 
   const mode = resolveCaptureMode(opts.capture);
-  // `off` mode and TRACEBASE_DISABLED=1 (from the YC demo harness or
+  // `off` mode and TRACEBASE_DISABLED=1 (from the demo harness or
   // a one-off user suppression) both no-op — empty envelope, no
   // store touch, no observation row written.
   if (mode === "off" || process.env.TRACEBASE_DISABLED === "1") {

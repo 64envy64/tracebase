@@ -4,8 +4,8 @@
  * Research-grade trajectory-level benchmark.
  * Measures multi-step agent performance with/without TraceBase injection.
  *
- * Ref methodology: ReasonBlocks whitepaper — SWE-bench Verified evaluation
- * with trajectory metrics (steps, tokens, accuracy via test verification).
+ * Methodology: SWE-bench-style verified evaluation with trajectory
+ * metrics (steps, tokens, accuracy via test verification).
  */
 
 /** A single step in an agentic trajectory. */
@@ -82,8 +82,7 @@ export interface AgenticBenchmarkResults {
 }
 
 /**
- * 3-field distillate seed (Format D).
- * Ref: ReasonBlocks whitepaper — "situation, dead ends, unlock"
+ * 3-field distillate seed (Format D) — "situation, dead ends, unlock".
  *
  * - situation: What the problem pattern looks like
  * - deadEnds: Approaches that fail and why (steers model AWAY from wasting tokens)

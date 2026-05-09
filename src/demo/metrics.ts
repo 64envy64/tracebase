@@ -1,5 +1,5 @@
 /**
- * Pure metric derivation for the YC demo harness.
+ * Pure metric derivation for the agentic demo harness.
  *
  * Takes two `RunArtifact`s for the same task — the OFF run and the ON
  * run — and produces a `ComparisonReport`. No I/O, no clocks, no

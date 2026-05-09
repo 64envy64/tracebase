@@ -1,7 +1,7 @@
 /**
  * Hard-delete + audit-trail behaviour for GDPR Art. 17 compliance.
  *
- * Covers four invariants the design-partner brief commits to:
+ * Covers four invariants the erasure contract commits to:
  *   1. The block is gone from active reads after delete.
  *   2. The audit row persists (id, timestamp, reason, principal).
  *   3. CASCADE sweeps all attached case refs.

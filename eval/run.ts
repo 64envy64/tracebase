@@ -138,7 +138,7 @@ function printSummary(r: BenchmarkResults): void {
   console.log(`  Delta:     ${r.delta.successRateDelta >= 0 ? "+" : ""}${r.delta.successRateDelta.toFixed(1)} pp accuracy, ${r.delta.tokenSavingsPercent >= 0 ? "-" : "+"}${Math.abs(r.delta.tokenSavingsPercent).toFixed(1)}% tokens`);
   console.log(`  Recall:    ${(r.delta.recallHitRate * 100).toFixed(1)}% hit rate`);
 
-  // High-confidence matches subset (like ReasonBlocks reports)
+  // High-confidence matches subset
   const highConf = r.perTask.filter((t) => t.augmented.recallHit && (t.augmented.injectedScore ?? 0) > 0.5);
   if (highConf.length > 0 && highConf.length < r.taskCount) {
     const hcBaselineSuccess = highConf.filter((t) => t.baseline.success).length;

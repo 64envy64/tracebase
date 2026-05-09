@@ -1,5 +1,5 @@
 /**
- * Public types for the YC demo harness.
+ * Public types for the agentic demo harness.
  *
  * Each fixture task is run twice — once with TraceBase OFF (no
  * inject-context, no supervision, no capture), once with it ON. Both

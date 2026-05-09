@@ -11,7 +11,7 @@ import type { EvalAgent, EvalTask } from "../types.js";
  * improves both success rate and token efficiency.
  *
  * The mock is calibrated to produce realistic-looking improvements:
- *   - ~20-30% success rate improvement (matching ReasonBlocks claims)
+ *   - ~20-30% success rate improvement
  *   - ~20-40% token savings
  *   - Failure modes mimic real LLM behavior (overthinking, wrong approach)
  */

@@ -6,7 +6,7 @@ import { computeMetrics, computeDelta } from "./metrics.js";
 import type { EvalAgent, EvalTask, TaskRun, BenchmarkResults } from "./types.js";
 
 /**
- * Eval Harness — Two-phase benchmark like ReasonBlocks.
+ * Eval Harness — Two-phase trajectory benchmark.
  *
  * Phase 1 (Seed): Pre-load KB with curated prior solutions.
  *   These represent "institutional knowledge" — problems your team
@@ -152,7 +152,7 @@ export async function runBenchmark(
 
     // Filter out exact self-matches (same description)
     // High-confidence gate: only inject when match is strong (>0.5 score)
-    // This mirrors ReasonBlocks' confidence gate — avoid injecting noise
+    // Standard confidence-gated retrieval — avoid injecting noise
     const filtered = recallResults.filter(
       (r) => r.matchType !== "exact" && r.score >= 0.5
     );

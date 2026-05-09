@@ -272,7 +272,7 @@ export function runCaptureTurn(
   const mode = resolveCaptureMode(opts.capture);
 
   // `off` short-circuits: no store touch, no badge, empty envelope.
-  // TRACEBASE_DISABLED=1 from the YC demo harness (or any user
+  // TRACEBASE_DISABLED=1 from the demo harness (or any user
   // running a one-off suppression) takes the same path. Still a
   // legitimate exit so the hook timing stays honest.
   if (mode === "off" || process.env.TRACEBASE_DISABLED === "1") {

@@ -172,7 +172,7 @@ export function runInjectContext(
 
   // TRACEBASE_DISABLED=1 short-circuits the hook to a no-op empty
   // envelope without touching the store or running the recall path.
-  // Used by the YC demo harness (off variant), and as a global
+  // Used by the demo harness (off variant), and as a global
   // kill-switch for users who want to keep the install present but
   // suppress all activity for a single session. The trivial-prompt
   // shape is reused — it's already a no-injection envelope the host
