@@ -40,6 +40,10 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const clerkProviderProps = {
     appearance: clerkAppearance,
+    signInUrl: "/login",
+    signUpUrl: "/sign-up",
+    signInFallbackRedirectUrl: "/dashboard",
+    signUpFallbackRedirectUrl: "/dashboard",
     ui,
     __internal_clerkUIVersion: clerkUiPackage.version,
   } as unknown as React.ComponentProps<typeof ClerkProvider>;

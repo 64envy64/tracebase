@@ -32,6 +32,7 @@ import { usageCommand } from "../src/cli/commands/usage.js";
 import { memoryCommand } from "../src/cli/commands/memory.js";
 import { impactCommand } from "../src/cli/commands/impact.js";
 import { savingsCommand } from "../src/cli/commands/savings.js";
+import { distillCommand } from "../src/cli/commands/distill.js";
 import { isInitialized } from "../src/core/config.js";
 
 // Read version from package.json at runtime
@@ -77,6 +78,7 @@ program.addCommand(capturePreToolUseCommand);
 program.addCommand(memoryCommand);
 program.addCommand(impactCommand);
 program.addCommand(savingsCommand);
+program.addCommand(distillCommand);
 
 // No args → guided quickstart instead of generic help
 if (process.argv.length <= 2) {
@@ -86,16 +88,16 @@ if (process.argv.length <= 2) {
 
   if (!isInitialized()) {
     console.log(pc.yellow("Not initialized.") + " Run this to get started:\n");
-    console.log(`  ${pc.cyan("npx tracebase init")}    ${pc.dim("Auto-detect your agent (Claude Code / Cursor / Codex) and wire it up")}`);
+    console.log(`  ${pc.cyan("npx tracebase-ai init")}    ${pc.dim("Auto-detect your agent (Claude Code / Cursor / Codex) and wire it up")}`);
     console.log();
   } else {
-    console.log(pc.green("Initialized.") + " Common commands:\n");
-    console.log(`  ${pc.cyan("tracebase recall")} ${pc.dim('"query"')}    ${pc.dim("Find past solutions")}`);
-    console.log(`  ${pc.cyan("tracebase store")} ${pc.dim("-d ... -s ...")}  ${pc.dim("Save a solution")}`);
-    console.log(`  ${pc.cyan("tracebase explain")} ${pc.dim('"query"')}  ${pc.dim("See ranking breakdown")}`);
-    console.log(`  ${pc.cyan("tracebase stats")}              ${pc.dim("Storage overview")}`);
-    console.log(`  ${pc.cyan("tracebase seed")} ${pc.dim("install ...")}   ${pc.dim("Install knowledge packs")}`);
-    console.log(`  ${pc.cyan("tracebase sync")} ${pc.dim("export/import")} ${pc.dim("Team knowledge sharing")}`);
+    console.log(pc.green("Initialized.") + " Daily commands:\n");
+    console.log(`  ${pc.cyan("tracebase savings")}             ${pc.dim("Time, tokens, and memories TraceBase saved")}`);
+    console.log(`  ${pc.cyan("tracebase doctor")}              ${pc.dim("Verify the install end-to-end")}`);
+    console.log(`  ${pc.cyan("tracebase recall")} ${pc.dim('"query"')}     ${pc.dim("Find past solutions")}`);
+    console.log(`  ${pc.cyan("tracebase store")} ${pc.dim("-d ... -s ...")}   ${pc.dim("Save a solution")}`);
+    console.log(`  ${pc.cyan("tracebase stats")}               ${pc.dim("Storage overview")}`);
+    console.log(`  ${pc.cyan("tracebase usage sync")}          ${pc.dim("Refresh the hosted dashboard")}`);
     console.log();
     console.log(pc.dim("Run `tracebase --help` for all commands."));
   }

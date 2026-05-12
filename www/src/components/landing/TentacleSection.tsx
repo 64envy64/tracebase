@@ -86,7 +86,7 @@ export function TentacleSection() {
           <ol className="flex flex-col gap-5 md:gap-6">
             {CAPABILITIES.map((cap, idx) => (
               <li key={cap.id} ref={setRef(idx)} data-cap-idx={idx} className="scroll-mt-24">
-                <CapabilityCard cap={cap} active={idx === activeIndex} revealed={idx <= revealedUpTo} />
+                <CapabilityCard cap={cap} active={idx === activeIndex} />
               </li>
             ))}
           </ol>
@@ -156,11 +156,9 @@ function ActiveLegend({ activeIndex }: { activeIndex: number }) {
 function CapabilityCard({
   cap,
   active,
-  revealed,
 }: {
   cap: (typeof CAPABILITIES)[number];
   active: boolean;
-  revealed: boolean;
 }) {
   return (
     <article

@@ -127,7 +127,7 @@ export const initCommand = new Command("init")
 
     if (selectedAgents.length === 0) {
       console.log();
-      console.log(pc.yellow("No agents selected. ") + pc.dim("Run `npx tracebase init` again to pick one."));
+      console.log(pc.yellow("No agents selected. ") + pc.dim("Run `npx tracebase-ai init` again to pick one."));
       console.log();
       return;
     }
@@ -346,10 +346,10 @@ export const initCommand = new Command("init")
       const meta = getAgentTargetMeta(primaryAgent);
       console.log(`  1. ${meta.verificationTitle}`);
       console.log(`  2. ${meta.verificationCommand}`);
-      console.log("  3. Verify: " + pc.cyan("npx tracebase status") + pc.dim(" · ") + pc.cyan("npx tracebase doctor"));
+      console.log("  3. Verify: " + pc.cyan("npx tracebase-ai status") + pc.dim(" · ") + pc.cyan("npx tracebase-ai doctor"));
     } else {
       console.log("  1. Restart any of the detected agents you use");
-      console.log("  2. Verify: " + pc.cyan("npx tracebase status") + pc.dim(" · ") + pc.cyan("npx tracebase doctor"));
+      console.log("  2. Verify: " + pc.cyan("npx tracebase-ai status") + pc.dim(" · ") + pc.cyan("npx tracebase-ai doctor"));
     }
     // Cloud state is load-bearing for the first-run UX: when a new user
     // lands on this screen with no API key, the silent "all good" was
@@ -370,7 +370,7 @@ export const initCommand = new Command("init")
     }
     if (installFailed) {
       console.log();
-      console.log(pc.red("Install incomplete.") + " Fix the failing step above, then re-run " + pc.cyan("npx tracebase init") + ".");
+      console.log(pc.red("Install incomplete.") + " Fix the failing step above, then re-run " + pc.cyan("npx tracebase-ai init") + ".");
       process.exitCode = 1;
     }
     console.log();
@@ -677,7 +677,7 @@ export function applyHoldoutDefault(
         pc.dim("  Verified impact: ") +
         "disabled (preserved)" +
         pc.dim("\n  Enable later with: ") +
-        pc.cyan(`npx tracebase init --holdout-rate ${existing.rate}`),
+        pc.cyan(`npx tracebase-ai init --holdout-rate ${existing.rate}`),
     };
   }
 
@@ -710,7 +710,7 @@ export function applyHoldoutDefault(
       pc.dim("\n  Verified impact (holdout-based): ") +
       "disabled" +
       pc.dim("\n  Enable verified mode with: ") +
-      pc.cyan(`npx tracebase init --holdout-rate ${DEFAULT_HOLDOUT_RATE}`),
+      pc.cyan(`npx tracebase-ai init --holdout-rate ${DEFAULT_HOLDOUT_RATE}`),
   };
 }
 

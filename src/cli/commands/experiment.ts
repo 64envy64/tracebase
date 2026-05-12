@@ -20,7 +20,7 @@ function assertInitialized(path: string): string {
   const projectBase = resolveProjectBase(path);
   const configDir = findConfigDir(projectBase);
   if (!configDir) {
-    console.error(pc.yellow("⚠ Not initialized. ") + "Run " + pc.cyan("npx tracebase init") + " first.");
+    console.error(pc.yellow("⚠ Not initialized. ") + "Run " + pc.cyan("npx tracebase-ai init") + " first.");
     process.exit(1);
   }
   // configDir is `<base>/.tracebase` — the owning project base is
@@ -101,7 +101,7 @@ export const experimentCommand = new Command("experiment")
         console.log();
         console.log(
           pc.dim(
-            "Re-enable any time with `npx tracebase experiment enable` — the existing " +
+            "Re-enable any time with `npx tracebase-ai experiment enable` — the existing " +
               "salt is preserved so previously assigned fingerprints stay in their cohorts.",
           ),
         );
@@ -127,7 +127,7 @@ export const experimentCommand = new Command("experiment")
         if (!current) {
           console.log(pc.dim("  holdout    not configured"));
           console.log();
-          console.log(pc.dim("  Enable with `npx tracebase experiment enable`."));
+          console.log(pc.dim("  Enable with `npx tracebase-ai experiment enable`."));
           console.log();
           return;
         }

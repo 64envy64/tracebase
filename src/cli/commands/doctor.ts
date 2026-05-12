@@ -86,7 +86,7 @@ export function runDoctor(invocationPath: string): DoctorReport {
       name: "tracebase-config",
       level: "fail",
       message: ".tracebase/config.json is missing",
-      fix: "Run `npx tracebase init` in this project directory.",
+      fix: "Run `npx tracebase-ai init` in this project directory.",
     });
     return finalize(invocationPath, checks);
   }
@@ -104,7 +104,7 @@ export function runDoctor(invocationPath: string): DoctorReport {
       name: "tracebase-config",
       level: "fail",
       message: ".tracebase/config.json is missing",
-      fix: "Run `npx tracebase init` in this project directory.",
+      fix: "Run `npx tracebase-ai init` in this project directory.",
     });
     return finalize(projectRoot, checks);
   }
@@ -117,7 +117,7 @@ export function runDoctor(invocationPath: string): DoctorReport {
       name: "tracebase-config",
       level: "fail",
       message: `config.json is unreadable: ${e instanceof Error ? e.message : String(e)}`,
-      fix: "Check file permissions; re-run `npx tracebase init --force` if necessary.",
+      fix: "Check file permissions; re-run `npx tracebase-ai init --force` if necessary.",
     });
     return finalize(projectRoot, checks);
   }
@@ -129,7 +129,7 @@ export function runDoctor(invocationPath: string): DoctorReport {
       name: "tracebase-config",
       level: "fail",
       message: `config.json is not valid JSON: ${e instanceof Error ? e.message : String(e)}`,
-      fix: "Fix the JSON by hand or re-run `npx tracebase init --force` (this rewrites the file).",
+      fix: "Fix the JSON by hand or re-run `npx tracebase-ai init --force` (this rewrites the file).",
     });
     return finalize(projectRoot, checks);
   }
@@ -144,7 +144,7 @@ export function runDoctor(invocationPath: string): DoctorReport {
       name: "tracebase-config",
       level: "warn",
       message: "config.json parseable but workspaceId is missing",
-      fix: "Re-run `npx tracebase init` to generate one.",
+      fix: "Re-run `npx tracebase-ai init` to generate one.",
     });
   } else {
     checks.push({
@@ -164,7 +164,7 @@ export function runDoctor(invocationPath: string): DoctorReport {
       message: "config.json parseable but workspaceSalt is missing",
       fix:
         "Will be lazily generated on the first PostToolBatch hook fire. " +
-        "Re-run `npx tracebase init` to mint one eagerly.",
+        "Re-run `npx tracebase-ai init` to mint one eagerly.",
     });
   } else {
     checks.push({
@@ -257,7 +257,7 @@ export function runDoctor(invocationPath: string): DoctorReport {
       name: "install",
       level: "warn",
       message: "no adapters wired up",
-      fix: "Run `npx tracebase init` to attach Claude Code, Cursor, or Codex.",
+      fix: "Run `npx tracebase-ai init` to attach Claude Code, Cursor, or Codex.",
     });
   } else {
     for (const a of agents) {
@@ -293,7 +293,7 @@ export function runDoctor(invocationPath: string): DoctorReport {
         name: "cloud-link",
         level: "warn",
         message: "cloud workspace linked but no installationId recorded",
-        fix: "Re-run `npx tracebase init` with a valid --api-key to complete registration.",
+        fix: "Re-run `npx tracebase-ai init` with a valid --api-key to complete registration.",
       });
     }
   } else {
@@ -478,7 +478,7 @@ function runMcpBootProbe(_projectRoot: string): DoctorCheck {
       message: `MCP server command not found: \`${executable}\``,
       fix:
         `Install the binary (${executable === "npx" ? "Node.js is required" : executable}) ` +
-        "or re-run `npx tracebase init` to re-register a working command.",
+        "or re-run `npx tracebase-ai init` to re-register a working command.",
     };
   }
 
@@ -656,7 +656,7 @@ function appendImpactMeasurementCheck(
       message: "experiment block is not an object",
       fix:
         "Edit `.tracebase/config.json` and remove the malformed `experiment` field, " +
-        "then re-enable with `npx tracebase init --holdout-rate 0.1`.",
+        "then re-enable with `npx tracebase-ai init --holdout-rate 0.1`.",
     });
     return;
   }
@@ -677,7 +677,7 @@ function appendImpactMeasurementCheck(
         level: "warn",
         message: "experiment.holdout block is malformed",
         fix:
-          "Run `npx tracebase init --holdout-rate 0.1` to rewrite it cleanly. " +
+          "Run `npx tracebase-ai init --holdout-rate 0.1` to rewrite it cleanly. " +
           "The command preserves any salt + createdAt that survives the rewrite.",
       });
       return;
@@ -685,7 +685,7 @@ function appendImpactMeasurementCheck(
     checks.push({
       name: "impact-measurement",
       level: "info",
-      message: "disabled — enable with `npx tracebase init --holdout-rate 0.1`",
+      message: "disabled — enable with `npx tracebase-ai init --holdout-rate 0.1`",
     });
     return;
   }
@@ -693,7 +693,7 @@ function appendImpactMeasurementCheck(
     checks.push({
       name: "impact-measurement",
       level: "info",
-      message: `disabled (rate ${cfg.rate}) — re-enable with \`npx tracebase init --holdout-rate ${cfg.rate}\``,
+      message: `disabled (rate ${cfg.rate}) — re-enable with \`npx tracebase-ai init --holdout-rate ${cfg.rate}\``,
     });
     return;
   }
@@ -704,7 +704,7 @@ function appendImpactMeasurementCheck(
       name: "impact-measurement",
       level: "warn",
       message: `rate out of range: ${cfg.rate} (expected 0 < rate ≤ 1)`,
-      fix: "Re-run `npx tracebase init --holdout-rate 0.1` to reset to a valid value.",
+      fix: "Re-run `npx tracebase-ai init --holdout-rate 0.1` to reset to a valid value.",
     });
     return;
   }
@@ -741,14 +741,15 @@ function appendFileIndexerCheck(checks: DoctorCheck[], storagePath: string): voi
     checks.push({
       name: "file-indexer",
       level: "info",
-      message: "storage not initialized — run `npx tracebase init`",
+      message: "storage not initialized — run `npx tracebase-ai init`",
     });
     return;
   }
 
+  let db: Database.Database | null = null;
   let store: BlockStore | null = null;
   try {
-    const db = new Database(storagePath, { readonly: false });
+    db = new Database(storagePath, { readonly: false });
     store = new BlockStore(db, { skipMigrate: true });
 
     // Schema gate. If the indexer tables are absent, the doctor's
@@ -763,7 +764,7 @@ function appendFileIndexerCheck(checks: DoctorCheck[], storagePath: string): voi
       checks.push({
         name: "file-indexer",
         level: "warn",
-        message: "indexer tables missing — re-run `npx tracebase init` to migrate",
+        message: "indexer tables missing — re-run `npx tracebase-ai init` to migrate",
       });
       return;
     }
@@ -805,7 +806,7 @@ function appendFileIndexerCheck(checks: DoctorCheck[], storagePath: string): voi
         level: "warn",
         message:
           "no files indexed and no completion events — indexer has not run yet",
-        fix: "Re-run `npx tracebase init` to populate the indexer.",
+        fix: "Re-run `npx tracebase-ai init` to populate the indexer.",
       });
       return;
     }
@@ -841,6 +842,7 @@ function appendFileIndexerCheck(checks: DoctorCheck[], storagePath: string): voi
     });
   } finally {
     if (store) store.close();
+    if (db?.open) db.close();
   }
 }
 
@@ -871,7 +873,7 @@ function appendAgentIntegrationChecks(
   const mcp = inspectAgentMcpConfig(projectRoot, agent);
   const instruction = inspectAgentInstructionFile(projectRoot, agent);
   const instructionFile = getAgentTargetMeta(agent).instructionFile;
-  const initCommand = "npx tracebase init";
+  const initCommand = "npx tracebase-ai init";
   // Check names are prefixed by agent so multi-agent installs don't
   // collide. Legacy aliases "claude-settings" / "claude-md" /
   // "agents-md" are kept inside the renderer for back-compat output.
@@ -903,7 +905,7 @@ function appendAgentIntegrationChecks(
             : `${getAgentTargetMeta(agent).mcpLocationLabel} is not valid JSON`,
       fix:
         agent === "codex"
-          ? "Ensure the `codex` CLI is installed and re-run `npx tracebase init --agent codex --force`."
+          ? "Ensure the `codex` CLI is installed and re-run `npx tracebase-ai init --agent codex --force`."
           : agent === "claude-code"
             ? `Ensure the \`claude\` CLI is healthy and re-run \`${initCommand} --agent claude-code --force\`.`
             : `Fix the file manually, or re-run \`${initCommand} --force\`.`,

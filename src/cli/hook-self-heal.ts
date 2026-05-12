@@ -5,7 +5,7 @@
  * Called from every runtime hook command (inject-context /
  * capture-turn / capture-context / capture-tool-use) AFTER the
  * `isInitialized(basePath)` gate. Best-effort, throttled, and
- * silent — exists so a project that ran `npx tracebase init`
+ * silent — exists so a project that ran `npx tracebase-ai init`
  * once on an old release picks up new managed hooks
  * (e.g. PostToolBatch landing in 0.5.3) without forcing the user
  * to re-run init.

@@ -1,0 +1,6 @@
+<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TraceBase octopus mascot">
+  <rect width="200" height="200" rx="32" fill="white"/>
+  <path d="M100 36C134 36 160 60 160 96V128C155 137 150 138 145 128C140 119 134 119 129 130C124 141 119 141 114 130C109 119 104 119 99 130C94 141 89 141 84 130C79 119 73 119 68 130C63 141 58 141 53 130C49 138 44 138 40 128V96C40 60 66 36 100 36Z" fill="#0D0D0D"/>
+  <circle cx="83" cy="90" r="6" fill="white"/>
+  <circle cx="117" cy="90" r="6" fill="white"/>
+</svg>

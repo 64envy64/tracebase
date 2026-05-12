@@ -35,16 +35,16 @@ const NAV_GROUPS = [
 ] as const;
 
 const QUICKSTART_COMMANDS = [
-  "npx tracebase init",
-  "npx tracebase status",
-  "npx tracebase doctor",
+  "npx tracebase-ai init",
+  "npx tracebase-ai status",
+  "npx tracebase-ai doctor",
 ] as const;
 
 const INSTALL_TARGETS = [
   {
     id: "claude-code",
     title: "Claude Code",
-    command: "npx tracebase init",
+    command: "npx tracebase-ai init",
     surface: ".claude/settings.json + CLAUDE.md",
     steps: [
       "Run the command above in your project directory — `init` auto-detects Claude Code and wires it locally.",
@@ -55,7 +55,7 @@ const INSTALL_TARGETS = [
   {
     id: "cursor",
     title: "Cursor",
-    command: "npx tracebase init",
+    command: "npx tracebase-ai init",
     surface: "~/.cursor/mcp.json + AGENTS.md",
     steps: [
       "Run the command above — if Cursor is installed locally, `init` auto-detects it and writes the adapter.",
@@ -66,7 +66,7 @@ const INSTALL_TARGETS = [
   {
     id: "codex",
     title: "Codex",
-    command: "npx tracebase init",
+    command: "npx tracebase-ai init",
     surface: "codex mcp registry + AGENTS.md",
     steps: [
       "Run the command above — if the `codex` CLI is on PATH, `init` detects Codex and registers the MCP server.",
@@ -78,19 +78,19 @@ const INSTALL_TARGETS = [
 
 const HEALTH_COMMANDS = [
   {
-    command: "npx tracebase status",
+    command: "npx tracebase-ai status",
     body: "One-screen install snapshot. Shows the resolved project root, target agent, local store path, install surfaces, and recent event counts.",
   },
   {
-    command: "npx tracebase doctor",
+    command: "npx tracebase-ai doctor",
     body: "Deep integrity check. Fails on broken config, malformed JSON, missing MCP registration, and other real install defects.",
   },
   {
-    command: "npx tracebase events --limit 20",
+    command: "npx tracebase-ai events --limit 20",
     body: "Read the most recent retrieval, injection, fact injection, agent_used, and outcome events from the local store.",
   },
   {
-    command: "npx tracebase report",
+    command: "npx tracebase-ai report",
     body: "Aggregated reuse metrics from the same event substrate used by the dashboard.",
   },
 ] as const;
@@ -115,18 +115,18 @@ const EVENT_TYPES = [
 ] as const;
 
 const CLI_REFERENCE = [
-  { command: "npx tracebase init", body: "Initialize the local store, auto-detect the active agent (or every locally-installed agent), write the adapter surfaces, and link into the hosted workspace when browser auth is available." },
-  { command: "npx tracebase init --agent cursor", body: "Scripting escape hatch. Restrict the install to a single adapter. Most users should not need this — `init` alone does the right thing." },
-  { command: "npx tracebase remove", body: "Remove `.tracebase`, the managed instruction block, and the registered MCP entry for the active adapter." },
-  { command: "npx tracebase status --json", body: "Machine-readable install snapshot for scripts and dashboard reuse." },
-  { command: "npx tracebase doctor --json", body: "Machine-readable health report. Exits non-zero when install integrity is broken." },
-  { command: "npx tracebase report --json", body: "Structured aggregated reuse analytics from the local event log." },
+  { command: "npx tracebase-ai init", body: "Initialize the local store, auto-detect the active agent (or every locally-installed agent), write the adapter surfaces, and link into the hosted workspace when browser auth is available." },
+  { command: "npx tracebase-ai init --agent cursor", body: "Scripting escape hatch. Restrict the install to a single adapter. Most users should not need this — `init` alone does the right thing." },
+  { command: "npx tracebase-ai remove", body: "Remove `.tracebase`, the managed instruction block, and the registered MCP entry for the active adapter." },
+  { command: "npx tracebase-ai status --json", body: "Machine-readable install snapshot for scripts and dashboard reuse." },
+  { command: "npx tracebase-ai doctor --json", body: "Machine-readable health report. Exits non-zero when install integrity is broken." },
+  { command: "npx tracebase-ai report --json", body: "Structured aggregated reuse analytics from the local event log." },
 ] as const;
 
 const TROUBLESHOOTING_STEPS = [
   {
     title: "Install targeted the wrong agent",
-    body: "`init` auto-detects the agent you are running inside and falls back to every locally-installed agent. If you need to lock it down, re-run with `npx tracebase init --agent cursor` (or `--agent codex`). Auto-selection never picks Codex unless the `codex` CLI is actually available.",
+    body: "`init` auto-detects the agent you are running inside and falls back to every locally-installed agent. If you need to lock it down, re-run with `npx tracebase-ai init --agent cursor` (or `--agent codex`). Auto-selection never picks Codex unless the `codex` CLI is actually available.",
   },
   {
     title: "Status works in root but not from a subdirectory",
@@ -138,7 +138,7 @@ const TROUBLESHOOTING_STEPS = [
   },
   {
     title: "Need a clean reinstall",
-    body: "Run `npx tracebase remove`, then `npx tracebase init`. This removes the local project store and the managed integration surfaces without touching unrelated user content.",
+    body: "Run `npx tracebase-ai remove`, then `npx tracebase-ai init`. This removes the local project store and the managed integration surfaces without touching unrelated user content.",
   },
 ] as const;
 
@@ -350,7 +350,7 @@ export default function DocsPage() {
           <div className="mt-8 grid gap-3 md:grid-cols-3">
             <NoteCard
               title="One command install"
-              body="`npx tracebase init` creates the local store, writes the adapter surface, and links the project into the hosted workspace when browser auth is available."
+              body="`npx tracebase-ai init` creates the local store, writes the adapter surface, and links the project into the hosted workspace when browser auth is available."
             />
             <NoteCard
               title="Operator-first health checks"
@@ -403,7 +403,7 @@ export default function DocsPage() {
               />
               <NoteCard
                 title="What to do immediately after"
-                body="Restart the target agent, confirm TraceBase appears in the MCP surface, then run `npx tracebase status` from the project."
+                body="Restart the target agent, confirm TraceBase appears in the MCP surface, then run `npx tracebase-ai status` from the project."
               />
             </div>
           </Section>
@@ -477,7 +477,7 @@ export default function DocsPage() {
           >
             <div className="grid gap-3 md:grid-cols-[minmax(0,0.94fr)_minmax(0,1.06fr)]">
               <CommandBlock
-                command="npx tracebase remove"
+                command="npx tracebase-ai remove"
                 body="Removes `.tracebase/`, removes the managed TraceBase section from `CLAUDE.md` or `AGENTS.md`, and unregisters the MCP entry for the active adapter."
               />
               <div className="grid gap-3">
@@ -487,7 +487,7 @@ export default function DocsPage() {
                 />
                 <NoteCard
                   title="Reinstall loop"
-                  body="For a full reset: `npx tracebase remove` → `npx tracebase init`."
+                  body="For a full reset: `npx tracebase-ai remove` → `npx tracebase-ai init`."
                 />
                 <NoteCard
                   title="Scope"

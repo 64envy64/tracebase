@@ -24,7 +24,7 @@ from ever leaving the machine — only aggregate counts ship.
 ## Quick start
 
 ```bash
-npx tracebase init
+npx tracebase-ai init
 ```
 
 That's it for Claude Code users. For SDK consumers:

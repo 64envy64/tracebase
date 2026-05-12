@@ -7,9 +7,8 @@
  *   2. under threshold → cohort sizes + explicit waiting copy
  *   3. above threshold → cohort cards + lift tiles
  *
- * Also locks the separation from `estimated`:
- *   - "Shadow-based estimate" heading is present
- *   - Estimated never rebrands itself as causal proof
+ * Also locks the separation from `estimated`: measured comparison and
+ * diagnostic estimates remain distinct surfaces.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -31,29 +30,29 @@ describe("ImpactView — causal section markup", () => {
     expect(IMPACT_VIEW).toContain("<CausalSection causal={totals.causal}");
   });
 
-  it("absent state: renders 'No causal data yet' copy when metrics.causal is undefined", () => {
-    expect(IMPACT_VIEW).toContain("No causal data yet");
+  it("absent state: renders measured-lift empty copy when metrics.causal is undefined", () => {
+    expect(IMPACT_VIEW).toContain("No measured lift yet");
     // 0.6.1 — points at the init re-run path; the experiment
     // command is no longer surfaced on the CLI.
-    expect(IMPACT_VIEW).toMatch(/tracebase init --holdout-rate/);
+    expect(IMPACT_VIEW).toMatch(/tracebase-ai init --holdout-rate/);
   });
 
   it("under-threshold state: keeps lift hidden and explains the waiting gate", () => {
     expect(IMPACT_VIEW).toContain("Waiting for each cohort to reach");
     // Explicit per-arm remaining counts so a user knows exactly
     // how far the experiment still has to run.
-    expect(IMPACT_VIEW).toMatch(/Remaining: assisted/);
+    expect(IMPACT_VIEW).toMatch(/Remaining: with TraceBase/);
     expect(IMPACT_VIEW).toMatch(/held-out/);
   });
 
-  it("above-threshold state: renders Resolved-rate lift, Tokens saved, Latency saved", () => {
-    expect(IMPACT_VIEW).toContain('label="Resolved rate lift"');
+  it("above-threshold state: renders Task success lift, Tokens saved, Latency saved", () => {
+    expect(IMPACT_VIEW).toContain('label="Task success lift"');
     expect(IMPACT_VIEW).toContain('label="Tokens saved"');
     expect(IMPACT_VIEW).toContain('label="Latency saved"');
   });
 
-  it("assisted vs held-out: uses the honest copy, never 'proof' / 'project-level certainty'", () => {
-    expect(IMPACT_VIEW).toContain("Assisted vs held-out");
+  it("with TraceBase vs held-out: uses the honest copy, never 'proof' / 'project-level certainty'", () => {
+    expect(IMPACT_VIEW).toContain("With TraceBase vs held-out");
     // Guardrails from the reviewer brief:
     expect(IMPACT_VIEW).not.toMatch(/\bproof\b(?!\s*,?\s*not)/i);
     expect(IMPACT_VIEW).not.toMatch(/project-level certainty/i);
@@ -66,16 +65,12 @@ describe("ImpactView — causal section markup", () => {
 
 describe("ImpactView — estimated stays explicitly diagnostic", () => {
   it("labels the shadow-based estimate as diagnostic, not causal", () => {
-    expect(IMPACT_VIEW).toContain("Shadow-based estimate");
-    expect(IMPACT_VIEW).toMatch(/Not a causal comparison/);
+    expect(IMPACT_VIEW).toContain("Token savings");
+    expect(IMPACT_VIEW).toContain("plain estimate");
   });
 
   it("does not merge causal and estimated into one surface", () => {
-    // Two separate <section> nodes. The causal section uses
-    // aria-label="Causal: assisted vs held-out"; the estimated
-    // uses aria-label="Diagnostic estimate (shadow-based)". Both
-    // must be present as distinct landmarks.
-    expect(IMPACT_VIEW).toMatch(/aria-label="Causal: assisted vs held-out"/);
+    expect(IMPACT_VIEW).toMatch(/aria-label="Measured comparison"/);
     expect(IMPACT_VIEW).toMatch(/aria-label="Diagnostic estimate \(shadow-based\)"/);
   });
 

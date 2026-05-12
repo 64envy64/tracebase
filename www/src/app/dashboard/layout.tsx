@@ -2,7 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  await auth.protect();
+  await auth.protect({ unauthenticatedUrl: "/login" });
 
   return <DashboardShell>{children}</DashboardShell>;
 }

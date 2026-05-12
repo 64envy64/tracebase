@@ -14,11 +14,16 @@ export function LogoutButton() {
     });
   }
 
+  // Geometry matches the dashboard's SecondaryButton / ActionPill
+  // primitives: h-[30px], rounded-lg, px-3, text-[12px], surface
+  // background, border-on-border, the same barely-visible hover.
+  // Kept as its own component because it needs LoadingButton's
+  // spinner overlay — wrapping SecondaryButton would lose that.
   return (
     <LoadingButton
       onClick={handleLogout}
       loading={isLoadingScope("auth:sign-out")}
-      className="inline-flex h-9 items-center rounded-sm border px-3 text-xs font-light transition-[background-color,border-color] hover:[border-color:rgba(237,236,236,0.14)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
+      className="inline-flex h-[30px] items-center gap-1.5 rounded-lg border px-3 text-[12px] font-light leading-none transition-[background-color,color,border-color] duration-150 hover:bg-[rgba(255,255,255,0.02)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
       style={{
         borderColor: "var(--border)",
         background: "var(--surface)",

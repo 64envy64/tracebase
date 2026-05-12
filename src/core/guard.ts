@@ -91,16 +91,20 @@ export function toRepoRelative(candidate: string, basePath: string): string | nu
   if (typeof candidate !== "string" || candidate.trim().length === 0) return null;
   const c = candidate.trim();
   if (c.startsWith("~")) return null;
-  if (/^[A-Za-z]:[\\/]/.test(c)) return null;
   if (isAbsolute(c)) {
     const rel = pathRelative(basePath, c);
     // `relative` returning an absolute path means the conversion
     // failed (different roots on Windows, etc.) — reject.
     if (isAbsolute(rel) || rel.startsWith("..")) return null;
-    return rel || ".";
+    return toStorePath(rel || ".");
   }
+  if (/^[A-Za-z]:[\\/]/.test(c)) return null;
   // Already relative — still validate it doesn't escape.
-  return isRepoRelative(c) ? pathNormalize(c) : null;
+  return isRepoRelative(c) ? toStorePath(pathNormalize(c)) : null;
+}
+
+function toStorePath(path: string): string {
+  return path.replace(/\\/g, "/");
 }
 
 // ---------------------------------------------------------------------------

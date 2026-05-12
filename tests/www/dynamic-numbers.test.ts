@@ -65,7 +65,7 @@ function walkLandingTree(): string[] {
 }
 
 function isAllowed(absPath: string): boolean {
-  const rel = relative(LANDING_ROOT, absPath);
+  const rel = relative(LANDING_ROOT, absPath).replace(/\\/g, "/");
   return ALLOWED.some((a) => rel === a || rel.startsWith(a));
 }
 

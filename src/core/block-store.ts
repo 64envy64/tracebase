@@ -1111,16 +1111,13 @@ export interface EventReadOptions {
 export class BlockStore {
   private readonly db: Database.Database;
   private readonly now: () => number;
-  private readonly ownsDb: boolean;
 
   constructor(dbOrPath: Database.Database | string, opts: BlockStoreOptions = {}) {
     if (typeof dbOrPath === "string") {
       this.db = new Database(dbOrPath);
-      this.ownsDb = true;
       this.configure();
     } else {
       this.db = dbOrPath;
-      this.ownsDb = false;
     }
     this.now = opts.now ?? Date.now;
     if (!opts.skipMigrate) this.migrate();
@@ -1222,7 +1219,7 @@ export class BlockStore {
   }
 
   close(): void {
-    if (this.ownsDb) this.db.close();
+    if (this.db.open) this.db.close();
   }
 
   get rawDb(): Database.Database {

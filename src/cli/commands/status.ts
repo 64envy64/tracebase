@@ -261,7 +261,7 @@ function renderStatus(r: StatusReport): void {
   if (!r.initialized) {
     console.log(pc.yellow("⚠ Not initialized."));
     console.log();
-    console.log("  Run " + pc.cyan("npx tracebase init") + " in your project directory.");
+    console.log("  Run " + pc.cyan("npx tracebase-ai init") + " in your project directory.");
     console.log();
     return;
   }
@@ -294,7 +294,7 @@ function renderStatus(r: StatusReport): void {
 
   if (r.agents.length === 0) {
     console.log(pc.bold("Agents ") + pc.dim("(no adapters wired up)"));
-    console.log(pc.dim("  Run ") + pc.cyan("npx tracebase init") + pc.dim(" to pick adapters again."));
+    console.log(pc.dim("  Run ") + pc.cyan("npx tracebase-ai init") + pc.dim(" to pick adapters again."));
   } else {
     console.log(pc.bold("Agents ") + pc.dim(`(${r.agents.length} wired up)`) + ":");
     for (const a of r.agents) {
@@ -372,7 +372,7 @@ function renderStatus(r: StatusReport): void {
   if (broken.length > 0) {
     const names = broken.map((a) => a.agentDisplayName).join(", ");
     console.log(pc.yellow("  Heads up: ") + `${names} config is incomplete.`);
-    console.log("  Re-run " + pc.cyan("npx tracebase init") + " to refresh.");
+    console.log("  Re-run " + pc.cyan("npx tracebase-ai init") + " to refresh.");
     console.log();
   }
 }

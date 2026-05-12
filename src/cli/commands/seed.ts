@@ -149,14 +149,14 @@ export const seedCommand = new Command("seed")
       .action(() => {
         const configDir = findConfigDir();
         if (!configDir) {
-          console.log(pc.yellow("TraceBase not initialized. Run: npx tracebase init"));
+          console.log(pc.yellow("TraceBase not initialized. Run: npx tracebase-ai init"));
           return;
         }
 
         const manifest = loadSeedManifest(configDir);
         if (manifest.installed.length === 0) {
           console.log(pc.dim("No seed packs installed."));
-          console.log(pc.dim("  Install one: npx tracebase seed install @tracebase/seed-react"));
+          console.log(pc.dim("  Install one: npx tracebase-ai seed install @tracebase/seed-react"));
           return;
         }
 

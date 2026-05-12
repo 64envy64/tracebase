@@ -45,7 +45,7 @@ export const eventsCommand = new Command("events")
   }) => {
     const configDir = findConfigDir(opts.path);
     if (!configDir) {
-      console.error(pc.yellow("⚠ Not initialized. ") + "Run " + pc.cyan("npx tracebase init") + " first.");
+      console.error(pc.yellow("⚠ Not initialized. ") + "Run " + pc.cyan("npx tracebase-ai init") + " first.");
       process.exitCode = 1;
       return;
     }

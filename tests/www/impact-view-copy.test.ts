@@ -1,15 +1,10 @@
 /**
  * Copy regression — textual guard for the Impact surface.
  *
- * The Phase 1 fold aggregates samples across every linked project in
- * the control-plane workspace. Rendering that as "Project activity"
- * is wrong for any workspace with more than one project. This test
- * reads the view source and fails if:
- *   - "Project activity" resurfaces as a heading;
- *   - "wired adapter(s)" copy resurfaces (each install row is
- *     (project × agent), not just an adapter);
- *   - "Workspace activity" + split project/installation labels are
- *     missing.
+ * The dashboard impact surface should stay value-first for a regular
+ * coder while preserving workspace-scoped contributor counts for the
+ * enterprise analytics path. This test reads the view source and fails
+ * if old project/adapters framing resurfaces.
  *
  * Textual rather than DOM-rendered because react-dom is a www-only
  * dep; vitest runs from root and cannot resolve "react-dom/server".
@@ -32,8 +27,11 @@ const impactView = readFileSync(IMPACT_VIEW_PATH, "utf-8");
 const impactPage = readFileSync(IMPACT_PAGE_PATH, "utf-8");
 
 describe("ImpactView copy", () => {
-  it('uses "Workspace activity" as the heading, not "Project activity"', () => {
-    expect(impactView).toContain("Workspace activity");
+  it('uses a value-first page title, not "Project activity"', () => {
+    // Phase 0.8.x trimmed the heading from "What TraceBase saved"
+    // to plain "Impact" — either is acceptable here as long as the
+    // page surface anchors on Impact/Savings, not on Activity.
+    expect(impactView).toMatch(/title="(Impact|What TraceBase saved)"/);
     expect(impactView).not.toMatch(/Project activity/);
   });
 
@@ -42,20 +40,16 @@ describe("ImpactView copy", () => {
   });
 
   it("root section aria-label matches the workspace-scoped heading (a11y consistency)", () => {
-    // The visible heading became "Workspace activity" in 1E.1;
-    // the root landmark's aria-label lagged behind and still said
-    // "project activity", so screen readers announced one scope
-    // while sighted users saw another. Lock both to the same
-    // source of truth.
-    expect(impactView).toContain('aria-label="Impact — workspace activity"');
+    expect(impactView).toContain('aria-label="Savings and memory impact"');
     expect(impactView).not.toMatch(/aria-label="Impact — project activity"/);
   });
 
   it("describes its counts as contributors-in-window, not as workspace-wide inventory", () => {
     // The view must not say "linked to this workspace" — that was
-    // the mistaken framing when counts were workspace totals. It
-    // must instead reference the pushed-in-window source.
-    expect(impactView).toContain("pushed samples in this window");
+    // the mistaken framing when counts were workspace totals. The
+    // cleaner 0.8.x copy says "in this window" without the "pushed
+    // samples" phrasing.
+    expect(impactView).toMatch(/in this window/);
     expect(impactView).not.toMatch(/linked to this workspace/i);
   });
 

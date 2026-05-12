@@ -12,7 +12,7 @@ export default async function CliInstallPage({
 }: {
   searchParams: Promise<{ device?: string }>;
 }) {
-  await auth.protect();
+  await auth.protect({ unauthenticatedUrl: "/login" });
   const params = await searchParams;
   const deviceCode = params.device?.trim() || "";
 
@@ -43,7 +43,7 @@ export default async function CliInstallPage({
               color: "var(--text-secondary)",
             }}
           >
-            Missing device code. Re-run <code>npx tracebase init</code> from your project root.
+            Missing device code. Re-run <code>npx tracebase-ai init</code> from your project root.
           </div>
         )}
       </div>

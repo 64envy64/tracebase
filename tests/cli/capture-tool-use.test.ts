@@ -28,7 +28,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import Database from "better-sqlite3";
 import {
   parseStdinPayload,
@@ -124,7 +124,7 @@ describe("runCaptureToolUse — --dump-stdin dev mode", () => {
     );
     const out = runCaptureToolUse({ dumpStdin: true }, raw);
     expect(out.dumped).toBe(true);
-    const base = out.dumpPath!.split("/").pop()!;
+    const base = basename(out.dumpPath!);
     expect(base).not.toContain("/");
     expect(base).not.toContain(":");
     expect(base).not.toContain("\\");

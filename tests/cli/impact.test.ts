@@ -144,6 +144,7 @@ describe("runImpact — readiness gates", () => {
     const cfg = loadConfig(projectDir);
     const db = new Database(cfg.storagePath);
     new BlockStore(db).close();
+    db.close();
     const r = runImpact({ path: projectDir });
     expect(r.readiness).toBe("no-runs");
   });
@@ -260,6 +261,7 @@ describe("renderImpactLine — head/tail composition", () => {
     const cfg = loadConfig(projectDir);
     const db = new Database(cfg.storagePath);
     new BlockStore(db).close();
+    db.close();
     const r = runImpact({ path: projectDir });
     const line = renderImpactLine(r);
     expect(line).toMatch(/Not enough data yet/);
@@ -277,7 +279,7 @@ describe("renderImpactLine — head/tail composition", () => {
     // 0.6.1 — verified is a separate tagged segment; copy uses
     // "verified: disabled" (not "savings unavailable").
     expect(line).toMatch(/verified: disabled/);
-    expect(line).toMatch(/tracebase init --holdout-rate/);
+    expect(line).toMatch(/tracebase-ai init --holdout-rate/);
     expect(line).not.toMatch(/Causal arm not configured/);
     expect(line).not.toMatch(/savings unavailable/);
   });
@@ -310,7 +312,7 @@ describe("renderImpactLine — head/tail composition", () => {
     expect(line).toMatch(/holdout=0/);
     expect(line).toMatch(/need ≥ 30 per arm/);
     expect(line).not.toMatch(/savings unavailable/);
-    expect(line).not.toMatch(/tracebase init --holdout-rate/);
+    expect(line).not.toMatch(/tracebase-ai init --holdout-rate/);
   });
 
   it("0.6.0 — experiment enabled + below-cohort: 'collecting' replaces 'Not enough causal data yet'", () => {
@@ -612,7 +614,7 @@ describe("runImpact — mechanism savings (0.7.0-rc.7)", () => {
     const r = runImpact({ path: projectDir });
     const line = renderImpactLine(r);
     // Line is multi-line: primary on line 1, mechanisms on line 2.
-    expect(line).toMatch(/\nestimated mechanisms:/);
+    expect(line).toMatch(/estimated mechanisms:/);
     // Each non-zero component must surface with its source label.
     expect(line).toMatch(/context fold ≈ /);
     expect(line).toMatch(/file memory ≈ /);
@@ -622,7 +624,7 @@ describe("runImpact — mechanism savings (0.7.0-rc.7)", () => {
     expect(line).toMatch(/total estimated saved/);
     // STRICT VOCAB CONTRACT: the mechanism block must NEVER claim
     // verified savings or use the bare word "verified saved".
-    const mechSection = line.split("\nestimated mechanisms:")[1] ?? "";
+    const mechSection = line.split("estimated mechanisms:")[1] ?? "";
     expect(mechSection).not.toMatch(/verified/i);
   });
 
@@ -649,7 +651,7 @@ describe("runImpact — mechanism savings (0.7.0-rc.7)", () => {
     expect(r.mechanisms).not.toBeNull();
     const line = renderImpactLine(r);
     expect(line).toMatch(/Not enough data yet/);
-    expect(line).toMatch(/\nestimated mechanisms:/);
+    expect(line).toMatch(/estimated mechanisms:/);
     expect(line).toMatch(/tool supervision ≈ /);
   });
 });

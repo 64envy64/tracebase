@@ -3,6 +3,9 @@ import { Funnel } from "@/components/dashboard/charts/Funnel";
 import { MetricTile } from "@/components/dashboard/charts/MetricTile";
 import { Timeseries } from "@/components/dashboard/charts/Timeseries";
 import { EmptyState } from "@/components/dashboard/charts/EmptyState";
+import { PageHeader } from "@/components/dashboard/primitives/PageHeader";
+import { ActionPill } from "@/components/dashboard/primitives/Buttons";
+import { IconKey, IconLink, IconRocket } from "@/components/dashboard/primitives/Icons";
 import type { ImpactWindow } from "@/lib/control-plane/usage";
 import type { UsageCausal, UsageCohort } from "@/lib/usage/types";
 
@@ -69,65 +72,58 @@ export function ImpactView({
   };
 
   return (
-    <section className="space-y-6" aria-label="Impact — workspace activity">
-      <header className="flex flex-col gap-3">
-        <p
-          className="text-[10px] font-mono uppercase tracking-[0.22em]"
-          style={{ color: "var(--text-tertiary)" }}
-        >
-          Impact
-        </p>
-        <h1 className="text-[1.5rem] font-light tracking-[-0.02em] md:text-[1.7rem]">
-          Workspace activity
-        </h1>
-        <p
-          className="max-w-[44rem] text-[13px] font-light leading-relaxed"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          Totals rolled up from{" "}
-          <span style={{ color: "var(--text)" }}>
-            {projectsCount} {projectsLabel}
-          </span>
-          {" · "}
-          <span style={{ color: "var(--text)" }}>
-            {installationsCount} {installsLabel}
-          </span>{" "}
-          that pushed samples in this window. The numbers below are workspace-wide — per-project and
-          per-adapter breakdowns ship in Phase 2, once the local event stream carries an agent tag.
-        </p>
+    <section className="space-y-6" aria-label="Savings and memory impact">
+      <PageHeader
+        title="Impact"
+        subtitle={`${projectsCount} ${projectsLabel} · ${installationsCount} ${installsLabel} in this window`}
+        actions={
+          <>
+            <ActionPill href="/dashboard" icon={<IconRocket />}>
+              Overview
+            </ActionPill>
+            <ActionPill href="/dashboard/installations" icon={<IconLink />}>
+              Installs
+            </ActionPill>
+            <ActionPill href="/dashboard/api-keys" icon={<IconKey />}>
+              API keys
+            </ActionPill>
+          </>
+        }
+      />
 
-        <nav
-          aria-label="Window"
-          className="flex w-fit rounded-sm border text-[11px] font-mono uppercase tracking-[0.18em]"
-          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
-        >
-          {WINDOW_CHOICES.map((w) => {
-            const active = w.key === windowKey;
-            return (
-              <Link
-                key={w.key}
-                href={`/dashboard/impact?window=${w.key}`}
-                className="px-3 py-1.5 transition-[color,background-color]"
-                style={{
-                  background: active ? "var(--bg)" : "transparent",
-                  color: active ? "var(--text)" : "var(--text-tertiary)",
-                }}
-                aria-current={active ? "page" : undefined}
-              >
-                {w.label}
-              </Link>
-            );
-          })}
-        </nav>
-      </header>
+      <nav
+        aria-label="Window"
+        className="flex w-fit overflow-hidden rounded-lg border text-[11px] font-mono uppercase tracking-[0.18em]"
+        style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+      >
+        {WINDOW_CHOICES.map((w) => {
+          const active = w.key === windowKey;
+          return (
+            <Link
+              key={w.key}
+              href={`/dashboard/impact?window=${w.key}`}
+              className="px-3 py-1.5 transition-[color,background-color]"
+              style={{
+                background: active ? "var(--bg)" : "transparent",
+                color: active ? "var(--text)" : "var(--text-tertiary)",
+              }}
+              aria-current={active ? "page" : undefined}
+            >
+              {w.label}
+            </Link>
+          );
+        })}
+      </nav>
 
       {!hasActivity ? (
         <EmptyState
-          title="No samples yet"
-          body="The dashboard renders what `tracebase usage sync` pushed. Run an agent turn, then sync."
+          title="No savings yet"
+          body="The octopus is waiting. Run a few Claude Code tasks with TraceBase attached, then sync this project."
+          artSrc="/octopus.svg"
+          artAlt="TraceBase octopus"
           hint={
             <>
-              Run <span className="font-mono">npx tracebase usage sync</span> in a project directory
+              Run <span className="font-mono">npx tracebase-ai usage sync</span> in a project directory
               after any session that touched memory.
             </>
           }
@@ -135,9 +131,9 @@ export function ImpactView({
       ) : (
         <>
           <section
-            className="rounded-sm border p-5"
+            className="rounded-lg border p-5"
             style={{ borderColor: "var(--border)", background: "var(--surface)" }}
-            aria-label="Funnel"
+            aria-label="Task-to-win funnel"
           >
             <header className="mb-4 flex items-baseline justify-between gap-3">
               <div>
@@ -148,42 +144,42 @@ export function ImpactView({
                   Funnel
                 </p>
                 <h2 className="mt-1 text-[0.98rem] font-medium tracking-tight">
-                  eligible → recalled → injected → used → helpful
+                  From task to win
                 </h2>
               </div>
               <span
                 className="font-mono text-[11px] uppercase tracking-[0.18em]"
                 style={{ color: "var(--text-tertiary)" }}
               >
-                distinct queryIds
+                tasks
               </span>
             </header>
             <Funnel
               stages={[
                 {
-                  label: "Eligible",
+                  label: "Agent tasks",
                   value: observed.eligibleRuns,
-                  hint: "runs that produced any retrieval event",
+                  hint: "tasks where TraceBase checked memory",
                 },
                 {
-                  label: "Recalled",
+                  label: "Matched memory",
                   value: observed.recalledRuns,
-                  hint: "retrieval returned at least one candidate",
+                  hint: "found at least one relevant memory",
                 },
                 {
-                  label: "Injected",
+                  label: "Shown",
                   value: observed.injectedRuns,
-                  hint: "candidate passed the gate and entered the prompt",
+                  hint: "memory was added to the agent context",
                 },
                 {
                   label: "Used",
                   value: observed.usedRuns,
-                  hint: "agent actually followed the injected content",
+                  hint: "agent acted on the memory",
                 },
                 {
-                  label: "Helpful",
+                  label: "Helped",
                   value: observed.helpfulRuns,
-                  hint: "used ∧ outcome.resolved — §L6 helpfulness definition",
+                  hint: "the task resolved after the memory was used",
                 },
               ]}
             />
@@ -194,25 +190,25 @@ export function ImpactView({
             aria-label="Observed counts"
           >
             <MetricTile
-              label="Helpful runs"
+              label="Tasks helped"
               value={formatInt(observed.helpfulRuns)}
-              note="injected → used → resolved"
+              note="memory used and task resolved"
               tone="positive"
             />
             <MetricTile
-              label="Injected runs"
+              label="Memories shown"
               value={formatInt(observed.injectedRuns)}
-              note="candidate passed the gate"
+              note="added to the agent context"
             />
             <MetricTile
-              label="Used runs"
+              label="Memories used"
               value={formatInt(observed.usedRuns)}
-              note="agent followed the block"
+              note="agent actually acted on them"
             />
             <MetricTile
-              label="Resolved with memory"
+              label="Success with memory"
               value={formatRate(observed.resolvedRateWithMemory)}
-              note="helpful ÷ injected"
+              note="helped tasks out of shown memories"
             />
           </section>
 
@@ -224,18 +220,17 @@ export function ImpactView({
                 className="text-[10px] font-mono uppercase tracking-[0.22em]"
                 style={{ color: "var(--text-tertiary)" }}
               >
-                Diagnostic
+                Token savings
               </p>
               <h2 className="text-[0.98rem] font-medium tracking-tight">
-                Shadow-based estimate
+                With TraceBase vs without
               </h2>
               <p
                 className="max-w-[44rem] text-[12px] font-light leading-relaxed"
                 style={{ color: "var(--text-secondary)" }}
               >
-                Signal from manual / legacy shadow runs. Not a causal comparison — see the
-                assisted-vs-held-out block above for the causal number. Kept here for back-compat
-                and for workspaces that have not enabled the holdout experiment.
+                A plain estimate for teams that have not collected enough held-out comparison data
+                yet. The measured block above takes over when both groups are large enough.
               </p>
             </header>
             <div className="grid gap-2.5 sm:grid-cols-2">
@@ -248,8 +243,8 @@ export function ImpactView({
                 }
                 note={
                   estimated.tokensSaved.value === null
-                    ? "waiting for a shadow arm"
-                    : `over ${estimated.tokensSaved.sampleSize} paired runs`
+                    ? "waiting for comparison data"
+                    : `over ${estimated.tokensSaved.sampleSize} compared runs`
                 }
                 estimate
                 formula={estimated.tokensSaved.formula}
@@ -264,8 +259,8 @@ export function ImpactView({
                 }
                 note={
                   estimated.latencySavedMs.value === null
-                    ? "waiting for a shadow arm"
-                    : `over ${estimated.latencySavedMs.sampleSize} paired runs`
+                    ? "waiting for comparison data"
+                    : `over ${estimated.latencySavedMs.sampleSize} compared runs`
                 }
                 estimate
                 formula={estimated.latencySavedMs.formula}
@@ -276,7 +271,7 @@ export function ImpactView({
 
           {buckets.length >= 2 ? (
             <section
-              className="rounded-sm border p-5"
+              className="rounded-lg border p-5"
               style={{ borderColor: "var(--border)", background: "var(--surface)" }}
               aria-label="Daily timeseries"
             >
@@ -302,7 +297,7 @@ export function ImpactView({
 
           {integrity.shadowControlMismatches > 0 || integrity.outcomesWithoutRetrieval > 0 ? (
             <section
-              className="rounded-sm border p-4"
+              className="rounded-lg border p-4"
               style={{
                 borderColor: "var(--border)",
                 background: "rgba(242, 197, 114, 0.04)",
@@ -356,15 +351,15 @@ export function ImpactView({
 function CausalSection({ causal }: { causal?: UsageCausal }) {
   if (!causal) {
     return (
-      <section aria-label="Causal: assisted vs held-out" className="space-y-3">
+      <section aria-label="Measured comparison" className="space-y-3">
         <CausalHeader />
         <EmptyState
-          title="No causal data yet"
-          body="Enable the deterministic holdout by re-running `npx tracebase init --holdout-rate 0.1`. Once held-out runs record outcomes, this block renders assisted vs held-out lift."
+          title="No measured lift yet"
+          body="Enable the comparison group by re-running `npx tracebase-ai init --holdout-rate 0.1`. Once enough held-out tasks finish, this block shows measured lift."
           hint={
             <>
-              See <span className="font-mono">npx tracebase doctor</span> to inspect the
-              current impact-measurement state.
+              See <span className="font-mono">npx tracebase-ai doctor</span> to inspect the
+              current measurement state.
             </>
           }
         />
@@ -376,24 +371,24 @@ function CausalSection({ causal }: { causal?: UsageCausal }) {
     causal.assisted.n >= causal.minCohortSize && causal.holdout.n >= causal.minCohortSize;
 
   return (
-    <section aria-label="Causal: assisted vs held-out" className="space-y-3">
+    <section aria-label="Measured comparison" className="space-y-3">
       <CausalHeader cohortReady={cohortReady} minCohortSize={causal.minCohortSize} />
 
       <div className="grid gap-2.5 sm:grid-cols-2">
-        <CohortCard label="Assisted (treatment)" cohort={causal.assisted} tone="positive" />
-        <CohortCard label="Held-out (control)" cohort={causal.holdout} tone="neutral" />
+        <CohortCard label="With TraceBase" cohort={causal.assisted} tone="positive" />
+        <CohortCard label="Held out" cohort={causal.holdout} tone="neutral" />
       </div>
 
       {cohortReady ? (
         <div className="grid gap-2.5 sm:grid-cols-3">
           <MetricTile
-            label="Resolved rate lift"
+            label="Task success lift"
             value={
               causal.resolvedLift === null
                 ? null
                 : formatRateLift(causal.resolvedLift)
             }
-            note="assisted.resolvedRate − holdout.resolvedRate"
+            note="with TraceBase minus held-out"
             tone="positive"
           />
           <MetricTile
@@ -405,8 +400,8 @@ function CausalSection({ causal }: { causal?: UsageCausal }) {
             }
             note={
               causal.tokensLift.value === null
-                ? "waiting for paired runs"
-                : `over ${causal.tokensLift.sampleSize} paired outcomes`
+                ? "waiting for comparison data"
+                : `over ${causal.tokensLift.sampleSize} compared outcomes`
             }
             formula={causal.tokensLift.formula}
             sampleSize={causal.tokensLift.sampleSize}
@@ -420,8 +415,8 @@ function CausalSection({ causal }: { causal?: UsageCausal }) {
             }
             note={
               causal.latencyLift.value === null
-                ? "waiting for paired runs"
-                : `over ${causal.latencyLift.sampleSize} paired outcomes`
+                ? "waiting for comparison data"
+                : `over ${causal.latencyLift.sampleSize} compared outcomes`
             }
             formula={causal.latencyLift.formula}
             sampleSize={causal.latencyLift.sampleSize}
@@ -429,7 +424,7 @@ function CausalSection({ causal }: { causal?: UsageCausal }) {
         </div>
       ) : (
         <div
-          className="rounded-sm border px-4 py-4"
+          className="rounded-lg border px-4 py-4"
           style={{ borderColor: "var(--border)", background: "rgba(255,255,255,0.02)" }}
         >
           <p
@@ -440,14 +435,14 @@ function CausalSection({ causal }: { causal?: UsageCausal }) {
             <span className="font-mono" style={{ color: "var(--text)" }}>
               n = {causal.minCohortSize}
             </span>
-            . Lift is only computed once both arms meet the threshold — earlier numbers would be
+            . Lift is only computed once both groups meet the threshold — earlier numbers would be
             too noisy to report honestly.
           </p>
           <p
             className="mt-2 text-[11px] font-light"
             style={{ color: "var(--text-tertiary)" }}
           >
-            Remaining: assisted {Math.max(0, causal.minCohortSize - causal.assisted.n)} · held-out{" "}
+            Remaining: with TraceBase {Math.max(0, causal.minCohortSize - causal.assisted.n)} · held-out{" "}
             {Math.max(0, causal.minCohortSize - causal.holdout.n)}
           </p>
         </div>
@@ -465,19 +460,19 @@ function CausalHeader({
 } = {}) {
   const subtitle =
     cohortReady === undefined
-      ? "Deterministic holdout comparison. Only retrieval events with controlReason=\"holdout\" enter the control arm; manual shadow stays diagnostic below."
+      ? "Measured comparison for teams that want proof, not just estimates."
       : cohortReady
-        ? "Both arms cleared the minimum cohort size — lift below is a workspace-wide observed comparison, not an estimate."
-        : `Holdout is live. Lift stays hidden until both arms reach n = ${minCohortSize}.`;
+        ? "Both groups cleared the minimum size. Lift below is observed, not estimated."
+        : `Comparison is live. Lift stays hidden until both groups reach n = ${minCohortSize}.`;
   return (
     <header className="flex flex-col gap-1">
       <p
         className="text-[10px] font-mono uppercase tracking-[0.22em]"
         style={{ color: "var(--text-tertiary)" }}
       >
-        Causal
+        Measured
       </p>
-      <h2 className="text-[0.98rem] font-medium tracking-tight">Assisted vs held-out</h2>
+      <h2 className="text-[0.98rem] font-medium tracking-tight">With TraceBase vs held-out</h2>
       <p
         className="max-w-[44rem] text-[12px] font-light leading-relaxed"
         style={{ color: "var(--text-secondary)" }}
@@ -502,7 +497,7 @@ function CohortCard({
   const valueColor = tone === "positive" ? "var(--accent)" : "var(--text)";
   return (
     <article
-      className="flex min-h-[140px] flex-col justify-between rounded-sm border p-4"
+      className="flex min-h-[140px] flex-col justify-between rounded-lg border p-4"
       style={{ borderColor: "var(--border)", background: "var(--surface)" }}
     >
       <p

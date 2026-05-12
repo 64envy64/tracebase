@@ -1,12 +1,13 @@
 {
   "name": "tracebase-ai",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Reasoning layer for AI agents — institutional memory so your agents never solve the same problem twice",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
   "bin": {
-    "tracebase": "dist/cli.js"
+    "tracebase": "dist/cli.js",
+    "tracebase-ai": "dist/cli.js"
   },
   "exports": {
     ".": {
@@ -50,6 +51,8 @@
     "@tailwindcss/postcss": "^4.2.2",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.15.5",
+    "pg": "^8.16.3",
     "tailwindcss": "^4.2.2",
     "tsup": "^8.4.0",
     "tsx": "^4.21.0",

@@ -159,7 +159,7 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
       pricing: null,
       experiment: null,
       mechanisms: null,
-      error: "not initialized — run `npx tracebase init` first",
+      error: "not initialized — run `npx tracebase-ai init` first",
     };
   }
   const config = loadConfig(projectRoot);
@@ -203,6 +203,7 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
     mechanisms = computeMechanismSavings(store, { afterTs, beforeTs });
   } finally {
     store.close();
+    if (db.open) db.close();
   }
 
   // 0.6.0 — pull experiment-side counts directly off the
@@ -427,7 +428,7 @@ function renderVerifiedSegment(
         );
       }
       return pc.dim(
-        `verified: disabled (enable: re-run \`tracebase init --holdout-rate ${formatRateForCli(report.experiment?.rate)}\`)`,
+        `verified: disabled (enable: re-run \`npx tracebase-ai init --holdout-rate ${formatRateForCli(report.experiment?.rate)}\`)`,
       );
     }
     case "below-cohort": {

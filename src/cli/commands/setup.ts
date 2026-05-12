@@ -28,7 +28,7 @@ export const setupCommand = new Command("setup")
     dryRun?: boolean;
   }) => {
     if (opts.dryRun) {
-      console.log(pc.yellow("  --dry-run is no longer supported. Run `npx tracebase init` directly."));
+      console.log(pc.yellow("  --dry-run is no longer supported. Run `npx tracebase-ai init` directly."));
       return;
     }
     const args: string[] = [];

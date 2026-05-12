@@ -7,7 +7,7 @@ agent's MCP surface, and the managed instruction block — no manual
 edits required.
 
 ```
-npx tracebase init
+npx tracebase-ai init
 ```
 
 `init` is interactive by default: an arrow-key picker lets you choose
@@ -16,18 +16,18 @@ Claude Code, Cursor, Codex, or any combination.
 To install a specific agent non-interactively:
 
 ```
-npx tracebase init --agent claude-code
-npx tracebase init --agent cursor
-npx tracebase init --agent codex
-npx tracebase init --all                      # every adapter at once
+npx tracebase-ai init --agent claude-code
+npx tracebase-ai init --agent cursor
+npx tracebase-ai init --agent codex
+npx tracebase-ai init --all                      # every adapter at once
 ```
 
 Optional — link the project to the hosted dashboard:
 
 ```
-npx tracebase init --api-key <your-key>
+npx tracebase-ai init --api-key <your-key>
 # or
-TRACEBASE_API_KEY=<your-key> npx tracebase init
+TRACEBASE_API_KEY=<your-key> npx tracebase-ai init
 ```
 
 Without an API key, TraceBase runs **local only**. Recall, injection,
@@ -39,13 +39,13 @@ disabled until you link.
 ## Claude Code
 
 ```
-npx tracebase init --agent claude-code
+npx tracebase-ai init --agent claude-code
 ```
 
 1. Restart Claude Code.
 2. Run `/mcp` and confirm `tracebase` shows up as a connected server.
 3. Run `/tools` and confirm `get_reasoning_patterns` is listed.
-4. Verify: `npx tracebase status` · `npx tracebase doctor`
+4. Verify: `npx tracebase-ai status` · `npx tracebase-ai doctor`
 
 **What changed:** `.tracebase/config.json`, managed block appended to
 `CLAUDE.md`, and a local-scope registration in the `claude mcp` runtime
@@ -63,12 +63,12 @@ and non-zero exit — it will not silently succeed.
 ## Cursor
 
 ```
-npx tracebase init --agent cursor
+npx tracebase-ai init --agent cursor
 ```
 
 1. Restart Cursor.
 2. Open Cursor Settings → MCP and confirm `tracebase` is healthy.
-3. Verify: `npx tracebase status` · `npx tracebase doctor`
+3. Verify: `npx tracebase-ai status` · `npx tracebase-ai doctor`
 
 **What changed:** `.tracebase/config.json`, `~/.cursor/mcp.json`
 (merge-safe), managed block appended to `AGENTS.md`.
@@ -76,12 +76,12 @@ npx tracebase init --agent cursor
 ## Codex
 
 ```
-npx tracebase init --agent codex
+npx tracebase-ai init --agent codex
 ```
 
 1. Start a fresh Codex session in the project.
 2. Run `codex mcp list` and confirm `tracebase` is listed.
-3. Verify: `npx tracebase status` · `npx tracebase doctor`
+3. Verify: `npx tracebase-ai status` · `npx tracebase-ai doctor`
 
 **What changed:** `.tracebase/config.json`, Codex MCP registry
 entry (via `codex mcp add`), managed block in `AGENTS.md`.
@@ -95,10 +95,11 @@ and non-zero exit — it will not silently succeed.
 
 | Command | What it shows |
 |---|---|
-| `npx tracebase status` | One-screen snapshot: workspace id, wired adapters, local storage, events, cloud link state |
-| `npx tracebase doctor` | Deep health check — flags broken config, missing MCP entries, missing instruction blocks, incomplete registrations |
-| `npx tracebase events --limit 20` | Most recent retrieval / injection / outcome events from real agent runs |
-| `npx tracebase report` | Aggregated reuse metrics from the local event log |
+| `npx tracebase-ai savings` | Plain-English daily value: tasks helped, time saved, tokens recycled, and memories that need attention |
+| `npx tracebase-ai status` | One-screen snapshot: workspace id, wired adapters, local storage, events, cloud link state |
+| `npx tracebase-ai doctor` | Deep health check — flags broken config, missing MCP entries, missing instruction blocks, incomplete registrations |
+| `npx tracebase-ai events --limit 20` | Most recent retrieval / injection / outcome events from real agent runs |
+| `npx tracebase-ai report` | Aggregated reuse metrics from the local event log |
 
 After restarting your agent, run a coding task. `status` should start
 showing non-zero `retrieval` counts. Once the agent calls
@@ -120,7 +121,7 @@ With an API key linked, `init` registers one installation per agent.
 Push rolled-up usage samples when you want the dashboard to refresh:
 
 ```
-npx tracebase usage sync
+npx tracebase-ai usage sync
 ```
 
 Idempotent: re-running the same day produces the same sample on the
@@ -137,11 +138,11 @@ works)`. Re-run with `--api-key` when you're ready.
 ## Reset or uninstall
 
 ```
-npx tracebase remove              # remove this project's install cleanly
-npx tracebase remove --keep-store # keep .tracebase/, just detach the agent surfaces
+npx tracebase-ai remove              # remove this project's install cleanly
+npx tracebase-ai remove --keep-store # keep .tracebase/, just detach the agent surfaces
 ```
 
-Re-install any time with `npx tracebase init`. Re-running `init` on an
+Re-install any time with `npx tracebase-ai init`. Re-running `init` on an
 already-initialized project preserves the stable `workspaceId`, never
 duplicates MCP entries or instruction blocks, and does not re-register
 cloud installations.

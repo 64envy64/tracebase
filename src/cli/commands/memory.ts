@@ -167,7 +167,7 @@ export function runMemoryPrune(opts: PruneOptions): MemoryPruneOutcome {
       applied: false,
       includedLowConfidence,
       projectRoot: null,
-      error: "not initialized — run `npx tracebase init` first",
+      error: "not initialized — run `npx tracebase-ai init` first",
     };
   }
 
@@ -180,7 +180,7 @@ export function runMemoryPrune(opts: PruneOptions): MemoryPruneOutcome {
       applied: false,
       includedLowConfidence,
       projectRoot,
-      error: "not initialized — run `npx tracebase init` first",
+      error: "not initialized — run `npx tracebase-ai init` first",
     };
   }
 

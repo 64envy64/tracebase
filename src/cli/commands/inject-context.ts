@@ -207,7 +207,7 @@ export function runInjectContext(
     // 0.5.6 — best-effort, throttled hook self-heal so projects
     // installed before a managed event existed (e.g. PostToolBatch
     // landing in 0.5.3) pick up the new spec without a manual
-    // re-run of `npx tracebase init`. Errors are silent unless
+    // re-run of `npx tracebase-ai init`. Errors are silent unless
     // TRACEBASE_DEBUG is set.
     try {
       ensureManagedHooksCurrent(basePath, "claude-code");

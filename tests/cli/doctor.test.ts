@@ -54,7 +54,7 @@ describe("runDoctor — uninitialized project", () => {
     const r = runDoctor(dir);
     const c = byName(r.checks, "tracebase-config")!;
     expect(c.level).toBe("fail");
-    expect(c.fix).toMatch(/tracebase init/);
+    expect(c.fix).toMatch(/tracebase-ai init/);
     expect(r.summary.fail).toBeGreaterThan(0);
   });
 });
@@ -72,7 +72,7 @@ describe("runDoctor — fresh init (no Claude runtime registration, empty store)
     // regression: settings.json-only path returned a false-positive
     // PASS and a warn-when-missing → both dishonest.)
     expect(byName(r.checks, "claude-code-mcp")!.level).toBe("fail");
-    expect(byName(r.checks, "claude-code-mcp")!.fix).toMatch(/claude mcp add|tracebase init/i);
+    expect(byName(r.checks, "claude-code-mcp")!.fix).toMatch(/claude mcp add|tracebase-ai init/i);
     expect(byName(r.checks, "claude-code-instructions")!.level).toBe("warn");
     // store-content check only runs when the storage file exists.
     expect(byName(r.checks, "store-content")).toBeUndefined();
@@ -104,6 +104,7 @@ describe("runDoctor — full init + populated store", () => {
     });
     store.updateBlockStatus(b.id, "active");
     store.close();
+    db.close();
 
     const r = runDoctor(dir);
     expect(byName(r.checks, "tracebase-config")!.level).toBe("pass");
@@ -166,7 +167,7 @@ describe("runDoctor — specific broken configurations", () => {
     const r = runDoctor(dir);
     const c = byName(r.checks, "claude-code-instructions")!;
     expect(c.level).toBe("warn");
-    expect(c.fix).toMatch(/tracebase init/);
+    expect(c.fix).toMatch(/tracebase-ai init/);
   });
 });
 
@@ -267,7 +268,7 @@ describe("runDoctor — Claude Code hook health", () => {
     expect(hookCheck).toBeDefined();
     expect(hookCheck.level).toBe("warn");
     expect(hookCheck.message).toMatch(/Stop/);
-    expect(hookCheck.fix).toMatch(/tracebase init/);
+    expect(hookCheck.fix).toMatch(/tracebase-ai init/);
 
     // Cleanup not strictly needed (tmp dir torn down), but silence
     // the linter about an unused import in this fallthrough.
@@ -396,7 +397,7 @@ describe("runDoctor — impact measurement (0.6.0)", () => {
     const c = byName(r.checks, "impact-measurement")!;
     expect(c.level).toBe("info");
     expect(c.message).toMatch(/disabled/);
-    expect(c.message).toMatch(/tracebase init --holdout-rate 0\.1/);
+    expect(c.message).toMatch(/tracebase-ai init --holdout-rate 0\.1/);
   });
 
   it("INFO when holdout is explicitly disabled", async () => {
@@ -423,7 +424,7 @@ describe("runDoctor — impact measurement (0.6.0)", () => {
     const c = byName(r.checks, "impact-measurement")!;
     expect(c.level).toBe("warn");
     expect(c.message).toMatch(/holdout block is malformed/);
-    expect(c.fix).toMatch(/tracebase init --holdout-rate/);
+    expect(c.fix).toMatch(/tracebase-ai init --holdout-rate/);
   });
 
   it("WARN when rate is out of range", async () => {
@@ -487,7 +488,7 @@ describe("runDoctor — workspace salt", () => {
     const r = runDoctor(dir);
     const c = byName(r.checks, "workspace-salt")!;
     expect(c.level).toBe("warn");
-    expect(c.fix).toMatch(/lazily generated|tracebase init/);
+    expect(c.fix).toMatch(/lazily generated|tracebase-ai init/);
   });
 });
 
@@ -541,7 +542,7 @@ describe("runDoctor — file indexer (0.7.0-rc.2)", () => {
     const c = byName(r.checks, "file-indexer")!;
     expect(c.level).toBe("warn");
     expect(c.message).toMatch(/no files indexed/);
-    expect(c.fix).toMatch(/tracebase init/);
+    expect(c.fix).toMatch(/tracebase-ai init/);
   });
 
   it("PASS when indexer has indexed files and pending queue is empty", async () => {

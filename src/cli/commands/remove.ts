@@ -182,11 +182,11 @@ function renderRemove(report: RemoveReport): void {
 
   console.log();
   if (report.failed) {
-    console.log(pc.red("Cleanup incomplete.") + " Fix the failing step above, then re-run " + pc.cyan("npx tracebase remove") + ".");
+    console.log(pc.red("Cleanup incomplete.") + " Fix the failing step above, then re-run " + pc.cyan("npx tracebase-ai remove") + ".");
   } else {
     console.log(pc.bold("Next:"));
     console.log("  1. Re-open your agent if it was running");
-    console.log("  2. Re-install any time with " + pc.cyan("npx tracebase init"));
+    console.log("  2. Re-install any time with " + pc.cyan("npx tracebase-ai init"));
   }
   console.log();
 }

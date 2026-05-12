@@ -404,7 +404,8 @@ function handleDump(raw: Buffer, parsed: ToolBatchHookStdin): CaptureToolUseOutc
 
   let dumpPath: string | null = null;
   try {
-    const dir = join(homedir(), ".tracebase", "posttoolbatch-dumps");
+    const home = process.env.HOME || process.env.USERPROFILE || homedir();
+    const dir = join(home, ".tracebase", "posttoolbatch-dumps");
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const sessionTag = sanitiseTag(
       parsed.session_id ?? parsed.sessionId ?? "unknown-session",

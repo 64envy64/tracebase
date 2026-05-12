@@ -530,7 +530,8 @@ function handleDump(raw: Buffer): CaptureContextOutcome {
 
   let dumpPath: string | null = null;
   try {
-    const dir = join(homedir(), ".tracebase", "precompact-dumps");
+    const home = process.env.HOME || process.env.USERPROFILE || homedir();
+    const dir = join(home, ".tracebase", "precompact-dumps");
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const sessionTag = sanitiseTag(
       parsed.session_id ?? parsed.sessionId ?? "unknown-session",

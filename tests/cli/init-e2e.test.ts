@@ -23,7 +23,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 
 const CLI_PATH = join(__dirname, "..", "..", "dist", "cli.js");
 
@@ -37,6 +37,8 @@ const CLI_PATH = join(__dirname, "..", "..", "dist", "cli.js");
  */
 const NODE_DIR = dirname(process.execPath);
 const CODEX_FREE_PATH = NODE_DIR;
+const PATH_ENV_KEY =
+  Object.keys(process.env).find((k) => k.toLowerCase() === "path") ?? "PATH";
 
 /**
  * Install a fake `claude` CLI on PATH that simulates the real
@@ -143,6 +145,10 @@ process.exit(2);
   const wrapper = `#!/bin/sh\nexec "${process.execPath}" "${impl}" "$@"\n`;
   writeFileSync(join(binDir, "claude"), wrapper);
   spawnSync("chmod", ["+x", join(binDir, "claude")]);
+  writeFileSync(
+    join(binDir, "claude.cmd"),
+    `@echo off\r\n"${process.execPath}" "${impl}" %*\r\n`,
+  );
 
   return {
     binDir,
@@ -253,7 +259,7 @@ describe("tracebase init --agent claude-code (fresh project)", () => {
         env: {
           HOME: homeDir,
           TRACEBASE_API_URL: "",
-          PATH: `${shim.binDir}:${CODEX_FREE_PATH}`,
+          [PATH_ENV_KEY]: `${shim.binDir}${delimiter}${CODEX_FREE_PATH}`,
         },
       });
       expect(res.status).toBe(0);
@@ -316,7 +322,7 @@ describe("tracebase init --agent claude-code (fresh project)", () => {
     if (!existsSync(CLI_PATH)) return;
     const res = cli(["init", "--agent", "claude-code", "-y", "--path", projectDir], {
       cwd: projectDir,
-      env: { HOME: homeDir, TRACEBASE_API_URL: "", PATH: CODEX_FREE_PATH },
+      env: { HOME: homeDir, TRACEBASE_API_URL: "", [PATH_ENV_KEY]: CODEX_FREE_PATH },
     });
     expect(res.status).not.toBe(0);
     const combined = `${res.stdout}${res.stderr}`;
@@ -350,7 +356,7 @@ describe("tracebase init --agent claude-code (fresh project)", () => {
         env: {
           HOME: homeDir,
           TRACEBASE_API_URL: "",
-          PATH: `${shim.binDir}:${CODEX_FREE_PATH}`,
+          [PATH_ENV_KEY]: `${shim.binDir}${delimiter}${CODEX_FREE_PATH}`,
         },
       });
       expect(res.status).toBe(0);
@@ -374,7 +380,7 @@ describe("tracebase init --agent claude-code (fresh project)", () => {
     const env = {
       HOME: homeDir,
       TRACEBASE_API_URL: "",
-      PATH: `${shim.binDir}:${CODEX_FREE_PATH}`,
+      [PATH_ENV_KEY]: `${shim.binDir}${delimiter}${CODEX_FREE_PATH}`,
     };
     try {
       expect(
@@ -415,7 +421,7 @@ describe("tracebase init --agent claude-code (fresh project)", () => {
     const env = {
       HOME: homeDir,
       TRACEBASE_API_URL: "",
-      PATH: `${shim.binDir}:${CODEX_FREE_PATH}`,
+      [PATH_ENV_KEY]: `${shim.binDir}${delimiter}${CODEX_FREE_PATH}`,
     };
     try {
       // Fresh init via the real CLI (uses the shim).
@@ -524,48 +530,53 @@ describe("tracebase init --agent codex (mocked codex CLI)", () => {
         args: ["-y", "tracebase-ai@latest", "serve", "--mcp"],
       },
     });
-    const shim = `#!/bin/sh
-echo "$@" >> "${shimLog}"
-case "$*" in
-  "mcp get tracebase --json")
-    # First inspection before install → exit 1 ("not installed"), then
-    # subsequent calls return canonical JSON. We implement that with a
-    # simple state file rather than a complex fixture.
-    if [ -f "${binDir}/installed" ]; then
-      echo '${canonicalJson}'
-      exit 0
-    else
-      exit 1
-    fi
-    ;;
-  "mcp add tracebase"*)
-    touch "${binDir}/installed"
-    exit 0
-    ;;
-  "mcp remove tracebase"*)
-    rm -f "${binDir}/installed"
-    exit 0
-    ;;
-  "--version")
-    echo "codex 0.0.0-shim"
-    exit 0
-    ;;
-esac
-echo "codex shim: unhandled args $*" >&2
-exit 2
+    const impl = join(binDir, "codex.js");
+    const implSource = `#!/usr/bin/env node
+const fs = require("node:fs");
+const LOG = ${JSON.stringify(shimLog)};
+const INSTALLED = ${JSON.stringify(join(binDir, "installed"))};
+const CANONICAL = ${JSON.stringify(canonicalJson)};
+const argv = process.argv.slice(2);
+fs.appendFileSync(LOG, argv.join(" ") + "\\n");
+const joined = argv.join(" ");
+if (joined === "--version") {
+  process.stdout.write("codex 0.0.0-shim\\n");
+  process.exit(0);
+}
+if (joined === "mcp get tracebase --json") {
+  if (fs.existsSync(INSTALLED)) {
+    process.stdout.write(CANONICAL + "\\n");
+    process.exit(0);
+  }
+  process.exit(1);
+}
+if (joined.startsWith("mcp add tracebase")) {
+  fs.writeFileSync(INSTALLED, "1");
+  process.exit(0);
+}
+if (joined.startsWith("mcp remove tracebase")) {
+  fs.rmSync(INSTALLED, { force: true });
+  process.exit(0);
+}
+process.stderr.write("codex shim: unhandled args " + joined + "\\n");
+process.exit(2);
 `;
-    writeFileSync(join(binDir, "codex"), shim);
-    // chmod +x — execFileSync isn't available on PATH shims in a fresh env,
-    // but Node fs does not have chmodSync in the public API we need; use
-    // spawnSync.
+    writeFileSync(impl, implSource);
+    spawnSync("chmod", ["+x", impl]);
+    const wrapper = `#!/bin/sh\nexec "${process.execPath}" "${impl}" "$@"\n`;
+    writeFileSync(join(binDir, "codex"), wrapper);
     spawnSync("chmod", ["+x", join(binDir, "codex")]);
+    writeFileSync(
+      join(binDir, "codex.cmd"),
+      `@echo off\r\n"${process.execPath}" "${impl}" %*\r\n`,
+    );
 
     const res = cli(["init", "--agent", "codex", "-y", "--path", projectDir], {
       cwd: projectDir,
       env: {
         HOME: homeDir,
         TRACEBASE_API_URL: "",
-        PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        [PATH_ENV_KEY]: `${binDir}${delimiter}${process.env[PATH_ENV_KEY] ?? ""}`,
       },
     });
 
@@ -586,7 +597,7 @@ exit 2
     // Empty PATH so neither the real codex nor any shim is reachable.
     const res = cli(["init", "--agent", "codex", "-y", "--path", projectDir], {
       cwd: projectDir,
-      env: { HOME: homeDir, TRACEBASE_API_URL: "", PATH: CODEX_FREE_PATH},
+      env: { HOME: homeDir, TRACEBASE_API_URL: "", [PATH_ENV_KEY]: CODEX_FREE_PATH},
     });
     // Missing CLI surfaces as an `install incomplete` step but init still
     // returns non-zero so the user sees the problem.
@@ -609,7 +620,7 @@ describe("tracebase init --all (no codex shim)", () => {
       env: envWithClaudeRegistryOverride({
         HOME: homeDir,
         TRACEBASE_API_URL: "",
-        PATH: CODEX_FREE_PATH,
+        [PATH_ENV_KEY]: CODEX_FREE_PATH,
       }),
     });
     // --all still flags the codex step as incomplete when the CLI is

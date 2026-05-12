@@ -260,57 +260,68 @@ export function wrapGeneric<TIn, TOut>(
   call: (input: TIn) => Promise<TOut>,
   options: WrapGenericOptions<TIn, TOut>,
 ): (input: TIn) => Promise<TOut> {
-  const runtime = resolveRuntime(layer, options, options.source);
+  const explicitRuntime = options.runtime ?? null;
 
   return async (input: TIn): Promise<TOut> => {
+    const runtime = explicitRuntime ?? resolveRuntime(layer, options, options.source);
     let modifiedInput = input;
-    if (runtime) {
-      try {
-        const promptText = options.extractPrompt(input);
-        const before = await runtime.beforeRun({
-          prompt: promptText,
-          ...(options.sessionId ? { sessionId: options.sessionId } : {}),
-          ...(options.projectPath ? { projectPath: options.projectPath } : {}),
-        });
-        if (
-          before.additionalContext.length > 0 &&
-          typeof options.injectContext === "function"
-        ) {
-          modifiedInput = options.injectContext(input, before.additionalContext);
-        }
-      } catch (err) {
-        void err; // never break the wrapped call
-      }
-    }
-
-    const output = await call(modifiedInput);
-
-    if (runtime) {
-      try {
-        if (typeof options.observeTools === "function" && options.sessionId) {
-          const toolCalls = options.observeTools(input, output);
-          if (toolCalls.length > 0) {
-            await runtime.observeToolBatch({
-              sessionId: options.sessionId,
-              ...(options.projectPath ? { projectPath: options.projectPath } : {}),
-              toolCalls,
-            });
-          }
-        }
-        if (typeof options.extractOutput === "function") {
-          await runtime.afterRun({
-            userText: options.extractPrompt(input),
-            assistantText: options.extractOutput(output),
+    try {
+      if (runtime) {
+        try {
+          const promptText = options.extractPrompt(input);
+          const before = await runtime.beforeRun({
+            prompt: promptText,
             ...(options.sessionId ? { sessionId: options.sessionId } : {}),
             ...(options.projectPath ? { projectPath: options.projectPath } : {}),
           });
+          if (
+            before.additionalContext.length > 0 &&
+            typeof options.injectContext === "function"
+          ) {
+            modifiedInput = options.injectContext(input, before.additionalContext);
+          }
+        } catch (err) {
+          void err; // never break the wrapped call
         }
-      } catch (err) {
-        void err;
+      }
+
+      const output = await call(modifiedInput);
+
+      if (runtime) {
+        try {
+          if (typeof options.observeTools === "function" && options.sessionId) {
+            const toolCalls = options.observeTools(input, output);
+            if (toolCalls.length > 0) {
+              await runtime.observeToolBatch({
+                sessionId: options.sessionId,
+                ...(options.projectPath ? { projectPath: options.projectPath } : {}),
+                toolCalls,
+              });
+            }
+          }
+          if (typeof options.extractOutput === "function") {
+            await runtime.afterRun({
+              userText: options.extractPrompt(input),
+              assistantText: options.extractOutput(output),
+              ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+              ...(options.projectPath ? { projectPath: options.projectPath } : {}),
+            });
+          }
+        } catch (err) {
+          void err;
+        }
+      }
+
+      return output;
+    } finally {
+      if (!explicitRuntime && runtime) {
+        try {
+          await runtime.close();
+        } catch {
+          // best-effort cleanup for the implicit convenience runtime
+        }
       }
     }
-
-    return output;
   };
 }
 

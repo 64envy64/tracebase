@@ -191,7 +191,7 @@ describe("doctor — legacy-settings WARN fires when runtime is healthy but sett
     expect(legacy).toBeDefined();
     expect(legacy!.level).toBe("warn");
     expect(legacy!.message).toMatch(/\.claude\/settings\.json/);
-    expect(legacy!.fix).toMatch(/tracebase init/);
+    expect(legacy!.fix).toMatch(/tracebase-ai init/);
   });
 
   it("does not emit the legacy-settings WARN when .claude/settings.json is clean", () => {

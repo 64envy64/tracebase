@@ -4,7 +4,7 @@ Common issues with the Claude Code install path and how to resolve
 them. For a machine-verified health check, run:
 
 ```
-npx tracebase doctor
+npx tracebase-ai doctor
 ```
 
 It reports `PASS / WARN / FAIL` for each integration surface with a
@@ -19,19 +19,19 @@ Typical causes, in order of likelihood:
 
 1. **Claude Code wasn't restarted after `init`.** MCP servers are
    loaded at Claude Code startup. Quit and relaunch.
-2. **`.claude/settings.json` is malformed.** `doctor` surfaces this
-   as `FAIL claude-settings "not valid JSON"`. Fix the JSON (or delete
+2. **The Claude MCP registry is missing `tracebase`.** Re-run
+   `npx tracebase-ai init --agent claude-code --force` from the
+   project root. Claude Code reads MCP servers from `claude mcp`,
+   not from `.claude/settings.json`.
+3. **The hook settings file is malformed.** `doctor` surfaces this
+   with a `.claude/settings.json` hook check. Fix the JSON (or delete
    the file and re-run `init`).
-3. **`tracebase` entry is under a different key.** The Claude Code
-   MCP convention is `mcpServers.tracebase`. If a legacy install
-   wrote it elsewhere, `doctor` will surface `FAIL claude-settings
-   "no tracebase entry"`. Re-run `npx tracebase init --force`.
 4. **`npx` can't reach the package.** If your environment blocks
    outbound network or lacks an npm cache, `npx -y tracebase-ai`
-   cannot fetch the package at the moment Claude Code spawns the
-   MCP server. Install locally: `npm install tracebase-ai` and
-   change the `args` in `.claude/settings.json` to point at a local
-   CLI entry point.
+   cannot fetch the package at the moment Claude Code spawns the MCP
+   server. Install locally or re-run `doctor` once the npm cache is
+   warm; its `mcp-boot` check shows the exact command and captured
+   error.
 
 ---
 
@@ -86,7 +86,7 @@ Most often this means one of two things:
 You can seed a block manually:
 
 ```
-npx tracebase store \
+npx tracebase-ai store \
   -d "your problem description" \
   -s "the fix you used" \
   -l python -f astropy -e MissingDocstring
@@ -99,8 +99,8 @@ npx tracebase store \
 ## I want to re-install from scratch
 
 ```
-npx tracebase remove
-npx tracebase init
+npx tracebase-ai remove
+npx tracebase-ai init
 ```
 
 `init` auto-detects the current agent (or every agent installed on
@@ -111,8 +111,8 @@ If you want to keep the local SQLite store but refresh the adapter
 surface only, use:
 
 ```
-npx tracebase remove --keep-store
-npx tracebase init
+npx tracebase-ai remove --keep-store
+npx tracebase-ai init
 ```
 
 ---
@@ -127,7 +127,7 @@ cat .tracebase/config.json | grep workspaceId
 
 # Wipe and regenerate
 rm -rf .tracebase/
-npx tracebase init
+npx tracebase-ai init
 ```
 
 Note: rotating `workspaceId` breaks continuity for any cloud-synced
@@ -145,10 +145,10 @@ the project directory itself to live on NFS.
 
 ## When in doubt
 
-- `npx tracebase doctor --json` — structured output suitable for
+- `npx tracebase-ai doctor --json` — structured output suitable for
   copy/paste into an issue.
-- `npx tracebase status --json` — same for status.
-- `npx tracebase events --json --limit 50` — last 50 events with
+- `npx tracebase-ai status --json` — same for status.
+- `npx tracebase-ai events --json --limit 50` — last 50 events with
   full payloads.
 
 The three above capture everything needed to triage an install

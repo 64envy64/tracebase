@@ -3,6 +3,18 @@
 import { useMemo, useState } from "react";
 import { CopyCommand } from "@/components/CopyButton";
 import type { DashboardBootstrap } from "@/lib/control-plane/types";
+import { PageHeader } from "@/components/dashboard/primitives/PageHeader";
+import { ActionPill, PrimaryButton } from "@/components/dashboard/primitives/Buttons";
+import { CardHeaderRow, SectionCard } from "@/components/dashboard/primitives/SectionCard";
+import { EmptyState } from "@/components/dashboard/charts/EmptyState";
+import {
+  IconChart,
+  IconCheck,
+  IconKey,
+  IconLink,
+  IconPlus,
+  IconRocket,
+} from "@/components/dashboard/primitives/Icons";
 
 type KeyCreateState =
   | { kind: "idle" }
@@ -22,13 +34,25 @@ function formatRelativeTime(iso: string): string {
   return `${days}d ago`;
 }
 
+/**
+ * API keys — CI / headless install flow.
+ *
+ * Three explicit states drive the renderer so the user always knows
+ * where they are: `idle` (no key created this session yet — show a
+ * one-button hero), `working` (button disabled, spinner copy), `done`
+ * (success card with the ready-to-paste init command + the new key
+ * surfaced once), `error` (error card with retry).
+ *
+ * Below the create flow, a single list of issued keys with timestamps
+ * — no per-row actions beyond what the API exposes today.
+ */
 export function ApiKeysView({ initialData }: { initialData: DashboardBootstrap }) {
   const [data, setData] = useState(initialData);
   const [keyState, setKeyState] = useState<KeyCreateState>({ kind: "idle" });
 
   const ciCommand = useMemo(() => {
     const key = keyState.kind === "done" ? keyState.value : "<workspace-api-key>";
-    return `TRACEBASE_API_URL=${data.apiBaseUrl} TRACEBASE_API_KEY=${key} npx tracebase init --yes`;
+    return `TRACEBASE_API_URL=${data.apiBaseUrl} TRACEBASE_API_KEY=${key} npx tracebase-ai init --yes`;
   }, [data.apiBaseUrl, keyState]);
 
   async function createApiKey() {
@@ -82,133 +106,158 @@ export function ApiKeysView({ initialData }: { initialData: DashboardBootstrap }
   }
 
   return (
-    <section className="space-y-5" aria-label="API keys">
-      <header className="flex flex-col gap-1.5">
-        <p
-          className="text-[10px] font-mono uppercase tracking-[0.22em]"
-          style={{ color: "var(--text-tertiary)" }}
-        >
-          API keys
-        </p>
-        <h1 className="text-[1.5rem] font-light tracking-[-0.02em] md:text-[1.7rem]">
-          CI / headless installs
-        </h1>
-        <p
-          className="max-w-[44rem] text-[13px] font-light leading-relaxed"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          Humans should use the picker in{" "}
-          <span className="font-mono">npx tracebase init</span>. Keys here are for CI pipelines and
-          browserless environments.
-        </p>
-      </header>
+    <section className="space-y-7" aria-label="API keys">
+      <PageHeader
+        title="API keys"
+        subtitle="For CI pipelines and headless installs."
+        actions={
+          <>
+            <ActionPill href="/dashboard" icon={<IconRocket />}>
+              Overview
+            </ActionPill>
+            <ActionPill href="/dashboard/impact" icon={<IconChart />}>
+              Impact
+            </ActionPill>
+            <ActionPill href="/dashboard/installations" icon={<IconLink />}>
+              Installs
+            </ActionPill>
+          </>
+        }
+      />
 
-      <article
-        className="rounded-sm border"
-        style={{ borderColor: "var(--border)", background: "var(--surface)" }}
-      >
-        <div className="border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p
-                className="text-[10px] font-mono uppercase tracking-[0.22em]"
-                style={{ color: "var(--text-tertiary)" }}
-              >
-                Create
-              </p>
-              <p className="mt-1 text-[13px] font-light">
-                Each key is revealed once. Store it in your CI secret store before navigating away.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={createApiKey}
-              disabled={keyState.kind === "working"}
-              className="rounded-sm border px-3 py-2 text-sm font-medium transition-[background-color,border-color] disabled:cursor-default disabled:opacity-60"
-              style={{
-                borderColor: "var(--border)",
-                background: "var(--bg)",
-                color: "var(--text)",
-              }}
-            >
-              {keyState.kind === "working" ? "Creating…" : "Create API key"}
-            </button>
-          </div>
-        </div>
+      <CreatePanel state={keyState} command={ciCommand} onCreate={createApiKey} />
 
-        <div className="space-y-3 p-5">
-          <CopyCommand command={ciCommand} />
-          {keyState.kind === "error" ? (
-            <p className="text-[12px] font-light" style={{ color: "#f8deb1" }}>
-              {keyState.message}
-            </p>
-          ) : null}
-          {keyState.kind === "done" ? (
-            <p className="text-[12px] font-light" style={{ color: "var(--text-tertiary)" }}>
-              The command above now contains your new key.
-            </p>
-          ) : null}
-        </div>
-      </article>
-
-      <article
-        className="rounded-sm border"
-        style={{ borderColor: "var(--border)", background: "var(--surface)" }}
-      >
-        <header
-          className="flex items-baseline justify-between gap-3 border-b px-5 py-4"
-          style={{ borderColor: "var(--border)" }}
-        >
-          <div>
-            <p
-              className="text-[10px] font-mono uppercase tracking-[0.22em]"
-              style={{ color: "var(--text-tertiary)" }}
+      <SectionCard
+        inset={false}
+        header={
+          <>
+            <p className="text-[13px] font-normal tracking-tight">Issued keys</p>
+            <span
+              className="rounded-md border px-2 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
+              style={{ borderColor: "var(--border)", color: "var(--text-tertiary)" }}
             >
-              Issued
-            </p>
-            <p className="mt-1 text-[13px] font-light">
-              Active keys on this workspace.
-            </p>
-          </div>
-          <span
-            className="rounded-sm border px-2 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
-            style={{ borderColor: "var(--border)", color: "var(--text-tertiary)" }}
-          >
-            {data.apiKeys.length}
-          </span>
-        </header>
-        {data.apiKeys.length === 0 ? (
-          <div className="p-5">
-            <p
-              className="text-[12px] font-light leading-relaxed"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              No API keys yet. Human installs do not need one — create a key here only when you need
-              a browserless install or CI pipeline.
-            </p>
-          </div>
-        ) : (
-          <ul>
-            {data.apiKeys.map((key) => (
-              <li
-                key={key.id}
-                className="flex items-start justify-between gap-3 border-b px-5 py-3 last:border-b-0"
-                style={{ borderColor: "var(--border)" }}
-              >
-                <div className="min-w-0">
-                  <p className="text-[13px] font-light tracking-tight">{key.label}</p>
-                  <p className="mt-1 font-mono text-[11px]" style={{ color: "var(--text-tertiary)" }}>
-                    {key.prefix}…{key.last4}
-                  </p>
-                </div>
-                <span className="shrink-0 text-[11px] font-light" style={{ color: "var(--text-tertiary)" }}>
-                  {formatRelativeTime(key.createdAt)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </article>
+              {data.apiKeys.length}
+            </span>
+          </>
+        }
+        body={
+          data.apiKeys.length === 0 ? (
+            <EmptyState
+              title="No keys issued yet"
+              body="Create your first key above. Most users never need one — humans should install through the picker in `npx tracebase-ai init`."
+            />
+          ) : (
+            <ul className="divide-y" style={{ borderColor: "var(--border)" }}>
+              {data.apiKeys.map((key) => (
+                <li
+                  key={key.id}
+                  className="flex items-start justify-between gap-3 px-1 py-3"
+                >
+                  <CardHeaderRow
+                    icon={<IconKey />}
+                    actor={<span style={{ color: "var(--text)" }}>{key.label}</span>}
+                    meta={
+                      <span className="font-mono normal-case tracking-normal">
+                        · {key.prefix}…{key.last4}
+                      </span>
+                    }
+                  />
+                  <span
+                    className="shrink-0 text-[11px] font-light"
+                    style={{ color: "var(--text-tertiary)" }}
+                  >
+                    {formatRelativeTime(key.createdAt)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )
+        }
+      />
     </section>
+  );
+}
+
+/**
+ * The single most-important card on this page. Renders one of four
+ * states — idle (call to action), working (disabled + waiting copy),
+ * done (success + reveal command), error (retry button).
+ *
+ * Done-state explicitly tells the user the key is shown once; the
+ * command-block below the success line already has the key inlined
+ * so a single copy-and-paste finishes the install.
+ */
+function CreatePanel({
+  state,
+  command,
+  onCreate,
+}: {
+  state: KeyCreateState;
+  command: string;
+  onCreate: () => void;
+}) {
+  if (state.kind === "done") {
+    return (
+      <SectionCard
+        inset={false}
+        header={
+          <CardHeaderRow
+            icon={<IconCheck />}
+            actor={<span style={{ color: "var(--accent)" }}>New key ready</span>}
+            meta={<>· this is shown only once — copy it now</>}
+            actions={
+              <PrimaryButton onClick={onCreate} icon={<IconPlus />}>
+                Create another
+              </PrimaryButton>
+            }
+          />
+        }
+        body={
+          <div className="space-y-3">
+            <p className="text-[12px] font-light" style={{ color: "var(--text-secondary)" }}>
+              The command below already includes your new key. Paste it in your CI script or any
+              headless environment that needs TraceBase.
+            </p>
+            <CopyCommand command={command} />
+          </div>
+        }
+      />
+    );
+  }
+
+  return (
+    <SectionCard
+      inset={false}
+      header={
+        <CardHeaderRow
+          icon={<IconKey />}
+          actor={<span style={{ color: "var(--text)" }}>Create an API key</span>}
+          meta={<>· each key is revealed once</>}
+          actions={
+            <PrimaryButton
+              onClick={onCreate}
+              disabled={state.kind === "working"}
+              icon={<IconPlus />}
+            >
+              {state.kind === "working" ? "Creating…" : "Create API key"}
+            </PrimaryButton>
+          }
+        />
+      }
+      body={
+        <div className="space-y-3">
+          <p className="text-[13px] font-light leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+            Use a key in CI scripts or any environment that cannot run the interactive picker. The
+            command preview below fills in once you create one.
+          </p>
+          <CopyCommand command={command} />
+          {state.kind === "error" ? (
+            <p className="text-[12px] font-light" style={{ color: "#f4a8a8" }}>
+              {state.message}
+            </p>
+          ) : null}
+        </div>
+      }
+    />
   );
 }

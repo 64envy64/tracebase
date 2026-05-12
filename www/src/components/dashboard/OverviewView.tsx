@@ -1,5 +1,35 @@
 import type { DashboardBootstrap } from "@/lib/control-plane/types";
-import { ToolbarTag } from "@/components/dashboard/ToolbarTag";
+import type { ImpactWindow } from "@/lib/control-plane/usage";
+import { MetricTile } from "@/components/dashboard/charts/MetricTile";
+import { EmptyState } from "@/components/dashboard/charts/EmptyState";
+import { PageHeader } from "@/components/dashboard/primitives/PageHeader";
+import { ActionPill, SecondaryButton } from "@/components/dashboard/primitives/Buttons";
+import { StatusStrip } from "@/components/dashboard/primitives/StatusStrip";
+import { CardHeaderRow, SectionCard } from "@/components/dashboard/primitives/SectionCard";
+import {
+  IconArrowUpRight,
+  IconChart,
+  IconKey,
+  IconLink,
+  IconRocket,
+} from "@/components/dashboard/primitives/Icons";
+
+/**
+ * Overview — landing page for the dashboard.
+ *
+ * Pure functional surface: title + actions, status strip with
+ * headline counts, four clickable metric tiles, a Recent-activity
+ * panel. Every tile and every row is a navigation target — no
+ * dead-end visual estate. The architectural explainer that used to
+ * live at the bottom moved to the marketing site; the dashboard
+ * itself shows numbers and links.
+ *
+ * Tiles drill in like this:
+ *   Runs           → /dashboard/runs       (timeline of agent runs)
+ *   Success rate   → /dashboard/impact     (funnel + cohort comparison)
+ *   Memories used  → /dashboard/memory     (memory status + events)
+ *   Tokens saved   → /dashboard/impact     (estimated savings detail)
+ */
 
 function formatRelativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -13,179 +43,188 @@ function formatRelativeTime(iso: string): string {
   return `${days}d ago`;
 }
 
-function scopeLabel(scope: DashboardBootstrap["workspace"]["scope"]): string {
-  return scope === "org" ? "organization workspace" : "personal workspace";
+function formatInt(n: number): string {
+  return n.toLocaleString();
 }
 
-const ARCHITECTURE_SECTIONS = [
-  {
-    eyebrow: "Capture",
-    title: "Successful runs → reusable blocks",
-    body: "Distilled into trigger + body pairs. Trigger is what retrieval matches; body is what gets injected.",
-  },
-  {
-    eyebrow: "Recall",
-    title: "New work starts from priors",
-    body: "Retrieval surfaces top candidates before the agent burns tokens on cold exploration.",
-  },
-  {
-    eyebrow: "Inject",
-    title: "Only gated candidates reach the prompt",
-    body: "Every injection is 1:1 with the payload rendered into context. Dashboard cannot drift from what the agent saw.",
-  },
-  {
-    eyebrow: "Measure",
-    title: "Outcome attribution closes the loop",
-    body: "Retrieval → injection → agent_used → outcome stay chained by queryId. Disproved blocks demote automatically.",
-  },
-] as const;
+function formatPercent(rate: number | null): string | null {
+  if (rate === null) return null;
+  return `${(rate * 100).toFixed(1)}%`;
+}
 
-export function OverviewView({ bootstrap }: { bootstrap: DashboardBootstrap }) {
-  const latestInstall = bootstrap.installations[0];
-  // Distinct local projects (one row per localWorkspaceId) are
-  // different from installation rows ((project × agent) tuples).
-  // Header counts conflated the two before Phase 1E.2; keep them
-  // split from here on.
-  const projectsCount = new Set(bootstrap.installations.map((i) => i.localWorkspaceId)).size;
-  const installationsCount = bootstrap.installations.length;
-  const installsNote =
-    latestInstall
-      ? `latest: ${latestInstall.projectName} · ${installationsCount} install${installationsCount === 1 ? "" : "s"} total`
-      : "No linked projects yet";
+export function OverviewView({
+  bootstrap,
+  window,
+}: {
+  bootstrap: DashboardBootstrap;
+  window: ImpactWindow;
+}) {
+  const { observed, estimated } = window.totals;
+  const successRate =
+    observed.eligibleRuns > 0
+      ? observed.helpfulRuns / observed.eligibleRuns
+      : null;
+  const tokensSaved = estimated.tokensSaved.value;
+  const misses = Math.max(0, observed.usedRuns - observed.helpfulRuns);
+
+  const recent = [...bootstrap.installations]
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 5);
+
+  const latestUpdate = recent[0]?.updatedAt;
 
   return (
-    <section className="space-y-6" aria-label="Workspace overview">
-      <header
-        className="flex flex-col gap-4 border-b pb-5 lg:flex-row lg:items-end lg:justify-between"
-        style={{ borderColor: "var(--border)" }}
-      >
-        <div>
-          <p
-            className="text-[10px] font-mono uppercase tracking-[0.22em]"
-            style={{ color: "var(--text-tertiary)" }}
-          >
-            Overview
-          </p>
-          <h1 className="mt-2 text-[1.8rem] font-light tracking-[-0.03em]">
-            {bootstrap.workspace.displayName}
-          </h1>
-          <p
-            className="mt-3 text-[11px] font-light uppercase tracking-[0.18em]"
-            style={{ color: "var(--text-tertiary)" }}
-          >
-            {scopeLabel(bootstrap.workspace.scope)}
-            <span className="mx-2">·</span>
-            {latestInstall
-              ? `linked ${formatRelativeTime(latestInstall.updatedAt)}`
-              : "no installs linked yet"}
-          </p>
-        </div>
+    <section className="space-y-7" aria-label="Workspace overview">
+      <PageHeader
+        title={bootstrap.workspace.displayName}
+        subtitle={latestUpdate ? `last activity ${formatRelativeTime(latestUpdate)}` : "no activity yet"}
+        actions={
+          <>
+            <ActionPill href="/dashboard/impact" icon={<IconChart />}>
+              Impact
+            </ActionPill>
+            <ActionPill href="/dashboard/installations" icon={<IconLink />}>
+              Installs
+            </ActionPill>
+            <ActionPill href="/dashboard/api-keys" icon={<IconKey />}>
+              API keys
+            </ActionPill>
+          </>
+        }
+      />
 
-        <div className="flex flex-wrap gap-2">
-          <ToolbarTag active>{`scope ${bootstrap.workspace.scope}`}</ToolbarTag>
-          <ToolbarTag>{`projects ${projectsCount}`}</ToolbarTag>
-          <ToolbarTag>{`installs ${installationsCount}`}</ToolbarTag>
-          <ToolbarTag>{`api keys ${bootstrap.apiKeys.length}`}</ToolbarTag>
-          {bootstrap.workspace.slug ? <ToolbarTag>{bootstrap.workspace.slug}</ToolbarTag> : null}
-        </div>
-      </header>
+      <StatusStrip
+        counters={[
+          { value: observed.helpfulRuns, label: "helpful", tone: "positive", signed: true },
+          { value: misses, label: misses === 1 ? "miss" : "misses", tone: "negative", signed: true },
+        ]}
+        note={`${observed.eligibleRuns} run${observed.eligibleRuns === 1 ? "" : "s"} in last 30 days`}
+        actionRight={<SecondaryButton href="/dashboard/impact">Open impact view</SecondaryButton>}
+      />
 
       <section
-        className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4"
-        aria-label="Workspace snapshot"
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"
+        aria-label="Window totals"
       >
-        <StatTile
-          label="Linked projects"
-          value={projectsCount}
-          note={installsNote}
+        <MetricTile
+          label="Runs"
+          value={formatInt(observed.eligibleRuns)}
+          note={
+            observed.eligibleRuns === 0
+              ? "no recorded runs yet"
+              : observed.eligibleRuns === 1
+                ? "this run"
+                : "across this window"
+          }
+          href="/dashboard/runs"
         />
-        <StatTile
-          label="API keys"
-          value={bootstrap.apiKeys.length}
-          note={bootstrap.apiKeys[0] ? `latest · ${bootstrap.apiKeys[0].label}` : "No API keys issued yet"}
+        <MetricTile
+          label="Success rate"
+          value={formatPercent(successRate) ?? "—"}
+          note={
+            successRate === null
+              ? "waiting for first resolved run"
+              : `${observed.helpfulRuns} of ${observed.eligibleRuns} resolved`
+          }
+          tone={successRate !== null && successRate >= 0.5 ? "positive" : "neutral"}
+          href="/dashboard/impact"
         />
-        <StatTile
-          label="Workspace scope"
-          value={bootstrap.workspace.scope === "org" ? "org" : "personal"}
-          note={bootstrap.workspace.slug ?? "awaiting link"}
-          literal
+        <MetricTile
+          label="Memories used"
+          value={formatInt(observed.usedRuns)}
+          note={
+            observed.usedRuns === 0
+              ? "agents have not acted on a memory yet"
+              : "agent acted on a recalled memory"
+          }
+          href="/dashboard/memory"
         />
-        <StatTile
-          label="Control plane"
-          value="online"
-          note={bootstrap.apiBaseUrl}
-          literal
+        <MetricTile
+          label="Tokens saved"
+          value={tokensSaved === null ? null : formatInt(Math.round(tokensSaved))}
+          note={
+            tokensSaved === null
+              ? "waiting for comparison data"
+              : `over ${estimated.tokensSaved.sampleSize} compared runs`
+          }
+          estimate
+          formula={estimated.tokensSaved.formula}
+          sampleSize={estimated.tokensSaved.sampleSize}
+          href="/dashboard/impact"
         />
       </section>
 
-      <section
-        className="grid gap-px overflow-hidden border"
-        style={{
-          borderColor: "var(--border)",
-          background: "var(--border)",
-          gridTemplateColumns: "repeat(auto-fit,minmax(16rem,1fr))",
-        }}
-        aria-label="How TraceBase works"
-      >
-        {ARCHITECTURE_SECTIONS.map((section) => (
-          <article
-            key={section.eyebrow}
-            className="flex min-h-[160px] flex-col justify-between p-5"
-            style={{ background: "var(--bg)" }}
-          >
-            <div>
-              <p
-                className="text-[10px] font-mono uppercase tracking-[0.22em]"
-                style={{ color: "var(--text-tertiary)" }}
-              >
-                {section.eyebrow}
-              </p>
-              <h3 className="mt-4 text-[0.98rem] font-normal tracking-tight">{section.title}</h3>
-            </div>
-            <p
-              className="mt-5 text-[12px] font-light leading-relaxed"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              {section.body}
-            </p>
-          </article>
-        ))}
-      </section>
+      <SectionCard
+        header={
+          <>
+            <p className="text-[13px] font-normal tracking-tight">Recent activity</p>
+            <SecondaryButton href="/dashboard/runs">View all</SecondaryButton>
+          </>
+        }
+        inset={false}
+        body={
+          recent.length === 0 ? (
+            <EmptyState
+              title="No activity yet"
+              body="Run `npx tracebase-ai init` in a project to link it here. Once your agent uses a memory, this list fills in."
+              artSrc="/octopus.svg"
+              artAlt="TraceBase octopus"
+              hint={
+                <>
+                  Need the install command?{" "}
+                  <a href="/dashboard/quickstart" className="underline">
+                    Open quickstart
+                  </a>
+                  .
+                </>
+              }
+            />
+          ) : (
+            <ul className="divide-y" style={{ borderColor: "var(--border)" }}>
+              {recent.map((install) => (
+                <ActivityRow key={install.id} install={install} />
+              ))}
+            </ul>
+          )
+        }
+      />
     </section>
   );
 }
 
-function StatTile({
-  label,
-  value,
-  note,
-  literal = false,
+function ActivityRow({
+  install,
 }: {
-  label: string;
-  value: number | string;
-  note: string;
-  literal?: boolean;
+  install: DashboardBootstrap["installations"][number];
 }) {
   return (
-    <article
-      className="rounded-sm border p-4"
-      style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+    <li
+      className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+      style={{ borderColor: "var(--border)" }}
     >
-      <p
-        className="text-[10px] font-mono uppercase tracking-[0.22em]"
-        style={{ color: "var(--text-tertiary)" }}
-      >
-        {label}
-      </p>
-      <p className={`mt-4 ${literal ? "text-[1.4rem]" : "text-[1.7rem]"} font-light tracking-[-0.03em]`}>
-        {typeof value === "number" ? value.toLocaleString() : value}
-      </p>
-      <p
-        className="mt-3 min-h-[2.5rem] text-[12px] font-light leading-relaxed"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        {note}
-      </p>
-    </article>
+      <CardHeaderRow
+        icon={<IconRocket />}
+        actor={<span style={{ color: "var(--text)" }}>{install.projectName}</span>}
+        meta={
+          <>
+            · {install.agent}
+            {install.cliVersion ? (
+              <span className="ml-2 normal-case tracking-normal">cli {install.cliVersion}</span>
+            ) : null}
+          </>
+        }
+      />
+      <div className="flex items-center gap-3 self-end sm:self-auto">
+        <span
+          className="text-[11px] font-mono uppercase tracking-[0.18em]"
+          style={{ color: "var(--text-tertiary)" }}
+        >
+          {formatRelativeTime(install.updatedAt)}
+        </span>
+        <SecondaryButton href="/dashboard/installations" icon={<IconArrowUpRight />}>
+          Open
+        </SecondaryButton>
+      </div>
+    </li>
   );
 }

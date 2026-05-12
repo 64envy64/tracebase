@@ -40,8 +40,8 @@ describe("applyHoldoutDefault — fresh init (0.6.1 default reverted)", () => {
     expect(result.state).toBe("disabled-default");
     expect(result.rate).toBeUndefined();
     expect(result.message).toMatch(/Estimated impact enabled by default/);
-    expect(result.message).toMatch(/Verified impact .* disabled/);
-    expect(result.message).toMatch(/tracebase init --holdout-rate/);
+    expect(result.message).toMatch(/Verified impact[\s\S]*disabled/);
+    expect(result.message).toMatch(/tracebase-ai init --holdout-rate/);
 
     // Critical: no holdout config written → no withholding of memory.
     expect(readHoldoutConfig(projectDir)).toBeNull();

@@ -22,6 +22,12 @@ Thumbs.db
 *.swp
 *.swo
 
+# Claude Code session state (per-machine, never shared)
+.claude/
+
+# Clerk dev / keyless mode state (per-machine auth bootstrap; do not commit)
+www/.clerk/
+
 # Test coverage
 coverage/
 

@@ -38,10 +38,12 @@ export function findConfigDir(
   let current = startPath;
   const stopAt = options?.stopAt ?? null;
 
-  // Walk up until we reach the filesystem root (dirname(x) === x)
+  // Walk up until we reach the filesystem root (dirname(x) === x).
+  // A bare ~/.tracebase directory may hold global credentials or
+  // hook dumps; only a directory with config.json is a project install.
   while (true) {
     const candidate = join(current, CONFIG_DIR);
-    if (existsSync(candidate)) return candidate;
+    if (existsSync(join(candidate, CONFIG_FILE))) return candidate;
     if (stopAt && current === stopAt) break;
 
     const parent = dirname(current);
@@ -226,7 +228,7 @@ function readExistingConfig(configDir: string): Partial<TraceBaseConfig> | null 
 
 /** Check if TraceBase is initialized in the given directory. */
 export function isInitialized(basePath: string = process.cwd()): boolean {
-  return existsSync(join(basePath, CONFIG_DIR));
+  return existsSync(join(basePath, CONFIG_DIR, CONFIG_FILE));
 }
 
 function findProjectBoundary(startPath: string): string | null {

@@ -164,7 +164,7 @@ function renderReadinessError(reason: string): void {
       console.error(
         pc.yellow("⚠ Not initialized. ") +
           "Run " +
-          pc.cyan("npx tracebase init") +
+          pc.cyan("npx tracebase-ai init") +
           " first.",
       );
       return;
@@ -172,7 +172,7 @@ function renderReadinessError(reason: string): void {
       console.error(
         pc.yellow("⚠ No cloud link on this project. ") +
           "Re-run " +
-          pc.cyan("npx tracebase init") +
+          pc.cyan("npx tracebase-ai init") +
           " with cloud credentials.",
       );
       return;
@@ -180,7 +180,7 @@ function renderReadinessError(reason: string): void {
       console.error(
         pc.yellow("⚠ This project has no installationId yet. ") +
           "Re-run " +
-          pc.cyan("npx tracebase init") +
+          pc.cyan("npx tracebase-ai init") +
           " to register with the control plane.",
       );
       return;

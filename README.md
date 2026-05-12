@@ -73,21 +73,11 @@ const anthropic = wrapAnthropic(new Anthropic(), layer, { minScore: 0.72 });
 Connect TraceBase as an MCP server. Claude Code automatically recalls before solving and stores after solving.
 
 ```bash
-npx tracebase serve --mcp
+npx tracebase-ai init
+npx tracebase-ai doctor
 ```
 
-Add to `~/.claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "tracebase": {
-      "command": "npx",
-      "args": ["tracebase", "serve", "--mcp"]
-    }
-  }
-}
-```
+`init` creates the local store, registers the MCP server for Claude Code / Cursor / Codex, and writes the managed instruction block. Claude Code uses the `claude mcp` registry; you should not hand-edit `.claude/settings.json` for MCP.
 
 Claude Code gets two key tools:
 - **recall** — "Before solving any problem, check institutional memory"
@@ -253,15 +243,18 @@ Each trace tracks recall count and helpfulness. Quality uses the **Wilson score 
 ## CLI
 
 ```bash
-npx tracebase init                     # Initialize in current project
-npx tracebase store -d "..." -s "..."  # Store a reasoning trace
-npx tracebase recall "..."             # Find relevant past solutions
-npx tracebase search "..."             # Full-text search
-npx tracebase stats                    # Storage statistics
-npx tracebase serve [--mcp] [-p PORT]  # Start server (MCP or HTTP)
-npx tracebase export [file]            # Export traces to JSON
-npx tracebase import <file>            # Import traces from JSON
-npx tracebase prune [-t threshold]     # Remove low-quality traces
+npx tracebase-ai init                     # Initialize in current project
+npx tracebase-ai savings                  # Show tasks helped, time saved, tokens recycled
+npx tracebase-ai doctor                   # Verify the install end-to-end
+npx tracebase-ai store -d "..." -s "..."  # Store a reasoning trace
+npx tracebase-ai recall "..."             # Find relevant past solutions
+npx tracebase-ai search "..."             # Full-text search
+npx tracebase-ai stats                    # Storage statistics
+npx tracebase-ai serve [--mcp] [-p PORT]  # Start server (MCP or HTTP)
+npx tracebase-ai export [file]            # Export traces to JSON
+npx tracebase-ai import <file>            # Import traces from JSON
+npx tracebase-ai prune [-t threshold]     # Remove low-quality traces
+npx tracebase-ai distill --from-block ID  # Re-extract a heuristic block via LLM (Anthropic, opt-in)
 ```
 
 All commands support `--json` for machine-readable output.
@@ -269,7 +262,7 @@ All commands support `--json` for machine-readable output.
 ## HTTP API
 
 ```bash
-npx tracebase serve --port 3781
+npx tracebase-ai serve --port 3781
 
 curl -X POST localhost:3781/recall -d '{"problem": "CORS error Express"}'
 curl -X POST localhost:3781/store  -d '{"problem": {...}, "solution": {...}}'
@@ -282,8 +275,8 @@ curl localhost:3781/health
 ## Team Sharing
 
 ```bash
-npx tracebase export team-knowledge.json   # one machine
-npx tracebase import team-knowledge.json   # another machine
+npx tracebase-ai export team-knowledge.json   # one machine
+npx tracebase-ai import team-knowledge.json   # another machine
 ```
 
 Duplicate traces (by ID) are automatically skipped.

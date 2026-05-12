@@ -248,7 +248,7 @@ export function installCommandForAgent(_agent: InstallAgent): string {
   // The install command is the same across adapters now. `init`
   // auto-detects the active agent or configures every locally-available
   // one — there is no reason to differentiate the command in UI copy.
-  return "npx tracebase init";
+  return "npx tracebase-ai init";
 }
 
 export function writeAgentMcpConfig(basePath: string, agent: InstallAgent, force: boolean): StepResult {
@@ -1239,7 +1239,7 @@ export function writeClaudeMcpRegistration(basePath: string, force: boolean): St
   }
 
   if (current.present && force) {
-    const removed = spawnSync("claude", ["mcp", "remove", MCP_SERVER_NAME, "-s", "local"], {
+    const removed = spawnAgentCli("claude", ["mcp", "remove", MCP_SERVER_NAME, "-s", "local"], {
       encoding: "utf-8",
       cwd: basePath,
     });
@@ -1252,7 +1252,7 @@ export function writeClaudeMcpRegistration(basePath: string, force: boolean): St
     }
   }
 
-  const added = spawnSync(
+  const added = spawnAgentCli(
     "claude",
     [
       "mcp",
@@ -1301,7 +1301,7 @@ export function inspectClaudeMcpRegistration(basePath: string): MpcInspection {
     };
   }
 
-  const result = spawnSync("claude", ["mcp", "get", MCP_SERVER_NAME], {
+  const result = spawnAgentCli("claude", ["mcp", "get", MCP_SERVER_NAME], {
     encoding: "utf-8",
     cwd: basePath,
   });
@@ -1317,8 +1317,8 @@ export function inspectClaudeMcpRegistration(basePath: string): MpcInspection {
     };
   }
 
-  const stdout = result.stdout ?? "";
-  const stderr = result.stderr ?? "";
+  const stdout = String(result.stdout ?? "");
+  const stderr = String(result.stderr ?? "");
   const combined = `${stdout}\n${stderr}`;
   const notFound = /No MCP server found with name/i.test(combined);
 
@@ -1376,7 +1376,7 @@ export function removeClaudeMcpRegistration(basePath: string): CleanupResult {
     if (!current.present) {
       registryResult = { ok: true, kind: "already-absent", path: CLAUDE_MCP_LABEL };
     } else {
-      const removed = spawnSync(
+      const removed = spawnAgentCli(
         "claude",
         ["mcp", "remove", MCP_SERVER_NAME, "-s", "local"],
         { encoding: "utf-8", cwd: basePath },
@@ -1427,7 +1427,7 @@ function writeCodexMcpConfig(force: boolean): StepResult {
   }
 
   if (current.present && force) {
-    const removed = spawnSync("codex", ["mcp", "remove", MCP_SERVER_NAME], {
+    const removed = spawnAgentCli("codex", ["mcp", "remove", MCP_SERVER_NAME], {
       encoding: "utf-8",
     });
     if (removed.status !== 0) {
@@ -1439,7 +1439,7 @@ function writeCodexMcpConfig(force: boolean): StepResult {
     }
   }
 
-  const added = spawnSync(
+  const added = spawnAgentCli(
     "codex",
     ["mcp", "add", MCP_SERVER_NAME, "--", MCP_ENTRY.command, ...MCP_ENTRY.args],
     { encoding: "utf-8" },
@@ -1475,7 +1475,7 @@ function removeCodexMcpConfig(): CleanupResult {
     return { ok: true, kind: "already-absent", path };
   }
 
-  const removed = spawnSync("codex", ["mcp", "remove", MCP_SERVER_NAME], {
+  const removed = spawnAgentCli("codex", ["mcp", "remove", MCP_SERVER_NAME], {
     encoding: "utf-8",
   });
   if (removed.status !== 0) {
@@ -1489,8 +1489,21 @@ function removeCodexMcpConfig(): CleanupResult {
   return { ok: true, kind: "removed", path };
 }
 
+function isCodexCliAvailable(): boolean {
+  return isCommandAvailable("codex", ["--version"]);
+}
+
 function inspectCodexMcpConfig(): MpcInspection {
-  const result = spawnSync("codex", ["mcp", "get", MCP_SERVER_NAME, "--json"], {
+  if (!isCodexCliAvailable()) {
+    return {
+      present: false,
+      canonical: false,
+      containerPresent: false,
+      cliMissing: true,
+    };
+  }
+
+  const result = spawnAgentCli("codex", ["mcp", "get", MCP_SERVER_NAME, "--json"], {
     encoding: "utf-8",
   });
 
@@ -1509,7 +1522,7 @@ function inspectCodexMcpConfig(): MpcInspection {
   }
 
   try {
-    const parsed = JSON.parse(result.stdout) as Record<string, unknown>;
+    const parsed = JSON.parse(String(result.stdout)) as Record<string, unknown>;
     const transport = parsed.transport as Record<string, unknown> | undefined;
     const command = transport?.command;
     const args = transport?.args;
@@ -1610,10 +1623,21 @@ function normalizeInstructionFileContent(value: string): string {
 }
 
 function isCommandAvailable(command: string, args: string[] = ["--version"]): boolean {
-  const result = spawnSync(command, args, {
+  const result = spawnAgentCli(command, args, {
     stdio: "ignore",
   });
-  return !result.error;
+  return !result.error && result.status === 0;
+}
+
+function spawnAgentCli(
+  command: string,
+  args: string[],
+  options: Parameters<typeof spawnSync>[2] = {},
+): ReturnType<typeof spawnSync> {
+  return spawnSync(command, args, {
+    ...options,
+    shell: process.platform === "win32" ? true : options.shell,
+  });
 }
 
 function readSpawnFailure(result: ReturnType<typeof spawnSync>): string {
