@@ -3,8 +3,67 @@
 import { useEffect, useState } from "react";
 import { CopyCommand } from "@/components/CopyButton";
 import { GetStartedButton } from "@/components/auth/GetStartedButton";
+import { SWE_BENCH_SNAPSHOT } from "@/content/benchmarkStats";
 import { InkDrop, InkUnderline } from "./brand/Marks";
 import { INK } from "./brand/tokens";
+
+/* ============================================================ */
+/*  HeroMetricStrip — three numeric stat tiles taken straight    */
+/*  from the published whitepaper snapshot. No marketing maths;  */
+/*  numbers are pulled from benchmarkStats so the value stays    */
+/*  in sync with the report card.                                */
+/* ============================================================ */
+
+type HeroMetric = { value: string; label: string; tone: "ember" | "bone" };
+
+const HERO_METRICS: readonly HeroMetric[] = [
+  { value: `+${SWE_BENCH_SNAPSHOT.accuracyGainPp} pp`, label: "accuracy", tone: "ember" },
+  { value: `−${SWE_BENCH_SNAPSHOT.costReductionAvgPct}%`, label: "cost", tone: "bone" },
+  { value: `−${SWE_BENCH_SNAPSHOT.stepReductionAvgPct}%`, label: "steps", tone: "bone" },
+];
+
+function HeroMetricStrip() {
+  return (
+    <div className="mx-auto mt-7 w-full max-w-[34rem]">
+      <div
+        className="grid grid-cols-3 overflow-hidden rounded-xl border"
+        style={{
+          borderColor: "rgba(232,217,184,0.12)",
+          background: "rgba(6,10,13,0.55)",
+          gap: 1,
+          backgroundImage: "linear-gradient(rgba(232,217,184,0.08), rgba(232,217,184,0.08))",
+        }}
+      >
+        {HERO_METRICS.map((m) => (
+          <div
+            key={m.label}
+            className="flex flex-col items-center justify-center gap-1 px-3 py-3"
+            style={{ background: INK.inkDeep }}
+          >
+            <span
+              className="font-mono text-[10px] uppercase tracking-[0.22em]"
+              style={{ color: INK.sand }}
+            >
+              {m.label}
+            </span>
+            <span
+              className="font-mono text-[clamp(1.05rem,2vw,1.45rem)] font-semibold leading-none tracking-tight tabular-nums"
+              style={{ color: m.tone === "ember" ? INK.ember : INK.bone }}
+            >
+              {m.value}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p
+        className="mt-3 text-center font-mono text-[10px] uppercase tracking-[0.22em]"
+        style={{ color: INK.sand }}
+      >
+        {SWE_BENCH_SNAPSHOT.benchmark} · {SWE_BENCH_SNAPSHOT.attempted} tasks · {SWE_BENCH_SNAPSHOT.model}
+      </p>
+    </div>
+  );
+}
 
 /* ============================================================ */
 /*  HeroInk — the opening moment.                                */
@@ -54,19 +113,25 @@ export function HeroInk() {
           </h1>
 
           <p
-            className="ink-rise mx-auto mt-6 max-w-[36rem] text-[14px] font-light leading-relaxed sm:text-[15.5px]"
+            className="ink-rise mx-auto mt-6 max-w-[32rem] text-[14px] font-light leading-relaxed sm:text-[15.5px]"
             style={{
               color: "rgba(232,217,184,0.74)",
               ["--ink-rise-delay" as string]: "220ms",
             }}
           >
-            Agents forget. Tracebase keeps the ink — past solutions, file meaning, doom-loop signals,
-            redundant tool calls, folded context. Drop-in runtime. No agent rewrites.
+            Memory layer for coding agents. Past solutions, file meaning, doom-loops — kept across runs. Drop-in MCP.
           </p>
 
           <div
+            className="ink-rise"
+            style={{ ["--ink-rise-delay" as string]: "320ms" }}
+          >
+            <HeroMetricStrip />
+          </div>
+
+          <div
             className="ink-rise mt-8 flex flex-wrap items-center justify-center gap-3"
-            style={{ ["--ink-rise-delay" as string]: "360ms" }}
+            style={{ ["--ink-rise-delay" as string]: "440ms" }}
           >
             <GetStartedButton size="large" onMedia />
             <CopyCommand command="npx tracebase-ai init" onMedia />

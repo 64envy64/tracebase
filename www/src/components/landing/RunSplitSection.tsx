@@ -10,15 +10,22 @@ import { useInView } from "./brand/useInView";
 /* ============================================================ */
 /*  Sequence timing — single source of truth for animation       */
 /*  choreography across prompt → steps → result → cost footer.   */
+/*                                                                */
+/*  Slowed ~60% from the initial pass so a first-time reader     */
+/*  can actually parse what each step is doing on the right      */
+/*  ("with tracebase") column. CSS animation durations           */
+/*  (.step-reveal, .ink-rise) are unchanged — these JS numbers   */
+/*  only stretch the PAUSES between events, never the keyframe   */
+/*  itself, so motion stays smooth.                              */
 /* ============================================================ */
 
-const PROMPT_CHAR_MS = 12;       // typing speed, per character
-const STEP_STAGGER_MS = 90;      // gap between successive step reveals
-const STEP_DURATION_MS = 420;    // matches .step-reveal CSS duration
-const PAUSE_AFTER_PROMPT_MS = 200;
-const PAUSE_AFTER_STEPS_MS = 180;
-const RESULT_DURATION_MS = 680;  // matches .ink-rise CSS duration
-const PAUSE_AFTER_RESULT_MS = 280;
+const PROMPT_CHAR_MS = 22;       // typing speed, per character (was 12)
+const STEP_STAGGER_MS = 160;     // gap between successive step reveals (was 90)
+const STEP_DURATION_MS = 520;    // schedule buffer for last step to "land" (was 420)
+const PAUSE_AFTER_PROMPT_MS = 360;  // (was 200)
+const PAUSE_AFTER_STEPS_MS = 260;   // (was 180)
+const RESULT_DURATION_MS = 720;  // schedule buffer for result to settle (was 680)
+const PAUSE_AFTER_RESULT_MS = 380;  // (was 280)
 
 /* ============================================================ */
 /*  Types + data                                                  */
@@ -164,8 +171,7 @@ function RunSplitHeader() {
         className="mt-5 max-w-[36rem] text-[14px] font-light leading-relaxed md:text-[15px]"
         style={{ color: "rgba(232,217,184,0.68)" }}
       >
-        Left — an agent with no memory of prior work. Right — the same agent with
-        tracebase attached. Same prompt, same model, same tools.
+        Same prompt, same model, same tools. Left — no memory. Right — tracebase attached.
       </p>
     </header>
   );
@@ -236,7 +242,7 @@ function ScenarioBlock({ scenario }: { scenario: Scenario }) {
             resultDelayMs={t.withoutResultMs}
           />
           <RunPanel
-            title="with ink"
+            title="with tracebase"
             subtitle={scenario.with.turns}
             cost={scenario.with.cost}
             costTone="success"
@@ -245,6 +251,7 @@ function ScenarioBlock({ scenario }: { scenario: Scenario }) {
             inView={inView}
             stepsStartMs={t.stepsStartMs}
             resultDelayMs={t.withResultMs}
+            emphasize
           />
         </div>
 
@@ -323,6 +330,7 @@ function RunPanel({
   inView,
   stepsStartMs,
   resultDelayMs,
+  emphasize = false,
 }: {
   title: string;
   subtitle: string;
@@ -333,13 +341,27 @@ function RunPanel({
   inView: boolean;
   stepsStartMs: number;
   resultDelayMs: number;
+  /** When true, the panel renders a 2px ember stripe on its left edge and
+   *  every step-row trace chip pulses with a slow ember halo — visual cue
+   *  that this is the column where Tracebase intervened. */
+  emphasize?: boolean;
 }) {
   // Panel header sits just before the first step lands so the column frame is
   // visible as work starts happening inside it.
   const headerDelayMs = Math.max(0, stepsStartMs - 160);
 
   return (
-    <div className="flex min-w-0 flex-col gap-4 px-5 py-5 md:px-6 md:py-6" style={{ background: INK.inkDeep }}>
+    <div
+      className="flex min-w-0 flex-col gap-4 px-5 py-5 md:px-6 md:py-6"
+      style={{
+        background: INK.inkDeep,
+        // Static (non-pulsing) ember stripe along the left edge of the
+        // "with tracebase" column. Inset box-shadow rather than a border
+        // so it doesn't shift the panel's content box width vs. the
+        // sibling panel.
+        boxShadow: emphasize ? "inset 2px 0 0 0 rgba(255,122,92,0.5)" : undefined,
+      }}
+    >
       <RiseBlock inView={inView} delayMs={headerDelayMs}>
         <div className="flex items-baseline justify-between gap-3">
           <SectionLabel>{title}</SectionLabel>
@@ -363,7 +385,7 @@ function RunPanel({
             tool={step.tool}
             args={step.args}
             note={step.note}
-            trailing={renderStepTrailing(step)}
+            trailing={renderStepTrailing(step, emphasize)}
             inView={inView}
             delayMs={stepsStartMs + i * STEP_STAGGER_MS}
           />
@@ -405,10 +427,16 @@ function RiseBlock({
   );
 }
 
-function renderStepTrailing(step: RunStep): ReactNode {
+function renderStepTrailing(step: RunStep, emphasize: boolean): ReactNode {
   if (step.chips && step.chips.length > 0) {
     return step.chips.map((c, i) => (
-      <Chip key={i} tone={c.tone} size="sm">
+      // The .ink-chip-glow class adds a slow looped halo (box-shadow only,
+      // never resizes the chip), which is how we signal "tracebase touched
+      // this row" on the emphasized column without baking colour into the
+      // chip itself. Chips mount in sequence as steps reveal, so their
+      // glow cycles naturally stagger by mount time — no manual --delay
+      // tuning needed.
+      <Chip key={i} tone={c.tone} size="sm" className={emphasize ? "ink-chip-glow" : undefined}>
         {c.label}
       </Chip>
     ));
@@ -456,7 +484,7 @@ function CostFooter({
               delayMs={baseDelayMs}
             />
             <CostBar
-              label="with ink"
+              label="with tracebase"
               value={scenario.with.cost}
               maxSegments={scenario.maxSegments}
               segments={scenario.with.segments}

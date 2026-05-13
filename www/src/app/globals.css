@@ -265,6 +265,58 @@ html {
   animation-delay: var(--step-delay, 0ms);
 }
 
+/* ------------------------------------------------------------ */
+/*  mock-highlight-pulse — the looped "intervention" cue that    */
+/*  rides under each highlighted MockLine in the CapabilityGrid  */
+/*  mockups. Two channels at once: a soft ember wash on the row  */
+/*  background, and an inset 2px ember stripe on the left edge   */
+/*  ("линия где происходит наше вмешательство"). Both pulse off  */
+/*  the same beat, so the cue reads as a single coherent signal. */
+/*                                                                */
+/*  Layout-safe: only background-color + box-shadow animate, no  */
+/*  size or position changes. Reduced-motion users get the rest  */
+/*  state below (mid-tone wash, mid-tone stripe).                */
+/* ------------------------------------------------------------ */
+@keyframes mock-highlight-pulse {
+  0%,
+  100% {
+    background: rgba(255, 122, 92, 0.05);
+    box-shadow: inset 2px 0 0 0 rgba(255, 122, 92, 0.38);
+  }
+  50% {
+    background: rgba(255, 122, 92, 0.14);
+    box-shadow: inset 2px 0 0 0 rgba(255, 122, 92, 0.95);
+  }
+}
+
+.mock-highlight-pulse {
+  animation: mock-highlight-pulse 3.4s ease-in-out infinite;
+}
+
+/* ------------------------------------------------------------ */
+/*  ink-chip-glow — slow box-shadow halo around chips that mark   */
+/*  a Tracebase intervention in the RunSplit "with tracebase"    */
+/*  column. Using box-shadow keeps the chip box dimensions       */
+/*  identical between rest and peak, so no surrounding row text  */
+/*  jiggles during the loop.                                     */
+/* ------------------------------------------------------------ */
+@keyframes ink-chip-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 122, 92, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(255, 122, 92, 0.14);
+  }
+}
+
+.ink-chip-glow {
+  animation: ink-chip-glow 3.6s ease-in-out infinite;
+  animation-delay: var(--ink-chip-glow-delay, 0ms);
+  /* Keep the chip square — the halo grows outward, no border-radius round-trip. */
+  border-radius: 3px;
+}
+
 /* Legacy animations — kept so untouched components still render */
 @keyframes dash-enter {
   from {
@@ -482,9 +534,19 @@ html {
   .ink-caret,
   .ink-fill,
   .ink-drift,
-  .step-reveal {
+  .step-reveal,
+  .mock-highlight-pulse,
+  .ink-chip-glow {
     animation: none !important;
     transition: none !important;
+  }
+
+  /* Reduced-motion fallback for the looped highlight: keep the cue
+     visible, just stop pulsing — pick the mid-emphasis frame so the
+     row still reads as "this is where the intervention happens". */
+  .mock-highlight-pulse {
+    background: rgba(255, 122, 92, 0.1) !important;
+    box-shadow: inset 2px 0 0 0 rgba(255, 122, 92, 0.7) !important;
   }
 
   .tentacle-draw {

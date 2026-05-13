@@ -65,7 +65,7 @@ export function CtaSection() {
             className="max-w-[36rem] text-[14px] font-light leading-relaxed md:text-[15px]"
             style={{ color: "rgba(232,217,184,0.72)" }}
           >
-            One install for self-serve teams, or a custom reasoning layer for higher-volume production traffic.
+            One install for self-serve teams. Custom reasoning layer for production traffic.
           </p>
 
           <div className="mt-3 flex flex-wrap items-center gap-3">

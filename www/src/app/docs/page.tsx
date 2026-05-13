@@ -9,9 +9,9 @@ export const metadata: Metadata = {
 
 const NAV_GROUPS = [
   {
-    title: "Getting Started",
+    title: "Get Started",
     items: [
-      { href: "#what-is-tracebase", label: "What is TraceBase" },
+      { href: "#what-is-tracebase", label: "What gets installed" },
       { href: "#quickstart", label: "Quickstart" },
       { href: "#install-targets", label: "Agent adapters" },
     ],
@@ -19,17 +19,18 @@ const NAV_GROUPS = [
   {
     title: "Operate",
     items: [
-      { href: "#verify-health", label: "Verify health" },
-      { href: "#remove-reset", label: "Remove / reset" },
-      { href: "#dashboard-auditability", label: "Dashboard + auditability" },
+      { href: "#verify-health", label: "Verify the install" },
+      { href: "#remove-reset", label: "Remove or reset" },
+      { href: "#dashboard-auditability", label: "Dashboard & audit" },
     ],
   },
   {
     title: "Architecture",
     items: [
+      { href: "#capabilities", label: "Five arms" },
       { href: "#reasoning-loop", label: "Reasoning loop" },
       { href: "#cli-reference", label: "CLI reference" },
-      { href: "#troubleshooting", label: "Troubleshooting" },
+      { href: "#troubleshooting", label: "When things go wrong" },
     ],
   },
 ] as const;
@@ -45,10 +46,11 @@ const INSTALL_TARGETS = [
     id: "claude-code",
     title: "Claude Code",
     command: "npx tracebase-ai init",
-    surface: ".claude/settings.json + CLAUDE.md",
+    surface: ".mcp.json + CLAUDE.md",
     steps: [
-      "Run the command above in your project directory — `init` auto-detects Claude Code and wires it locally.",
-      "Restart Claude Code so the MCP server picks up.",
+      "Run the command above in your project directory — `init` auto-detects Claude Code and writes `.mcp.json` so 2.x picks the runtime up.",
+      "Older installs that wrote into `.claude/settings.json` are migrated automatically — you don't need to clean anything up by hand.",
+      "Restart Claude Code so the MCP server boots.",
       "Run `/tools` and confirm `get_reasoning_patterns` is listed.",
     ],
   },
@@ -116,11 +118,43 @@ const EVENT_TYPES = [
 
 const CLI_REFERENCE = [
   { command: "npx tracebase-ai init", body: "Initialize the local store, auto-detect the active agent (or every locally-installed agent), write the adapter surfaces, and link into the hosted workspace when browser auth is available." },
-  { command: "npx tracebase-ai init --agent cursor", body: "Scripting escape hatch. Restrict the install to a single adapter. Most users should not need this — `init` alone does the right thing." },
-  { command: "npx tracebase-ai remove", body: "Remove `.tracebase`, the managed instruction block, and the registered MCP entry for the active adapter." },
-  { command: "npx tracebase-ai status --json", body: "Machine-readable install snapshot for scripts and dashboard reuse." },
-  { command: "npx tracebase-ai doctor --json", body: "Machine-readable health report. Exits non-zero when install integrity is broken." },
-  { command: "npx tracebase-ai report --json", body: "Structured aggregated reuse analytics from the local event log." },
+  { command: "npx tracebase-ai init --agent cursor", body: "Scripting escape hatch. Restrict the install to a single adapter. Most users do not need this — `init` alone picks the right adapter." },
+  { command: "npx tracebase-ai remove", body: "Remove `.tracebase/`, the managed instruction block, and the registered MCP entry for the active adapter. User content outside the managed block is preserved." },
+  { command: "npx tracebase-ai status --json", body: "Machine-readable install snapshot. Same shape the dashboard uses for the installations page." },
+  { command: "npx tracebase-ai doctor --json", body: "Machine-readable health report. Exits non-zero when install integrity is broken — wire this into CI for rollout gates." },
+  { command: "npx tracebase-ai report --json", body: "Structured aggregated reuse analytics from the local event log. Pair with `--limit` and `--after` for windowed reads." },
+  { command: "npx tracebase-ai recall <shape>", body: "Look up resolved patterns for a problem shape from the project-scoped pattern DB. Useful for inspecting what the agent would have surfaced before opening Claude Code." },
+  { command: "npx tracebase-ai impact", body: "30-day reuse + saved-tokens funnel — the same fold the hosted /dashboard/impact page renders, computed locally from the event log." },
+  { command: "npx tracebase-ai savings", body: "Per-run cost-delta breakdown across the last N runs. Honest about what was injected versus actually used so attribution stays clean." },
+] as const;
+
+/* ============================================================ */
+/*  Five-arm capabilities — mirrors the landing's `Five arms,    */
+/*  one memory.` section so users who arrive from there see the  */
+/*  same vocabulary in docs.                                     */
+/* ============================================================ */
+
+const CAPABILITIES = [
+  {
+    name: "Recall",
+    line: "Reasoning reuse — surfaces past solutions when a similar problem returns. Vector + heuristic match against the project-scoped pattern DB.",
+  },
+  {
+    name: "Gist",
+    line: "Semantic file memory — recalls what a file means without re-reading the bytes. Survives window compaction across long runs.",
+  },
+  {
+    name: "Loop",
+    line: "Loop detection — catches doom-loops mid-run on a six-turn rolling window. Suggests a redirect, never overrides agent judgement.",
+  },
+  {
+    name: "Guard",
+    line: "Tool supervision — spots redundant fetches and repeat searches before they compound on the bill. Tool-call dedup window.",
+  },
+  {
+    name: "Fold",
+    line: "Context compression — folds older turns into gist summaries so long horizons (100+ turns) stay coherent without thrashing the window.",
+  },
 ] as const;
 
 const TROUBLESHOOTING_STEPS = [
@@ -143,15 +177,16 @@ const TROUBLESHOOTING_STEPS = [
 ] as const;
 
 const ON_THIS_PAGE = [
-  { href: "#what-is-tracebase", label: "What is TraceBase" },
+  { href: "#what-is-tracebase", label: "What gets installed" },
   { href: "#quickstart", label: "Quickstart" },
   { href: "#install-targets", label: "Agent adapters" },
-  { href: "#verify-health", label: "Verify health" },
-  { href: "#remove-reset", label: "Remove / reset" },
-  { href: "#dashboard-auditability", label: "Dashboard + auditability" },
+  { href: "#verify-health", label: "Verify the install" },
+  { href: "#remove-reset", label: "Remove or reset" },
+  { href: "#dashboard-auditability", label: "Dashboard & audit" },
+  { href: "#capabilities", label: "Five arms" },
   { href: "#reasoning-loop", label: "Reasoning loop" },
   { href: "#cli-reference", label: "CLI reference" },
-  { href: "#troubleshooting", label: "Troubleshooting" },
+  { href: "#troubleshooting", label: "When things go wrong" },
 ] as const;
 
 function Section({
@@ -201,7 +236,7 @@ function CommandBlock({
   body?: string;
 }) {
   return (
-    <div className="rounded-sm border" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+    <div className="rounded-lg border" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
       <div className="overflow-x-auto border-b px-4 py-3 font-mono text-[13px]" style={{ borderColor: "var(--border)" }}>
         <span style={{ color: "var(--text-tertiary)" }}>$ </span>
         <span>{command}</span>
@@ -223,7 +258,7 @@ function NoteCard({
   body: string;
 }) {
   return (
-    <article className="rounded-sm border p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+    <article className="rounded-lg border p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
       <h3 className="text-sm font-medium tracking-tight">{title}</h3>
       <p className="mt-3 text-[13px] font-light leading-relaxed" style={{ color: "var(--text-secondary)" }}>
         {body}
@@ -365,7 +400,7 @@ export default function DocsPage() {
           <Section
             id="what-is-tracebase"
             eyebrow="Overview"
-            title="What TraceBase actually installs"
+            title="What gets installed"
             body="The install path stays small. TraceBase adds a project-scoped memory store, wires the active agent into that store, and writes a managed instruction block so the agent knows when to retrieve and when to report outcomes."
           >
             <div className="grid gap-3 md:grid-cols-3">
@@ -387,8 +422,8 @@ export default function DocsPage() {
           <Section
             id="quickstart"
             eyebrow="Quickstart"
-            title="Start with the default path"
-            body="For most users the right flow is still three commands: install, confirm the install surface, then run a health check. The browser approval step only appears when hosted linking is available."
+            title="Three commands. That's the quickstart."
+            body="Install, confirm the surface, run a health check. The browser approval step only appears when hosted linking is available — fully offline installs skip it entirely."
           >
             <div className="grid gap-3">
               {QUICKSTART_COMMANDS.map((command) => (
@@ -411,12 +446,12 @@ export default function DocsPage() {
           <Section
             id="install-targets"
             eyebrow="Integrations"
-            title="One command. It picks the right adapter."
-            body="`init` auto-detects the agent you are running inside, or — on a cold terminal — configures every agent installed on the machine. You never have to pass `--agent` under normal use."
+            title="One install. Three agent surfaces."
+            body="`init` auto-detects the agent you are running inside, or — on a cold terminal — configures every agent installed on the machine. You never need `--agent` under normal use."
           >
             <div className="grid gap-3">
               {INSTALL_TARGETS.map((target) => (
-                <article key={target.id} className="rounded-sm border" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+                <article key={target.id} className="rounded-lg border" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
                   <div className="border-b px-4 py-3" style={{ borderColor: "var(--border)" }}>
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div>
@@ -441,7 +476,7 @@ export default function DocsPage() {
                           style={{ color: "var(--text-secondary)" }}
                         >
                           <span
-                            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border text-[10px] font-mono"
+                            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-lg border text-[10px] font-mono"
                             style={{ borderColor: "var(--border)", color: "var(--text-tertiary)" }}
                           >
                             {index + 1}
@@ -459,8 +494,8 @@ export default function DocsPage() {
           <Section
             id="verify-health"
             eyebrow="Operate"
-            title="Verification should be fast and boring"
-            body="After install, you should not guess. The local CLI gives you enough signal to distinguish a fresh project from a broken one, and enough detail to debug adapter wiring without going into the database by hand."
+            title="Verify the install in 10 seconds."
+            body="After install you should not have to guess. The local CLI gives you enough signal to tell a fresh project from a broken one, and enough detail to debug adapter wiring without opening the database by hand."
           >
             <div className="grid gap-3">
               {HEALTH_COMMANDS.map((item) => (
@@ -472,8 +507,8 @@ export default function DocsPage() {
           <Section
             id="remove-reset"
             eyebrow="Lifecycle"
-            title="Remove or reset the install cleanly"
-            body="TraceBase now has a proper uninstall path. This is useful both for local testing and for recovering a project to a known-clean state before a reinstall."
+            title="Remove or reset cleanly."
+            body="TraceBase has a proper uninstall path. Use it for local testing or to put a project back into a known-clean state before a reinstall."
           >
             <div className="grid gap-3 md:grid-cols-[minmax(0,0.94fr)_minmax(0,1.06fr)]">
               <CommandBlock
@@ -499,12 +534,12 @@ export default function DocsPage() {
 
           <Section
             id="dashboard-auditability"
-            eyebrow="Control Plane"
-            title="The dashboard sits on top of the same event substrate"
-            body="The hosted dashboard is not a separate truth source. It is the visibility layer on top of the same retrieval and outcome model the local CLI uses."
+            eyebrow="Control plane"
+            title="The dashboard reads the same event log."
+            body="The hosted dashboard is not a separate truth source. It is the visibility layer on top of the same retrieval and outcome events the local CLI reads — nothing is reinterpreted between layers."
           >
             <div className="grid gap-3 md:grid-cols-2">
-              <article className="rounded-sm border p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+              <article className="rounded-lg border p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
                 <h3 className="text-sm font-medium tracking-tight">What the dashboard should answer</h3>
                 <ul className="mt-4 space-y-3 text-[13px] font-light leading-relaxed" style={{ color: "var(--text-secondary)" }}>
                   <li>How often did retrieval fire?</li>
@@ -514,7 +549,7 @@ export default function DocsPage() {
                 </ul>
               </article>
 
-              <article className="rounded-sm border p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+              <article className="rounded-lg border p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
                 <h3 className="text-sm font-medium tracking-tight">Why the audit trail matters</h3>
                 <ul className="mt-4 space-y-3 text-[13px] font-light leading-relaxed" style={{ color: "var(--text-secondary)" }}>
                   <li>Enterprises need to inspect what was injected and why.</li>
@@ -532,9 +567,22 @@ export default function DocsPage() {
           </Section>
 
           <Section
+            id="capabilities"
+            eyebrow="Capabilities"
+            title="Five arms, one memory."
+            body="Each capability catches a specific failure mode agents hit at runtime. Same vocabulary you'll see on the landing — recall, gist, loop, guard, fold — implemented over a single project-scoped store."
+          >
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              {CAPABILITIES.map((cap) => (
+                <NoteCard key={cap.name} title={cap.name} body={cap.line} />
+              ))}
+            </div>
+          </Section>
+
+          <Section
             id="reasoning-loop"
             eyebrow="Architecture"
-            title="The product loop is capture → recall → inject → measure → repair"
+            title="Five stages, one loop."
             body="Public docs do not need every internal detail, but they should make the operating loop legible. TraceBase is useful only if the whole loop closes and poor reasoning gets corrected instead of accumulating."
           >
             <div className="grid gap-3 md:grid-cols-5">
@@ -549,8 +597,8 @@ export default function DocsPage() {
           <Section
             id="cli-reference"
             eyebrow="Reference"
-            title="Core CLI surface"
-            body="These are the commands that matter for rollout, operations, and debugging. Keep the public surface small and composable."
+            title="CLI reference."
+            body="The commands that matter for rollout, operations, debugging, and analytics. The public surface is intentionally small and composable — every command emits machine-readable output behind `--json`."
           >
             <div className="grid gap-3">
               {CLI_REFERENCE.map((item) => (
@@ -562,8 +610,8 @@ export default function DocsPage() {
           <Section
             id="troubleshooting"
             eyebrow="Troubleshooting"
-            title="Start with the concrete failure mode"
-            body="Most install problems are one of four things: wrong adapter, broken local config, missing CLI surface, or a user checking the wrong project root. The right response is to verify that specific failure, not to edit files blind."
+            title="When things go wrong."
+            body="Most install problems are one of four things: wrong adapter, broken local config, missing CLI surface, or a user checking the wrong project root. Verify the specific failure first — don't edit files blind."
           >
             <div className="grid gap-3 md:grid-cols-2">
               {TROUBLESHOOTING_STEPS.map((item) => (

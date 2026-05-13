@@ -2,12 +2,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { type ReactNode } from "react";
 import { CtaSection } from "@/components/landing/CtaSection";
+import { FAQSection } from "@/components/landing/FAQSection";
 import { ForgettingTax } from "@/components/landing/ForgettingTax";
 import { HeroInk } from "@/components/landing/HeroInk";
 import { LandingNav } from "@/components/landing/LandingNav";
 import { PricingGrid } from "@/components/landing/PricingGrid";
 import { RunSplitSection } from "@/components/landing/RunSplitSection";
 import { TentacleSection } from "@/components/landing/TentacleSection";
+import { UseCasesSection } from "@/components/landing/UseCasesSection";
 import { InkInterstitial, TracebaseInkWordmark } from "@/components/landing/brand/Marks";
 import { SectionLabel } from "@/components/landing/brand/Primitives";
 import { Reveal } from "@/components/landing/brand/Reveal";
@@ -47,135 +49,6 @@ function SectionHeading({ label, muted, title, body }: SectionHeadingProps) {
   );
 }
 
-function Grid({ cols, children }: { cols: string; children: ReactNode }) {
-  return (
-    <div
-      className="overflow-hidden rounded-xl border"
-      style={{ borderColor: "rgba(232,217,184,0.1)", background: "rgba(232,217,184,0.08)" }}
-    >
-      <div className={`grid gap-px ${cols}`} style={{ background: "rgba(232,217,184,0.08)" }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function Tile({
-  label,
-  title,
-  body,
-  href,
-  cta,
-}: {
-  label?: string;
-  title: string;
-  body: string;
-  href?: string;
-  cta?: string;
-}) {
-  // h-full + flex-col on the inner div so each cell stretches to the
-  // tallest row member. Without this, when one tile's body wraps to
-  // an extra line (e.g. Integrations) the surrounding `gap-px` rule
-  // shows a visible gap below the shorter tiles — looks like the
-  // outline is "missing one stripe".
-  const inner = (
-    <div
-      className="flex h-full min-h-[190px] flex-col justify-between gap-4 p-6 md:min-h-[210px] md:p-7"
-      style={{ background: INK.inkDeep }}
-    >
-      <div>
-        {label ? <SectionLabel className="mb-4">{label}</SectionLabel> : null}
-        <h3
-          className="text-[15.5px] font-medium tracking-tight md:text-[16.5px]"
-          style={{ color: href ? INK.bone : INK.pearl }}
-        >
-          {title}
-        </h3>
-      </div>
-      <p
-        className="max-w-[28rem] text-[13px] font-light leading-relaxed"
-        style={{ color: "rgba(232,217,184,0.64)" }}
-      >
-        {body}
-      </p>
-      {cta ? (
-        <SectionLabel>
-          <span style={{ color: INK.ember }}>{cta} →</span>
-        </SectionLabel>
-      ) : null}
-    </div>
-  );
-  if (href) {
-    return (
-      <Link
-        href={href}
-        // block + h-full make the Link a proper grid-cell-filling box;
-        // without it the cell collapses to content height and the
-        // bottom border of the rounded outline sits above the
-        // tallest tile's content.
-        className="group block h-full transition-colors hover:bg-[rgba(232,217,184,0.02)]"
-      >
-        {inner}
-      </Link>
-    );
-  }
-  return <article className="h-full">{inner}</article>;
-}
-
-/* ============================================================ */
-/*  Content — docs links & FAQ                                   */
-/* ============================================================ */
-
-const DOCS_LINKS = [
-  {
-    title: "Quickstart",
-    body: "Install, point at a project, and verify the runtime attaches to your agent surface.",
-    href: "/docs#quickstart",
-  },
-  {
-    title: "Integrations",
-    body: "MCP for IDE agents, SDK middleware for wrapped clients, service boundary for custom runtimes.",
-    href: "/docs#integrations",
-  },
-  {
-    title: "Architecture",
-    body: "Capture, retrieval, supervision, compression — how the five arms share one store.",
-    href: "/docs#architecture",
-  },
-  {
-    title: "Troubleshooting",
-    body: "First checks when retrieval, tooling, or the local store looks wrong in a live workspace.",
-    href: "/docs#troubleshooting",
-  },
-] as const;
-
-const FAQ = [
-  {
-    q: "What failure mode does tracebase.ink actually catch?",
-    a: "Five of them. Repeat reasoning, forgotten file meaning, doom-loops, redundant tool calls, and context-window thrashing on long horizons.",
-  },
-  {
-    q: "Do we have to move to a hosted runtime?",
-    a: "No. Self-hosted by default, project-scoped storage, no cloud dependency.",
-  },
-  {
-    q: "Does this expose internal chain-of-thought?",
-    a: "No. The ink stores resolved traces and operator signals — not raw deliberation.",
-  },
-  {
-    q: "Where does it sit in the stack?",
-    a: "Between the agent and its tools. MCP for tool-driven agents, middleware for wrapped SDK clients, boundary for custom runtimes.",
-  },
-  {
-    q: "When is the payoff largest?",
-    a: "Repeat incidents, migrations, debugging loops — any workflow where the nth run should beat the first.",
-  },
-  {
-    q: "Why move setup detail into docs?",
-    a: "Landing sells the promise. Docs carry the mechanics. Different jobs, different places.",
-  },
-] as const;
-
 /* ============================================================ */
 /*  Page                                                          */
 /* ============================================================ */
@@ -195,35 +68,15 @@ export default function Home() {
         <TentacleSection />
 
         <div className="mx-auto max-w-[1080px] px-5 sm:px-6">
-          <InkInterstitial label="the mechanics live in docs" />
-
-          <section id="docs-preview" className="scroll-mt-20 py-16 md:py-24">
-            <Reveal>
-              <SectionHeading
-                label="docs"
-                muted="Keep the landing short."
-                title={<span>Mechanics live where teams return to them.</span>}
-                body="Quickstart, rollouts, architecture, and recovery paths live in docs — the landing stays focused on the runtime."
-              />
-            </Reveal>
-            <Reveal delayMs={120}>
-              <Grid cols="sm:grid-cols-2 lg:grid-cols-4">
-                {DOCS_LINKS.map((d) => (
-                  <Tile key={d.title} label="docs" title={d.title} body={d.body} href={d.href} cta="Open section" />
-                ))}
-              </Grid>
-            </Reveal>
-          </section>
-
-          <InkInterstitial label="pricing · open source today" />
+          <InkInterstitial label="pricing — open source today" />
 
           <section id="pricing" className="scroll-mt-20 py-16 md:py-24">
             <Reveal>
               <SectionHeading
                 label="pricing"
-                muted="Open source today."
-                title={<span>Managed tiers planned for launch.</span>}
-                body="Self-hosted is available now. Startup and enterprise tiers below are draft launch packaging — not live checkout."
+                muted="Free, open source."
+                title={<span>Paid tiers are coming.</span>}
+                body="Self-hosted is live under MIT. Hobby / Startup / Enterprise — draft packaging, not on checkout yet."
               />
             </Reveal>
             <Reveal delayMs={120}>
@@ -231,24 +84,13 @@ export default function Home() {
             </Reveal>
           </section>
 
-          <InkInterstitial label="questions, short answers" />
+          <InkInterstitial label="where this earns its keep" />
 
-          <section id="faq" className="scroll-mt-20 py-16 md:py-24" aria-labelledby="faq-heading">
-            <Reveal>
-              <SectionHeading
-                label="faq"
-                muted="Common questions."
-                title={<span>Short answers for buyers and operators.</span>}
-              />
-            </Reveal>
-            <Reveal delayMs={120}>
-              <Grid cols="md:grid-cols-2">
-                {FAQ.map((f) => (
-                  <Tile key={f.q} title={f.q} body={f.a} />
-                ))}
-              </Grid>
-            </Reveal>
-          </section>
+          <UseCasesSection />
+
+          <InkInterstitial label="eight answers before you install" />
+
+          <FAQSection />
 
           <InkInterstitial label="pick up the pen" />
 

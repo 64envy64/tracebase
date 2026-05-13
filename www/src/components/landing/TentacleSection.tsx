@@ -1,10 +1,34 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  FoldMockup,
+  GistMockup,
+  GuardMockup,
+  LoopMockup,
+  RecallMockup,
+} from "./_demo-fixtures/capability-mockups";
 import { PrimaryOcto } from "./brand/Marks";
 import { CardEyebrow, Chip, SectionLabel } from "./brand/Primitives";
 import { CAPABILITIES, type CapabilityId, INK } from "./brand/tokens";
-import { CapabilityDemo } from "./capabilities/CapabilityDemo";
+
+/* ============================================================ */
+/*  Static mockup dispatcher — replaces the heavier              */
+/*  CapabilityDemo that previously cycled through trace rows on  */
+/*  a self-scheduling timer chain. The sticky-octopus scroll     */
+/*  choreography around the cards stays exactly as before; only  */
+/*  the inner demo is swapped for a single static frame with     */
+/*  one looped highlight pulse, so the section is calmer and     */
+/*  every row lands in one scroll without waiting for cycles.    */
+/* ============================================================ */
+
+const CAP_MOCKUP_BY_ID: Record<CapabilityId, () => ReactNode> = {
+  recall: RecallMockup,
+  gist: GistMockup,
+  loop: LoopMockup,
+  guard: GuardMockup,
+  fold: FoldMockup,
+};
 
 /* ============================================================ */
 /*  Section — sticky octopus on the left reaches toward each     */
@@ -196,17 +220,20 @@ function CapabilityCard({
             </p>
           </div>
         </header>
-        <div className="px-5 py-5 md:px-7 md:py-6">
-          {/*
-            No `key={revealed ? "rev" : "hid"}` here — pre-fix that
-            forced a remount every time the row entered/left view,
-            tearing down the demo's internal timer chain mid-flight
-            and causing visible layout jumps. CapabilityDemo's own
-            useInView gate handles when to start/stop animating.
-          */}
-          <CapabilityDemo id={cap.id as CapabilityId} />
-        </div>
+        {/*
+          Static mockup body. The mockup brings its own padded shell, so
+          we render it flush (no surrounding padding here) to preserve
+          the inset-screen feel of the upstream MockupShell — same look
+          as the CapabilityGrid cards, dropped into the scroll-driven
+          octopus layout.
+        */}
+        <CapabilityCardBody cap={cap} />
       </div>
     </article>
   );
+}
+
+function CapabilityCardBody({ cap }: { cap: (typeof CAPABILITIES)[number] }) {
+  const Mockup = CAP_MOCKUP_BY_ID[cap.id as CapabilityId];
+  return <Mockup />;
 }

@@ -328,7 +328,11 @@ export function CostBar({
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "90px minmax(0, 1fr) auto",
+        // Label column widened from 90px after the runtime was renamed to
+        // "with tracebase" — that label is 14 chars at mono-11 + tracking,
+        // which won't fit at 90. Both rows still share the same label
+        // column so their bars line up across without / with.
+        gridTemplateColumns: "132px minmax(0, 1fr) auto",
         alignItems: "center",
         gap: 14,
       }}
@@ -340,6 +344,7 @@ export function CostBar({
           color: INK.sand,
           letterSpacing: "0.14em",
           textTransform: "uppercase",
+          whiteSpace: "nowrap",
         }}
       >
         {label}

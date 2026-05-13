@@ -1,4 +1,4 @@
-import { InkDrop, InkSplatter } from "./brand/Marks";
+import { InkSplatter } from "./brand/Marks";
 import { CardEyebrow, Chip } from "./brand/Primitives";
 import { Reveal } from "./brand/Reveal";
 import { type ChipTone, INK } from "./brand/tokens";
@@ -27,42 +27,18 @@ type PainRow = {
  * guard / fold). The order matches so the reader later connects the pain to
  * the arm without us spelling it out.
  */
+/**
+ * Compact pain rows — each row is now a single line: label · example, with a
+ * cost chip on the right. We dropped the italic example sub-line; it was
+ * doubling the row height without adding new information for a reader who is
+ * already nodding along.
+ */
 const PAIN_ROWS: readonly PainRow[] = [
-  {
-    n: "01",
-    label: "Re-derivation",
-    example: "Same CORS fix derived from scratch — seventeen times this month.",
-    cost: "×17 / mo",
-    tone: "coral",
-  },
-  {
-    n: "02",
-    label: "Amnesic files",
-    example: "40k tokens spent re-reading a module your agent owned yesterday.",
-    cost: "40k tokens",
-    tone: "amber",
-  },
-  {
-    n: "03",
-    label: "Doom-loops",
-    example: "Four attempts, three re-greps, same region of code.",
-    cost: "3 re-greps",
-    tone: "coral",
-  },
-  {
-    n: "04",
-    label: "Redundant fetches",
-    example: "One answer, billed three times across the same run.",
-    cost: "×3 billed",
-    tone: "amber",
-  },
-  {
-    n: "05",
-    label: "Context thrash",
-    example: "Monday's decision dropped out of the window by Wednesday.",
-    cost: "−12 turns",
-    tone: "sand",
-  },
+  { n: "01", label: "Re-derivation", example: "same fix from scratch every run", cost: "×17 / mo", tone: "coral" },
+  { n: "02", label: "Amnesic files", example: "re-reading a module owned yesterday", cost: "40k tokens", tone: "amber" },
+  { n: "03", label: "Doom-loops", example: "four attempts, same region of code", cost: "3 re-greps", tone: "coral" },
+  { n: "04", label: "Redundant fetches", example: "one answer, billed three times", cost: "×3 billed", tone: "amber" },
+  { n: "05", label: "Context thrash", example: "Monday's decision dropped by Wednesday", cost: "−12 turns", tone: "sand" },
 ] as const;
 
 /* ============================================================ */
@@ -99,8 +75,11 @@ export function ForgettingTax() {
 /* ============================================================ */
 
 function ProblemHeader() {
+  // Body paragraph removed — it restated the headline. The five pain rows
+  // below carry the concrete examples, so the header is now just the lockup
+  // and the headline.
   return (
-    <header className="mb-10 max-w-[44rem] md:mb-12">
+    <header className="mb-8 max-w-[44rem] md:mb-10">
       <CardEyebrow
         number="00"
         chipLabel="Problem"
@@ -117,13 +96,6 @@ function ProblemHeader() {
         <span style={{ color: "rgba(232,217,184,0.48)" }}>Agents are brilliant once.</span>{" "}
         You pay for it <span style={{ color: INK.ember }}>every run</span>.
       </h2>
-      <p
-        className="mt-5 max-w-[36rem] text-[14px] font-light leading-relaxed md:text-[15px]"
-        style={{ color: "rgba(232,217,184,0.68)" }}
-      >
-        The same bug. The same file, re-read. The same loop. Your agent
-        rediscovers it from scratch — with your tokens, every time.
-      </p>
     </header>
   );
 }
@@ -167,11 +139,14 @@ function TaxList() {
 }
 
 function TaxRow({ row, isLast }: { row: PainRow; isLast: boolean }) {
+  // Single-line layout: number · bold label · em-dash · muted example · cost.
+  // The example flexes (truncates on narrow screens) so the cost chip never
+  // jumps to a second row.
   return (
     <li
-      className="grid items-baseline gap-4 px-5 py-4 md:px-7 md:py-5"
+      className="grid items-center gap-3 px-5 py-3.5 md:gap-4 md:px-7 md:py-4"
       style={{
-        gridTemplateColumns: "34px minmax(0, 1fr) auto",
+        gridTemplateColumns: "28px minmax(0, 1fr) auto",
         borderBottom: isLast ? "none" : "1px solid rgba(232,217,184,0.06)",
       }}
     >
@@ -182,7 +157,7 @@ function TaxRow({ row, isLast }: { row: PainRow; isLast: boolean }) {
         {row.n}
       </span>
 
-      <div className="min-w-0">
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
         <span
           className="text-[14px] font-medium tracking-tight md:text-[15px]"
           style={{ color: INK.pearl }}
@@ -190,8 +165,8 @@ function TaxRow({ row, isLast }: { row: PainRow; isLast: boolean }) {
           {row.label}
         </span>
         <span
-          className="mt-1 block text-[12.5px] font-light italic leading-relaxed md:text-[13px]"
-          style={{ color: "rgba(232,217,184,0.56)" }}
+          className="min-w-0 truncate text-[12.5px] font-light leading-relaxed md:text-[13px]"
+          style={{ color: "rgba(232,217,184,0.5)" }}
         >
           {row.example}
         </span>
@@ -210,22 +185,15 @@ function TaxRow({ row, isLast }: { row: PainRow; isLast: boolean }) {
 /* ============================================================ */
 
 function Kicker() {
+  // Bridge question removed — it was rhetorical setup the RunSplit below
+  // already answers visually. One punchline is enough.
   return (
-    <div className="mt-10 flex flex-col gap-3 md:mt-12">
-      <p
-        className="font-hero-serif text-[clamp(1.15rem,2.2vw,1.55rem)] font-normal leading-[1.25] tracking-tight"
-        style={{ color: INK.pearl }}
-      >
-        Intelligence without memory isn&apos;t intelligence.{" "}
-        <span style={{ color: "rgba(232,217,184,0.54)" }}>It&apos;s a receipt.</span>
-      </p>
-      <p
-        className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em]"
-        style={{ color: INK.sand }}
-      >
-        <InkDrop size={8} color={INK.ember} className="ink-pulse" />
-        <span>What if every solved problem stayed solved?</span>
-      </p>
-    </div>
+    <p
+      className="mt-8 font-hero-serif text-[clamp(1.05rem,2vw,1.4rem)] font-normal leading-[1.3] tracking-tight md:mt-10"
+      style={{ color: INK.pearl }}
+    >
+      Intelligence without memory isn&apos;t intelligence.{" "}
+      <span style={{ color: "rgba(232,217,184,0.54)" }}>It&apos;s a receipt.</span>
+    </p>
   );
 }

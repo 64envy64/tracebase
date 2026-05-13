@@ -1,42 +1,102 @@
 # TraceBase
 
-**Agents that compound their own intelligence.**
+**Memory layer for coding agents.** Your agents stop re-solving the same problem.
 
-TraceBase captures every solved problem as a reasoning trace and feeds it back into future runs. Your agents don't just execute — they accumulate expertise. Every run is built on every run before it.
+[![MIT License](https://img.shields.io/badge/license-MIT-orange.svg)](https://github.com/64envy64/tracebase/blob/main/LICENSE)
+[![npm](https://img.shields.io/npm/v/tracebase-ai?color=orange)](https://www.npmjs.com/package/tracebase-ai)
+[![tracebase.ink](https://img.shields.io/badge/site-tracebase.ink-orange)](https://tracebase.ink)
 
 ```
-1st call: "CORS error in Express"  → agent solves from scratch       → trace stored
-2nd call: "Access-Control missing" → prior solution injected as hint → faster, cheaper
-3rd call: same class of problem    → solved in one shot              → tokens saved
+ 1st run  ─  "Fix the CORS error in Express"   ─►  agent solves from scratch     ─►  trace stored
+ 2nd run  ─  "Access-Control header missing"   ─►  prior trace surfaces as hint  ─►  faster, cheaper
+ 3rd run  ─  same class of problem             ─►  resolved in one shot          ─►  tokens saved
 ```
+
+Agents are stateless. They forget everything between sessions, so the same bug gets re-derived from scratch, the same file gets re-read, the same loop spins again — every run, on your tokens. TraceBase keeps the resolved work and feeds it back into the next run.
 
 ---
 
-## Why
+## What it catches
 
-AI agents are stateless. They forget everything between sessions. When a similar problem comes up again — for you or a teammate — the agent re-derives the same solution from scratch. Same tokens. Same latency. Same risk of a different (wrong) answer.
+Five failure modes agents hit at runtime — one runtime, five arms:
 
-TraceBase gives agents **institutional memory**:
-- **Capture** — every problem-solution pair is stored as a reasoning trace
-- **Recall** — before each LLM call, check if a similar problem was solved before
-- **Inject** — if a high-confidence match is found, add it to the system prompt
-- **Learn** — feedback improves recall quality over time (Thompson Sampling)
+| Arm | What it does |
+| --- | --- |
+| **Recall** | Surfaces past solutions when a similar problem returns. Vector + heuristic match against the project-scoped pattern DB. |
+| **Gist** | Recalls what a file *means* without re-reading the bytes. Survives window compaction on long sessions. |
+| **Loop** | Catches doom-loops mid-run on a six-turn window and suggests a redirect. Never overrides agent judgement. |
+| **Guard** | Spots redundant fetches and repeat searches before they compound on the bill. Tool-call dedup window. |
+| **Fold** | Folds older turns into gist summaries so 100+ turn horizons stay coherent without thrashing. |
 
-The result: agents that get **more reliable** and **cheaper** with every run.
+---
+
+## Numbers
+
+**SWE-bench Verified** (mini-swe-agent v2.2.8 · Claude Sonnet 4.6 · Docker, 20 attempted tasks):
+
+| | Baseline | With TraceBase | Δ |
+| --- | :---: | :---: | :---: |
+| Accuracy | 62% | 75% | **+13 pp** |
+| Cost / run (avg) | — | — | **−34%** |
+| Steps / run (avg) | — | — | **−17%** |
+| Regressions | — | — | **0** |
+
+Best single task — `astropy-14309`: 31 steps → 13 steps (**−58% steps**, **−64% cost**). Full whitepaper at [tracebase.ink/whitepaper](https://tracebase.ink/whitepaper).
 
 ---
 
 ## Install
 
+One command. Auto-detects Claude Code / Cursor / Codex, writes the adapter, registers MCP, and initializes the local pattern DB.
+
 ```bash
-npm install tracebase-ai
+npx tracebase-ai init
 ```
 
-## Three Ways to Use TraceBase
+Verify the install:
 
-### 1. SDK Middleware (recommended — zero friction)
+```bash
+npx tracebase-ai doctor      # integrity check — exit 0 on healthy
+npx tracebase-ai status      # one-screen snapshot
+npx tracebase-ai savings     # what was actually saved (since 7d)
+```
 
-Wrap your OpenAI or Anthropic client. Every call automatically recalls prior solutions, injects them as hints, and stores the result.
+`status` prints something like this:
+
+```
+TraceBase  workspace 6c27c71a…
+
+  project:  /Users/you/repo
+  storage:  /Users/you/repo/.tracebase/memory.db  (1.33 MB)
+  cloud:    s1z-3q (https://tracebase.ink)
+
+Agents (2 wired up):
+  Claude Code  claude mcp registry (local)  ok · CLAUDE.md ok
+               hooks  UserPromptSubmit ok · Stop ok · PreCompact ok
+  Cursor       ~/.cursor/mcp.json ok · AGENTS.md ok
+
+Blocks (active / candidate / demoted / merged / retired):
+  5 / 0 / 0 / 0 / 0
+
+Events (total 291):
+  retrieval 24 · injection 10 · agent_used 0 · outcome 5
+```
+
+---
+
+## Integrations
+
+| Surface | Adapter |
+| --- | --- |
+| **Claude Code 2.x** | `.mcp.json` + managed `CLAUDE.md` block |
+| **Cursor** | `~/.cursor/mcp.json` + `AGENTS.md` |
+| **Codex CLI** | codex MCP registry + `AGENTS.md` |
+| **OpenAI SDK** | `wrapOpenAI(client, layer)` middleware |
+| **Anthropic SDK** | `wrapAnthropic(client, layer)` middleware |
+| **Generic (LangChain, LangGraph, Agent SDK)** | `wrapGeneric(...)` |
+| **HTTP service boundary** | `npx tracebase-ai serve --port 3781` |
+
+SDK example — wrap the client, every call is now optimized:
 
 ```typescript
 import OpenAI from "openai";
@@ -44,274 +104,127 @@ import { ReasoningLayer, wrapOpenAI } from "tracebase-ai";
 
 const layer = new ReasoningLayer();
 const openai = wrapOpenAI(new OpenAI(), layer, {
-  // recall-before-call: inject prior solutions into system prompt
-  minScore: 0.72,     // only high-confidence matches (default)
-  skipExactMatch: true // don't inject if user is re-asking the same question
+  minScore: 0.72,      // only high-confidence matches
+  skipExactMatch: true // don't inject on exact re-asks
 });
 
-// That's it. Every call is now optimized.
+// recall → inject (if match) → call → store
 const response = await openai.chat.completions.create({
   model: "gpt-4o",
   messages: [{ role: "user", content: "Fix the CORS error in our Express API" }],
 });
-
-// Behind the scenes:
-// 1. recall() checked memory → found a prior CORS solution (score: 0.85)
-// 2. Injected into system prompt: <prior_solution confidence="85%">...</prior_solution>
-// 3. GPT-4o used the hint → faster, more accurate response
-// 4. Result stored as new trace → future recalls benefit
-
-// Works identically for Anthropic:
-import Anthropic from "@anthropic-ai/sdk";
-const anthropic = wrapAnthropic(new Anthropic(), layer, { minScore: 0.72 });
 ```
 
-**Streaming is fully supported** — traces are captured after the stream completes.
+Streaming, tool calls, prompt caching — all supported. See [tracebase.ink/docs](https://tracebase.ink/docs).
 
-### 2. MCP Server (for Claude Code / AI IDEs)
+---
 
-Connect TraceBase as an MCP server. Claude Code automatically recalls before solving and stores after solving.
+## Where it earns its keep
+
+Four shapes of agent work where memory compounds value run-over-run:
+
+- **Coding agents** — Claude Code, Cursor, Codex. Pattern DB compounds across PRs and migrations.
+- **Long-horizon runs** — 100+ turn sessions stay coherent. Older turns fold into gists — no window thrashing.
+- **Document & research** — Gist remembers what long PDFs and reports mean. Past extractions surface on revisit.
+- **Customer & support ops** — Same-shape tickets, same playbook. Past resolutions surface before re-derivation.
+
+Detailed walkthroughs and benchmarks at [tracebase.ink](https://tracebase.ink).
+
+---
+
+## Built for teams running agents at scale
+
+Tracebase is the memory primitive teams deploy like infrastructure. The runtime is the same self-hosted binary whether one developer runs it locally or a platform team deploys it across many hosts. The features that matter at scale:
+
+- **Atomic writes** — concurrent agent runs don't trample each other's patterns.
+- **Audit trail** — every retrieval, injection, `agent_used`, and outcome event is logged to a local event log.
+- **Deletion + rollback** — patterns that disprove themselves get demoted by the lifecycle repair loop; you can also delete and rollback explicitly.
+- **On-prem deployment** — local SQLite, MIT license. Same binary on-prem and in CI. Code never leaves your perimeter.
+- **Holdout-based proof of lift** — enable with `init --holdout-rate 0.1` to verify with A/B baseline that memory actually improves outcomes, not just that it fires.
 
 ```bash
-npx tracebase-ai init
-npx tracebase-ai doctor
+# turn on the impact measurement holdout — 10% of runs go without memory
+# so you can compare cohorts cleanly
+npx tracebase-ai init --holdout-rate 0.1
+npx tracebase-ai impact     # 30-day funnel: injected vs used vs resolved
 ```
-
-`init` creates the local store, registers the MCP server for Claude Code / Cursor / Codex, and writes the managed instruction block. Claude Code uses the `claude mcp` registry; you should not hand-edit `.claude/settings.json` for MCP.
-
-Claude Code gets two key tools:
-- **recall** — "Before solving any problem, check institutional memory"
-- **store** — "After solving any problem, save the solution for future agents"
-
-### 3. Direct SDK
-
-Full control over when to store and recall.
-
-```typescript
-import { ReasoningLayer } from "tracebase-ai";
-
-const layer = new ReasoningLayer();
-
-// Store
-layer.storeTrace({
-  problem: {
-    description: "ECONNREFUSED when calling payment API",
-    errorType: "ECONNREFUSED",
-    language: "typescript",
-    framework: "express",
-    tags: ["api", "payments"],
-  },
-  solution: {
-    summary: "Payment service container crashed — restarted via docker compose",
-    steps: [
-      { type: "analysis", description: "Checked logs, saw connection refused on port 3001" },
-      { type: "action", description: "docker compose restart payments" },
-      { type: "verification", description: "Confirmed API responding" },
-    ],
-    outcome: "success",
-    explanation: "The payments service OOMed due to a memory leak in webhook handler",
-  },
-});
-
-// Recall
-const results = layer.recall({
-  problem: "Connection refused to payment service",
-  context: { language: "typescript", framework: "express" },
-});
-
-// Each result includes signal breakdown
-console.log(results[0].signals);
-// { fingerprint: 0, bm25: 0.72, jaccard: 0.45, structural: 0.38, cosine: 0 }
-
-// Feedback improves future recalls (Thompson Sampling)
-layer.feedback(results[0].trace.id, true);
-
-layer.close();
-```
-
----
-
-## Host Parity
-
-Capabilities by host integration. Every cell in this table is backed by an integration test in `tests/parity/host-matrix.test.ts`.
-
-| Host                          | Recall | FileMem | Fold | PromptCache | Tool          | Loop          |
-| ----------------------------- | :----: | :-----: | :--: | :---------: | :-----------: | :-----------: |
-| Claude Code (hooks)           |   ✓    |    ✓    |  ✓   |     n/a¹    | ✓ preventive  | ✓ preventive  |
-| `wrapAnthropic`               |   ✓    |    ✓    |  ✓   |      ✓      | ◐ post-hoc²   | ◐ post-hoc²   |
-| `wrapOpenAI`                  |   ✓    |    ✓    |  ✓   |      ✓      | ◐ post-hoc²   | ◐ post-hoc²   |
-| `wrapAgent` (string→string)   |   ✓    |    ✓    |  ✓   |     n/a³    | ◐ post-hoc²   | ◐ post-hoc²   |
-| `wrapGeneric` (LangChain)     |   ✓    |    ✓    |  ✓   |     n/a³    | ◐ post-hoc²   | ◐ post-hoc²   |
-| `wrapGeneric` (LangGraph)     |   ✓    |    ✓    |  ✓   |     n/a³    | ◐ post-hoc²   | ◐ post-hoc²   |
-| `wrapGeneric` (Agent SDK)     |   ✓    |    ✓    |  ✓   |     n/a³    | ◐ post-hoc²   | ◐ post-hoc²   |
-
-Legend:
-- **✓** — exercised end-to-end via the host's real path.
-- **◐** — partial: capability exists but is observed AFTER the call rather than blocking before it.
-- **preventive** — TraceBase decides BEFORE the tool runs (block / warn / allow).
-- **post-hoc** — TraceBase records what happened; the loop redirect hint surfaces on the NEXT turn, not this one.
-
-Footnotes:
-1. Claude Code's prompt cache is provider-side — attached by the model server itself; no hook-layer involvement. Effective in your Claude Code session regardless.
-2. Bare wrappers don't intercept tool dispatch. Wire `runtime.observeToolBatch(...)` after each tool batch (or use `wrapGeneric`'s `observeTools` callback) to enable Tool/Loop signals on the NEXT call.
-3. Generic agent wrappers don't see provider request shapes. If the underlying call goes through `wrapAnthropic` / `wrapOpenAI` inside the generic flow, prompt cache fires from there. Cache savings (when supported by the provider) **may reduce billed/processed prefix tokens** on cache hits; the actual reduction is what the provider reports back via `cache_read_input_tokens` (Anthropic) or `prompt_tokens_details.cached_tokens` (OpenAI). TraceBase never estimates cache savings — it counts only what the provider reports.
-
-Capability glossary:
-- **Recall** — prior-fix lookup (`ReasoningLayer.recall` / `runtime.beforeRun`).
-- **FileMem** — file-index-backed snippet recall (`recallFiles`).
-- **Fold** — same-session chunk recall from rolling context fold (`recallChunks`).
-- **PromptCache** — provider-side prefix caching (Anthropic `cache_control` + cached-token reporting; OpenAI auto-cache + cached-token reporting).
-- **Tool** — duplicate / shape-of-loop tool detection.
-- **Loop** — anchor-recall redirect when a duplicate / pingpong / straight-line tool pattern fires.
-
----
-
-## How It Works
-
-### The Recall-Before-Call Loop
-
-```
-User message arrives
-        │
-        ├── 1. recall()  ──── fingerprint match? ──── O(1) index lookup
-        │                ──── FTS5 BM25 search   ──── full-text ranking
-        │                ──── structural filter   ──── language/framework/error
-        │                ──── cosine similarity   ──── (when embeddings enabled)
-        │
-        ├── 2. Score ≥ 0.72?
-        │     YES → inject <prior_solution> into system prompt
-        │     NO  → proceed without hint
-        │
-        ├── 3. LLM call (with or without hint)
-        │
-        └── 4. store() → trace saved for future recalls
-```
-
-### Multi-Signal Ranking
-
-TraceBase combines four signals for matching, following the two-stage retrieval architecture (Bruch et al., 2023):
-
-| Signal | Stage | What it catches |
-|--------|-------|----------------|
-| **Fingerprint** | 1 | Exact same problem (O(1) lookup) |
-| **BM25 (FTS5)** | 1 | Same keywords, different phrasing |
-| **Jaccard** | 2 | Overlapping technical tokens |
-| **Structural** | 2 | Same error type / language / framework |
-| **Cosine** | 2 | Semantically similar (when embeddings enabled) |
-
-### Adaptive Weights (Thompson Sampling)
-
-Signal weights are **not hardcoded** — they learn from your feedback.
-
-Each signal has a Beta distribution prior. When you call `feedback(traceId, helpful)`:
-- `helpful=true` → `alpha += contribution`
-- `helpful=false` → `beta += contribution`
-- Weight = `alpha / (alpha + beta)`, normalized across active signals
-
-References: Thompson (1933); Agrawal & Goyal (2012) — provable regret bounds; Chapelle & Li (2011).
-
-### Semantic Embeddings (Optional)
-
-Add OpenAI embeddings for semantic recall — catches problems where the words are different but the meaning is the same.
-
-```typescript
-import OpenAI from "openai";
-import { ReasoningLayer, createOpenAIEmbeddings } from "tracebase-ai";
-
-const layer = new ReasoningLayer();
-layer.setEmbeddingProvider(createOpenAIEmbeddings(new OpenAI()));
-
-// Async API when embeddings are active
-const trace = await layer.storeTraceAsync({ ... });  // computes + stores vector
-const results = await layer.recallAsync({ ... });     // cosine similarity included
-```
-
-### Quality Score (Wilson Interval)
-
-Each trace tracks recall count and helpfulness. Quality uses the **Wilson score interval lower bound** (Wilson, 1927) — same algorithm Reddit uses:
-- Starts at 0.5 (neutral prior)
-- Rewards traces with consistent positive feedback
-- Penalizes traces that are recalled but never confirmed helpful
-- Properly handles small sample sizes
-
-### Deduplication
-
-`storeTrace()` detects duplicate problems by structural fingerprint. Same problem = same fingerprint = returns the existing trace instead of creating a duplicate. Prevents database pollution from repeated middleware calls.
 
 ---
 
 ## CLI
 
 ```bash
-npx tracebase-ai init                     # Initialize in current project
-npx tracebase-ai savings                  # Show tasks helped, time saved, tokens recycled
-npx tracebase-ai doctor                   # Verify the install end-to-end
-npx tracebase-ai store -d "..." -s "..."  # Store a reasoning trace
-npx tracebase-ai recall "..."             # Find relevant past solutions
-npx tracebase-ai search "..."             # Full-text search
-npx tracebase-ai stats                    # Storage statistics
-npx tracebase-ai serve [--mcp] [-p PORT]  # Start server (MCP or HTTP)
-npx tracebase-ai export [file]            # Export traces to JSON
-npx tracebase-ai import <file>            # Import traces from JSON
-npx tracebase-ai prune [-t threshold]     # Remove low-quality traces
-npx tracebase-ai distill --from-block ID  # Re-extract a heuristic block via LLM (Anthropic, opt-in)
+npx tracebase-ai init                      # initialize / re-detect adapters
+npx tracebase-ai status                    # one-screen install snapshot
+npx tracebase-ai doctor                    # integrity check (CI-friendly)
+npx tracebase-ai events --limit 20         # recent events from the local log
+npx tracebase-ai impact                    # 30-day reuse + saved-tokens funnel
+npx tracebase-ai savings                   # value-first summary (7d default)
+npx tracebase-ai recall "<problem shape>"  # surface matching past solutions
+npx tracebase-ai search "<query>"          # full-text search across the store
+npx tracebase-ai remove                    # uninstall: drop store + adapters
+npx tracebase-ai serve [--mcp] [--port]    # boot MCP or HTTP server manually
 ```
 
-All commands support `--json` for machine-readable output.
+Every command supports `--json` for machine-readable output. Wire `doctor --json` into CI for rollout gates.
+
+---
 
 ## HTTP API
 
 ```bash
 npx tracebase-ai serve --port 3781
 
-curl -X POST localhost:3781/recall -d '{"problem": "CORS error Express"}'
-curl -X POST localhost:3781/store  -d '{"problem": {...}, "solution": {...}}'
+curl -X POST localhost:3781/recall   -d '{"problem": "CORS error Express"}'
+curl -X POST localhost:3781/store    -d '{"problem": {...}, "solution": {...}}'
 curl -X POST localhost:3781/feedback -d '{"traceId": "...", "helpful": true}'
-curl localhost:3781/search?q=TypeError
-curl localhost:3781/stats
 curl localhost:3781/health
 ```
 
-## Team Sharing
+---
 
-```bash
-npx tracebase-ai export team-knowledge.json   # one machine
-npx tracebase-ai import team-knowledge.json   # another machine
-```
+## Host Parity
 
-Duplicate traces (by ID) are automatically skipped.
+Every cell in this table is backed by an integration test in `tests/parity/host-matrix.test.ts`. Nothing here is aspirational.
+
+| Host                          | Recall | FileMem | Fold | PromptCache | Tool         | Loop         |
+| ----------------------------- | :----: | :-----: | :--: | :---------: | :----------: | :----------: |
+| Claude Code (hooks)           |   ✓    |    ✓    |  ✓   |     n/a¹    | ✓ preventive | ✓ preventive |
+| `wrapAnthropic`               |   ✓    |    ✓    |  ✓   |      ✓      | ◐ post-hoc²  | ◐ post-hoc²  |
+| `wrapOpenAI`                  |   ✓    |    ✓    |  ✓   |      ✓      | ◐ post-hoc²  | ◐ post-hoc²  |
+| `wrapAgent` (string→string)   |   ✓    |    ✓    |  ✓   |     n/a³    | ◐ post-hoc²  | ◐ post-hoc²  |
+| `wrapGeneric` (LangChain)     |   ✓    |    ✓    |  ✓   |     n/a³    | ◐ post-hoc²  | ◐ post-hoc²  |
+| `wrapGeneric` (LangGraph)     |   ✓    |    ✓    |  ✓   |     n/a³    | ◐ post-hoc²  | ◐ post-hoc²  |
+| `wrapGeneric` (Agent SDK)     |   ✓    |    ✓    |  ✓   |     n/a³    | ◐ post-hoc²  | ◐ post-hoc²  |
+
+Legend: **✓** end-to-end via the host's real path · **◐** capability exists but observed AFTER the call · **preventive** decided BEFORE the tool runs (block / warn / allow) · **post-hoc** loop redirect surfaces on the NEXT turn.
+
+Footnotes: ¹ Claude Code's prompt cache is provider-side. ² Bare wrappers don't intercept tool dispatch — wire `runtime.observeToolBatch(...)` to enable Tool/Loop on the next call. ³ Generic wrappers don't see provider request shapes. Cache savings, when supported, **may reduce billed/processed prefix tokens** — TraceBase never estimates cache savings, only what the provider reports back (`cache_read_input_tokens` / `prompt_tokens_details.cached_tokens`).
 
 ---
 
-## Self-Hosted vs TraceBase Cloud
+## How it works (in one paragraph)
 
-TraceBase is fully open source and runs locally with zero external dependencies. For teams that need more, **TraceBase Cloud** (coming soon) adds:
+The pattern DB is project-scoped SQLite. Retrieval is a two-stage rank: fingerprint + FTS5/BM25 narrow the candidate set; structural similarity, Jaccard, and (optional) cosine embeddings re-rank. Above the threshold, the resolved trace gets injected into the prompt as context — never as a directive. After the run, an outcome event closes the loop: was the injected pattern actually used? Did the run resolve? Patterns that stop earning their keep get demoted automatically (Wilson interval lower bound on the helpfulness rate). Signal weights aren't hardcoded — they update via Thompson sampling on the outcome stream.
 
-| Feature | Self-Hosted (OSS) | Cloud |
-|---------|-------------------|-------|
-| Local SQLite storage | ✓ | ✓ |
-| Recall-before-call injection | ✓ | ✓ |
-| Adaptive weight learning | ✓ | ✓ |
-| MCP / HTTP / SDK | ✓ | ✓ |
-| **Cross-team sync** | — | ✓ (shared memory across machines) |
-| **Cloud backups** | — | ✓ (automatic, encrypted) |
-| **Analytics dashboard** | — | ✓ (recall rates, savings, quality) |
-| **Team management** | — | ✓ (roles, access control) |
-| **Managed embeddings** | — | ✓ (no API keys needed) |
-| **Retention policies** | — | ✓ (auto-archive, compliance) |
+Full architecture and the SWE-bench whitepaper at [tracebase.ink/whitepaper](https://tracebase.ink/whitepaper).
 
-## Configuration
+---
 
-```json
-// .tracebase/config.json
-{
-  "storagePath": ".tracebase/memory.db",
-  "maxTraces": 100000,
-  "pruneThreshold": 0.05,
-  "verbose": false
-}
-```
+## Status & roadmap
 
-## License
+- **Self-hosted is live, MIT, in production today.** v0.8.0 on npm.
+- **Hosted dashboard** at [tracebase.ink](https://tracebase.ink) — read-only view over the same local event log. Optional, never required.
+- **Hobby ($15/mo), Startup ($159/mo), Enterprise** paid tiers — draft packaging, not on checkout yet. Talk to us for early access at [tracebase.ink/#pricing](https://tracebase.ink/#pricing).
 
-MIT — [github.com/64envy64/tracebase](https://github.com/64envy64/tracebase)
+---
+
+## Links
+
+- **Landing** — [tracebase.ink](https://tracebase.ink)
+- **Docs** — [tracebase.ink/docs](https://tracebase.ink/docs)
+- **Whitepaper** — [tracebase.ink/whitepaper](https://tracebase.ink/whitepaper)
+- **npm** — [npmjs.com/package/tracebase-ai](https://www.npmjs.com/package/tracebase-ai)
+- **License** — MIT
+
+Part of the [Daytona Startup Grid](https://www.daytona.io/startups).
