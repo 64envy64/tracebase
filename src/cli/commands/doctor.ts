@@ -12,7 +12,7 @@
 import { Command } from "commander";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter as PATH_DELIM, join } from "node:path";
 import pc from "picocolors";
 import Database from "better-sqlite3";
 import {
@@ -422,6 +422,59 @@ export function runDoctor(invocationPath: string): DoctorReport {
  * Claude Code against a runtime this slow will also wait >60s before
  * seeing "Failed to connect".
  */
+/**
+ * Resolve an executable name to the absolute path that `spawn` should
+ * actually run. POSIX shells (and Node's POSIX spawn) handle PATH
+ * lookup natively, but Windows is broken in two specific ways the
+ * probe used to hit:
+ *
+ *   1. `spawnSync("npx", ...)` does NOT apply PATHEXT — it looks for
+ *      a literal file named `npx` (no extension) and fails ENOENT
+ *      even though `npx.cmd` is right next to `node.exe` on PATH.
+ *
+ *   2. Even if we resolve to `npx.cmd`, post-CVE-2024-27980 Node
+ *      refuses to spawn `.cmd` / `.bat` files unless `shell: true`
+ *      is passed, because the underlying CreateProcessW shim does
+ *      not safely quote arbitrary args inside cmd.exe parsing.
+ *
+ * So on Windows: walk PATH × PATHEXT once, return the full resolved
+ * path (or `null` if nothing matches), and let the caller decide
+ * whether to set `shell: true` based on the extension. On POSIX:
+ * fast-path return the original name and let Node handle it.
+ */
+export function resolveCommandPath(name: string): string | null {
+  // Absolute or relative path that already exists — use as-is.
+  if (existsSync(name)) return name;
+  if (process.platform !== "win32") {
+    // POSIX — Node's PATH lookup will handle it. Returning the bare
+    // name lets `spawnSync` resolve as usual; if it actually doesn't
+    // exist, spawn will surface ENOENT and the existing FAIL branch
+    // explains the fix.
+    return name;
+  }
+  const pathEnv = process.env.PATH ?? "";
+  const dirs = pathEnv.split(PATH_DELIM).filter(Boolean);
+  const extEnv = process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD";
+  const exts = extEnv
+    .split(";")
+    .map((e) => e.toLowerCase())
+    .filter(Boolean);
+  const lower = name.toLowerCase();
+  const hasKnownExt = exts.some((e) => lower.endsWith(e));
+  for (const dir of dirs) {
+    if (hasKnownExt) {
+      const candidate = join(dir, name);
+      if (existsSync(candidate)) return candidate;
+      continue;
+    }
+    for (const ext of exts) {
+      const candidate = join(dir, `${name}${ext}`);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
 function runMcpBootProbe(_projectRoot: string): DoctorCheck {
   const override = process.env.TRACEBASE_MCP_PROBE_COMMAND?.trim();
 
@@ -461,17 +514,55 @@ function runMcpBootProbe(_projectRoot: string): DoctorCheck {
     displayCommand = [executable, ...args].join(" ");
   }
 
-  const result = spawnSync(executable, args, {
+  // Resolve the executable upfront so Windows finds `npx.cmd` etc.
+  // before spawn touches it; otherwise `spawnSync("npx", ...)` would
+  // ENOENT on every Windows install even though npx is on PATH.
+  const resolvedExecutable = resolveCommandPath(executable);
+  if (resolvedExecutable === null) {
+    return {
+      name: "mcp-boot",
+      level: "fail",
+      message: `MCP server command not found: \`${executable}\``,
+      fix:
+        `Install the binary (${executable === "npx" ? "Node.js is required" : executable}) ` +
+        "or re-run `npx tracebase-ai init` to re-register a working command.",
+    };
+  }
+
+  // CVE-2024-27980 (Node ≥ 18.20 / 20.12 / 21.7): spawning a `.cmd`
+  // or `.bat` file requires `shell: true`. Set it on Windows when the
+  // resolved binary is one of those — args here are static and known
+  // safe (-y, package@latest, serve, --mcp, --selftest), so the shell
+  // quoting concern doesn't bite.
+  const lowerResolved = resolvedExecutable.toLowerCase();
+  const needsShell =
+    process.platform === "win32" &&
+    (lowerResolved.endsWith(".cmd") || lowerResolved.endsWith(".bat"));
+
+  // When `shell: true` is on, Node assembles `cmd.exe /d /s /c "<exe>
+  // <args>"`. Passing the resolved absolute path with spaces (e.g.
+  // `C:\Program Files\nodejs\npx.cmd`) would break cmd.exe's quote
+  // parsing — it tokenises on the first space. The cleanest fix is to
+  // hand cmd.exe the bare name (`npx`) and let it walk PATH + PATHEXT
+  // itself. The upfront `resolveCommandPath` call above already
+  // confirmed something resolves, so this can't reintroduce the
+  // command-not-found ENOENT we just fixed.
+  const spawnTarget = needsShell ? executable : resolvedExecutable;
+
+  const result = spawnSync(spawnTarget, args, {
     cwd: _projectRoot,
     encoding: "utf-8",
     timeout: 60_000,
     env: { ...process.env, NO_COLOR: "1" },
+    shell: needsShell,
   });
 
   const stdout = (result.stdout ?? "").trim();
   const stderr = (result.stderr ?? "").trim();
 
   if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+    // Reachable only on POSIX (Windows resolved upfront above), where
+    // Node's PATH lookup didn't find the executable at spawn time.
     return {
       name: "mcp-boot",
       level: "fail",
