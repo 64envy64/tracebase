@@ -138,7 +138,15 @@ export function recallForPrompt(
   const recallScope = opts.sessionId ? sessionScope(opts.sessionId) : "project";
   const raw = runReasoningPatternsRecall(
     server,
-    { problem: opts.prompt, scope: recallScope },
+    {
+      problem: opts.prompt,
+      scope: recallScope,
+      // Stamp every retrieval/injection event with run_id = sessionId
+      // so Stop-hook attribution inference can scope its candidate
+      // set to this session only. inject-context plumbs the Claude
+      // Code session_id straight into sessionId here.
+      ...(opts.sessionId ? { runId: opts.sessionId } : {}),
+    },
     { readHoldoutConfig: holdoutLoader },
   );
 

@@ -217,6 +217,17 @@ function isValidOutcome(e: Record<string, unknown>): boolean {
   if (e.regressed !== undefined && typeof e.regressed !== "boolean") return false;
   if (e.tokens !== undefined && (typeof e.tokens !== "number" || !Number.isFinite(e.tokens))) return false;
   if (e.steps !== undefined && (typeof e.steps !== "number" || !Number.isFinite(e.steps))) return false;
+  if (e.durationMs !== undefined && (typeof e.durationMs !== "number" || !Number.isFinite(e.durationMs))) return false;
+  // attribution is optional. Absent === explicit (backwards-compat).
+  // Anything other than the closed union must reject — otherwise a
+  // JSONL import with `attribution: "garbage"` would slip through
+  // and get silently counted as explicit by computeAggregates'
+  // verifiedHelpfulRuns gate (which only excludes the literal
+  // "inferred"). Tightening here is the only place that catches
+  // malformed external feeds.
+  if (e.attribution !== undefined && e.attribution !== "explicit" && e.attribution !== "inferred") {
+    return false;
+  }
   return true;
 }
 
@@ -376,6 +387,13 @@ export function emitOutcome(
      * call sites that omit it stay backwards-compatible.
      */
     durationMs?: number;
+    /**
+     * Provenance marker. Omit (default) when the canonical MCP /
+     * SDK path is calling — outcome is treated as explicit. Pass
+     * `"inferred"` from the Stop-hook attribution layer so
+     * downstream metrics can show verified vs estimated splits.
+     */
+    attribution?: "explicit" | "inferred";
     ts?: number;
     runId?: string;
   },
@@ -390,6 +408,7 @@ export function emitOutcome(
     ...(args.tokens !== undefined ? { tokens: args.tokens } : {}),
     ...(args.steps !== undefined ? { steps: args.steps } : {}),
     ...(args.durationMs !== undefined ? { durationMs: args.durationMs } : {}),
+    ...(args.attribution !== undefined ? { attribution: args.attribution } : {}),
   };
   toEmitter(target).emit(ev, args.runId !== undefined ? { runId: args.runId } : undefined);
   return ev;
@@ -506,8 +525,21 @@ export interface AggregateFunnel {
    * Distinct queryIds satisfying the §L6 helpfulness definition:
    * injection ∧ agent_used ∧ outcome.resolved. At least one
    * (injected block or fact, used, resolved) triple per query.
+   * Counts BOTH explicit and Stop-hook-inferred outcomes — see
+   * `verifiedHelpfulRuns` for the explicit-only subset.
    */
   helpfulRuns: number;
+  /**
+   * Subset of `helpfulRuns` whose outcome event was reported
+   * through the canonical path (MCP `record_reasoning_outcome` /
+   * SDK middleware) — i.e. the agent itself attested to the
+   * resolution. Outcomes written by the Stop-hook attribution
+   * layer (`attribution: "inferred"`) are excluded here so a
+   * soft heuristic-derived resolution can't pose as grader-
+   * verified. Backwards-compat: events without `attribution`
+   * are treated as explicit and DO count here.
+   */
+  verifiedHelpfulRuns: number;
 }
 
 export interface AggregateRates {
@@ -547,6 +579,15 @@ export interface PerBlockStats {
   injected: number;
   agentUsed: number;
   helpful: number;
+  /**
+   * Subset of `helpful` whose outcome event carried
+   * `attribution: "explicit"` (or no attribution field, treated as
+   * explicit for backwards-compat). Excludes Stop-hook-inferred
+   * resolutions. Kept in the SAME unit as `helpful` (per-block
+   * sum) so callers can subtract for the inferred portion without
+   * fighting the queryId-distinct funnel counters.
+   */
+  verifiedHelpful: number;
   counterproductive: number;
   neutral: number;
 }
@@ -558,6 +599,8 @@ export interface PerFactStats {
   injected: number;
   agentUsed: number;
   helpful: number;
+  /** Same provenance-aware subset of `helpful` as on PerBlockStats. */
+  verifiedHelpful: number;
   counterproductive: number;
   neutral: number;
 }
@@ -1044,7 +1087,7 @@ export function computeAggregates(
   function bumpBlock(id: string, field: keyof Omit<PerBlockStats, "blockId">): void {
     let row = perBlockMap.get(id);
     if (!row) {
-      row = { blockId: id, retrieved: 0, injected: 0, agentUsed: 0, helpful: 0, counterproductive: 0, neutral: 0 };
+      row = { blockId: id, retrieved: 0, injected: 0, agentUsed: 0, helpful: 0, verifiedHelpful: 0, counterproductive: 0, neutral: 0 };
       perBlockMap.set(id, row);
     }
     row[field] = (row[field] as number) + 1;
@@ -1055,7 +1098,7 @@ export function computeAggregates(
   function bumpFact(id: string, field: keyof Omit<PerFactStats, "factId">): void {
     let row = perFactMap.get(id);
     if (!row) {
-      row = { factId: id, retrieved: 0, injected: 0, agentUsed: 0, helpful: 0, counterproductive: 0, neutral: 0 };
+      row = { factId: id, retrieved: 0, injected: 0, agentUsed: 0, helpful: 0, verifiedHelpful: 0, counterproductive: 0, neutral: 0 };
       perFactMap.set(id, row);
     }
     row[field] = (row[field] as number) + 1;
@@ -1081,8 +1124,18 @@ export function computeAggregates(
 
       if (!outcome) continue; // no classification without an outcome
       if (used.has(bId)) {
-        if (outcome.resolved) bumpBlock(bId, "helpful");
-        else bumpBlock(bId, "counterproductive");
+        if (outcome.resolved) {
+          bumpBlock(bId, "helpful");
+          // verifiedHelpful = same unit as helpful, restricted to
+          // outcomes the canonical MCP/SDK path wrote. Absent
+          // attribution counts as explicit for backwards-compat
+          // (pre-attribution events all fall through here).
+          if (outcome.attribution !== "inferred") {
+            bumpBlock(bId, "verifiedHelpful");
+          }
+        } else {
+          bumpBlock(bId, "counterproductive");
+        }
       } else {
         bumpBlock(bId, "neutral");
       }
@@ -1099,8 +1152,14 @@ export function computeAggregates(
 
       if (!outcome) continue;
       if (used.has(fId)) {
-        if (outcome.resolved) bumpFact(fId, "helpful");
-        else bumpFact(fId, "counterproductive");
+        if (outcome.resolved) {
+          bumpFact(fId, "helpful");
+          if (outcome.attribution !== "inferred") {
+            bumpFact(fId, "verifiedHelpful");
+          }
+        } else {
+          bumpFact(fId, "counterproductive");
+        }
       } else {
         bumpFact(fId, "neutral");
       }
@@ -1216,10 +1275,18 @@ export function computeAggregates(
   for (const qid of factAgentUsedByQuery.keys()) usedQueries.add(qid);
 
   const helpfulQueries = new Set<string>();
+  const verifiedHelpfulQueries = new Set<string>();
   for (const qid of injectedQueries) {
     if (!usedQueries.has(qid)) continue;
     const outcome = outcomeByQuery.get(qid);
-    if (outcome?.resolved) helpfulQueries.add(qid);
+    if (!outcome?.resolved) continue;
+    helpfulQueries.add(qid);
+    // verifiedHelpfulRuns excludes outcomes the Stop-hook
+    // attribution layer wrote heuristically — only explicit MCP /
+    // SDK signals count as a grader-verified resolution. Absence of
+    // the field means "explicit" (pre-existing rows + canonical
+    // path); only `attribution === "inferred"` is excluded.
+    if (outcome.attribution !== "inferred") verifiedHelpfulQueries.add(qid);
   }
 
   const funnel: AggregateFunnel = {
@@ -1228,6 +1295,7 @@ export function computeAggregates(
     injectedRuns: injectedQueries.size,
     usedRuns: usedQueries.size,
     helpfulRuns: helpfulQueries.size,
+    verifiedHelpfulRuns: verifiedHelpfulQueries.size,
   };
 
   // Phase 3 causal split — classify each queryId with an outcome

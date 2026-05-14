@@ -77,8 +77,21 @@ export interface Impact {
 
   /** Non-shadow retrievals where at least one injection fired. */
   assistedTasks: number;
-  /** Tasks credited as helpful (resolved AND used the injected pattern). */
+  /**
+   * Tasks credited as helpful (resolved AND used the injected pattern).
+   * Counts BOTH Stop-hook-inferred and explicit-MCP resolutions —
+   * matches the historical `helpedTasks` definition. Pair with
+   * `verifiedHelpedTasks` for the explicit-only subset.
+   */
   helpedTasks: number;
+  /**
+   * Subset of `helpedTasks` whose outcome was reported through the
+   * canonical MCP / SDK path (`attribution: "explicit"` or absent
+   * for backwards-compat). Excludes outcomes written by the Stop-
+   * hook attribution layer (`attribution: "inferred"`). Sourced
+   * from `aggregates.funnel.verifiedHelpfulRuns`.
+   */
+  verifiedHelpedTasks: number;
   /** Distinct blocks that were agent_used at least once. */
   memoriesUsed: number;
 
@@ -155,9 +168,17 @@ export function computeImpact(
   // share a helpful credit on one queryId — that's fine, it reflects
   // a query genuinely benefiting from N memories).
   let helpedTasks = 0;
+  let verifiedHelpedTasks = 0;
   const usedBlockIds = new Set<string>();
   for (const row of aggregates.perBlock) {
     helpedTasks += row.helpful;
+    // verifiedHelpedTasks is summed in the SAME unit as helpedTasks
+    // (per-block) so the savings UI can subtract them honestly:
+    // helpedTasks - verifiedHelpedTasks = inferred-only help. Pulling
+    // from funnel.verifiedHelpfulRuns would mix distinct-queryId
+    // counts with per-block sums and the split would lie whenever
+    // a single query touched multiple helpful blocks.
+    verifiedHelpedTasks += row.verifiedHelpful;
     if (row.agentUsed > 0) usedBlockIds.add(row.blockId);
   }
 
@@ -244,6 +265,15 @@ export function computeImpact(
     confidence,
     assistedTasks,
     helpedTasks,
+    // Per-block sum from above — same unit as helpedTasks so the
+    // savings UI can compute inferredHelpedTasks = helpedTasks -
+    // verifiedHelpedTasks without unit-mismatch artefacts. The
+    // funnel exposes a queryId-distinct count too
+    // (funnel.verifiedHelpfulRuns) which is the right surface for
+    // run-level dashboards; we keep them numerically consistent at
+    // a queryId == single-block-helpful boundary, and they diverge
+    // honestly when one query helps N blocks.
+    verifiedHelpedTasks,
     memoriesUsed,
     estimatedMinutesSaved,
     estimatedTokensSaved,

@@ -89,6 +89,7 @@ function emptyImpact(): Impact {
     confidence: "empty",
     assistedTasks: 0,
     helpedTasks: 0,
+    verifiedHelpedTasks: 0,
     memoriesUsed: 0,
     estimatedMinutesSaved: 0,
     estimatedTokensSaved: 0,
@@ -279,6 +280,20 @@ function renderOk(view: SavingsView): void {
     " assisted task" +
     (impact.assistedTasks === 1 ? "" : "s"),
   );
+  // Provenance split: show verified vs estimated separately when the
+  // window contains both kinds, so soft Stop-hook-inferred resolutions
+  // don't pose as grader-verified. We only render the sub-line when
+  // there's actually something interesting to show (>=1 helpful) —
+  // an all-zero state stays clean.
+  if (impact.helpedTasks > 0) {
+    const inferred = Math.max(0, impact.helpedTasks - impact.verifiedHelpedTasks);
+    console.log(
+      "    " + pc.dim("└ ") +
+      pc.dim("verified: ") + pc.bold(String(impact.verifiedHelpedTasks)) +
+      pc.dim(" · estimated: ") + pc.bold(String(inferred)) +
+      pc.dim("  (verified = agent self-reported via MCP)"),
+    );
+  }
   console.log(
     "  " + pc.cyan("⏱") + " ~" +
     pc.bold(String(impact.estimatedMinutesSaved)) +

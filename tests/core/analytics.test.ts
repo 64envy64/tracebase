@@ -569,6 +569,35 @@ describe("importEventsFromJsonl — strict validation", () => {
     );
     const store = makeStore();
     expect(importEventsFromJsonl(store, path)).toBe(4);
+
+});
+  it("rejects an outcome with an unrecognised \`attribution\` value", () => {
+    // The provenance field is optional but, when present, must be
+    // exactly "explicit" or "inferred". Anything else (typo,
+    // malformed upstream feed, hand-edited row) would otherwise
+    // silently count as explicit in verifiedHelpfulRuns — the gate
+    // is `!== "inferred"`, so unknown values pass through as if
+    // they were canonical.
+    writeFileSync(
+      path,
+      `{"ts":1,"queryId":"q","event":"outcome","resolved":true,"control":false,"attribution":"garbage"}\n`,
+    );
+    const store = makeStore();
+    expect(importEventsFromJsonl(store, path)).toBe(0);
+  });
+
+  it("accepts both halves of the attribution union (inferred + explicit)", () => {
+    // Both halves of the closed union must round-trip cleanly,
+    // otherwise honest re-import of an exported event log would
+    // silently drop the soft Stop-hook outcomes and
+    // verifiedHelpfulRuns would over-count.
+    writeFileSync(
+      path,
+      `{"ts":1,"queryId":"q1","event":"outcome","resolved":true,"control":false,"attribution":"inferred"}\n` +
+      `{"ts":2,"queryId":"q2","event":"outcome","resolved":true,"control":false,"attribution":"explicit"}\n`,
+    );
+    const store = makeStore();
+    expect(importEventsFromJsonl(store, path)).toBe(2);
   });
 });
 
@@ -1032,6 +1061,87 @@ describe("BlockStore — v1 → v2 analytics_events migration", () => {
       store.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Unit invariant — helpedTasks and verifiedHelpedTasks must share
+// units. If verifiedHelpedTasks slipped back to funnel.verifiedHelpfulRuns
+// (queryId-distinct) while helpedTasks stayed as Σ perBlock.helpful, then
+// any query that helped >1 block would generate a phantom "inferred"
+// credit in the savings UI (because the subtraction lies).
+// ---------------------------------------------------------------------------
+describe("computeAggregates + computeImpact — multi-block single-query helpedTasks/verifiedHelpedTasks unit invariant", () => {
+  it("a single explicit-outcome query that helps two blocks yields helpedTasks=2 and verifiedHelpedTasks=2 (no phantom inferred credit)", async () => {
+    const { computeImpact } = await import("../../src/core/impact.js");
+    const store = new BlockStore(new Database(":memory:"));
+    try {
+      const queryId = "q-multi-1";
+      const blockA = "block-A";
+      const blockB = "block-B";
+      // Retrieval surfaces both blocks; both pass the gate.
+      store.appendEvent({
+        ts: 1, queryId, event: "retrieval", shadow: false,
+        candidates: [
+          { blockId: blockA, score: 0.9 },
+          { blockId: blockB, score: 0.88 },
+        ],
+      });
+      store.appendEvent({ ts: 2, queryId, event: "injection", blockId: blockA, score: 0.9 });
+      store.appendEvent({ ts: 3, queryId, event: "injection", blockId: blockB, score: 0.88 });
+      // The agent uses BOTH.
+      emitAgentUsed(store, { queryId, blockId: blockA, matchSignal: "explicit", matchScore: 1.0 });
+      emitAgentUsed(store, { queryId, blockId: blockB, matchSignal: "explicit", matchScore: 1.0 });
+      // Single explicit outcome — no inferred path at all.
+      emitOutcome(store, { queryId, resolved: true, control: false, attribution: "explicit" });
+
+      const agg = computeAggregates(store);
+      const impact = computeImpact(agg);
+
+      // 2 blocks * 1 helpful query = 2 per-block helpful credits.
+      expect(impact.helpedTasks).toBe(2);
+      // verifiedHelpedTasks must be in the SAME unit. Subtracting
+      // them must yield zero — no inferred help happened here.
+      expect(impact.verifiedHelpedTasks).toBe(2);
+      expect(impact.helpedTasks - impact.verifiedHelpedTasks).toBe(0);
+
+      // Sanity: funnel.helpfulRuns is the queryId-distinct count,
+      // which IS 1 here. Crossing surfaces (per-block vs per-query)
+      // is the whole bug we're regressing against.
+      expect(agg.funnel.helpfulRuns).toBe(1);
+      expect(agg.funnel.verifiedHelpfulRuns).toBe(1);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("two queries — one explicit, one inferred — yields helpedTasks=2 and verifiedHelpedTasks=1 (one truly-inferred credit)", async () => {
+    const { computeImpact } = await import("../../src/core/impact.js");
+    const store = new BlockStore(new Database(":memory:"));
+    try {
+      const blockId = "block-X";
+      // Query #1 — explicit outcome.
+      const q1 = "q-explicit";
+      store.appendEvent({ ts: 1, queryId: q1, event: "retrieval", shadow: false, candidates: [{ blockId, score: 0.9 }] });
+      store.appendEvent({ ts: 2, queryId: q1, event: "injection", blockId, score: 0.9 });
+      emitAgentUsed(store, { queryId: q1, blockId, matchSignal: "explicit", matchScore: 1.0 });
+      emitOutcome(store, { queryId: q1, resolved: true, control: false, attribution: "explicit" });
+
+      // Query #2 — Stop-hook inferred outcome.
+      const q2 = "q-inferred";
+      store.appendEvent({ ts: 10, queryId: q2, event: "retrieval", shadow: false, candidates: [{ blockId, score: 0.85 }] });
+      store.appendEvent({ ts: 11, queryId: q2, event: "injection", blockId, score: 0.85 });
+      emitAgentUsed(store, { queryId: q2, blockId, matchSignal: "jaccard", matchScore: 0.5 });
+      emitOutcome(store, { queryId: q2, resolved: true, control: false, attribution: "inferred" });
+
+      const impact = computeImpact(computeAggregates(store));
+      expect(impact.helpedTasks).toBe(2);
+      expect(impact.verifiedHelpedTasks).toBe(1);
+      expect(impact.helpedTasks - impact.verifiedHelpedTasks).toBe(1);
+    } finally {
+      store.close();
     }
   });
 });

@@ -33,6 +33,7 @@ import { memoryCommand } from "../src/cli/commands/memory.js";
 import { impactCommand } from "../src/cli/commands/impact.js";
 import { savingsCommand } from "../src/cli/commands/savings.js";
 import { distillCommand } from "../src/cli/commands/distill.js";
+import { verifyLoopCommand } from "../src/cli/commands/verify-loop.js";
 import { isInitialized } from "../src/core/config.js";
 
 // Read version from package.json at runtime
@@ -79,6 +80,7 @@ program.addCommand(memoryCommand);
 program.addCommand(impactCommand);
 program.addCommand(savingsCommand);
 program.addCommand(distillCommand);
+program.addCommand(verifyLoopCommand);
 
 // No args → guided quickstart instead of generic help
 if (process.argv.length <= 2) {

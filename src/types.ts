@@ -1623,6 +1623,23 @@ export interface OutcomeEvent extends EventBase {
   durationMs?: number;
   /** True if this query was a shadow control (no injection was shown). */
   control: boolean;
+  /**
+   * Provenance of the resolution claim. Absent or `"explicit"` means
+   * the outcome was reported through the canonical path (MCP
+   * `record_reasoning_outcome` call or SDK middleware) — the agent
+   * itself attested to the result. `"inferred"` means the Stop-hook
+   * transcript-attribution layer wrote the outcome based on heuristics
+   * (the agent didn't explicitly self-report).
+   *
+   * Downstream analytics split these so `helpfulRuns` (which counts
+   * both) and `verifiedHelpfulRuns` (explicit only) can be reported
+   * side by side — preventing a soft inferred outcome from
+   * masquerading as a grader-verified resolution.
+   *
+   * Backwards-compat: absent === `"explicit"`. Events written before
+   * this field existed are treated as explicit.
+   */
+  attribution?: "explicit" | "inferred";
 }
 
 // ----------------------------------------------------------------------------

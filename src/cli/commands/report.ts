@@ -130,7 +130,7 @@ function renderReport(
 
   console.log(pc.bold("Funnel ") + pc.dim("(distinct queryIds per stage)"));
   const f = agg.funnel;
-  console.log(`  eligible ${f.eligibleRuns} → recalled ${f.recalledRuns} → injected ${f.injectedRuns} → used ${f.usedRuns} → helpful ${f.helpfulRuns}`);
+  console.log(`  eligible ${f.eligibleRuns} → recalled ${f.recalledRuns} → injected ${f.injectedRuns} → used ${f.usedRuns} → helpful ${f.helpfulRuns} (verified ${f.verifiedHelpfulRuns})`);
   console.log();
 
   console.log(pc.bold("Rates"));

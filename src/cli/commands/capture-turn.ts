@@ -60,6 +60,7 @@ import {
   type StoreReasoningPatternArgs,
 } from "../../server/mcp-v2-helpers.js";
 import type { StoreProjectFactInput } from "../../types.js";
+import { applyInferenceAndEmit } from "../../runtime/attribution-inference.js";
 
 // ---------------------------------------------------------------------------
 // Hook shape + CLI options
@@ -320,7 +321,7 @@ export function runCaptureTurn(
 
     // A single store handle services both the pattern and the facts so
     // the SQLite file is opened once per hook invocation.
-    const { blockResult, factCount } = withBlockStore(config.storagePath, (store) => {
+    const { blockResult, factCount, inferredUseCount } = withBlockStore(config.storagePath, (store) => {
       let blockResult: ReturnType<typeof storeReasoningPattern> | null = null;
       if (extracted) {
         try {
@@ -347,13 +348,52 @@ export function runCaptureTurn(
           );
         }
       }
-      return { blockResult, factCount };
+      // ATTRIBUTION INFERENCE (delegated). The Stop hook owns the
+      // only natural moment where we have BOTH the transcript and
+      // the injection events from this turn. The scoring + emit
+      // contract lives in src/runtime/attribution-inference.ts; we
+      // pass two opinion-bearing inputs:
+      //
+      //   - runId = stdin session_id → tightens cross-session
+      //     isolation when inject-context has plumbed the session
+      //     through (no leakage between parallel terminals).
+      //
+      //   - allowOutcomeEmission = (blockResult !== null) → only
+      //     write a soft `outcome.resolved=true` when this same
+      //     turn also produced a reusable pattern. That is the
+      //     strongest non-MCP signal we have that the run
+      //     delivered value; without it we emit `agent_used`
+      //     (which is observable from the transcript) and leave
+      //     `outcome` to whatever explicit MCP signal arrives next.
+      //
+      // Wrapped in try/catch so an inference failure never blocks the
+      // existing capture path: capture-turn must keep emitting a
+      // parseable envelope no matter what.
+      let inferredUseCount = 0;
+      try {
+        const sessionId = stdin.session_id ?? stdin.sessionId;
+        const report = applyInferenceAndEmit(store, transcript.lastAssistantText, {
+          ...(sessionId ? { runId: sessionId } : {}),
+          allowOutcomeEmission: blockResult !== null,
+        });
+        inferredUseCount = report.agentUsedEmitted;
+      } catch (err) {
+        process.stderr.write(
+          `tracebase capture-turn: attribution inference skipped: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      }
+
+      return { blockResult, factCount, inferredUseCount };
+
     });
 
     // Compose the situation from pattern + fact outcomes. When neither
     // produced anything, the hook emits "no reusable pattern"; when
     // only facts landed, we still report the capture via the fact
     // count — no block badge, but the TB MEMORY half lights up.
+    if (inferredUseCount > 0 && process.env.TRACEBASE_DEBUG_ATTRIBUTION === "1") {
+      process.stderr.write(`tracebase capture-turn: inferred ${inferredUseCount} agent_used events from transcript\n`);
+    }
     let situation: CaptureSituation;
     if (blockResult) {
       situation = blockResult.isNew
