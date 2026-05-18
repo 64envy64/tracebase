@@ -269,7 +269,10 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
   }
 
   async beforeTask(input: BeforeTaskInput): Promise<BeforeTaskResult> {
-    const result = runReasoningPatternsRecall(this.blockServer, input, {
+    // B1.2: runReasoningPatternsRecall is async. The Provider does
+    // not wire in a cascade-config loader, so this stays on the sync
+    // recall() path internally — the await resolves on the same tick.
+    const result = await runReasoningPatternsRecall(this.blockServer, input, {
       readHoldoutConfig: this.readHoldoutConfig,
     });
     return toReasoningPatternsStructured(result);

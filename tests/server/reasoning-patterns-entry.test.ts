@@ -90,9 +90,9 @@ const ARGS = {
 } as const;
 
 describe("runReasoningPatternsRecall — default-off byte-identical path", () => {
-  it("emits legacy retrieval shape when no experiment config exists on disk", () => {
+  it("emits legacy retrieval shape when no experiment config exists on disk", async () => {
     initConfig(dir); // no experiment
-    const res = runReasoningPatternsRecall(
+    const res = await runReasoningPatternsRecall(
       server,
       { ...ARGS, queryId: "q-noconfig" } as unknown as typeof ARGS,
       { readHoldoutConfig: () => readHoldoutConfig(dir) },
@@ -107,7 +107,7 @@ describe("runReasoningPatternsRecall — default-off byte-identical path", () =>
     expect(injectionEventsFor(res.queryId).length).toBeGreaterThan(0);
   });
 
-  it("stays legacy when the experiment exists but is disabled", () => {
+  it("stays legacy when the experiment exists but is disabled", async () => {
     initConfig(dir);
     enableHoldoutExperiment(dir, {
       rate: 1,
@@ -116,7 +116,7 @@ describe("runReasoningPatternsRecall — default-off byte-identical path", () =>
     });
     disableHoldoutExperiment(dir, { now: () => new Date("2026-04-22T01:00:00.000Z") });
 
-    const res = runReasoningPatternsRecall(server, ARGS, {
+    const res = await runReasoningPatternsRecall(server, ARGS, {
       readHoldoutConfig: () => readHoldoutConfig(dir),
     });
     expect(res.shadow).toBe(false);
@@ -138,9 +138,9 @@ describe("runReasoningPatternsRecall — enabled holdout drives real events", ()
     });
   }
 
-  it("retrieval event carries controlReason='holdout' and no injection fires", () => {
+  it("retrieval event carries controlReason='holdout' and no injection fires", async () => {
     enableAtRate1();
-    const res = runReasoningPatternsRecall(server, ARGS, {
+    const res = await runReasoningPatternsRecall(server, ARGS, {
       readHoldoutConfig: () => readHoldoutConfig(dir),
     });
     expect(res.shadow).toBe(true);
@@ -157,12 +157,12 @@ describe("runReasoningPatternsRecall — enabled holdout drives real events", ()
     expect(injectionEventsFor(res.queryId)).toEqual([]);
   });
 
-  it("same problem shape lands in the same cohort on every call (fingerprint stability)", () => {
+  it("same problem shape lands in the same cohort on every call (fingerprint stability)", async () => {
     enableAtRate1();
-    const r1 = runReasoningPatternsRecall(server, ARGS, {
+    const r1 = await runReasoningPatternsRecall(server, ARGS, {
       readHoldoutConfig: () => readHoldoutConfig(dir),
     });
-    const r2 = runReasoningPatternsRecall(server, ARGS, {
+    const r2 = await runReasoningPatternsRecall(server, ARGS, {
       readHoldoutConfig: () => readHoldoutConfig(dir),
     });
     expect(r1.shadow).toBe(r2.shadow);
@@ -175,7 +175,7 @@ describe("runReasoningPatternsRecall — enabled holdout drives real events", ()
     }
   });
 
-  it("toggles via CLI helpers take effect on the next call without restart", () => {
+  it("toggles via CLI helpers take effect on the next call without restart", async () => {
     // Simulates a user running
     //   tracebase experiment enable
     //   … agent call …
@@ -183,14 +183,14 @@ describe("runReasoningPatternsRecall — enabled holdout drives real events", ()
     //   … agent call …
     // and proves the loader re-reads config fresh every invocation.
     enableAtRate1();
-    const held = runReasoningPatternsRecall(server, ARGS, {
+    const held = await runReasoningPatternsRecall(server, ARGS, {
       readHoldoutConfig: () => readHoldoutConfig(dir),
     });
     expect(held.shadow).toBe(true);
 
     disableHoldoutExperiment(dir, { now: () => new Date("2026-04-22T01:00:00.000Z") });
 
-    const released = runReasoningPatternsRecall(server, ARGS, {
+    const released = await runReasoningPatternsRecall(server, ARGS, {
       readHoldoutConfig: () => readHoldoutConfig(dir),
     });
     expect(released.shadow).toBe(false);
@@ -204,7 +204,7 @@ describe("runReasoningPatternsRecall — enabled holdout drives real events", ()
         throw new Error("salt factory must not fire on re-enable");
       },
     });
-    const heldAgain = runReasoningPatternsRecall(server, ARGS, {
+    const heldAgain = await runReasoningPatternsRecall(server, ARGS, {
       readHoldoutConfig: () => readHoldoutConfig(dir),
     });
     const retrieval = retrievalEventFor(heldAgain.queryId);
@@ -215,14 +215,14 @@ describe("runReasoningPatternsRecall — enabled holdout drives real events", ()
 });
 
 describe("runReasoningPatternsRecall — fake-holdout guards", () => {
-  it("no-candidate query never becomes holdout even when experiment is enabled at rate=1", () => {
+  it("no-candidate query never becomes holdout even when experiment is enabled at rate=1", async () => {
     initConfig(dir);
     enableHoldoutExperiment(dir, {
       rate: 1,
       saltFactory: () => "salt-no-candidates",
       now: () => new Date("2026-04-22T00:00:00.000Z"),
     });
-    const res = runReasoningPatternsRecall(
+    const res = await runReasoningPatternsRecall(
       server,
       { problem: "xyzzy-nonexistent-gibberish-token-9000" },
       { readHoldoutConfig: () => readHoldoutConfig(dir) },
@@ -237,7 +237,7 @@ describe("runReasoningPatternsRecall — fake-holdout guards", () => {
     }
   });
 
-  it("empty fingerprint silently skips holdout assignment (default-off preserved)", () => {
+  it("empty fingerprint silently skips holdout assignment (default-off preserved)", async () => {
     // Fingerprint factory injection — simulates "caller has no
     // stable fingerprint available" rather than rigging the real
     // fingerprint function.
@@ -247,7 +247,7 @@ describe("runReasoningPatternsRecall — fake-holdout guards", () => {
       saltFactory: () => "salt-empty-fp",
       now: () => new Date("2026-04-22T00:00:00.000Z"),
     });
-    const res = runReasoningPatternsRecall(server, ARGS, {
+    const res = await runReasoningPatternsRecall(server, ARGS, {
       readHoldoutConfig: () => readHoldoutConfig(dir),
       fingerprintFactory: () => "", // empty → buildHoldoutInput returns undefined
     });
@@ -262,9 +262,9 @@ describe("runReasoningPatternsRecall — fake-holdout guards", () => {
   // Mild integration guard: the seeded block should always be one
   // of the retrieved candidates in the enabled path. Keeps the
   // "real recall fired" story honest across the rest of the suite.
-  it("recall actually hits the seeded block on the happy path", () => {
+  it("recall actually hits the seeded block on the happy path", async () => {
     initConfig(dir);
-    const res = runReasoningPatternsRecall(server, ARGS, {
+    const res = await runReasoningPatternsRecall(server, ARGS, {
       readHoldoutConfig: () => readHoldoutConfig(dir),
     });
     expect(res.blocks.some((h) => h.block.id === seededBlock.id)).toBe(true);
@@ -272,7 +272,7 @@ describe("runReasoningPatternsRecall — fake-holdout guards", () => {
 });
 
 describe("Phase 3.4.2 — project root resolution is independent of storagePath", () => {
-  it("finds the holdout config when storagePath lives outside the project tree", () => {
+  it("finds the holdout config when storagePath lives outside the project tree", async () => {
     // Regression: before 3.4.2 the MCP server derived `basePath`
     // via `dirname(dirname(config.storagePath))`. For a project
     // whose `storagePath` was customised to a non-canonical
@@ -298,7 +298,7 @@ describe("Phase 3.4.2 — project root resolution is independent of storagePath"
       // to `startMcpServer`, which wires the loader against it.
       // storagePath (now outside the project) is irrelevant to
       // holdout lookup — the whole point of this fix.
-      const res = runReasoningPatternsRecall(server, ARGS, {
+      const res = await runReasoningPatternsRecall(server, ARGS, {
         readHoldoutConfig: () => readHoldoutConfig(dir),
       });
       expect(res.shadow).toBe(true);
@@ -330,5 +330,82 @@ describe("Phase 3.4.2 — project root resolution is independent of storagePath"
     );
     expect(source).not.toMatch(/dirname\(dirname\(config\.storagePath\)\)/);
     expect(source).not.toMatch(/dirname\(.*storagePath.*\)/);
+  });
+});
+
+// ============================================================================
+// May-2026 B1.2 — cascade rollout routes runReasoningPatternsRecall to
+// recallAsync() when the fingerprint lands in the cohort. The retrieval
+// event grows cascade telemetry fields (rerankerName, cascadePolicyId,
+// mmrLambda, preCascadeSlate) only on the async path, so analytics can
+// A/B sync-vs-async helpful-rate end-to-end.
+// ============================================================================
+
+describe("runReasoningPatternsRecall — cascade rollout gate (B1.2)", () => {
+  it("rate=0 / no cascade loader → sync recall path; no cascade telemetry on event", async () => {
+    const result = await runReasoningPatternsRecall(
+      server,
+      { problem: "Pipeline stalls when webhook delivery retries exceed backoff ceiling" },
+      { readHoldoutConfig: () => null },
+    );
+    const events = store.readEvents({ queryId: result.queryId, limit: 5 });
+    const retrieval = events.find((e) => e.event === "retrieval");
+    expect(retrieval).toBeDefined();
+    // Sync path stamps no cascade telemetry — that is the discriminator
+    // analytics use to bucket sync-vs-async runs.
+    const r = retrieval as Extract<AnalyticsEvent, { event: "retrieval" }>;
+    expect(r.rerankerName).toBeUndefined();
+    expect(r.cascadePolicyId).toBeUndefined();
+    expect(r.preCascadeSlate).toBeUndefined();
+  });
+
+  it("rate=1.0 → cascade path; retrieval event carries cascade telemetry", async () => {
+    const result = await runReasoningPatternsRecall(
+      server,
+      { problem: "Pipeline stalls when webhook delivery retries exceed backoff ceiling" },
+      {
+        readHoldoutConfig: () => null,
+        readCascadeConfig: () => ({
+          enabled: true,
+          rollout: { rate: 1.0, salt: "cascade-test-salt" },
+          reranker: { kind: "noop" },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        }),
+      },
+    );
+    const events = store.readEvents({ queryId: result.queryId, limit: 5 });
+    const retrieval = events.find((e) => e.event === "retrieval");
+    expect(retrieval).toBeDefined();
+    const r = retrieval as Extract<AnalyticsEvent, { event: "retrieval" }>;
+    // BlockServer's default reranker is NoopReranker — even with
+    // kind: "noop" the cascade telemetry IS stamped so the policy
+    // versioning contract holds: every retrieval that went through
+    // recallAsync carries the policyId, period.
+    expect(r.cascadePolicyId).toBe("linear+rerank+mmr.v1");
+    expect(typeof r.rerankerName).toBe("string");
+    expect(typeof r.mmrLambda).toBe("number");
+    // Pre-cascade slate is logged for B3 replay-screening.
+    expect(Array.isArray(r.preCascadeSlate)).toBe(true);
+  });
+
+  it("cascade disabled even at rate=1.0 → sync recall path", async () => {
+    const result = await runReasoningPatternsRecall(
+      server,
+      { problem: "Pipeline stalls when webhook delivery retries exceed backoff ceiling" },
+      {
+        readHoldoutConfig: () => null,
+        readCascadeConfig: () => ({
+          enabled: false, // master switch wins over rate
+          rollout: { rate: 1.0, salt: "cascade-test-salt" },
+          reranker: { kind: "noop" },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        }),
+      },
+    );
+    const events = store.readEvents({ queryId: result.queryId, limit: 5 });
+    const retrieval = events.find((e) => e.event === "retrieval") as Extract<AnalyticsEvent, { event: "retrieval" }>;
+    expect(retrieval.cascadePolicyId).toBeUndefined();
   });
 });

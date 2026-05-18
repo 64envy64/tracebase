@@ -29,7 +29,7 @@ import type { BlockStore } from "../core/block-store.js";
 import type { BlockServer, RecallV2Result } from "../core/block-serving.js";
 import type { ToolPatternSignal } from "../core/tool-loop-detect.js";
 import type { InjectionPayload } from "../core/build-injection-payload.js";
-import type { readHoldoutConfig } from "../core/config.js";
+import type { readCascadeConfig, readHoldoutConfig } from "../core/config.js";
 
 import { detectToolPattern } from "../core/tool-loop-detect.js";
 import { buildInjectionPayload } from "../core/build-injection-payload.js";
@@ -46,6 +46,14 @@ import { randomUUID } from "node:crypto";
  * Kept on the input rather than imported here so tests can stub it.
  */
 export type HoldoutLoader = () => ReturnType<typeof readHoldoutConfig>;
+
+/**
+ * May-2026 B1.2 — sibling to HoldoutLoader. Returns the persisted
+ * cascade config (or null when not configured / malformed). The hook
+ * path and SDK runtime hot-load this on every prompt so
+ * `tracebase cascade set-rate` takes effect without a restart.
+ */
+export type CascadeLoader = () => ReturnType<typeof readCascadeConfig>;
 
 export interface RecallForPromptOptions {
   /** User prompt — already extracted, leakage-bounded by the caller. */
@@ -129,14 +137,20 @@ export interface RecallForPromptResult {
  * tool signal. Surface errors via stderr / `onBadge` at the call
  * site if you need them.
  */
-export function recallForPrompt(
+export async function recallForPrompt(
   server: BlockServer,
   store: BlockStore,
   holdoutLoader: HoldoutLoader,
   opts: RecallForPromptOptions,
-): RecallForPromptResult {
+  cascadeLoader?: CascadeLoader,
+): Promise<RecallForPromptResult> {
   const recallScope = opts.sessionId ? sessionScope(opts.sessionId) : "project";
-  const raw = runReasoningPatternsRecall(
+  // May-2026 B1.2 — runReasoningPatternsRecall is async because the
+  // cascade rollout decision can route the query through
+  // recallAsync(). When `cascadeLoader` is omitted or returns null,
+  // the entry takes the synchronous recall() path internally and the
+  // await resolves on the same tick.
+  const raw = await runReasoningPatternsRecall(
     server,
     {
       problem: opts.prompt,
@@ -147,7 +161,10 @@ export function recallForPrompt(
       // Code session_id straight into sessionId here.
       ...(opts.sessionId ? { runId: opts.sessionId } : {}),
     },
-    { readHoldoutConfig: holdoutLoader },
+    {
+      readHoldoutConfig: holdoutLoader,
+      ...(cascadeLoader ? { readCascadeConfig: cascadeLoader } : {}),
+    },
   );
 
   // 0.7.0-rc.3 §rc.3 — file memory recall runs alongside the

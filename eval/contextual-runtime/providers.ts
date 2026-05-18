@@ -418,13 +418,13 @@ function narrowLanguage(s: string): "typescript" | "python" {
  * with the supplied holdout config and returns whether the query
  * fingerprint matches the holdout cohort.
  */
-export function probeHoldoutAssignment(
+export async function probeHoldoutAssignment(
   storagePath: string,
   problem: string,
   language: string,
   errorType: string | undefined,
   holdoutConfig: { rate: number; salt: string },
-): { shadow: boolean; controlReason?: string } {
+): Promise<{ shadow: boolean; controlReason?: string }> {
   const store = new BlockStore(storagePath);
   try {
     // Holdout only fires when the gate WOULD have injected something
@@ -438,7 +438,7 @@ export function probeHoldoutAssignment(
       calibrator: loadBlockCalibrator(store),
       gateThreshold: 0,
     });
-    const result = runReasoningPatternsRecall(
+    const result = await runReasoningPatternsRecall(
       server,
       {
         problem,

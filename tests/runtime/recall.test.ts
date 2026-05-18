@@ -51,7 +51,9 @@ const PYTEST_BLOCK: StoreBlockInput = {
   },
 };
 
-function withFreshStore(fn: (store: BlockStore, server: BlockServer, basePath: string) => void) {
+async function withFreshStore(
+  fn: (store: BlockStore, server: BlockServer, basePath: string) => void | Promise<void>,
+): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), "tb-recall-core-"));
   try {
     const cfg = initConfig(dir);
@@ -63,7 +65,7 @@ function withFreshStore(fn: (store: BlockStore, server: BlockServer, basePath: s
       gateThreshold: 0,
     });
     try {
-      fn(store, server, dir);
+      await fn(store, server, dir);
     } finally {
       store.close();
     }
@@ -87,29 +89,29 @@ function seedBlock(store: BlockStore, input: StoreBlockInput): string {
 }
 
 describe("shouldQueryForPrompt", () => {
-  it(`returns false for prompts shorter than MIN_PROMPT_CHARS (${MIN_PROMPT_CHARS})`, () => {
+  it(`returns false for prompts shorter than MIN_PROMPT_CHARS (${MIN_PROMPT_CHARS})`, async () => {
     expect(shouldQueryForPrompt("hi")).toBe(false);
     expect(shouldQueryForPrompt("thanks")).toBe(false);
     expect(shouldQueryForPrompt("a".repeat(MIN_PROMPT_CHARS - 1))).toBe(false);
   });
 
-  it("returns true at the boundary and beyond", () => {
+  it("returns true at the boundary and beyond", async () => {
     expect(shouldQueryForPrompt("a".repeat(MIN_PROMPT_CHARS))).toBe(true);
     expect(shouldQueryForPrompt("a".repeat(MIN_PROMPT_CHARS + 50))).toBe(true);
   });
 
-  it("treats SessionStart the same way (length-only gate)", () => {
+  it("treats SessionStart the same way (length-only gate)", async () => {
     expect(shouldQueryForPrompt("hi", "SessionStart")).toBe(false);
     expect(shouldQueryForPrompt("a".repeat(MIN_PROMPT_CHARS), "SessionStart")).toBe(true);
   });
 });
 
 describe("recallForPrompt — match path", () => {
-  it("returns hasContent=true and writes retrieval + injection events on a real match", () => {
-    withFreshStore((store, server, basePath) => {
+  it("returns hasContent=true and writes retrieval + injection events on a real match", async () => {
+    withFreshStore(async (store, server, basePath) => {
       seedBlock(store, PYTEST_BLOCK);
 
-      const result = recallForPrompt(store === store ? server : server, store, NO_HOLDOUT, {
+      const result = await recallForPrompt(store === store ? server : server, store, NO_HOLDOUT, {
         prompt: "Pytest collects the wrong package — sys.path shadow on a fresh clone",
         basePath,
         sessionId: null,
@@ -130,15 +132,15 @@ describe("recallForPrompt — match path", () => {
     });
   });
 
-  it("emits TB LOOP signal when 3 identical observations precede the prompt", () => {
-    withFreshStore((store, server, basePath) => {
+  it("emits TB LOOP signal when 3 identical observations precede the prompt", async () => {
+    withFreshStore(async (store, server, basePath) => {
       seedBlock(store, PYTEST_BLOCK);
       store.recordToolObservations([
         { sessionId: "S-loop", batchOrder: 0, toolName: "Read", argSummary: "x", argKey: "kA" },
         { sessionId: "S-loop", batchOrder: 1, toolName: "Read", argSummary: "x", argKey: "kA" },
         { sessionId: "S-loop", batchOrder: 2, toolName: "Read", argSummary: "x", argKey: "kA" },
       ]);
-      const result = recallForPrompt(server, store, NO_HOLDOUT, {
+      const result = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "ok now what about the migration runner — anything specific to know?",
         basePath,
         sessionId: "S-loop",
@@ -151,9 +153,9 @@ describe("recallForPrompt — match path", () => {
 });
 
 describe("recallForPrompt — no-match path", () => {
-  it("returns hasContent=false on an empty store", () => {
-    withFreshStore((store, server, basePath) => {
-      const result = recallForPrompt(server, store, NO_HOLDOUT, {
+  it("returns hasContent=false on an empty store", async () => {
+    withFreshStore(async (store, server, basePath) => {
+      const result = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "something completely unrelated to anything in the empty store at all",
         basePath,
       });
@@ -169,14 +171,14 @@ describe("recallForPrompt — no-match path", () => {
 });
 
 describe("recallForPrompt — toggles", () => {
-  it("enableToolDetection: false skips the detector even with observations present", () => {
-    withFreshStore((store, server, basePath) => {
+  it("enableToolDetection: false skips the detector even with observations present", async () => {
+    withFreshStore(async (store, server, basePath) => {
       store.recordToolObservations([
         { sessionId: "S-x", batchOrder: 0, toolName: "Read", argSummary: "x", argKey: "kA" },
         { sessionId: "S-x", batchOrder: 1, toolName: "Read", argSummary: "x", argKey: "kA" },
         { sessionId: "S-x", batchOrder: 2, toolName: "Read", argSummary: "x", argKey: "kA" },
       ]);
-      const result = recallForPrompt(server, store, NO_HOLDOUT, {
+      const result = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "another long enough prompt to pass the trivial gate handily",
         basePath,
         sessionId: "S-x",
@@ -186,8 +188,8 @@ describe("recallForPrompt — toggles", () => {
     });
   });
 
-  it("toolWindowSize narrows the detector input", () => {
-    withFreshStore((store, server, basePath) => {
+  it("toolWindowSize narrows the detector input", async () => {
+    withFreshStore(async (store, server, basePath) => {
       // 6 rows: A,A,A,B,B,B. Default window=6 → straight on B (count=3).
       // Window=3 → still B,B,B → straight on B.
       // Window=2 → only last two B,B → duplicate not straight.
@@ -199,7 +201,7 @@ describe("recallForPrompt — toggles", () => {
         { sessionId: "S-w", batchOrder: 4, toolName: "Grep", argSummary: "y", argKey: "kB" },
         { sessionId: "S-w", batchOrder: 5, toolName: "Grep", argSummary: "y", argKey: "kB" },
       ]);
-      const def = recallForPrompt(server, store, NO_HOLDOUT, {
+      const def = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "another long enough prompt to pass the trivial gate easily",
         basePath,
         sessionId: "S-w",
@@ -207,7 +209,7 @@ describe("recallForPrompt — toggles", () => {
       expect(def.signal.kind).toBe("straight");
       expect(def.signal.toolName).toBe("Grep");
 
-      const narrow = recallForPrompt(server, store, NO_HOLDOUT, {
+      const narrow = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "another long enough prompt to pass the trivial gate easily",
         basePath,
         sessionId: "S-w",
@@ -224,8 +226,8 @@ describe("recallForPrompt — toggles", () => {
 // ---------------------------------------------------------------------------
 
 describe("recallForPrompt — file memory integration", () => {
-  it("renders the <file_memory> section when files match the prompt", () => {
-    withFreshStore((store, server, basePath) => {
+  it("renders the <file_memory> section when files match the prompt", async () => {
+    withFreshStore(async (store, server, basePath) => {
       seedBlock(store, PYTEST_BLOCK);
 
       // Plant + index a file the prompt overlaps.
@@ -237,7 +239,7 @@ describe("recallForPrompt — file memory integration", () => {
       // Run indexer directly so the FTS row exists before recall.
       indexWorkspace(store, { root: basePath });
 
-      const result = recallForPrompt(server, store, NO_HOLDOUT, {
+      const result = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "Pytest collects the wrong package — sys.path shadow on a fresh clone",
         basePath,
         sessionId: null,
@@ -250,8 +252,8 @@ describe("recallForPrompt — file memory integration", () => {
     });
   });
 
-  it("emits file_memory.recalled with aggregate fields when files surface", () => {
-    withFreshStore((store, server, basePath) => {
+  it("emits file_memory.recalled with aggregate fields when files surface", async () => {
+    withFreshStore(async (store, server, basePath) => {
       seedBlock(store, PYTEST_BLOCK);
       mkdirSync(join(basePath, "src"), { recursive: true });
       writeFileSync(
@@ -260,7 +262,7 @@ describe("recallForPrompt — file memory integration", () => {
       );
       indexWorkspace(store, { root: basePath });
 
-      recallForPrompt(server, store, NO_HOLDOUT, {
+      await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "sys.path shadow long enough to pass the gate without being trivial",
         basePath,
         sessionId: null,
@@ -275,11 +277,11 @@ describe("recallForPrompt — file memory integration", () => {
     });
   });
 
-  it("does NOT emit file_memory.recalled when no files clear the gate", () => {
-    withFreshStore((store, server, basePath) => {
+  it("does NOT emit file_memory.recalled when no files clear the gate", async () => {
+    withFreshStore(async (store, server, basePath) => {
       seedBlock(store, PYTEST_BLOCK);
       // No files indexed → recallFiles returns empty → no event.
-      recallForPrompt(server, store, NO_HOLDOUT, {
+      await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "Pytest collects the wrong package — long enough prompt",
         basePath,
         sessionId: null,
@@ -292,8 +294,8 @@ describe("recallForPrompt — file memory integration", () => {
   // 0.7.0-rc.3 hardening — P1 regression. File memory must inject
   // even when no block/fact recall hits, as long as the recall
   // isn't in the holdout/shadow arm.
-  it("renders file_memory section when ONLY indexed files match (no blocks, no facts)", () => {
-    withFreshStore((store, server, basePath) => {
+  it("renders file_memory section when ONLY indexed files match (no blocks, no facts)", async () => {
+    withFreshStore(async (store, server, basePath) => {
       // No block seeded — shouldInject will be false.
       mkdirSync(join(basePath, "src"), { recursive: true });
       writeFileSync(
@@ -302,7 +304,7 @@ describe("recallForPrompt — file memory integration", () => {
       );
       indexWorkspace(store, { root: basePath });
 
-      const result = recallForPrompt(server, store, NO_HOLDOUT, {
+      const result = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "How does our authentication middleware sign requests at the gateway?",
         basePath,
         sessionId: null,
@@ -333,8 +335,8 @@ describe("recallForPrompt — file memory integration", () => {
   // file_memory.recalled event MUST be the section-only cost,
   // not the full payload total. Verify with a mixed recall where
   // both a block AND a file land.
-  it("file_memory.recalled.tokensInjected counts only the file section, not blocks", () => {
-    withFreshStore((store, server, basePath) => {
+  it("file_memory.recalled.tokensInjected counts only the file section, not blocks", async () => {
+    withFreshStore(async (store, server, basePath) => {
       seedBlock(store, PYTEST_BLOCK);
 
       mkdirSync(join(basePath, "src"), { recursive: true });
@@ -344,7 +346,7 @@ describe("recallForPrompt — file memory integration", () => {
       );
       indexWorkspace(store, { root: basePath });
 
-      const result = recallForPrompt(server, store, NO_HOLDOUT, {
+      const result = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "Pytest collects the wrong package — sys.path shadow on a fresh clone",
         basePath,
         sessionId: null,
@@ -373,8 +375,8 @@ describe("recallForPrompt — file memory integration", () => {
   // would have passed the gate. We seed a matching block to
   // drive that condition, then 100% holdout-rate forces every
   // fingerprint into the control arm.
-  it("holdout/shadow recall suppresses file_memory section + emits no event", () => {
-    withFreshStore((store, server, basePath) => {
+  it("holdout/shadow recall suppresses file_memory section + emits no event", async () => {
+    withFreshStore(async (store, server, basePath) => {
       seedBlock(store, PYTEST_BLOCK);
 
       mkdirSync(join(basePath, "src"), { recursive: true });
@@ -392,7 +394,7 @@ describe("recallForPrompt — file memory integration", () => {
         updatedAt: "2026-01-01T00:00:00.000Z",
       });
 
-      const result = recallForPrompt(server, store, FORCED_SHADOW, {
+      const result = await recallForPrompt(server, store, FORCED_SHADOW, {
         prompt: "Pytest collects the wrong package — sys.path shadow on a fresh clone",
         basePath,
         sessionId: null,
@@ -428,7 +430,7 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
 
   it("renders <context_fold> section when chunks exist for the session", async () => {
     const { foldTurns } = await import("../../src/core/context-fold.js");
-    withFreshStore((store, server, basePath) => {
+    withFreshStore(async (store, server, basePath) => {
       const sessionId = "S-fold";
       // Plant 16 turns of meaty content → 2 chunks worth.
       const turns = makeChunkPair();
@@ -436,7 +438,7 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
       expect(folded.chunks.length).toBe(2);
       store.recordSessionChunks(folded.chunks);
 
-      const out = recallForPrompt(server, store, NO_HOLDOUT, {
+      const out = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "auth gateway middleware payment retries — what does the loop look like",
         basePath,
         sessionId,
@@ -452,13 +454,13 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
 
   it("badge numbers match SUM(tokens_before/after) over rendered chunks (within ±1)", async () => {
     const { foldTurns } = await import("../../src/core/context-fold.js");
-    withFreshStore((store, server, basePath) => {
+    withFreshStore(async (store, server, basePath) => {
       const sessionId = "S-badge";
       const turns = makeChunkPair();
       const folded = foldTurns({ sessionId, turns, existingWatermark: -1 });
       store.recordSessionChunks(folded.chunks);
 
-      const out = recallForPrompt(server, store, NO_HOLDOUT, {
+      const out = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "another long enough prompt to pass the trivial gate",
         basePath,
         sessionId,
@@ -493,12 +495,12 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
 
   it("cross-session recall: chunks from session A do NOT leak into session B's prompt", async () => {
     const { foldTurns } = await import("../../src/core/context-fold.js");
-    withFreshStore((store, server, basePath) => {
+    withFreshStore(async (store, server, basePath) => {
       const turnsA = makeChunkPair();
       const fA = foldTurns({ sessionId: "S-A", turns: turnsA, existingWatermark: -1 });
       store.recordSessionChunks(fA.chunks);
 
-      const out = recallForPrompt(server, store, NO_HOLDOUT, {
+      const out = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "another long enough prompt to pass the trivial gate",
         basePath,
         sessionId: "S-B",
@@ -513,7 +515,7 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
   // chunks against the prompt, not just return the most recent K.
   it("prompt-aware chunk recall: chunk 0 with matching tokens beats newer chunks 3-5", async () => {
     const { foldTurns } = await import("../../src/core/context-fold.js");
-    withFreshStore((store, server, basePath) => {
+    withFreshStore(async (store, server, basePath) => {
       const sessionId = "S-prompt-aware";
 
       // Plant 6 chunks. Chunk 0 carries the unique token
@@ -561,7 +563,7 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
       // Verify all 6 chunks landed.
       expect(store.countSessionChunks(sessionId)).toBe(6);
 
-      const out = recallForPrompt(server, store, NO_HOLDOUT, {
+      const out = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "How does the kerberos auth helper sign tokens",
         basePath,
         sessionId,
@@ -587,7 +589,7 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
   // rows.
   it("prompt-aware recall surfaces the OLDEST chunk in a >32-chunk session when it matches", async () => {
     const { foldTurns } = await import("../../src/core/context-fold.js");
-    withFreshStore((store, server, basePath) => {
+    withFreshStore(async (store, server, basePath) => {
       const sessionId = "S-long";
 
       // Plant 50 chunks. Chunk 0 carries the unique token "kerberos"
@@ -646,7 +648,7 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
 
       expect(store.countSessionChunks(sessionId)).toBe(50);
 
-      const out = recallForPrompt(server, store, NO_HOLDOUT, {
+      const out = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "How does the kerberos auth helper sign tokens",
         basePath,
         sessionId,
@@ -670,12 +672,12 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
 
   it("missing sessionId on options → no chunk recall, no <context_fold> in payload", async () => {
     const { foldTurns } = await import("../../src/core/context-fold.js");
-    withFreshStore((store, server, basePath) => {
+    withFreshStore(async (store, server, basePath) => {
       const turns = makeChunkPair();
       const folded = foldTurns({ sessionId: "S-fold", turns, existingWatermark: -1 });
       store.recordSessionChunks(folded.chunks);
 
-      const out = recallForPrompt(server, store, NO_HOLDOUT, {
+      const out = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "another long enough prompt to pass the trivial gate",
         basePath,
         // sessionId intentionally omitted
@@ -691,8 +693,8 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
 // ---------------------------------------------------------------------------
 
 describe("recallForPrompt — semantic-loop dedupe (P1 hardening)", () => {
-  it("cross-alias rotation: grep → rg with same intent_key triggers anti-self-loop", () => {
-    withFreshStore((store, server, basePath) => {
+  it("cross-alias rotation: grep → rg with same intent_key triggers anti-self-loop", async () => {
+    withFreshStore(async (store, server, basePath) => {
       // Seed a block whose situation/keywords match the
       // auth_token search query.
       seedBlock(store, {
@@ -762,7 +764,7 @@ describe("recallForPrompt — semantic-loop dedupe (P1 hardening)", () => {
       // identical intent_keys → first-pass detector misses (3
       // distinct argKeys), second-pass (intent_key) catches the
       // straight signal. Resolver fires matched.
-      const first = recallForPrompt(server, store, NO_HOLDOUT, {
+      const first = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "Long enough prompt about the auth token search loop",
         basePath,
         sessionId,
@@ -786,7 +788,7 @@ describe("recallForPrompt — semantic-loop dedupe (P1 hardening)", () => {
         },
       ]);
 
-      const second = recallForPrompt(server, store, NO_HOLDOUT, {
+      const second = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "Long enough prompt about the auth token search loop",
         basePath,
         sessionId,
@@ -812,7 +814,7 @@ describe("recallForPrompt — semantic-loop dedupe (P1 hardening)", () => {
           outcome: "ok",
         },
       ]);
-      const third = recallForPrompt(server, store, NO_HOLDOUT, {
+      const third = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "Long enough prompt about the auth token search loop",
         basePath,
         sessionId,
@@ -828,8 +830,8 @@ describe("recallForPrompt — semantic-loop dedupe (P1 hardening)", () => {
   // tail; the semantic-pass detector was skipped because raw !=
   // none, and the resolver dedupe-keyed on the rotated raw
   // argKey, surfacing the SAME matched anchor twice.
-  it("3 identical Grep calls matched, then ONE equivalent rg rotation triggers anti-self-loop", () => {
-    withFreshStore((store, server, basePath) => {
+  it("3 identical Grep calls matched, then ONE equivalent rg rotation triggers anti-self-loop", async () => {
+    withFreshStore(async (store, server, basePath) => {
       seedBlock(store, {
         trigger: {
           situation: "search for the auth_token symbol across the codebase",
@@ -886,7 +888,7 @@ describe("recallForPrompt — semantic-loop dedupe (P1 hardening)", () => {
         },
       ]);
 
-      const first = recallForPrompt(server, store, NO_HOLDOUT, {
+      const first = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "auth token search going in circles",
         basePath,
         sessionId,
@@ -930,7 +932,7 @@ describe("recallForPrompt — semantic-loop dedupe (P1 hardening)", () => {
         },
       ]);
 
-      const second = recallForPrompt(server, store, NO_HOLDOUT, {
+      const second = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "auth token search going in circles",
         basePath,
         sessionId,
@@ -941,8 +943,8 @@ describe("recallForPrompt — semantic-loop dedupe (P1 hardening)", () => {
     });
   });
 
-  it("dedupe still scoped per-session: the same intent_key in a fresh session matches", () => {
-    withFreshStore((store, server, basePath) => {
+  it("dedupe still scoped per-session: the same intent_key in a fresh session matches", async () => {
+    withFreshStore(async (store, server, basePath) => {
       seedBlock(store, {
         trigger: {
           situation: "search for the auth_token symbol across the codebase",
@@ -997,7 +999,7 @@ describe("recallForPrompt — semantic-loop dedupe (P1 hardening)", () => {
       };
 
       seed("S-A");
-      const a = recallForPrompt(server, store, NO_HOLDOUT, {
+      const a = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "Long enough prompt about the auth token search loop",
         basePath,
         sessionId: "S-A",
@@ -1006,7 +1008,7 @@ describe("recallForPrompt — semantic-loop dedupe (P1 hardening)", () => {
 
       // Different session → dedupe must NOT carry over.
       seed("S-B");
-      const b = recallForPrompt(server, store, NO_HOLDOUT, {
+      const b = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "Long enough prompt about the auth token search loop",
         basePath,
         sessionId: "S-B",
@@ -1021,7 +1023,7 @@ describe("recallForPrompt — semantic-loop dedupe (P1 hardening)", () => {
 // ---------------------------------------------------------------------------
 
 describe("recallForPrompt — drain budget cap (P2 hardening)", () => {
-  it("drain cap constants match the documented bench-friendly slice", () => {
+  it("drain cap constants match the documented bench-friendly slice", async () => {
     // The §0.7 stable bench targets UserPromptSubmit p95 ≤ 150ms.
     // The recall-path drain MUST be a small slice of that — not the
     // §rc.2 default 50/200. These constants are the contract that
@@ -1031,8 +1033,8 @@ describe("recallForPrompt — drain budget cap (P2 hardening)", () => {
     expect(RECALL_PATH_DRAIN_TIME_MS).toBeLessThanOrEqual(50);
   });
 
-  it("queues many pending rows but indexes at most RECALL_PATH_DRAIN_MAX_FILES per recall", () => {
-    withFreshStore((store, server, basePath) => {
+  it("queues many pending rows but indexes at most RECALL_PATH_DRAIN_MAX_FILES per recall", async () => {
+    withFreshStore(async (store, server, basePath) => {
       seedBlock(store, PYTEST_BLOCK);
 
       // Plant 30 files + queue them all as file-pending. A single
@@ -1052,7 +1054,7 @@ describe("recallForPrompt — drain budget cap (P2 hardening)", () => {
         .get() as { c: number };
       expect(before.c).toBe(0);
 
-      recallForPrompt(server, store, NO_HOLDOUT, {
+      await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "Pytest collects the wrong package — long enough prompt to pass the gate",
         basePath,
         sessionId: null,

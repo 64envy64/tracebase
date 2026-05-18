@@ -35,14 +35,14 @@ const FIXTURE_PROBLEM =
   "form validation conflates 0 and missing input via truthiness checks";
 
 describe("contextual-runtime holdout — deterministic cohort assignment", () => {
-  it("same fixture twice → same cohort (rate=0.5, fixed salt)", () => {
+  it("same fixture twice → same cohort (rate=0.5, fixed salt)", async () => {
     const { path, cleanup } = makeTempDb();
     try {
-      const a = probeHoldoutAssignment(path, FIXTURE_PROBLEM, "typescript", "operator-misuse", {
+      const a = await probeHoldoutAssignment(path, FIXTURE_PROBLEM, "typescript", "operator-misuse", {
         rate: 0.5,
         salt: "pilot-salt-A",
       });
-      const b = probeHoldoutAssignment(path, FIXTURE_PROBLEM, "typescript", "operator-misuse", {
+      const b = await probeHoldoutAssignment(path, FIXTURE_PROBLEM, "typescript", "operator-misuse", {
         rate: 0.5,
         salt: "pilot-salt-A",
       });
@@ -56,7 +56,7 @@ describe("contextual-runtime holdout — deterministic cohort assignment", () =>
     }
   });
 
-  it("different salt → potentially different cohort (workspace isolation)", () => {
+  it("different salt → potentially different cohort (workspace isolation)", async () => {
     // We don't assert disequality (a hash collision could land both
     // cohorts the same way for one fixture); we DO assert that
     // either salt's two probes are individually consistent. This is
@@ -65,21 +65,21 @@ describe("contextual-runtime holdout — deterministic cohort assignment", () =>
     // hash is verified separately in tests/experiments/holdout.test.ts.
     const { path, cleanup } = makeTempDb();
     try {
-      const a1 = probeHoldoutAssignment(path, FIXTURE_PROBLEM, "typescript", "operator-misuse", {
+      const a1 = await probeHoldoutAssignment(path, FIXTURE_PROBLEM, "typescript", "operator-misuse", {
         rate: 0.5,
         salt: "ws-A",
       });
-      const a2 = probeHoldoutAssignment(path, FIXTURE_PROBLEM, "typescript", "operator-misuse", {
+      const a2 = await probeHoldoutAssignment(path, FIXTURE_PROBLEM, "typescript", "operator-misuse", {
         rate: 0.5,
         salt: "ws-A",
       });
       expect(a1.shadow).toBe(a2.shadow);
 
-      const b1 = probeHoldoutAssignment(path, FIXTURE_PROBLEM, "typescript", "operator-misuse", {
+      const b1 = await probeHoldoutAssignment(path, FIXTURE_PROBLEM, "typescript", "operator-misuse", {
         rate: 0.5,
         salt: "ws-B",
       });
-      const b2 = probeHoldoutAssignment(path, FIXTURE_PROBLEM, "typescript", "operator-misuse", {
+      const b2 = await probeHoldoutAssignment(path, FIXTURE_PROBLEM, "typescript", "operator-misuse", {
         rate: 0.5,
         salt: "ws-B",
       });
@@ -89,7 +89,7 @@ describe("contextual-runtime holdout — deterministic cohort assignment", () =>
     }
   });
 
-  it("rate=1.0 → every probe lands in holdout", () => {
+  it("rate=1.0 → every probe lands in holdout", async () => {
     const { path, cleanup } = makeTempDb();
     try {
       for (const problem of [
@@ -97,7 +97,7 @@ describe("contextual-runtime holdout — deterministic cohort assignment", () =>
         "react state update batching causes stale read",
         "promise.all rejects on any inner failure without cleanup",
       ]) {
-        const r = probeHoldoutAssignment(path, problem, "typescript", undefined, {
+        const r = await probeHoldoutAssignment(path, problem, "typescript", undefined, {
           rate: 1.0,
           salt: "ws-rate1",
         });
@@ -109,14 +109,14 @@ describe("contextual-runtime holdout — deterministic cohort assignment", () =>
     }
   });
 
-  it("rate=0 → every probe is assisted (no shadow)", () => {
+  it("rate=0 → every probe is assisted (no shadow)", async () => {
     const { path, cleanup } = makeTempDb();
     try {
       for (const problem of [
         "form validation conflates 0 and missing input",
         "react state update batching causes stale read",
       ]) {
-        const r = probeHoldoutAssignment(path, problem, "typescript", undefined, {
+        const r = await probeHoldoutAssignment(path, problem, "typescript", undefined, {
           rate: 0,
           salt: "ws-rate0",
         });

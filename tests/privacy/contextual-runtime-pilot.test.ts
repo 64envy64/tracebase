@@ -52,7 +52,7 @@ function makeStoreWithLeaky(): { store: BlockStore; server: BlockServer } {
 }
 
 describe("structured MCP output — does not leak filesystem paths or secrets", () => {
-  it("toReasoningPatternsStructured returns no absolute paths in any field", () => {
+  it("toReasoningPatternsStructured returns no absolute paths in any field", async () => {
     const { store, server } = makeStoreWithLeaky();
     const provider = new TracebaseRuntimeProvider({
       storagePath: ":memory:",
@@ -86,10 +86,10 @@ describe("structured MCP output — does not leak filesystem paths or secrets", 
       });
   });
 
-  it("toReasoningPatternsStructured does not leak chain-of-thought tokens", () => {
+  it("toReasoningPatternsStructured does not leak chain-of-thought tokens", async () => {
     const { store, server } = makeStoreWithLeaky();
     // Recall with no patterns — empty corpus.
-    const result = runReasoningPatternsRecall(
+    const result = await runReasoningPatternsRecall(
       server,
       { problem: "user thinks step by step about the problem and reasons that..." },
       { readHoldoutConfig: () => null },
@@ -103,7 +103,7 @@ describe("structured MCP output — does not leak filesystem paths or secrets", 
 });
 
 describe("pilot report — privacy-clean serialization", () => {
-  it("never contains absolute paths, raw prompts, or secret canaries in serialized JSON", () => {
+  it("never contains absolute paths, raw prompts, or secret canaries in serialized JSON", async () => {
     // Construct a synthetic run set with leaky-looking ids /
     // descriptions to verify the serializer's surface stays clean.
     // The PilotReport type only carries ids / counts / durations —
@@ -169,7 +169,7 @@ describe("pilot report — privacy-clean serialization", () => {
     expect(report.runs.length).toBe(2);
   });
 
-  it("pilot report run records do not carry raw seed text or unlock fields", () => {
+  it("pilot report run records do not carry raw seed text or unlock fields", async () => {
     const run: RunMetric = {
       runId: "run-1",
       fixtureId: "fix-x",

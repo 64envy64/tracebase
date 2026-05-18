@@ -38,7 +38,7 @@ const validInput = {
 };
 
 describe("deletePattern — primary contract", () => {
-  it("hard-deletes the block and reports deleted=true", () => {
+  it("hard-deletes the block and reports deleted=true", async () => {
     const store = makeStore();
     const stored = storeReasoningPattern(store, validInput);
     expect(store.getBlock(stored.blockId)).not.toBeNull();
@@ -52,7 +52,7 @@ describe("deletePattern — primary contract", () => {
     expect(store.getBlock(stored.blockId)).toBeNull();
   });
 
-  it("writes an audit row carrying id / reason / timestamp / principal", () => {
+  it("writes an audit row carrying id / reason / timestamp / principal", async () => {
     const store = makeStore();
     const stored = storeReasoningPattern(store, validInput);
     deletePattern(store, {
@@ -79,7 +79,7 @@ describe("deletePattern — primary contract", () => {
     expect(audit!.deleted_at).toBeGreaterThan(0);
   });
 
-  it("returns deleted=false on a missing id (idempotent, no audit row)", () => {
+  it("returns deleted=false on a missing id (idempotent, no audit row)", async () => {
     const store = makeStore();
     const result = deletePattern(store, {
       id: "this-id-does-not-exist",
@@ -100,7 +100,7 @@ describe("deletePattern — primary contract", () => {
 });
 
 describe("deletePattern — privacy: audit log carries no block body content", () => {
-  it("audit_deletes table exposes only the five compliance columns", () => {
+  it("audit_deletes table exposes only the five compliance columns", async () => {
     const store = makeStore();
     const cols = store.rawDb
       .prepare("PRAGMA table_info(audit_deletes)")
@@ -111,7 +111,7 @@ describe("deletePattern — privacy: audit log carries no block body content", (
     );
   });
 
-  it("no body field (situation / mechanism / unlock / verification) appears in any audit row value", () => {
+  it("no body field (situation / mechanism / unlock / verification) appears in any audit row value", async () => {
     const store = makeStore();
     const stored = storeReasoningPattern(store, validInput);
     const blockBefore = store.getBlock(stored.blockId)!;
@@ -142,7 +142,7 @@ describe("deletePattern — privacy: audit log carries no block body content", (
 });
 
 describe("deletePattern — input validation", () => {
-  it("rejects an empty id", () => {
+  it("rejects an empty id", async () => {
     const store = makeStore();
     expect(() => deletePattern(store, { id: "", reason: "test reason here" })).toThrow(
       StorePatternValidationError,
@@ -152,7 +152,7 @@ describe("deletePattern — input validation", () => {
     );
   });
 
-  it("rejects a too-short reason (<4 chars after trim)", () => {
+  it("rejects a too-short reason (<4 chars after trim)", async () => {
     const store = makeStore();
     expect(() => deletePattern(store, { id: "x", reason: "no" })).toThrow(
       /reason.*too short/i,
@@ -162,7 +162,7 @@ describe("deletePattern — input validation", () => {
     );
   });
 
-  it("rejects an over-long reason (>500 chars)", () => {
+  it("rejects an over-long reason (>500 chars)", async () => {
     const store = makeStore();
     const tooLong = "x".repeat(501);
     expect(() => deletePattern(store, { id: "x", reason: tooLong })).toThrow(
@@ -170,7 +170,7 @@ describe("deletePattern — input validation", () => {
     );
   });
 
-  it("accepts a 500-char reason exactly (boundary)", () => {
+  it("accepts a 500-char reason exactly (boundary)", async () => {
     const store = makeStore();
     const stored = storeReasoningPattern(store, validInput);
     const exactly500 = "x".repeat(500);
@@ -181,13 +181,13 @@ describe("deletePattern — input validation", () => {
 });
 
 describe("deletePattern — round-trip with get_reasoning_patterns", () => {
-  it("a deleted pattern does not surface in subsequent recall", () => {
+  it("a deleted pattern does not surface in subsequent recall", async () => {
     const store = makeStore();
     const server = new BlockServer(store);
 
     const stored = storeReasoningPattern(store, validInput);
 
-    const before = runReasoningPatternsRecall(
+    const before = await runReasoningPatternsRecall(
       server,
       { problem: "flaky pytest run due to import order" },
       { readHoldoutConfig: () => null },
@@ -201,7 +201,7 @@ describe("deletePattern — round-trip with get_reasoning_patterns", () => {
       requestingPrincipal: "mcp:delete_pattern",
     });
 
-    const after = runReasoningPatternsRecall(
+    const after = await runReasoningPatternsRecall(
       server,
       { problem: "flaky pytest run due to import order" },
       { readHoldoutConfig: () => null },
@@ -209,7 +209,7 @@ describe("deletePattern — round-trip with get_reasoning_patterns", () => {
     expect(after.blocks.find((b) => b.block.id === stored.blockId)).toBeUndefined();
   });
 
-  it("the audit row persists after the block disappears from recall", () => {
+  it("the audit row persists after the block disappears from recall", async () => {
     const store = makeStore();
     const server = new BlockServer(store);
     const stored = storeReasoningPattern(store, validInput);
@@ -219,7 +219,7 @@ describe("deletePattern — round-trip with get_reasoning_patterns", () => {
     });
 
     // Recall sees nothing — block is gone.
-    const recall = runReasoningPatternsRecall(
+    const recall = await runReasoningPatternsRecall(
       server,
       { problem: "flaky pytest run due to import order" },
       { readHoldoutConfig: () => null },

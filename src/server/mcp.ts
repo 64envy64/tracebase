@@ -1,10 +1,14 @@
-import type { HoldoutConfig, TraceBaseConfig } from "../types.js";
+import type { CascadeConfig, HoldoutConfig, TraceBaseConfig } from "../types.js";
 import { ReasoningLayer } from "../core/engine.js";
 import Database from "better-sqlite3";
 import { BlockStore } from "../core/block-store.js";
 import { BlockServer, formatInjection } from "../core/block-serving.js";
 import { EventEmitter, emitAgentUsed, emitFactAgentUsed, emitOutcome } from "../core/analytics.js";
 import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
+import {
+  buildRerankerFromCascadeConfig,
+  extractCascadeKnobs,
+} from "../experiments/cascade-rollout.js";
 import {
   collectInjectedFromQuery,
   CONTEXTUAL_RUNTIME_PROTOCOL,
@@ -19,7 +23,7 @@ import {
   type OutcomeStructured,
   type StorePatternStructured,
 } from "./mcp-v2-helpers.js";
-import { findProjectRoot, readHoldoutConfig } from "../core/config.js";
+import { findProjectRoot, readCascadeConfig, readHoldoutConfig } from "../core/config.js";
 import { runReasoningPatternsRecall } from "./reasoning-patterns-entry.js";
 
 /**
@@ -82,16 +86,12 @@ export async function startMcpServer(
   // identity fallback runs and gate=0 lets everything through.
   const blockDb = new Database(config.storagePath);
   const blockStore = new BlockStore(blockDb);
-  const blockServer = new BlockServer(blockStore, {
-    calibrator: loadBlockCalibrator(blockStore),
-    gateThreshold: 0, // can be tuned via config later
-  });
-  const eventEmitter = new EventEmitter(blockStore);
 
-  // Phase 3.4.2 — project base for reading the holdout experiment
-  // config fresh on every `get_reasoning_patterns` call. Fresh
-  // reads mean `tracebase experiment enable|disable` in a terminal
-  // takes effect without restarting the MCP server.
+  // Phase 3.4.2 — project base for reading runtime experiment config
+  // fresh on every `get_reasoning_patterns` call. Fresh reads mean
+  // `tracebase experiment enable|disable` (holdout) and
+  // `tracebase cascade enable|set-rate` (B1.2) take effect without
+  // restarting the MCP server.
   //
   // IMPORTANT: project root is NOT derived from `config.storagePath`.
   // `storagePath` can legitimately point outside the project
@@ -105,6 +105,27 @@ export async function startMcpServer(
     opts.basePath ?? findProjectRoot(process.cwd()) ?? process.cwd();
   const holdoutConfigLoader: () => HoldoutConfig | null = () =>
     readHoldoutConfig(projectBasePath);
+  const cascadeConfigLoader: () => CascadeConfig | null = () =>
+    readCascadeConfig(projectBasePath);
+
+  // B1.2: construct the reranker ONCE at boot from the cascade config.
+  // This is the only thing in the cascade pipeline that's process-
+  // lifetime — every other knob (rollout rate, MMR lambda, timeout) is
+  // hot-reloaded on each call. Changing the reranker kind requires a
+  // restart because BlockServer captures the reference at construction.
+  // The fail-safe path returns NoopReranker on any malformed config so
+  // a broken cascade.json can never wedge the MCP server.
+  const bootCascadeConfig = cascadeConfigLoader();
+  const reranker = buildRerankerFromCascadeConfig(bootCascadeConfig);
+  const cascadeKnobs = extractCascadeKnobs(bootCascadeConfig);
+
+  const blockServer = new BlockServer(blockStore, {
+    calibrator: loadBlockCalibrator(blockStore),
+    gateThreshold: 0, // can be tuned via config later
+    reranker,
+    ...cascadeKnobs,
+  });
+  const eventEmitter = new EventEmitter(blockStore);
 
   const server = new McpServer({
     name: "tracebase",
@@ -438,8 +459,16 @@ export async function startMcpServer(
       // `src/server/reasoning-patterns-entry.ts` for the wiring
       // contract (fingerprint → buildHoldoutInput → recall) and
       // for the unit-test suite that proves it.
-      const result = runReasoningPatternsRecall(blockServer, args, {
+      //
+      // B1.2: the entry is now async because the cascade rollout
+      // decision routes some queries through `recallAsync()`. The
+      // sync path remains the default when cascade is disabled or
+      // when the fingerprint lands outside the rollout cohort —
+      // exactly the gating that keeps the new ranking machinery
+      // measurable without exposing it to 100% of traffic.
+      const result = await runReasoningPatternsRecall(blockServer, args, {
         readHoldoutConfig: holdoutConfigLoader,
+        readCascadeConfig: cascadeConfigLoader,
       });
 
       const formatted = formatInjection(result, {

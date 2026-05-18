@@ -4,6 +4,10 @@
  * config → fingerprint → `buildHoldoutInput` → `BlockServer.recall`
  * — can be unit-tested without standing up the MCP SDK.
  *
+ * May-2026 B1.2 made this async: when the cascade rollout fires for
+ * this query, the entry calls `BlockServer.recallAsync()` (full
+ * cascade); otherwise the existing sync `recall()` path.
+ *
  * The MCP server entry (`src/server/mcp.ts`) delegates here; no
  * extra serving math lives anywhere else.
  */
@@ -13,8 +17,9 @@ import type {
   BlockServer,
   RecallV2Result,
 } from "../core/block-serving.js";
-import type { HoldoutConfig, BlockInvariants } from "../types.js";
+import type { HoldoutConfig, CascadeConfig, BlockInvariants } from "../types.js";
 import { buildHoldoutInput } from "../experiments/serving.js";
+import { shouldUseCascade } from "../experiments/cascade-rollout.js";
 
 export interface ReasoningPatternsArgs {
   /** Free-text problem description. */
@@ -39,6 +44,18 @@ export interface ReasoningPatternsDeps {
    * cases resolve to default-off serving.
    */
   readHoldoutConfig: () => HoldoutConfig | null;
+  /**
+   * Called on every invocation so `tracebase cascade set-rate` /
+   * `enable|disable` take effect without restart, matching the
+   * holdout config lifecycle. Returns `null` when cascade is not
+   * configured or the on-disk payload is malformed — both fall
+   * through to the sync `recall()` path.
+   *
+   * Optional for back-compat: callers that don't supply this loader
+   * keep the pre-B1.2 sync-only behaviour. The MCP server wires it
+   * in once B1.2 ships; test fixtures can stub it.
+   */
+  readCascadeConfig?: () => CascadeConfig | null;
   /** Deterministic fingerprint factory. Overridable for tests. */
   fingerprintFactory?: (
     problem: string,
@@ -58,11 +75,11 @@ export interface ReasoningPatternsDeps {
  * BlockServer still never touches config globals; this function
  * owns the translation from persisted state to `ExperimentInput`.
  */
-export function runReasoningPatternsRecall(
+export async function runReasoningPatternsRecall(
   blockServer: BlockServer,
   args: ReasoningPatternsArgs,
   deps: ReasoningPatternsDeps,
-): RecallV2Result {
+): Promise<RecallV2Result> {
   const invariants: BlockInvariants = {};
   if (args.language) invariants.language = args.language;
   if (args.framework) invariants.framework = args.framework;
@@ -90,5 +107,20 @@ export function runReasoningPatternsRecall(
     shadow: args.shadow ?? false,
     ...(experiment ? { experiment } : {}),
   };
+
+  // B1.2 cascade rollout: deterministic per-query decision.
+  //   • `readCascadeConfig` absent  → sync recall (pre-B1.2 behaviour).
+  //   • config disabled / rate=0    → sync recall.
+  //   • fingerprint lands in cohort → async recallAsync (cascade).
+  // The decision is logged on the retrieval event via cascadePolicyId,
+  // so analytics can A/B sync-vs-async helpful-rate without an extra
+  // side-channel. Holdout (control) and cascade (treatment) are
+  // orthogonal — a query can be in the cascade arm AND in the holdout
+  // cohort simultaneously, in which case shadow semantics win and no
+  // injection fires regardless of which recall variant ran.
+  const cascadeConfig = deps.readCascadeConfig ? deps.readCascadeConfig() : null;
+  if (shouldUseCascade(problemFingerprint, cascadeConfig)) {
+    return blockServer.recallAsync(query);
+  }
   return blockServer.recall(query);
 }

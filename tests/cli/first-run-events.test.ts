@@ -45,7 +45,7 @@ afterEach(() => {
 });
 
 describe("first-run loop — empty store, no patterns yet", () => {
-  it("status before any MCP call: initialized, zero events, no memory.db on disk yet", () => {
+  it("status before any MCP call: initialized, zero events, no memory.db on disk yet", async () => {
     initConfig(projectDir);
     const r = buildStatusReport(projectDir);
     expect(r.initialized).toBe(true);
@@ -54,7 +54,7 @@ describe("first-run loop — empty store, no patterns yet", () => {
     expect(r.lastActivityTs).toBeNull();
   });
 
-  it("simulating get_reasoning_patterns creates memory.db and writes a retrieval event even with zero matches", () => {
+  it("simulating get_reasoning_patterns creates memory.db and writes a retrieval event even with zero matches", async () => {
     initConfig(projectDir);
     const cfg = loadConfig(projectDir);
 
@@ -64,7 +64,7 @@ describe("first-run loop — empty store, no patterns yet", () => {
     const store = new BlockStore(db);
     const server = new BlockServer(store);
 
-    const result = runReasoningPatternsRecall(
+    const result = await runReasoningPatternsRecall(
       server,
       { problem: "debugging a brand-new kind of issue that has no prior trace" },
       { readHoldoutConfig: () => null },
@@ -96,14 +96,14 @@ describe("first-run loop — empty store, no patterns yet", () => {
     expect(r.lastActivityTs).not.toBeNull();
   });
 
-  it("simulating record_reasoning_outcome adds an outcome event; status/events/report all reflect it", () => {
+  it("simulating record_reasoning_outcome adds an outcome event; status/events/report all reflect it", async () => {
     initConfig(projectDir);
     const cfg = loadConfig(projectDir);
     const db = new Database(cfg.storagePath);
     const store = new BlockStore(db);
     const server = new BlockServer(store);
 
-    const recall = runReasoningPatternsRecall(
+    const recall = await runReasoningPatternsRecall(
       server,
       { problem: "a new problem the agent is about to solve" },
       { readHoldoutConfig: () => null },
@@ -141,7 +141,7 @@ describe("first-run loop — empty store, no patterns yet", () => {
     expect(r.events.outcome).toBe(1);
   });
 
-  it("capture loop closes end-to-end: get_reasoning_patterns → outcome → store_reasoning_pattern → next retrieval finds the block", () => {
+  it("capture loop closes end-to-end: get_reasoning_patterns → outcome → store_reasoning_pattern → next retrieval finds the block", async () => {
     // This replaces an earlier regression pin that documented the gap
     // in the capture path (managed block told the agent to record
     // outcomes but never to write a recallable pattern). The fix:
@@ -156,7 +156,7 @@ describe("first-run loop — empty store, no patterns yet", () => {
     const server = new BlockServer(store);
 
     // 1. First agent: novel problem, no existing pattern.
-    const first = runReasoningPatternsRecall(
+    const first = await runReasoningPatternsRecall(
       server,
       { problem: "pytest collects wrong package when sys.path has a shadowing module" },
       { readHoldoutConfig: () => null },
@@ -182,7 +182,7 @@ describe("first-run loop — empty store, no patterns yet", () => {
 
     // 3. Second agent faces the same class of problem later — now
     //    retrieval surfaces the captured block as a hypothesis.
-    const second = runReasoningPatternsRecall(
+    const second = await runReasoningPatternsRecall(
       server,
       { problem: "pytest collects wrong package due to shadowing sys.path module" },
       { readHoldoutConfig: () => null },

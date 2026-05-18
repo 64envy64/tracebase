@@ -95,8 +95,8 @@ function storeActive(store: BlockStore, input: StoreBlockInput): void {
 }
 
 describe("runInjectContext — envelope shape", () => {
-  it("returns a well-formed UserPromptSubmit envelope by default", () => {
-    const out = runInjectContext(
+  it("returns a well-formed UserPromptSubmit envelope by default", async () => {
+    const out = await runInjectContext(
       { path: projectDir },
       { prompt: "anything at all that's long enough to pass the trivial filter" },
     );
@@ -105,16 +105,16 @@ describe("runInjectContext — envelope shape", () => {
     expect(typeof parsed.hookSpecificOutput.additionalContext).toBe("string");
   });
 
-  it("respects an explicit SessionStart event name", () => {
-    const out = runInjectContext(
+  it("respects an explicit SessionStart event name", async () => {
+    const out = await runInjectContext(
       { event: "SessionStart", path: projectDir },
       { prompt: "session-start prompt long enough for the gate" },
     );
     expect(envelope(out).hookSpecificOutput.hookEventName).toBe("SessionStart");
   });
 
-  it("clamps unknown event names to UserPromptSubmit (safe default)", () => {
-    const out = runInjectContext(
+  it("clamps unknown event names to UserPromptSubmit (safe default)", async () => {
+    const out = await runInjectContext(
       { event: "ChaosEvent", path: projectDir },
       { prompt: "anything at all that's long enough to pass the trivial filter" },
     );
@@ -123,14 +123,14 @@ describe("runInjectContext — envelope shape", () => {
 });
 
 describe("runInjectContext — silent injection path", () => {
-  it("queries the local store and returns a <tracebase> block when a pattern matches", () => {
+  it("queries the local store and returns a <tracebase> block when a pattern matches", async () => {
     const config = initConfig(projectDir);
     const db = new Database(config.storagePath);
     const store = new BlockStore(db);
     storeActive(store, PY_BLOCK);
     store.close();
 
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir },
       { prompt: "pytest is collecting the wrong package — sys.path looks suspicious" },
     );
@@ -143,7 +143,7 @@ describe("runInjectContext — silent injection path", () => {
     expect(ctx).not.toContain("<sub>Audit:");
   });
 
-  it("records injection events only for ids that survived the hook budget", () => {
+  it("records injection events only for ids that survived the hook budget", async () => {
     const config = initConfig(projectDir);
     const db = new Database(config.storagePath);
     const store = new BlockStore(db);
@@ -151,7 +151,7 @@ describe("runInjectContext — silent injection path", () => {
     storeActive(store, PY_BLOCK_ALT);
     store.close();
 
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir, budget: 1 },
       { prompt: "pytest collection wrong package sys.path shadow helper duplicate" },
     );
@@ -172,8 +172,8 @@ describe("runInjectContext — silent injection path", () => {
 });
 
 describe("runInjectContext — failure-mode benignity", () => {
-  it("empty envelope when project is uninitialised", () => {
-    const out = runInjectContext(
+  it("empty envelope when project is uninitialised", async () => {
+    const out = await runInjectContext(
       { path: projectDir },
       { prompt: "real-looking task prompt with enough chars to pass" },
     );
@@ -181,16 +181,16 @@ describe("runInjectContext — failure-mode benignity", () => {
     expect(envelope(out).hookSpecificOutput.additionalContext).toBe("");
   });
 
-  it("empty envelope for trivial prompts", () => {
+  it("empty envelope for trivial prompts", async () => {
     initConfig(projectDir);
-    const out = runInjectContext({ path: projectDir }, { prompt: "hi" });
+    const out = await runInjectContext({ path: projectDir }, { prompt: "hi" });
     expect(out.injected).toBe(false);
     expect(envelope(out).hookSpecificOutput.additionalContext).toBe("");
   });
 
-  it("empty envelope when stdin had no prompt at all", () => {
+  it("empty envelope when stdin had no prompt at all", async () => {
     initConfig(projectDir);
-    const out = runInjectContext({ path: projectDir }, {});
+    const out = await runInjectContext({ path: projectDir }, {});
     expect(out.injected).toBe(false);
     expect(envelope(out).hookSpecificOutput.additionalContext).toBe("");
   });
@@ -206,14 +206,14 @@ describe("runInjectContext — failure-mode benignity", () => {
 // ---------------------------------------------------------------------------
 
 describe("runInjectContext — compact status badge (systemMessage)", () => {
-  it("matching pattern: systemMessage starts with ▣ TB TRACE and includes recalled count, shortId, tokens", () => {
+  it("matching pattern: systemMessage starts with ▣ TB TRACE and includes recalled count, shortId, tokens", async () => {
     const config = initConfig(projectDir);
     const db = new Database(config.storagePath);
     const store = new BlockStore(db);
     storeActive(store, PY_BLOCK);
     store.close();
 
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir },
       { prompt: "pytest collects the wrong package — sys.path shadowing module issue" },
     );
@@ -236,12 +236,12 @@ describe("runInjectContext — compact status badge (systemMessage)", () => {
     expect(embeddedQueryId!.startsWith(badgeShortId!)).toBe(true);
   });
 
-  it('no match (gate rejects / no results): systemMessage is exactly "▣ TB TRACE  checked · no match"', () => {
+  it('no match (gate rejects / no results): systemMessage is exactly "▣ TB TRACE  checked · no match"', async () => {
     // Project initialised, no blocks seeded → gate has nothing to
     // return → payload.hasContent is false.
     initConfig(projectDir);
 
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir },
       { prompt: "something generic enough that nothing matches in an empty store" },
     );
@@ -252,16 +252,16 @@ describe("runInjectContext — compact status badge (systemMessage)", () => {
     expect(out.injected).toBe(false);
   });
 
-  it("trivial prompt: no systemMessage even in compact mode (spec: by default)", () => {
+  it("trivial prompt: no systemMessage even in compact mode (spec: by default)", async () => {
     initConfig(projectDir);
-    const out = runInjectContext({ path: projectDir }, { prompt: "hi" });
+    const out = await runInjectContext({ path: projectDir }, { prompt: "hi" });
     const parsed = envelope(out);
     expect(parsed.systemMessage).toBeUndefined();
     expect(parsed.hookSpecificOutput.additionalContext).toBe("");
   });
 
-  it("uninitialized project: no systemMessage (spec: by default)", () => {
-    const out = runInjectContext(
+  it("uninitialized project: no systemMessage (spec: by default)", async () => {
+    const out = await runInjectContext(
       { path: projectDir },
       { prompt: "real-looking task prompt with enough chars to pass the trivial gate" },
     );
@@ -270,7 +270,7 @@ describe("runInjectContext — compact status badge (systemMessage)", () => {
     expect(parsed.hookSpecificOutput.additionalContext).toBe("");
   });
 
-  it('hook failure: systemMessage is "▣ TB TRACE  skipped · unavailable"', () => {
+  it('hook failure: systemMessage is "▣ TB TRACE  skipped · unavailable"', async () => {
     // Simulate an inner failure by pointing at a path that WILL fail
     // inside the block-server open — e.g. init a project, then delete
     // the storage directory while preserving the config pointer so
@@ -283,7 +283,7 @@ describe("runInjectContext — compact status badge (systemMessage)", () => {
     rmSync(storagePath, { force: true });
     require("node:fs").mkdirSync(storagePath, { recursive: true });
 
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir },
       { prompt: "a reasonable task description that would otherwise trigger recall" },
     );
@@ -294,14 +294,14 @@ describe("runInjectContext — compact status badge (systemMessage)", () => {
 });
 
 describe("runInjectContext — silent mode suppresses systemMessage entirely", () => {
-  it("silent mode drops systemMessage on a match", () => {
+  it("silent mode drops systemMessage on a match", async () => {
     const config = initConfig(projectDir);
     const db = new Database(config.storagePath);
     const store = new BlockStore(db);
     storeActive(store, PY_BLOCK);
     store.close();
 
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir, status: "silent" },
       { prompt: "pytest collects the wrong package — sys.path shadowing module issue" },
     );
@@ -313,16 +313,16 @@ describe("runInjectContext — silent mode suppresses systemMessage entirely", (
     expect(out.injected).toBe(true);
   });
 
-  it("silent mode drops systemMessage on no-match too", () => {
+  it("silent mode drops systemMessage on no-match too", async () => {
     initConfig(projectDir);
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir, status: "silent" },
       { prompt: "generic prompt long enough to pass the trivial gate" },
     );
     expect(envelope(out).systemMessage).toBeUndefined();
   });
 
-  it("TRACEBASE_HOOK_STATUS=silent env var overrides --status compact", () => {
+  it("TRACEBASE_HOOK_STATUS=silent env var overrides --status compact", async () => {
     const config = initConfig(projectDir);
     const db = new Database(config.storagePath);
     const store = new BlockStore(db);
@@ -332,7 +332,7 @@ describe("runInjectContext — silent mode suppresses systemMessage entirely", (
     const prev = process.env.TRACEBASE_HOOK_STATUS;
     process.env.TRACEBASE_HOOK_STATUS = "silent";
     try {
-      const out = runInjectContext(
+      const out = await runInjectContext(
         { path: projectDir, status: "compact" },
         { prompt: "pytest collects the wrong package — sys.path shadowing module issue" },
       );
@@ -343,7 +343,7 @@ describe("runInjectContext — silent mode suppresses systemMessage entirely", (
     }
   });
 
-  it("TRACEBASE_HOOK_STATUS=compact env var overrides --status silent", () => {
+  it("TRACEBASE_HOOK_STATUS=compact env var overrides --status silent", async () => {
     const config = initConfig(projectDir);
     const db = new Database(config.storagePath);
     const store = new BlockStore(db);
@@ -353,7 +353,7 @@ describe("runInjectContext — silent mode suppresses systemMessage entirely", (
     const prev = process.env.TRACEBASE_HOOK_STATUS;
     process.env.TRACEBASE_HOOK_STATUS = "compact";
     try {
-      const out = runInjectContext(
+      const out = await runInjectContext(
         { path: projectDir, status: "silent" },
         { prompt: "pytest collects the wrong package — sys.path shadowing module issue" },
       );
@@ -364,9 +364,9 @@ describe("runInjectContext — silent mode suppresses systemMessage entirely", (
     }
   });
 
-  it("invalid --status value falls back to compact default (not an error)", () => {
+  it("invalid --status value falls back to compact default (not an error)", async () => {
     initConfig(projectDir);
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir, status: "quiet" }, // not a valid mode
       { prompt: "generic prompt long enough to clear the trivial gate" },
     );
@@ -380,13 +380,13 @@ describe("runInjectContext — silent mode suppresses systemMessage entirely", (
 // ---------------------------------------------------------------------------
 
 describe("runInjectContext — composite TB TRACE + TB MEMORY badge", () => {
-  it("emits ONLY TB TRACE half when no facts are recalled", () => {
+  it("emits ONLY TB TRACE half when no facts are recalled", async () => {
     const config = initConfig(projectDir);
     const db = new Database(config.storagePath);
     const store = new BlockStore(db);
     storeActive(store, PY_BLOCK);
     store.close();
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir },
       { prompt: "pytest is collecting the wrong package — sys.path shadow issue" },
     );
@@ -395,7 +395,7 @@ describe("runInjectContext — composite TB TRACE + TB MEMORY badge", () => {
     expect(msg).not.toContain("TB MEMORY");
   });
 
-  it("composes BOTH halves when patterns AND facts both recall", () => {
+  it("composes BOTH halves when patterns AND facts both recall", async () => {
     const config = initConfig(projectDir);
     const db = new Database(config.storagePath);
     const store = new BlockStore(db);
@@ -409,7 +409,7 @@ describe("runInjectContext — composite TB TRACE + TB MEMORY badge", () => {
       source: { origin: "observed" },
     });
     store.close();
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir },
       { prompt: "pytest is collecting the wrong package — sys.path shadow in monorepo" },
     );
@@ -421,7 +421,7 @@ describe("runInjectContext — composite TB TRACE + TB MEMORY badge", () => {
     expect(msg.length).toBeLessThan(100);
   });
 
-  it("omits separators when one half is zero — never a dangling `·`", () => {
+  it("omits separators when one half is zero — never a dangling `·`", async () => {
     const config = initConfig(projectDir);
     const db = new Database(config.storagePath);
     const store = new BlockStore(db);
@@ -434,7 +434,7 @@ describe("runInjectContext — composite TB TRACE + TB MEMORY badge", () => {
       source: { origin: "observed" },
     });
     store.close();
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir },
       { prompt: "pytest collection sys.path shadow — what's the convention here?" },
     );
@@ -449,25 +449,25 @@ describe("runInjectContext — composite TB TRACE + TB MEMORY badge", () => {
 });
 
 describe("parseStdinPayload — collapses every error mode to {}", () => {
-  it("returns {} on empty input", () => {
+  it("returns {} on empty input", async () => {
     expect(parseStdinPayload("")).toEqual({});
   });
 
-  it("returns {} on malformed JSON", () => {
+  it("returns {} on malformed JSON", async () => {
     expect(parseStdinPayload("{not valid json")).toEqual({});
   });
 
-  it("returns {} on a JSON primitive (string / number / null)", () => {
+  it("returns {} on a JSON primitive (string / number / null)", async () => {
     expect(parseStdinPayload('"a string"')).toEqual({});
     expect(parseStdinPayload("42")).toEqual({});
     expect(parseStdinPayload("null")).toEqual({});
   });
 
-  it("parses a well-formed object", () => {
+  it("parses a well-formed object", async () => {
     expect(parseStdinPayload('{"prompt":"hello"}')).toEqual({ prompt: "hello" });
   });
 
-  it("rejects oversized payloads (returns {})", () => {
+  it("rejects oversized payloads (returns {})", async () => {
     const oversize = '{"prompt":"' + "x".repeat(300_000) + '"}';
     expect(parseStdinPayload(oversize)).toEqual({});
   });
@@ -501,7 +501,7 @@ describe("runInjectContext — session-scoped fact recall (TB CONTEXT)", () => {
     });
     store.close();
 
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir },
       {
         prompt: "Continue helping me with the pytest collection sys.path shadow problem from earlier.",
@@ -530,7 +530,7 @@ describe("runInjectContext — session-scoped fact recall (TB CONTEXT)", () => {
 
     // Query under session B with a prompt that would otherwise match
     // by FTS keywords.
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir },
       {
         prompt:
@@ -557,7 +557,7 @@ describe("runInjectContext — session-scoped fact recall (TB CONTEXT)", () => {
     });
     store.close();
 
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir },
       {
         prompt: "Where does the cli vitest suite live in this codebase exactly?",
@@ -658,7 +658,7 @@ describe("runInjectContext — JSON envelope shape", () => {
     store.recordSessionChunks(folded.chunks);
     store.close();
 
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir },
       {
         prompt:
@@ -735,7 +735,7 @@ describe("runInjectContext — TB CONTEXT composite badge (rc.6 hardening)", () 
     expect(store.countSessionChunks("S-ctx")).toBeGreaterThan(0);
     store.close();
 
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir },
       {
         prompt: "Continue with the kerberos auth helper signing tokens",
@@ -754,7 +754,7 @@ describe("runInjectContext — TB CONTEXT composite badge (rc.6 hardening)", () 
 });
 
 describe("runInjectContext — TB TOOL / TB LOOP composite badges", () => {
-  it("flags a straight loop with `▣ TB LOOP  straight × N (Tool)`", () => {
+  it("flags a straight loop with `▣ TB LOOP  straight × N (Tool)`", async () => {
     const cfg = initConfig(projectDir);
     const db = new Database(cfg.storagePath);
     const store = new BlockStore(db);
@@ -766,7 +766,7 @@ describe("runInjectContext — TB TOOL / TB LOOP composite badges", () => {
     ]);
     store.close();
 
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir },
       {
         prompt: "ok now what about the database connection — anything to know?",
@@ -777,7 +777,7 @@ describe("runInjectContext — TB TOOL / TB LOOP composite badges", () => {
     expect(sys).toMatch(/▣ TB LOOP\s+straight × 3 \(Read\)/);
   });
 
-  it("flags ping-pong with `▣ TB LOOP  ping-pong (Tool)`", () => {
+  it("flags ping-pong with `▣ TB LOOP  ping-pong (Tool)`", async () => {
     const cfg = initConfig(projectDir);
     const db = new Database(cfg.storagePath);
     const store = new BlockStore(db);
@@ -789,7 +789,7 @@ describe("runInjectContext — TB TOOL / TB LOOP composite badges", () => {
     ]);
     store.close();
 
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir },
       {
         prompt: "ok next let me ask about the migration runner instead",
@@ -800,7 +800,7 @@ describe("runInjectContext — TB TOOL / TB LOOP composite badges", () => {
     expect(sys).toMatch(/▣ TB LOOP\s+ping-pong/);
   });
 
-  it("flags weak duplicates with the softer `▣ TB TOOL  repeated`", () => {
+  it("flags weak duplicates with the softer `▣ TB TOOL  repeated`", async () => {
     const cfg = initConfig(projectDir);
     const db = new Database(cfg.storagePath);
     const store = new BlockStore(db);
@@ -812,7 +812,7 @@ describe("runInjectContext — TB TOOL / TB LOOP composite badges", () => {
     ]);
     store.close();
 
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir },
       {
         prompt: "ok so what's the plan for fixing the failing migration script?",
@@ -823,7 +823,7 @@ describe("runInjectContext — TB TOOL / TB LOOP composite badges", () => {
     expect(sys).toMatch(/▣ TB TOOL\s+repeated 2× \(Grep\)/);
   });
 
-  it("emits the TB LOOP fragment even on a no-match prompt", () => {
+  it("emits the TB LOOP fragment even on a no-match prompt", async () => {
     const cfg = initConfig(projectDir);
     const db = new Database(cfg.storagePath);
     const store = new BlockStore(db);
@@ -835,7 +835,7 @@ describe("runInjectContext — TB TOOL / TB LOOP composite badges", () => {
     store.close();
     // No blocks / facts — recall returns no-match, but the TB LOOP
     // fragment still composes because detection is independent.
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir },
       {
         prompt: "completely unrelated topic that wont match any pattern in the empty store",
@@ -847,7 +847,7 @@ describe("runInjectContext — TB TOOL / TB LOOP composite badges", () => {
     expect(sys).toMatch(/▣ TB LOOP\s+straight × 3/);
   });
 
-  it("silent mode hard-suppresses the TB LOOP fragment", () => {
+  it("silent mode hard-suppresses the TB LOOP fragment", async () => {
     const cfg = initConfig(projectDir);
     const db = new Database(cfg.storagePath);
     const store = new BlockStore(db);
@@ -857,7 +857,7 @@ describe("runInjectContext — TB TOOL / TB LOOP composite badges", () => {
       { sessionId: "S-silent", batchOrder: 2, toolName: "Read", argSummary: "x", argKey: "kA" },
     ]);
     store.close();
-    const out = runInjectContext(
+    const out = await runInjectContext(
       { path: projectDir, status: "silent" },
       {
         prompt: "again unrelated long enough prompt to pass the gate but silent mode",
@@ -872,7 +872,7 @@ describe("runInjectContext — TRACEBASE_DISABLED kill switch", () => {
   // Used by the demo harness (off variant) and as a one-off
   // global suppression. Must short-circuit to the trivial-shape
   // empty envelope without touching the store or running recall.
-  it("returns an empty envelope when TRACEBASE_DISABLED=1, even with a matching pattern", () => {
+  it("returns an empty envelope when TRACEBASE_DISABLED=1, even with a matching pattern", async () => {
     const config = initConfig(projectDir);
     const db = new Database(config.storagePath);
     const store = new BlockStore(db);
@@ -880,7 +880,7 @@ describe("runInjectContext — TRACEBASE_DISABLED kill switch", () => {
     store.close();
 
     // Sanity: without the switch, a matching pattern is injected.
-    const before = runInjectContext(
+    const before = await runInjectContext(
       { path: projectDir },
       { prompt: "pytest is collecting the wrong package — sys.path looks suspicious" },
     );
@@ -890,7 +890,7 @@ describe("runInjectContext — TRACEBASE_DISABLED kill switch", () => {
     const prev = process.env.TRACEBASE_DISABLED;
     process.env.TRACEBASE_DISABLED = "1";
     try {
-      const out = runInjectContext(
+      const out = await runInjectContext(
         { path: projectDir },
         { prompt: "pytest is collecting the wrong package — sys.path looks suspicious" },
       );
@@ -906,7 +906,7 @@ describe("runInjectContext — TRACEBASE_DISABLED kill switch", () => {
     }
   });
 
-  it("ignores any value other than the literal string '1' (avoid accidental disables)", () => {
+  it("ignores any value other than the literal string '1' (avoid accidental disables)", async () => {
     const config = initConfig(projectDir);
     const db = new Database(config.storagePath);
     const store = new BlockStore(db);
@@ -916,7 +916,7 @@ describe("runInjectContext — TRACEBASE_DISABLED kill switch", () => {
     const prev = process.env.TRACEBASE_DISABLED;
     process.env.TRACEBASE_DISABLED = "true"; // common trap
     try {
-      const out = runInjectContext(
+      const out = await runInjectContext(
         { path: projectDir },
         { prompt: "pytest is collecting the wrong package — sys.path looks suspicious" },
       );

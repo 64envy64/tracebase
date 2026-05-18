@@ -28,7 +28,11 @@ import Database from "better-sqlite3";
 import { BlockStore } from "../../core/block-store.js";
 import { BlockServer } from "../../core/block-serving.js";
 import { loadBlockCalibrator } from "../../lifecycle/calibrator.js";
-import { findProjectRoot, isInitialized, loadConfig, readHoldoutConfig } from "../../core/config.js";
+import { findProjectRoot, isInitialized, loadConfig, readCascadeConfig, readHoldoutConfig } from "../../core/config.js";
+import {
+  buildRerankerFromCascadeConfig,
+  extractCascadeKnobs,
+} from "../../experiments/cascade-rollout.js";
 import {
   recallForPrompt,
   shouldQueryForPrompt,
@@ -148,7 +152,7 @@ export const injectContextCommand = new Command("inject-context")
     // exported so tests can exercise the contract without spawning
     // the CLI binary (which would require a built dist).
     const stdin = readStdinJson();
-    const outcome = runInjectContext(opts, stdin);
+    const outcome = await runInjectContext(opts, stdin);
     process.stdout.write(outcome.envelope + "\n");
   });
 
@@ -161,10 +165,10 @@ export const injectContextCommand = new Command("inject-context")
  * empty envelope is invisible. Any error is recorded on stderr (Claude
  * Code surfaces it in the transcript without blocking the prompt).
  */
-export function runInjectContext(
+export async function runInjectContext(
   opts: RunInjectContextOptions,
   stdin: HookStdin,
-): InjectContextOutcome {
+): Promise<InjectContextOutcome> {
   const host = normaliseHost(opts.host);
   const eventName = normaliseEvent(opts.event);
   const budget = parseBudget(opts.budget);
@@ -217,13 +221,21 @@ export function runInjectContext(
 
     const config = loadConfig(basePath);
     const sessionId = stdin.session_id ?? stdin.sessionId;
-    const recall = withBlockServer(config.storagePath, basePath, (server, store, holdoutLoader) =>
-      recallForPrompt(server, store, holdoutLoader, {
-        prompt,
-        basePath,
-        sessionId: sessionId ?? null,
-        tokenBudget: budget,
-      }),
+    const recall = await withBlockServer(config.storagePath, basePath, (server, store, holdoutLoader) =>
+      recallForPrompt(
+        server,
+        store,
+        holdoutLoader,
+        {
+          prompt,
+          basePath,
+          sessionId: sessionId ?? null,
+          tokenBudget: budget,
+        },
+        // B1.2: hot-load cascade config per prompt so
+        // `tracebase cascade set-rate` takes effect without restart.
+        () => readCascadeConfig(basePath),
+      ),
     );
 
     // `hasContent` encodes the full gate chain: query ran, something
@@ -546,25 +558,43 @@ function normaliseEvent(raw: string | undefined): string {
  * lingering WAL handle in a hook process would surface as a
  * "database is locked" error on a follow-on `tracebase` invocation.
  */
-function withBlockServer<T>(
+/**
+ * Async because the May-2026 B1.2 cascade-rollout path inside
+ * `recallForPrompt` is async. Holds the SQLite connection open across
+ * the `await` so the cascade reranker can complete before we close.
+ *
+ * The Claude Code hook is the highest-traffic surface for the cascade
+ * rollout — wiring `readCascadeConfig` here is what lets the rollout
+ * gate actually fire on production traffic instead of being a
+ * library-only knob.
+ */
+async function withBlockServer<T>(
   storagePath: string,
   basePath: string,
   fn: (
     server: BlockServer,
     store: BlockStore,
     holdoutLoader: HoldoutLoader,
-  ) => T,
-): T {
+  ) => Promise<T>,
+): Promise<T> {
   const db = new Database(storagePath);
   const store = new BlockStore(db);
   try {
+    // B1.2: construct the reranker from cascade config so the hook
+    // path also routes through the configured cascade. The fail-safe
+    // returns NoopReranker on any malformed config.
+    const bootCascadeConfig = readCascadeConfig(basePath);
+    const reranker = buildRerankerFromCascadeConfig(bootCascadeConfig);
+    const cascadeKnobs = extractCascadeKnobs(bootCascadeConfig);
     const server = new BlockServer(store, {
       calibrator: loadBlockCalibrator(store),
       emitEvents: false,
       gateThreshold: 0,
+      reranker,
+      ...cascadeKnobs,
     });
     const holdoutLoader: HoldoutLoader = () => readHoldoutConfig(basePath);
-    return fn(server, store, holdoutLoader);
+    return await fn(server, store, holdoutLoader);
   } finally {
     store.close();
   }

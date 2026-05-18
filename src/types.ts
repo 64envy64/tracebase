@@ -308,6 +308,78 @@ export interface ExperimentConfig {
  * for every fingerprint, corrupting any causal inference that
  * spans the toggle.
  */
+/**
+ * Persistent cascade config — May-2026 B1.2.
+ *
+ * Lives at `.tracebase/cascade.json` and is loaded fresh on every MCP
+ * invocation so `tracebase cascade enable|disable|set-rate` takes
+ * effect without restarting the server. Mirrors the
+ * `HoldoutConfig`-on-disk pattern so the team has one mental model
+ * for "runtime-tunable experimental knobs" instead of two.
+ *
+ * Two layers:
+ *   • `rollout` — deterministic gradual rollout of the cascade. Same
+ *     SHA256-uint32 semantics as `shouldHoldOut`, so a given query
+ *     fingerprint either always sees the cascade or always doesn't,
+ *     and ramping `rate` from 0 → 1 is monotonic at the per-query
+ *     level. Empty rollout / disabled = sync `recall()` path; the
+ *     cascade is invisible to the user.
+ *   • `reranker` — which Reranker impl to construct at server boot.
+ *     `kind: "noop"` is the default and exercises the cascade
+ *     architecture without any network calls; `kind: "cloud"` swaps
+ *     in CloudReranker with the endpoint config. ONNX kinds (minilm /
+ *     bge-v2-m3) land in a follow-up PR alongside `doctor --fix`.
+ *
+ * Changing `reranker.kind` / `endpoint` / `apiKey` requires a server
+ * restart (the BlockServer captures the reranker reference at
+ * construction). Changing `rollout.rate` is hot.
+ */
+export interface CascadeConfig {
+  /** Master switch. When false, the sync recall() path is always used. */
+  enabled: boolean;
+  /** Deterministic per-query rollout. */
+  rollout: {
+    /** Rate in [0, 1]. 0 disables, 1 routes every query through the cascade. */
+    rate: number;
+    /**
+     * Per-project salt — must be stable across enable/disable cycles
+     * so a query that landed in the cascade arm yesterday stays
+     * there today. Generated on first enable, preserved on later
+     * state changes (same lifecycle as `HoldoutConfig.salt`).
+     */
+    salt: string;
+  };
+  /** Reranker selection. */
+  reranker: {
+    /**
+     * Implementation kind.
+     *   • "noop"  — pass-through; identity rerank. Default; zero deps.
+     *   • "cloud" — POST to a hosted endpoint via CloudReranker.
+     *               Requires `endpoint`; `apiKey` and `model` are
+     *               optional pass-throughs.
+     *   • "minilm" / "bge-v2-m3" — reserved; land in the local-ONNX
+     *               follow-up PR alongside `doctor --fix`.
+     */
+    kind: "noop" | "cloud" | "minilm" | "bge-v2-m3";
+    /** CloudReranker endpoint URL. Required when kind === "cloud". */
+    endpoint?: string;
+    /** Bearer token for the cloud endpoint. */
+    apiKey?: string;
+    /** Optional model identifier the cloud endpoint understands. */
+    model?: string;
+  };
+  /** Reranker timeout in ms. Default 300. */
+  timeoutMs?: number;
+  /** MMR relevance/diversity tradeoff. Default 0.7. */
+  mmrLambda?: number;
+  /** Pre-reranker over-fetch multiplier. Default 4. */
+  fetchMultiplier?: number;
+  /** ISO timestamp of first-ever enable. Preserved on later re-enables. */
+  createdAt: string;
+  /** ISO timestamp of the last state change. */
+  updatedAt: string;
+}
+
 export interface HoldoutConfig {
   /** When false, no query is assigned to the holdout cohort. */
   enabled: boolean;

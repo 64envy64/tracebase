@@ -22,7 +22,7 @@ function makeStore(): BlockStore {
 }
 
 describe("storeReasoningPattern — happy path", () => {
-  it("inserts a new active block with an origin case ref", () => {
+  it("inserts a new active block with an origin case ref", async () => {
     const store = makeStore();
     const result = storeReasoningPattern(store, {
       situation: "React effect loops when dependency array holds a fresh object each render",
@@ -52,7 +52,7 @@ describe("storeReasoningPattern — happy path", () => {
     expect(refs[0]!.role).toBe("origin");
   });
 
-  it("links the origin ref back to the retrieval queryId when provided", () => {
+  it("links the origin ref back to the retrieval queryId when provided", async () => {
     const store = makeStore();
     const result = storeReasoningPattern(store, {
       situation: "Python ImportError when test runner picks the wrong python path",
@@ -67,7 +67,7 @@ describe("storeReasoningPattern — happy path", () => {
 });
 
 describe("storeReasoningPattern — dedupe", () => {
-  it("a second call with the same fingerprint does NOT create a duplicate; returns the existing id with isNew=false", () => {
+  it("a second call with the same fingerprint does NOT create a duplicate; returns the existing id with isNew=false", async () => {
     const store = makeStore();
     const first = storeReasoningPattern(store, {
       situation: "Postgres connection exhaustion during burst traffic",
@@ -99,7 +99,7 @@ describe("storeReasoningPattern — dedupe", () => {
 });
 
 describe("storeReasoningPattern — idempotent retries", () => {
-  it("three consecutive identical calls with the same queryId do not throw and do not accumulate supporting refs", () => {
+  it("three consecutive identical calls with the same queryId do not throw and do not accumulate supporting refs", async () => {
     // Regression: the `block_case_refs` UNIQUE index on
     // (block_id, trace_id, role) previously raised on the third
     // call. MCP transports can retry tool calls; the agent also
@@ -136,7 +136,7 @@ describe("storeReasoningPattern — idempotent retries", () => {
     ]);
   });
 
-  it("different queryIds still produce distinct supporting refs (we only dedupe on matching traceId)", () => {
+  it("different queryIds still produce distinct supporting refs (we only dedupe on matching traceId)", async () => {
     // This is the inverse invariant: genuinely new supporting
     // evidence from a different query must not be suppressed by the
     // retry guard.
@@ -166,7 +166,7 @@ describe("storeReasoningPattern — idempotent retries", () => {
 });
 
 describe("storeReasoningPattern — validation", () => {
-  it("rejects empty / whitespace-only fields rather than silently polluting the store", () => {
+  it("rejects empty / whitespace-only fields rather than silently polluting the store", async () => {
     const store = makeStore();
     expect(() =>
       storeReasoningPattern(store, {
@@ -178,7 +178,7 @@ describe("storeReasoningPattern — validation", () => {
     ).toThrow(StorePatternValidationError);
   });
 
-  it("rejects too-short fields (< 4 chars after trim)", () => {
+  it("rejects too-short fields (< 4 chars after trim)", async () => {
     const store = makeStore();
     expect(() =>
       storeReasoningPattern(store, {
@@ -192,12 +192,12 @@ describe("storeReasoningPattern — validation", () => {
 });
 
 describe("storeReasoningPattern — round-trip with get_reasoning_patterns", () => {
-  it("a freshly-stored pattern is retrievable on the next get_reasoning_patterns call", () => {
+  it("a freshly-stored pattern is retrievable on the next get_reasoning_patterns call", async () => {
     const store = makeStore();
     const server = new BlockServer(store);
 
     // 1. First retrieval returns nothing — empty store.
-    const before = runReasoningPatternsRecall(
+    const before = await runReasoningPatternsRecall(
       server,
       { problem: "flaky pytest run due to import order" },
       { readHoldoutConfig: () => null },
@@ -215,7 +215,7 @@ describe("storeReasoningPattern — round-trip with get_reasoning_patterns", () 
     expect(stored.isNew).toBe(true);
 
     // 3. Next retrieval on a similar problem surfaces the block.
-    const after = runReasoningPatternsRecall(
+    const after = await runReasoningPatternsRecall(
       server,
       { problem: "flaky pytest run due to import order" },
       { readHoldoutConfig: () => null },
@@ -232,7 +232,7 @@ describe("storeReasoningPattern — capture gate", () => {
   // boilerplate). Length-only thinness is intentionally still allowed
   // through MIN_FIELD_LEN — gate logic shouldn't false-positive on
   // genuinely concise fixes.
-  it("rejects bodies that contain release-progress version markers", () => {
+  it("rejects bodies that contain release-progress version markers", async () => {
     const store = makeStore();
     expect(() =>
       storeReasoningPattern(store, {
@@ -244,7 +244,7 @@ describe("storeReasoningPattern — capture gate", () => {
     ).toThrow(/capture gate.*release-noise/);
   });
 
-  it("rejects when verification is the canned 'Re-run the failing step' boilerplate", () => {
+  it("rejects when verification is the canned 'Re-run the failing step' boilerplate", async () => {
     const store = makeStore();
     expect(() =>
       storeReasoningPattern(store, {
@@ -256,7 +256,7 @@ describe("storeReasoningPattern — capture gate", () => {
     ).toThrow(/capture gate.*template-verify/);
   });
 
-  it("accepts a real reusable pattern with no junk markers", () => {
+  it("accepts a real reusable pattern with no junk markers", async () => {
     const store = makeStore();
     const result = storeReasoningPattern(store, {
       situation: "React effect loops when the dependency array holds a fresh object each render",
@@ -288,7 +288,7 @@ describe("storeReasoningPattern — atomicity", () => {
     verification: "after a forced mid-sequence throw, no block or case ref persists",
   };
 
-  it("rolls back the candidate block when attachCaseRef fails", () => {
+  it("rolls back the candidate block when attachCaseRef fails", async () => {
     const store = makeStore();
     const spy = vi.spyOn(store, "attachCaseRef").mockImplementation(() => {
       throw new Error("simulated attachCaseRef failure");
@@ -302,7 +302,7 @@ describe("storeReasoningPattern — atomicity", () => {
     expect(countCaseRefs(store)).toBe(0);
   });
 
-  it("rolls back the block AND the origin ref when updateBlockStatus fails", () => {
+  it("rolls back the block AND the origin ref when updateBlockStatus fails", async () => {
     const store = makeStore();
     const spy = vi.spyOn(store, "updateBlockStatus").mockImplementation(() => {
       throw new Error("simulated updateBlockStatus failure");
@@ -318,7 +318,7 @@ describe("storeReasoningPattern — atomicity", () => {
     expect(countCaseRefs(store)).toBe(0);
   });
 
-  it("does not block subsequent captures of the same fingerprint after a rolled-back failure", () => {
+  it("does not block subsequent captures of the same fingerprint after a rolled-back failure", async () => {
     const store = makeStore();
     const spy = vi.spyOn(store, "updateBlockStatus").mockImplementation(() => {
       throw new Error("simulated updateBlockStatus failure");

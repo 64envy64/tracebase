@@ -63,9 +63,9 @@ function makeStoreWithSeed(): { store: BlockStore; server: BlockServer; blockId:
 }
 
 describe("toReasoningPatternsStructured — get_reasoning_patterns shape", () => {
-  it("emits the protocol literal and required envelope fields", () => {
+  it("emits the protocol literal and required envelope fields", async () => {
     const { server } = makeStoreWithSeed();
-    const result = runReasoningPatternsRecall(
+    const result = await runReasoningPatternsRecall(
       server,
       { problem: "input value of 0 incorrectly flagged as missing in form validation" },
       { readHoldoutConfig: () => null },
@@ -80,9 +80,9 @@ describe("toReasoningPatternsStructured — get_reasoning_patterns shape", () =>
     expect(Array.isArray(out.facts)).toBe(true);
   });
 
-  it("populates the injected summary only when shouldInject is true", () => {
+  it("populates the injected summary only when shouldInject is true", async () => {
     const { server } = makeStoreWithSeed();
-    const result = runReasoningPatternsRecall(
+    const result = await runReasoningPatternsRecall(
       server,
       { problem: "form validation flags 0 as missing input" },
       { readHoldoutConfig: () => null },
@@ -98,9 +98,9 @@ describe("toReasoningPatternsStructured — get_reasoning_patterns shape", () =>
     }
   });
 
-  it("on shadow runs, returns blocks/facts but no injected payload and shouldInject=false", () => {
+  it("on shadow runs, returns blocks/facts but no injected payload and shouldInject=false", async () => {
     const { server } = makeStoreWithSeed();
-    const result = runReasoningPatternsRecall(
+    const result = await runReasoningPatternsRecall(
       server,
       { problem: "form validation flags 0 as missing input", shadow: true },
       { readHoldoutConfig: () => null },
@@ -111,9 +111,9 @@ describe("toReasoningPatternsStructured — get_reasoning_patterns shape", () =>
     expect(out.injected).toBeUndefined();
   });
 
-  it("each block carries id / situation / calibratedProb / evidenceRefs", () => {
+  it("each block carries id / situation / calibratedProb / evidenceRefs", async () => {
     const { server, blockId } = makeStoreWithSeed();
-    const result = runReasoningPatternsRecall(
+    const result = await runReasoningPatternsRecall(
       server,
       { problem: "form validation flags 0 as missing input" },
       { readHoldoutConfig: () => null },
@@ -133,7 +133,7 @@ describe("toReasoningPatternsStructured — get_reasoning_patterns shape", () =>
 });
 
 describe("storeReasoningPattern — structured-content envelope", () => {
-  it("isNew=true on first capture, false on a same-fingerprint reinforcement", () => {
+  it("isNew=true on first capture, false on a same-fingerprint reinforcement", async () => {
     const store = new BlockStore(new Database(":memory:"));
     const args = {
       situation: "form validation flags 0 as missing input via if (!value)",
@@ -151,7 +151,7 @@ describe("storeReasoningPattern — structured-content envelope", () => {
 });
 
 describe("delete_pattern + delete_project_fact — structured deletion shape", () => {
-  it("delete_pattern returns ok:true, deleted:true on hit and false on miss", () => {
+  it("delete_pattern returns ok:true, deleted:true on hit and false on miss", async () => {
     const store = new BlockStore(new Database(":memory:"));
     const stored = storeReasoningPattern(store, {
       situation: "react state update batching causes stale read in event handler",
@@ -173,7 +173,7 @@ describe("delete_pattern + delete_project_fact — structured deletion shape", (
     expect(miss).toEqual({ ok: true, deleted: false, id: "nonexistent-id" });
   });
 
-  it("delete_project_fact mirrors the contract for the L4 substrate", () => {
+  it("delete_project_fact mirrors the contract for the L4 substrate", async () => {
     const store = new BlockStore(new Database(":memory:"));
     const fact = store.storeFact({
       factType: "convention",
@@ -197,7 +197,7 @@ describe("delete_pattern + delete_project_fact — structured deletion shape", (
     expect(miss).toEqual({ ok: true, deleted: false, id: "nonexistent-fact" });
   });
 
-  it("delete_project_fact writes the audit row with no body content", () => {
+  it("delete_project_fact writes the audit row with no body content", async () => {
     const store = new BlockStore(new Database(":memory:"));
     const secret = "REPO_API_TOKEN_SHOULD_NEVER_LEAK";
     const fact = store.storeFact({
@@ -232,9 +232,9 @@ describe("delete_pattern + delete_project_fact — structured deletion shape", (
 });
 
 describe("toMcpStructured — boundary coercion is a no-op on values", () => {
-  it("returns the same shape; only the static type widens", () => {
+  it("returns the same shape; only the static type widens", async () => {
     const { server } = makeStoreWithSeed();
-    const result = runReasoningPatternsRecall(
+    const result = await runReasoningPatternsRecall(
       server,
       { problem: "form validation flags 0 as missing input" },
       { readHoldoutConfig: () => null },
@@ -248,9 +248,9 @@ describe("toMcpStructured — boundary coercion is a no-op on values", () => {
 });
 
 describe("integration with outcome ledger", () => {
-  it("collectInjectedFromQuery + resolveUsedItems credit only injected ids", () => {
+  it("collectInjectedFromQuery + resolveUsedItems credit only injected ids", async () => {
     const { store, server } = makeStoreWithSeed();
-    const result = runReasoningPatternsRecall(
+    const result = await runReasoningPatternsRecall(
       server,
       { problem: "form validation flags 0 as missing input" },
       { readHoldoutConfig: () => null },
@@ -266,9 +266,9 @@ describe("integration with outcome ledger", () => {
     expect(usedFiltered.usedBlockIds).toEqual([]);
   });
 
-  it("durationMs round-trips through emitOutcome", () => {
+  it("durationMs round-trips through emitOutcome", async () => {
     const { store, server } = makeStoreWithSeed();
-    const result = runReasoningPatternsRecall(
+    const result = await runReasoningPatternsRecall(
       server,
       { problem: "form validation flags 0 as missing input" },
       { readHoldoutConfig: () => null },

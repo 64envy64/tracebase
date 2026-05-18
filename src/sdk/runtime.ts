@@ -41,13 +41,19 @@ import {
   getOrMintWorkspaceSalt,
   isInitialized,
   loadConfig,
+  readCascadeConfig,
   readHoldoutConfig,
 } from "../core/config.js";
 import { boundField, detectLeakageExtended } from "../core/guard.js";
 import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
 import {
+  buildRerankerFromCascadeConfig,
+  extractCascadeKnobs,
+} from "../experiments/cascade-rollout.js";
+import {
   recallForPrompt,
   shouldQueryForPrompt,
+  type CascadeLoader,
   type HoldoutLoader,
 } from "../runtime/recall.js";
 import { observeToolBatch } from "../runtime/observe-tools.js";
@@ -95,6 +101,8 @@ interface ConnectionBundle {
   server: BlockServer;
   basePath: string;
   holdoutLoader: HoldoutLoader;
+  /** B1.2: hot cascade-config loader for the rollout gate. */
+  cascadeLoader: CascadeLoader;
 }
 
 const DIGEST_TTL_DAYS = 14;
@@ -177,13 +185,22 @@ export function createRuntime(
     const config = loadConfig(basePath);
     const db = new Database(config.storagePath);
     const store = new BlockStore(db);
+    // B1.2: construct reranker from cascade config at connection
+    // setup. Reranker kind is process-lifetime; rate/lambda/timeout
+    // are hot via the loader below.
+    const bootCascadeConfig = readCascadeConfig(basePath);
+    const reranker = buildRerankerFromCascadeConfig(bootCascadeConfig);
+    const cascadeKnobs = extractCascadeKnobs(bootCascadeConfig);
     const server = new BlockServer(store, {
       calibrator: loadBlockCalibrator(store),
       emitEvents: false,
       gateThreshold: 0,
+      reranker,
+      ...cascadeKnobs,
     });
     const holdoutLoader: HoldoutLoader = () => readHoldoutConfig(basePath);
-    connection = { db, store, server, basePath, holdoutLoader };
+    const cascadeLoader: CascadeLoader = () => readCascadeConfig(basePath);
+    connection = { db, store, server, basePath, holdoutLoader, cascadeLoader };
     return connection;
   }
 
@@ -402,12 +419,21 @@ export function createRuntime(
       return { additionalContext: "", badgeEvents: [] };
     }
 
-    const recall = recallForPrompt(conn.server, conn.store, conn.holdoutLoader, {
-      prompt,
-      basePath,
-      sessionId,
-      enableToolDetection: detectorEnabled,
-    });
+    // B1.2: recallForPrompt is async (the cascade rollout decision can
+    // route the query through recallAsync). beforeRun is already async,
+    // so just await. cascadeLoader hot-loads the rollout knob per call.
+    const recall = await recallForPrompt(
+      conn.server,
+      conn.store,
+      conn.holdoutLoader,
+      {
+        prompt,
+        basePath,
+        sessionId,
+        enableToolDetection: detectorEnabled,
+      },
+      conn.cascadeLoader,
+    );
 
     const events: BadgeEvent[] = [];
     if (recall.hasContent) {

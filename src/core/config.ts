@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { randomBytes, randomUUID } from "node:crypto";
 import { join, dirname } from "node:path";
-import type { ExperimentConfig, HoldoutConfig, TraceBaseConfig } from "../types.js";
+import type { CascadeConfig, ExperimentConfig, HoldoutConfig, TraceBaseConfig } from "../types.js";
 
 const CONFIG_DIR = ".tracebase";
 const CONFIG_FILE = "config.json";
@@ -420,6 +420,25 @@ export function readHoldoutConfig(basePath: string): HoldoutConfig | null {
   return extractHoldoutConfig(raw);
 }
 
+/**
+ * Read the current cascade config from disk, or `null` if the project
+ * has never configured one (or the stored payload is malformed). May-
+ * 2026 B1.2 — called fresh on every `get_reasoning_patterns` MCP call
+ * so `tracebase cascade enable|set-rate|disable` takes effect without
+ * restarting the server, matching the holdout config lifecycle.
+ *
+ * Storage lives under the existing `experiment` object in
+ * `.tracebase/config.json` as a sibling of `holdout` — keeping every
+ * runtime-tunable experimental knob under one roof. Malformed
+ * fields collapse to `null` so a corrupted disk write can never
+ * promote the cascade to a state worse than "off".
+ */
+export function readCascadeConfig(basePath: string): CascadeConfig | null {
+  const raw = readConfigFileRaw(basePath);
+  if (raw === null) return null;
+  return extractCascadeConfig(raw);
+}
+
 function readConfigFileRaw(basePath: string): Record<string, unknown> | null {
   const configFile = join(basePath, CONFIG_DIR, CONFIG_FILE);
   if (!existsSync(configFile)) return null;
@@ -489,6 +508,65 @@ function generateHoldoutSalt(): string {
   // `shouldHoldOut` unpredictable per-workspace; no cryptographic
   // strength requirement beyond "not guessable across workspaces".
   return randomBytes(16).toString("hex");
+}
+
+/**
+ * Pull a CascadeConfig out of the raw `experiment.cascade` block.
+ * Each field is type-checked; any malformed value collapses the
+ * whole config to `null` so we fall back to the safe sync path
+ * rather than running with a half-parsed cascade state.
+ */
+function extractCascadeConfig(raw: Record<string, unknown>): CascadeConfig | null {
+  const exp = raw.experiment;
+  if (!exp || typeof exp !== "object") return null;
+  const cascade = (exp as Record<string, unknown>).cascade;
+  if (!cascade || typeof cascade !== "object") return null;
+  const c = cascade as Record<string, unknown>;
+
+  if (typeof c.enabled !== "boolean") return null;
+  if (typeof c.createdAt !== "string") return null;
+  if (typeof c.updatedAt !== "string") return null;
+
+  const rollout = c.rollout;
+  if (!rollout || typeof rollout !== "object") return null;
+  const r = rollout as Record<string, unknown>;
+  if (typeof r.rate !== "number" || !Number.isFinite(r.rate)) return null;
+  if (typeof r.salt !== "string") return null;
+
+  const reranker = c.reranker;
+  if (!reranker || typeof reranker !== "object") return null;
+  const rr = reranker as Record<string, unknown>;
+  if (
+    rr.kind !== "noop" &&
+    rr.kind !== "cloud" &&
+    rr.kind !== "minilm" &&
+    rr.kind !== "bge-v2-m3"
+  ) {
+    return null;
+  }
+  if (rr.endpoint !== undefined && typeof rr.endpoint !== "string") return null;
+  if (rr.apiKey !== undefined && typeof rr.apiKey !== "string") return null;
+  if (rr.model !== undefined && typeof rr.model !== "string") return null;
+
+  if (c.timeoutMs !== undefined && (typeof c.timeoutMs !== "number" || !Number.isFinite(c.timeoutMs))) return null;
+  if (c.mmrLambda !== undefined && (typeof c.mmrLambda !== "number" || !Number.isFinite(c.mmrLambda))) return null;
+  if (c.fetchMultiplier !== undefined && (typeof c.fetchMultiplier !== "number" || !Number.isFinite(c.fetchMultiplier))) return null;
+
+  return {
+    enabled: c.enabled,
+    rollout: { rate: r.rate, salt: r.salt },
+    reranker: {
+      kind: rr.kind,
+      ...(rr.endpoint ? { endpoint: rr.endpoint } : {}),
+      ...(rr.apiKey ? { apiKey: rr.apiKey } : {}),
+      ...(rr.model ? { model: rr.model } : {}),
+    },
+    ...(c.timeoutMs !== undefined ? { timeoutMs: c.timeoutMs as number } : {}),
+    ...(c.mmrLambda !== undefined ? { mmrLambda: c.mmrLambda as number } : {}),
+    ...(c.fetchMultiplier !== undefined ? { fetchMultiplier: c.fetchMultiplier as number } : {}),
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+  };
 }
 
 // ---------------------------------------------------------------------------
