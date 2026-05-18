@@ -418,7 +418,16 @@ function autoFeedback(
 
     if (similarity >= threshold) {
       for (const source of injection.sources) {
-        layer.feedback(source.traceId, true);
+        // Prefer exact attribution via the structured form when the
+        // recall plumbed a queryId through (post-May-2026 PR 1). Fall
+        // back to the legacy single-arg form for hand-built sources
+        // without a queryId — legacy still safe but loses exact
+        // attribution under concurrent recalls.
+        if (source.queryId) {
+          layer.feedback({ queryId: source.queryId, traceId: source.traceId, helpful: true });
+        } else {
+          layer.feedback(source.traceId, true);
+        }
       }
     }
   } catch {

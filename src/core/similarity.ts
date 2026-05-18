@@ -74,6 +74,31 @@ const LN2 = Math.LN2; // 0.693147...
  * @param config        Similarity engine configuration (thresholds, etc.)
  * @param featureConfig Feature extraction configuration (custom extractors, weights)
  */
+/**
+ * Variant of `recall()` that also returns the full scored candidate
+ * set BEFORE the `minScore` filter and `limit` slice. Required by the
+ * trace_retrieval event log (May-2026 PR 1, review P2 #2) — off-policy
+ * screening needs the full slate context, not just the top-K survivors.
+ *
+ * `allCandidates` is sorted by score descending. `results` is what
+ * `recall()` would have returned (post-filter, post-slice).
+ */
+export interface RecallWithAllCandidatesResult {
+  results: RecallResult[];
+  allCandidates: RecallResult[];
+}
+
+export function recallWithAllCandidates(
+  store: TraceStore,
+  query: RecallQuery,
+  weights: SignalWeights = DEFAULT_WEIGHTS,
+  cosineScores?: Map<string, number>,
+  config?: SimilarityConfig,
+  featureConfig?: FeatureConfig,
+): RecallWithAllCandidatesResult {
+  return recallImpl(store, query, weights, cosineScores, config, featureConfig);
+}
+
 export function recall(
   store: TraceStore,
   query: RecallQuery,
@@ -82,6 +107,17 @@ export function recall(
   config?: SimilarityConfig,
   featureConfig?: FeatureConfig,
 ): RecallResult[] {
+  return recallImpl(store, query, weights, cosineScores, config, featureConfig).results;
+}
+
+function recallImpl(
+  store: TraceStore,
+  query: RecallQuery,
+  weights: SignalWeights = DEFAULT_WEIGHTS,
+  cosineScores?: Map<string, number>,
+  config?: SimilarityConfig,
+  featureConfig?: FeatureConfig,
+): RecallWithAllCandidatesResult {
   const limit = query.limit ?? 5;
   const minScore = query.minScore ?? 0.1;
   const simConfig = resolveConfig(config);
@@ -203,10 +239,30 @@ export function recall(
     candidate.signals.freshness = Math.exp(-LN2 * ageDays / simConfig.freshnessHalfLifeDays);
   }
 
-  // Step 4: Compute final weighted scores
+  // Step 4: Compute final weighted scores.
+  //
+  // BM25 small-corpus damping (May-2026 PR 2): when the searchable
+  // corpus is tiny, BM25 carries no real signal — every match looks
+  // top-ranked by construction. Damp its contribution by `n/20` (up
+  // to n=20) and redistribute the freed mass across the remaining
+  // signals proportionally to their weights, so the unit total of
+  // the linear combination is preserved.
+  //
+  // CRITICAL: `nEligible` is the count after hard filters but BEFORE
+  // FTS match. A legitimately rare query that produces 2 FTS hits
+  // against a 5000-row searchable corpus must NOT trip the damping
+  // path — the corpus is plenty large, BM25 just happened to be
+  // narrow this query.
+  const nEligible = store.countEligible({
+    language: query.context?.language,
+    framework: query.context?.framework,
+    errorType: query.context?.errorType,
+  });
+  const dampedWeights = applySmallCorpusDamping(weights, nEligible);
+
   const [qMin, qMax] = simConfig.qualityMultiplierRange;
   const qRange = qMax - qMin;
-  const results: RecallResult[] = [];
+  const allCandidates: RecallResult[] = [];
 
   for (const candidate of candidateMap.values()) {
     const s = candidate.signals;
@@ -219,11 +275,11 @@ export function recall(
     } else {
       // Weighted combination — weights are normalized (sum to 1.0)
       score =
-        s.bm25 * weights.bm25 +
-        s.jaccard * weights.jaccard +
-        s.structural * weights.structural +
-        s.cosine * weights.cosine +
-        s.freshness * weights.freshness;
+        s.bm25 * dampedWeights.bm25 +
+        s.jaccard * dampedWeights.jaccard +
+        s.structural * dampedWeights.structural +
+        s.cosine * dampedWeights.cosine +
+        s.freshness * dampedWeights.freshness;
 
       matchType = score > simConfig.similarThreshold ? "similar" : "related";
     }
@@ -235,18 +291,23 @@ export function recall(
     // Clamp to [0, 1]
     score = Math.max(0, Math.min(1, score));
 
-    if (score >= minScore) {
-      results.push({
-        trace: candidate.trace,
-        score,
-        matchType,
-        signals: { ...s },
-      });
-    }
+    // Push EVERY scored candidate into `allCandidates` regardless of
+    // minScore — the OPE / replay-screening substrate needs the full
+    // slate context for honest propensity estimation. The user-facing
+    // `results` array is filtered + sliced below.
+    allCandidates.push({
+      trace: candidate.trace,
+      score,
+      matchType,
+      signals: { ...s },
+    });
   }
 
-  results.sort((a, b) => b.score - a.score);
-  return results.slice(0, limit);
+  allCandidates.sort((a, b) => b.score - a.score);
+  const results = allCandidates
+    .filter((r) => r.score >= minScore)
+    .slice(0, limit);
+  return { results, allCandidates };
 }
 
 /** Cosine similarity between two vectors. */
@@ -312,6 +373,61 @@ function normalizeBm25(
   const maxScore = Math.max(...rawScores);
   if (maxScore === 0) return rawScores.map(() => 0);
   return rawScores.map((s) => s / maxScore);
+}
+
+/**
+ * Small-corpus damping with mass-preserving renormalization.
+ *
+ * Audit issue #4 — on a corpus of N < 20 traces, BM25 saturates near 1.0
+ * for every match because there's nothing for it to discriminate
+ * against. Naive remedy "scale BM25 down" collapses the total score,
+ * making `similarThreshold` and `qualityMultiplier` behave erratically.
+ *
+ * Proper fix:
+ *   damp        = min(1, nEligible / DAMPING_FLOOR)
+ *   bm25_eff    = bm25_weight × damp
+ *   freed_mass  = bm25_weight × (1 − damp)
+ *   share other = freed_mass × (w_x / (jaccard + structural + cosine + freshness))
+ *
+ * The total weight still sums to 1, so downstream thresholds are
+ * unchanged. The other signals get a bigger say specifically when
+ * BM25 has nothing useful to add.
+ *
+ * Defaults: `DAMPING_FLOOR = 20`. Below n=20 BM25 is essentially noise;
+ * the linear ramp from 0→1 over [0, 20] avoids a hard discontinuity that
+ * would create cliff artefacts at the boundary.
+ */
+export const SMALL_CORPUS_DAMPING_FLOOR = 20;
+/** @internal exported for tests; use via the recall path in production. */
+export function applySmallCorpusDamping(
+  weights: import("./weights.js").SignalWeights,
+  nEligible: number,
+): import("./weights.js").SignalWeights {
+  if (nEligible >= SMALL_CORPUS_DAMPING_FLOOR) return weights;
+  const damp = Math.max(0, Math.min(1, nEligible / SMALL_CORPUS_DAMPING_FLOOR));
+  const bm25Eff = weights.bm25 * damp;
+  const freed = weights.bm25 - bm25Eff; // ≥ 0
+  const otherSum =
+    weights.jaccard + weights.structural + weights.cosine + weights.freshness;
+  if (otherSum === 0) {
+    // No other signals carry weight — nothing to redistribute to.
+    // Return the damped vector as-is; the renormalization is a no-op.
+    return {
+      bm25: bm25Eff,
+      jaccard: weights.jaccard,
+      structural: weights.structural,
+      cosine: weights.cosine,
+      freshness: weights.freshness,
+    };
+  }
+  const share = freed / otherSum;
+  return {
+    bm25: bm25Eff,
+    jaccard: weights.jaccard * (1 + share),
+    structural: weights.structural * (1 + share),
+    cosine: weights.cosine * (1 + share),
+    freshness: weights.freshness * (1 + share),
+  };
 }
 
 interface CandidateScore {

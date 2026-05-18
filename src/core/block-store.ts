@@ -40,6 +40,7 @@ import type {
 } from "../types.js";
 import { detectLeakage } from "./block.js";
 import { detectPromptInjectionPatterns } from "./guard.js";
+import { encodeFloat32LE, decodeFloat32 } from "./embedding-codec.js";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -2896,11 +2897,14 @@ export class BlockStore {
       qual_confidence: b.quality.confidence,
       qual_wilson_lb: b.quality.wilsonLowerBound,
       qual_calibration_cohort: b.quality.calibrationCohort ?? null,
+      // May-2026 PR 3: portable LE-Float32 codec via shared embedding-codec.
+      // Was `Buffer.from(typedArray.buffer)` which depended on Buffer
+      // aliasing the underlying ArrayBuffer in native byte order.
       embed_situation: b.embeddings?.situationVec
-        ? Buffer.from(b.embeddings.situationVec.buffer)
+        ? encodeFloat32LE(Array.from(b.embeddings.situationVec))
         : null,
       embed_unlock: b.embeddings?.unlockVec
-        ? Buffer.from(b.embeddings.unlockVec.buffer)
+        ? encodeFloat32LE(Array.from(b.embeddings.unlockVec))
         : null,
       embed_model: b.embeddings?.model ?? null,
     };
@@ -2980,13 +2984,17 @@ export class BlockStore {
         wilsonLowerBound: r.qual_wilson_lb,
         calibrationCohort: r.qual_calibration_cohort ?? undefined,
       },
+      // May-2026 PR 3: portable LE-Float32 decode via shared embedding-codec.
+      // The codec auto-detects legacy v15 buffers (no magic header) and
+      // falls back to native-endian aliasing; the v15→v16 migration
+      // backfills the canonical header so future reads are LE-explicit.
       embeddings: r.embed_situation || r.embed_unlock
         ? {
             situationVec: r.embed_situation
-              ? new Float32Array(r.embed_situation.buffer, r.embed_situation.byteOffset, r.embed_situation.byteLength / 4)
+              ? Float32Array.from(decodeFloat32(r.embed_situation))
               : undefined,
             unlockVec: r.embed_unlock
-              ? new Float32Array(r.embed_unlock.buffer, r.embed_unlock.byteOffset, r.embed_unlock.byteLength / 4)
+              ? Float32Array.from(decodeFloat32(r.embed_unlock))
               : undefined,
             model: r.embed_model ?? "",
           }

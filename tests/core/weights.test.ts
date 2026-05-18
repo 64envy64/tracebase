@@ -8,6 +8,9 @@ import {
   loadWeightState,
   saveWeightState,
   computeWeights,
+  computeWeightsMean,
+  sampleWeights,
+  seededRng,
   updateWeights,
 } from "../../src/core/weights.js";
 import type { AdaptiveWeightState, SimilaritySignals } from "../../src/types.js";
@@ -144,5 +147,131 @@ describe("Adaptive Weights (Thompson Sampling)", () => {
     // Weights should stay close to initial (prior dominates with balanced feedback)
     expect(Math.abs(after.bm25 - before.bm25)).toBeLessThan(0.1);
     expect(Math.abs(after.jaccard - before.jaccard)).toBeLessThan(0.1);
+  });
+
+  // --------------------------------------------------------------------
+  // May-2026 PR 2 — real Thompson Sampling.
+  //
+  // `computeWeightsMean` returns posterior means (deterministic).
+  // `sampleWeights` draws fresh from each Beta posterior — used by the
+  // recall path so under-explored signals still get pulled.
+  // --------------------------------------------------------------------
+
+  describe("sampleWeights — Thompson Sampling", () => {
+    it("is deterministic under a seeded RNG", () => {
+      const state = loadWeightState(db);
+      const a = sampleWeights(state, false, seededRng(42));
+      const b = sampleWeights(state, false, seededRng(42));
+      expect(a.bm25).toBeCloseTo(b.bm25, 10);
+      expect(a.jaccard).toBeCloseTo(b.jaccard, 10);
+      expect(a.structural).toBeCloseTo(b.structural, 10);
+      expect(a.freshness).toBeCloseTo(b.freshness, 10);
+    });
+
+    it("produces different draws under different seeds", () => {
+      const state = loadWeightState(db);
+      const a = sampleWeights(state, false, seededRng(1));
+      const b = sampleWeights(state, false, seededRng(2));
+      // At least one signal must differ; otherwise sampling is trivially broken.
+      const anyDiff =
+        a.bm25 !== b.bm25 ||
+        a.jaccard !== b.jaccard ||
+        a.structural !== b.structural ||
+        a.freshness !== b.freshness;
+      expect(anyDiff).toBe(true);
+    });
+
+    it("draws sum to 1 across active signals", () => {
+      const state = loadWeightState(db);
+      // 100 random seeds; every draw must sum to exactly 1 over active signals.
+      for (let seed = 0; seed < 100; seed++) {
+        const w = sampleWeights(state, false, seededRng(seed));
+        const sum = w.bm25 + w.jaccard + w.structural + w.cosine + w.freshness;
+        expect(sum).toBeCloseTo(1.0, 6);
+        // hasEmbeddings=false → cosine must be exactly 0.
+        expect(w.cosine).toBe(0);
+      }
+    });
+
+    it("includes cosine when hasEmbeddings=true", () => {
+      const state = loadWeightState(db);
+      const w = sampleWeights(state, true, seededRng(1));
+      expect(w.cosine).toBeGreaterThan(0);
+      const sum = w.bm25 + w.jaccard + w.structural + w.cosine + w.freshness;
+      expect(sum).toBeCloseTo(1.0, 6);
+    });
+
+    it("sampled mean ≈ posterior mean under large α+β (Monte Carlo convergence)", () => {
+      // Mutate the in-memory state directly instead of going through
+      // `updateWeights` per-step — this is a pure-math test about
+      // `sampleWeights`, no need to involve SQLite I/O.
+      const state = loadWeightState(db);
+      // Tighten every posterior heavily so draws concentrate near mean.
+      for (const k of ["bm25", "jaccard", "structural", "cosine", "freshness"] as const) {
+        state[k].alpha += 150;
+        state[k].beta += 50;
+      }
+
+      const mean = computeWeightsMean(state);
+
+      const n = 2000;
+      const acc = { bm25: 0, jaccard: 0, structural: 0, cosine: 0, freshness: 0 };
+      const rng = seededRng(12345);
+      for (let i = 0; i < n; i++) {
+        const w = sampleWeights(state, false, rng);
+        acc.bm25 += w.bm25;
+        acc.jaccard += w.jaccard;
+        acc.structural += w.structural;
+        acc.freshness += w.freshness;
+      }
+      const avg = {
+        bm25: acc.bm25 / n,
+        jaccard: acc.jaccard / n,
+        structural: acc.structural / n,
+        freshness: acc.freshness / n,
+      };
+      // 0.05 tolerance: the normalized-Beta-ratio Monte Carlo converges
+      // slower than raw Beta mean, but with n=2000 + tightened posterior
+      // we're comfortably inside this band.
+      expect(Math.abs(avg.bm25 - mean.bm25)).toBeLessThan(0.05);
+      expect(Math.abs(avg.jaccard - mean.jaccard)).toBeLessThan(0.05);
+      expect(Math.abs(avg.structural - mean.structural)).toBeLessThan(0.05);
+      expect(Math.abs(avg.freshness - mean.freshness)).toBeLessThan(0.05);
+    });
+
+    it("exploration shrinks as feedback accrues (sample variance decreases)", () => {
+      function bm25Variance(state: AdaptiveWeightState, n: number): number {
+        const samples: number[] = [];
+        for (let i = 0; i < n; i++) {
+          samples.push(sampleWeights(state, false, seededRng(i + 7919)).bm25);
+        }
+        const mean = samples.reduce((a, b) => a + b, 0) / n;
+        return samples.reduce((acc, x) => acc + (x - mean) ** 2, 0) / n;
+      }
+
+      const fresh = loadWeightState(db);
+      const varFresh = bm25Variance(fresh, 500);
+
+      // Skip the `updateWeights` round-trip; mutate the posterior
+      // directly to simulate "lots of aligned helpful feedback".
+      const trained = loadWeightState(db);
+      trained.bm25.alpha += 400; // 400 helpful pulls on bm25
+      const varTrained = bm25Variance(trained, 500);
+
+      expect(varTrained).toBeLessThan(varFresh);
+    });
+  });
+
+  describe("computeWeights deprecation alias", () => {
+    it("returns the same values as computeWeightsMean (back-compat)", () => {
+      const state = loadWeightState(db);
+      const legacy = computeWeights(state);
+      const renamed = computeWeightsMean(state);
+      expect(legacy.bm25).toBeCloseTo(renamed.bm25, 10);
+      expect(legacy.jaccard).toBeCloseTo(renamed.jaccard, 10);
+      expect(legacy.structural).toBeCloseTo(renamed.structural, 10);
+      expect(legacy.cosine).toBeCloseTo(renamed.cosine, 10);
+      expect(legacy.freshness).toBeCloseTo(renamed.freshness, 10);
+    });
   });
 });

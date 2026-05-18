@@ -80,7 +80,14 @@ export function fitCalibratorFromEvents(
       case "injection":
         injections.push(ev);
         break;
-      // retrieval / fact_* events don't contribute to the block calibrator.
+      // Explicitly skipped:
+      //   - retrieval        — pre-injection candidate enumeration
+      //   - fact_injection / fact_agent_used — fact-domain (parallel calibrator)
+      //   - trace_retrieval / trace_agent_used / trace_feedback
+      //     — V1 trace-domain (PR 1 of May-2026 modernization); the V1 weight
+      //     learner owns these. Mixing trace-domain events into the block
+      //     calibrator would pollute the (score, helpful) pairs with values
+      //     from a different scoring policy.
       default:
         break;
     }

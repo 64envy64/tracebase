@@ -413,7 +413,17 @@ function autoFeedback(
 
     if (similarity >= threshold) {
       for (const source of injection.sources) {
-        layer.feedback(source.traceId, true);
+        // Prefer exact attribution via the structured form when the
+        // recall plumbed a queryId through (post-May-2026 PR 1). Fall
+        // back to the legacy single-arg form when an upstream caller
+        // hand-built the sources without a queryId — the legacy path
+        // is still safe (ambiguous-attribution guard skips weight
+        // updates), it just under-attributes under concurrent recalls.
+        if (source.queryId) {
+          layer.feedback({ queryId: source.queryId, traceId: source.traceId, helpful: true });
+        } else {
+          layer.feedback(source.traceId, true);
+        }
       }
     }
   } catch {

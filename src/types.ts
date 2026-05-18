@@ -177,6 +177,19 @@ export interface RecallResult {
   matchType: "exact" | "similar" | "related";
   /** Per-signal breakdown for diagnostics and weight learning */
   signals: SimilaritySignals;
+  /**
+   * Correlation id for the recall that produced this result. Shared by
+   * every `RecallResult` from a single `recall()` / `recallAsync()` call.
+   * Pass to `feedback({queryId, traceId, helpful})` for unambiguous
+   * attribution — the legacy single-arg `feedback(traceId)` falls back
+   * to "latest unresolved", which can mis-attribute when the same trace
+   * appears in multiple concurrent recalls.
+   *
+   * Optional only for backward compatibility — every call site that
+   * goes through `ReasoningLayer.recall*()` since the May-2026 PR 1
+   * populates it.
+   */
+  queryId?: string;
 }
 
 // ============================================================================
@@ -570,7 +583,11 @@ export type TraceBaseEvent =
   | { type: "weights:updated"; weights: Record<string, number> }
   | { type: "recall:injected"; traceId: string; score: number; matchType: string }
   | { type: "recall:skipped"; reason: string; topScore?: number }
-  | { type: "tokens:tracked"; data: TokenUsageData };
+  | { type: "tokens:tracked"; data: TokenUsageData }
+  // May-2026 PR 3 (audit #1) — embedding pipeline failure surfaced
+  // instead of silently swallowed. Subscribers (doctor, observability)
+  // read this to track the retry queue depth.
+  | { type: "embedding:failed"; traceId: string; error: string };
 
 /**
  * Token usage tracking data — emitted after each LLM call.
@@ -1516,6 +1533,11 @@ export type AnalyticsEvent =
   | OutcomeEvent
   | FactInjectionEvent
   | FactAgentUsedEvent
+  // Trace-domain events (May-2026 PR 1) — V1 attribution via persistent
+  // event log. Parallel to block_* / fact_* events; never mixed.
+  | TraceRetrievalEvent
+  | TraceAgentUsedEvent
+  | TraceFeedbackEvent
   // 0.7.0-rc.1 — store-side rejection event. Emitted when the
   // prompt-injection guard rejects a write. rc.1 is the only rc
   // that actually emits this; later rcs (file indexer, chunk
@@ -1671,6 +1693,139 @@ export interface FactAgentUsedEvent extends EventBase {
   factId: string;
   matchSignal: "jaccard" | "embedding" | "explicit";
   matchScore: number;
+}
+
+// ----------------------------------------------------------------------------
+// Trace-level events (V1 attribution bridge).
+//
+// V1 ReasoningLayer (`src/core/engine.ts`) historically attributed feedback
+// to weights through an in-memory `recallSignalCache` with a 30-min TTL and
+// best-effort LRU eviction. Long-horizon feedback was silently dropped, the
+// cache was lost on process restart, and concurrent retrievals could not
+// disambiguate which recall a feedback call targeted.
+//
+// PR 1 of the May-2026 modernization swaps that cache for a persistent
+// event log shared with V2. Recall emits `trace_retrieval`; feedback emits
+// `trace_feedback` (and `trace_agent_used` when the caller can attest to
+// explicit use). Weight updates read the signals back from the latest
+// matching `trace_retrieval` event.
+//
+// Parallel to block_* / fact_* events; never mixed at consumption (the
+// calibrator and OPE harness filter by event-type prefix).
+// ----------------------------------------------------------------------------
+
+/**
+ * Emitted by V1 `ReasoningLayer.recall()` (and `recallAsync()`). Carries
+ * the candidate set scored for this query, the sampled weight vector that
+ * produced the ranking, and enough metadata for off-policy screening to
+ * replay the ranking deterministically.
+ */
+export interface TraceRetrievalEvent extends EventBase {
+  event: "trace_retrieval";
+  /**
+   * Every candidate that contributed to the ranked set, paired with its
+   * per-signal scores. Recorded for the whole candidate set (not just the
+   * top-K returned) so off-policy screening has true slate-level
+   * information rather than just the observed selection.
+   */
+  candidates: Array<{
+    traceId: string;
+    score: number;
+    signals: {
+      fingerprint: number;
+      bm25: number;
+      jaccard: number;
+      structural: number;
+      cosine: number;
+      freshness: number;
+    };
+  }>;
+  /**
+   * The weight vector actually used to score this query — drawn via
+   * Thompson Sampling from the Beta posteriors in PR 2. Required for
+   * off-policy importance weighting in B3.
+   */
+  sampledWeights: {
+    bm25: number;
+    jaccard: number;
+    structural: number;
+    cosine: number;
+    freshness: number;
+  };
+  /**
+   * Identifier of the ranking policy: `"linear.mean.v1"` for the legacy
+   * posterior-mean weights, `"linear.ts.v1"` once PR 2 lands the sampled
+   * variant, `"linear.contextual.bucketed.v1"` for B2.
+   */
+  rankerVersion: string;
+  /**
+   * RNG seed used by the policy when drawing weights. Lets B3's replay
+   * compute exact propensity ratios against historical decisions.
+   * Optional because legacy code paths writing this event before B3
+   * never source one.
+   */
+  seed?: number;
+  /**
+   * Query-level context features. Bucket key for B2 (hierarchical
+   * contextual bandit). Optional because legacy V1 callers may not
+   * surface every field, and OPE treats missing buckets as the global
+   * prior.
+   */
+  context?: {
+    language?: string;
+    framework?: string;
+    errorType?: string;
+    corpusSize?: number;
+  };
+  /**
+   * The traceIds actually returned to the caller as the top-K (subset of
+   * `candidates`). Recorded so weight updates and OPE can distinguish
+   * "scored but not shown" from "scored and shown".
+   */
+  selectedTraceIds: string[];
+}
+
+/**
+ * Emitted by V1 `ReasoningLayer.feedback()` when the caller can attest
+ * the agent followed a specific recalled trace. `matchSignal: "explicit"`
+ * for legacy `feedback(traceId, helpful=true)` calls (the user told us);
+ * `"jaccard"` / `"embedding"` reserved for future inferred attribution.
+ */
+export interface TraceAgentUsedEvent extends EventBase {
+  event: "trace_agent_used";
+  traceId: string;
+  matchSignal: "jaccard" | "embedding" | "explicit";
+  matchScore: number;
+}
+
+/**
+ * Emitted by V1 `ReasoningLayer.feedback()` to close the loop on a
+ * `trace_retrieval`. Item-level feedback — "was THIS recalled trace
+ * useful" — not task-level outcome ("did the run resolve"). V1 cannot
+ * observe task resolution; conflating these is the category error that
+ * `trace_outcome` (rejected naming) would have introduced.
+ *
+ * `attribution: "explicit"` when the user called `feedback()` directly;
+ * future inferred-feedback paths (e.g. Stop-hook transcript inference
+ * for trace-domain) can set `"inferred"`.
+ */
+export interface TraceFeedbackEvent extends EventBase {
+  event: "trace_feedback";
+  /** The specific trace the feedback targeted. */
+  traceId: string;
+  /** Did this specific retrieved trace help? Not task-level resolution. */
+  helpful: boolean;
+  attribution?: "explicit" | "inferred";
+  /**
+   * Set when `feedback(traceId, helpful)` could not be unambiguously
+   * matched to a single open `trace_retrieval` (the same traceId appears
+   * in multiple recent recalls without an intervening feedback). The
+   * event is logged for visibility but the weight-update driver
+   * (`updateWeightsFromTraceFeedbackEvents`) MUST skip ambiguous rows —
+   * better to under-attribute than to mis-attribute across concurrent
+   * recalls.
+   */
+  ambiguous?: boolean;
 }
 
 // ----------------------------------------------------------------------------

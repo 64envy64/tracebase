@@ -6,7 +6,7 @@
 // ============================================================================
 
 // Core engine
-export { ReasoningLayer } from "./core/engine.js";
+export { ReasoningLayer, EnforceLimitOvershootError } from "./core/engine.js";
 
 // Storage
 export { TraceStore } from "./core/store.js";
@@ -15,8 +15,17 @@ export type { CachedTraceRow } from "./core/store.js";
 // Embedding providers
 export { createOpenAIEmbeddings } from "./embeddings/openai.js";
 
-// Adaptive weights (Thompson Sampling)
-export { loadWeightState, computeWeights } from "./core/weights.js";
+// Adaptive weights (Thompson Sampling).
+// May-2026 PR 2: `sampleWeights` is the recall-path readout (with exploration);
+// `computeWeightsMean` is the deterministic diagnostic readout.
+// `computeWeights` remains as a deprecated alias for `computeWeightsMean`.
+export {
+  loadWeightState,
+  computeWeights,
+  computeWeightsMean,
+  sampleWeights,
+  seededRng,
+} from "./core/weights.js";
 export type { SignalWeights } from "./core/weights.js";
 
 // Fingerprinting & similarity

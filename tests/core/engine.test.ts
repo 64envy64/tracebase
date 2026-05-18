@@ -3,7 +3,7 @@ import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { ReasoningLayer } from "../../src/core/engine.js";
+import { ReasoningLayer, EnforceLimitOvershootError } from "../../src/core/engine.js";
 
 function testConfig() {
   return {
@@ -226,6 +226,187 @@ describe("ReasoningLayer", () => {
       expect(updatedWeights.bm25 + updatedWeights.jaccard + updatedWeights.structural + updatedWeights.freshness)
         .toBeCloseTo(1.0, 5);
     });
+
+    // ----------------------------------------------------------------
+    // PR 1 (May-2026 modernization) — event-log attribution.
+    // The in-memory `recallSignalCache` is gone; signals now round-trip
+    // through `analytics_events`. These tests pin the new contract.
+    // ----------------------------------------------------------------
+
+    it("stamps queryId on every RecallResult and accepts it back via the structured feedback API", () => {
+      const trace = layer.storeTrace({
+        problem: { description: "structured-feedback queryId test", tags: [] },
+        solution: { summary: "fix", steps: [], outcome: "success" },
+      });
+
+      const results = layer.recall({ problem: "structured-feedback queryId test" });
+      expect(results.length).toBeGreaterThanOrEqual(1);
+      const queryId = results[0]!.queryId;
+      expect(typeof queryId).toBe("string");
+      expect(queryId!.length).toBeGreaterThan(0);
+      // Every result from a single recall() shares the queryId.
+      for (const r of results) expect(r.queryId).toBe(queryId);
+
+      layer.feedback({ queryId: queryId!, traceId: trace.id, helpful: true });
+      const updated = layer.getTrace(trace.id)!;
+      expect(updated.quality.recallCount).toBe(1);
+      expect(updated.quality.helpfulCount).toBe(1);
+    });
+
+    it("legacy feedback(traceId) skips weight updates when attribution is ambiguous", () => {
+      const trace = layer.storeTrace({
+        problem: { description: "ambiguous attribution test", tags: [] },
+        solution: { summary: "fix", steps: [], outcome: "success" },
+      });
+
+      // Two recalls without feedback between them — the same traceId
+      // appears in two open trace_retrieval events.
+      layer.recall({ problem: "ambiguous attribution test" });
+      layer.recall({ problem: "ambiguous attribution test" });
+
+      // Snapshot weights, then run the legacy ambiguous-path feedback.
+      const before = layer.getWeights();
+      layer.feedback(trace.id, true);
+      const after = layer.getWeights();
+
+      // Quality MUST update (under-attribution at the weight level is
+      // OK; failing to record the user's feedback would be worse).
+      const updated = layer.getTrace(trace.id)!;
+      expect(updated.quality.recallCount).toBe(1);
+      expect(updated.quality.helpfulCount).toBe(1);
+
+      // Weights MUST NOT shift — ambiguity guard kicks in.
+      expect(after.bm25).toBe(before.bm25);
+      expect(after.jaccard).toBe(before.jaccard);
+      expect(after.structural).toBe(before.structural);
+      expect(after.freshness).toBe(before.freshness);
+    });
+
+    it("structured feedback({queryId, traceId, helpful}) is dedup'd against repeat calls (P1 review fix)", () => {
+      const trace = layer.storeTrace({
+        problem: { description: "structured dedup test problem epsilon", tags: [] },
+        solution: { summary: "fix", steps: [], outcome: "success" },
+      });
+      const results = layer.recall({ problem: "structured dedup test problem epsilon" });
+      const queryId = results[0]!.queryId!;
+
+      // First call: counts as helpful.
+      layer.feedback({ queryId, traceId: trace.id, helpful: true });
+      const afterFirst = layer.getTrace(trace.id)!;
+      expect(afterFirst.quality.recallCount).toBe(1);
+      expect(afterFirst.quality.helpfulCount).toBe(1);
+
+      // Snapshot weights.
+      const weightsAfterFirst = layer.getWeights();
+
+      // Repeat call with same (queryId, traceId): MUST be a complete
+      // no-op — no recallCount bump, no helpfulCount bump, no weight
+      // shift. Without the dedup guard the structured path would
+      // happily double-credit.
+      layer.feedback({ queryId, traceId: trace.id, helpful: true });
+      const afterSecond = layer.getTrace(trace.id)!;
+      expect(afterSecond.quality.recallCount).toBe(1);
+      expect(afterSecond.quality.helpfulCount).toBe(1);
+
+      const weightsAfterSecond = layer.getWeights();
+      expect(weightsAfterSecond.bm25).toBeCloseTo(weightsAfterFirst.bm25, 9);
+      expect(weightsAfterSecond.jaccard).toBeCloseTo(weightsAfterFirst.jaccard, 9);
+    });
+
+    it("ambiguous legacy feedback writes NO row into feedback_signals (P1 review fix)", () => {
+      const trace = layer.storeTrace({
+        problem: { description: "ambiguous signals leak test zeta", tags: [] },
+        solution: { summary: "fix", steps: [], outcome: "success" },
+      });
+
+      // Two recalls; ambiguous attribution territory.
+      layer.recall({ problem: "ambiguous signals leak test zeta" });
+      layer.recall({ problem: "ambiguous signals leak test zeta" });
+
+      layer.feedback(trace.id, true);
+
+      // feedback_signals must remain empty: under ambiguity we cannot
+      // attribute to a specific retrieval, so the (signals, helpful)
+      // pair would be misattributed. Pre-fix the row was written
+      // anyway, polluting the learning dataset.
+      const row = layer.rawStore.rawDb
+        .prepare("SELECT COUNT(*) AS c FROM feedback_signals WHERE trace_id = ?")
+        .get(trace.id) as { c: number };
+      expect(row.c).toBe(0);
+
+      // Quality DID update — the user's vote was counted.
+      const updated = layer.getTrace(trace.id)!;
+      expect(updated.quality.recallCount).toBe(1);
+      expect(updated.quality.helpfulCount).toBe(1);
+    });
+
+    it("trace_retrieval.candidates carries every scored row, not just top-K (P2 review fix)", () => {
+      // Use distinct words per trace — fingerprint canonicalizer
+      // strips digit suffixes so "trace 0..7" would hash identically
+      // and dedupe to one stored row. These descriptions share enough
+      // common tokens for FTS to surface all of them, but differ on
+      // unique markers so each gets a distinct fingerprint.
+      const markers = [
+        "alpha", "bravo", "charlie", "delta",
+        "echo", "foxtrot", "golf", "hotel",
+      ];
+      for (const m of markers) {
+        layer.storeTrace({
+          problem: {
+            description: `candidate slate ${m} sierra tango uniform victor whisky`,
+            tags: [],
+          },
+          solution: { summary: "fix", steps: [], outcome: "success" },
+        });
+      }
+      expect(layer.count()).toBe(markers.length);
+
+      const results = layer.recall({
+        problem: "candidate slate sierra tango uniform victor whisky",
+        limit: 2,
+      });
+      expect(results.length).toBeLessThanOrEqual(2);
+      const queryId = results[0]!.queryId!;
+
+      const row = layer.rawStore.rawDb
+        .prepare("SELECT payload FROM analytics_events WHERE event_type = 'trace_retrieval' AND query_id = ?")
+        .get(queryId) as { payload: string };
+      expect(row).toBeDefined();
+      const payload = JSON.parse(row.payload) as { candidates: Array<unknown>; selectedTraceIds: string[] };
+      // The candidate set MUST include more rows than the limit
+      // returned to the caller — otherwise the OPE substrate is
+      // missing the counter-factuals the policy needs to be scored
+      // against.
+      expect(payload.candidates.length).toBeGreaterThan(results.length);
+      expect(payload.selectedTraceIds.length).toBeLessThanOrEqual(2);
+    });
+
+    it("survives a close + reopen — attribution persists in the event log", () => {
+      const trace = layer.storeTrace({
+        problem: { description: "persistence across restart test", tags: [] },
+        solution: { summary: "fix", steps: [], outcome: "success" },
+      });
+      const results = layer.recall({ problem: "persistence across restart test" });
+      const queryId = results[0]!.queryId!;
+
+      // Simulate process restart.
+      layer.close();
+      layer = new ReasoningLayer({ storagePath: dbPath });
+
+      const before = layer.getWeights();
+      layer.feedback({ queryId, traceId: trace.id, helpful: true });
+      const after = layer.getWeights();
+
+      // Pre-PR-1 this would silently no-op because the in-memory cache
+      // was wiped on close. After PR 1 the signals are read from
+      // analytics_events and the weights move.
+      const totalChange =
+        Math.abs(after.bm25 - before.bm25) +
+        Math.abs(after.jaccard - before.jaccard) +
+        Math.abs(after.structural - before.structural) +
+        Math.abs(after.freshness - before.freshness);
+      expect(totalChange).toBeGreaterThan(0);
+    });
   });
 
   describe("search", () => {
@@ -336,6 +517,128 @@ describe("ReasoningLayer", () => {
         smallLayer.close();
         cleanupDb(dbPath.replace(".db", "-small.db"));
       }
+    });
+
+    // May-2026 PR 2 (audit #7): when the prune path can't bring count
+    // under the limit, throw a typed error rather than silently overshoot.
+    // We can't easily fake a broken prune from outside, but we can sub-
+    // class ReasoningLayer at the integration level: monkey-patch the
+    // private store.prune to a no-op and verify the assertion fires.
+    it("throws EnforceLimitOvershootError when prune fails to satisfy the limit", () => {
+      const smallLayer = new ReasoningLayer({
+        storagePath: dbPath.replace(".db", "-overshoot.db"),
+        maxTraces: 2,
+      });
+
+      try {
+        // Pre-fill to the limit with distinct fingerprints.
+        smallLayer.storeTrace({
+          problem: { description: "alpha bravo charlie debug seed zero unique", tags: [] },
+          solution: { summary: "fix", steps: [], outcome: "success" },
+        });
+        smallLayer.storeTrace({
+          problem: { description: "delta echo foxtrot golf hotel seed one unique", tags: [] },
+          solution: { summary: "fix", steps: [], outcome: "success" },
+        });
+        expect(smallLayer.count()).toBe(2);
+
+        // Replace prune with a no-op — simulates a broken downstream
+        // (e.g. custom TraceStore impl that refuses to delete, a
+        // silently-failing SQLite write).
+        const realPrune = smallLayer.rawStore.prune.bind(smallLayer.rawStore);
+        smallLayer.rawStore.prune = (() => 0) as typeof smallLayer.rawStore.prune;
+
+        expect(() => {
+          smallLayer.storeTrace({
+            problem: { description: "india juliet kilo lima overshoot trigger here now", tags: [] },
+            solution: { summary: "fix", steps: [], outcome: "success" },
+          });
+        }).toThrow(EnforceLimitOvershootError);
+
+        // Restore so cleanup doesn't trip over the patch.
+        smallLayer.rawStore.prune = realPrune;
+      } finally {
+        smallLayer.close();
+        cleanupDb(dbPath.replace(".db", "-overshoot.db"));
+      }
+    });
+  });
+
+  describe("embedding retry queue (May-2026 PR 3, audit #1+#8)", () => {
+    it("enqueues a pending_embeddings row when embedBatch throws", async () => {
+      // Provider that always fails — simulates a flaky/unavailable
+      // embedding API. Pre-PR-3 this would have been silently swallowed.
+      layer.setEmbeddingProvider({
+        embed: async () => { throw new Error("network down"); },
+        embedBatch: async () => { throw new Error("network down"); },
+      });
+
+      const failures: string[] = [];
+      layer.on("embedding:failed", (e) => {
+        if (e.type === "embedding:failed") failures.push(e.error);
+      });
+
+      const trace = await layer.storeTraceAsync({
+        problem: { description: "embedding failure test problem alpha", tags: [] },
+        solution: { summary: "fix", steps: [], outcome: "success" },
+      });
+
+      // Loud failure: event fired AND queue row written.
+      expect(failures.length).toBe(1);
+      expect(failures[0]).toMatch(/network down/);
+      expect(layer.pendingEmbeddingsCount()).toBe(1);
+      const pending = layer.rawStore.listPendingEmbeddings(10);
+      expect(pending[0]!.traceId).toBe(trace.id);
+      expect(pending[0]!.lastError).toMatch(/network down/);
+    });
+
+    it("drainPendingEmbeddings re-embeds successfully and clears the queue", async () => {
+      // First, fail once to populate the queue.
+      let shouldFail = true;
+      layer.setEmbeddingProvider({
+        embed: async () => { if (shouldFail) throw new Error("transient"); return [0.1, 0.2, 0.3]; },
+        embedBatch: async (texts: string[]) => {
+          if (shouldFail) throw new Error("transient");
+          return texts.map(() => [0.1, 0.2, 0.3]);
+        },
+      });
+
+      const trace = await layer.storeTraceAsync({
+        problem: { description: "drain test problem beta gamma", tags: [] },
+        solution: { summary: "fix", steps: [], outcome: "success" },
+      });
+      expect(layer.pendingEmbeddingsCount()).toBe(1);
+
+      // Provider recovers; drain succeeds.
+      shouldFail = false;
+      const succeeded = await layer.drainPendingEmbeddings();
+      expect(succeeded).toBe(1);
+      expect(layer.pendingEmbeddingsCount()).toBe(0);
+
+      // Embeddings present on the trace row now.
+      const withEmb = layer.rawStore.getAllWithEmbeddings().find((r) => r.trace.id === trace.id);
+      expect(withEmb).toBeDefined();
+    });
+
+    it("logs cosine + freshness in feedback_signals (audit #8 regression)", () => {
+      const trace = layer.storeTrace({
+        problem: { description: "cosine logging regression test delta", tags: [] },
+        solution: { summary: "fix", steps: [], outcome: "success" },
+      });
+      const results = layer.recall({ problem: "cosine logging regression test delta" });
+      expect(results.length).toBeGreaterThan(0);
+      layer.feedback(trace.id, true);
+
+      // Pre-PR-3 the row would have sig_cosine/sig_freshness columns
+      // missing entirely. Now they're written every time.
+      const row = layer.rawStore.rawDb
+        .prepare("SELECT sig_cosine, sig_freshness FROM feedback_signals WHERE trace_id = ?")
+        .get(trace.id) as { sig_cosine: number; sig_freshness: number };
+      expect(row).toBeDefined();
+      expect(typeof row.sig_cosine).toBe("number");
+      expect(typeof row.sig_freshness).toBe("number");
+      // Freshness on a just-stored trace is essentially 1.0.
+      expect(row.sig_freshness).toBeGreaterThan(0.95);
     });
   });
 

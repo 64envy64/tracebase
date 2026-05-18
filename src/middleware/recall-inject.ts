@@ -30,8 +30,17 @@ const DEFAULT_FORMAT_CONFIG: Required<InjectionFormatConfig> = {
 export interface InjectionResult {
   /** Formatted text to append to the system prompt */
   text: string;
-  /** Source traces that contributed */
-  sources: Array<{ traceId: string; score: number; matchType: string }>;
+  /**
+   * Source traces that contributed. `queryId` is the correlation id of
+   * the underlying `recall()` and lets the caller close the feedback
+   * loop with exact attribution via
+   * `layer.feedback({queryId, traceId, helpful})`. Pre-May-2026 PR 1
+   * middlewares called the legacy single-arg form, which is correct
+   * but loses exact attribution under concurrent recalls (the
+   * ambiguous-attribution guard kicks in). Field is optional only for
+   * back-compat with callers that synthesize sources by hand.
+   */
+  sources: Array<{ traceId: string; score: number; matchType: string; queryId?: string }>;
   /** Per-source signal breakdown for weight attribution */
   signalBreakdowns?: Array<{
     traceId: string;
@@ -119,6 +128,7 @@ export function performRecall(
       traceId: r.trace.id,
       score: r.score,
       matchType: r.matchType,
+      ...(r.queryId !== undefined ? { queryId: r.queryId } : {}),
     })),
     signalBreakdowns: filtered.map((r) => ({
       traceId: r.trace.id,

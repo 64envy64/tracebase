@@ -34,6 +34,9 @@ import type {
   OutcomeEvent,
   FactInjectionEvent,
   FactAgentUsedEvent,
+  TraceRetrievalEvent,
+  TraceAgentUsedEvent,
+  TraceFeedbackEvent,
 } from "../types.js";
 import type { BlockStore } from "./block-store.js";
 import {
@@ -166,6 +169,9 @@ function isValidEvent(ev: unknown): ev is AnalyticsEvent {
     case "outcome":          return isValidOutcome(e);
     case "fact_injection":   return isValidFactInjection(e);
     case "fact_agent_used":  return isValidFactAgentUsed(e);
+    case "trace_retrieval":  return isValidTraceRetrieval(e);
+    case "trace_agent_used": return isValidTraceAgentUsed(e);
+    case "trace_feedback":   return isValidTraceFeedback(e);
     default:                 return false;
   }
 }
@@ -247,6 +253,62 @@ function isValidFactAgentUsed(e: Record<string, unknown>): boolean {
     return false;
   }
   if (typeof e.matchScore !== "number" || !Number.isFinite(e.matchScore)) return false;
+  return true;
+}
+
+// Trace-domain validators (May-2026 PR 1). Mirror the block / fact
+// validators above; bad rows would silently miscount V1 weight updates.
+
+function isValidSignalSet(s: unknown, requireFingerprint: boolean): boolean {
+  if (!s || typeof s !== "object") return false;
+  const o = s as Record<string, unknown>;
+  const keys = requireFingerprint
+    ? ["fingerprint", "bm25", "jaccard", "structural", "cosine", "freshness"]
+    : ["bm25", "jaccard", "structural", "cosine", "freshness"];
+  for (const k of keys) {
+    const v = o[k];
+    if (typeof v !== "number" || !Number.isFinite(v)) return false;
+  }
+  return true;
+}
+
+function isValidTraceRetrieval(e: Record<string, unknown>): boolean {
+  if (!Array.isArray(e.candidates)) return false;
+  for (const c of e.candidates) {
+    if (!c || typeof c !== "object") return false;
+    const cc = c as Record<string, unknown>;
+    if (typeof cc.traceId !== "string" || cc.traceId.length === 0) return false;
+    if (typeof cc.score !== "number" || !Number.isFinite(cc.score)) return false;
+    // Candidate signals are full SimilaritySignals (include fingerprint).
+    if (!isValidSignalSet(cc.signals, /*requireFingerprint*/ true)) return false;
+  }
+  // sampledWeights is the 5-signal weight vector — no fingerprint axis.
+  if (!isValidSignalSet(e.sampledWeights, /*requireFingerprint*/ false)) return false;
+  if (typeof e.rankerVersion !== "string" || e.rankerVersion.length === 0) return false;
+  if (!Array.isArray(e.selectedTraceIds)) return false;
+  for (const id of e.selectedTraceIds) {
+    if (typeof id !== "string" || id.length === 0) return false;
+  }
+  if (e.seed !== undefined && (typeof e.seed !== "number" || !Number.isFinite(e.seed))) return false;
+  return true;
+}
+
+function isValidTraceAgentUsed(e: Record<string, unknown>): boolean {
+  if (typeof e.traceId !== "string" || e.traceId.length === 0) return false;
+  if (e.matchSignal !== "jaccard" && e.matchSignal !== "embedding" && e.matchSignal !== "explicit") {
+    return false;
+  }
+  if (typeof e.matchScore !== "number" || !Number.isFinite(e.matchScore)) return false;
+  return true;
+}
+
+function isValidTraceFeedback(e: Record<string, unknown>): boolean {
+  if (typeof e.traceId !== "string" || e.traceId.length === 0) return false;
+  if (typeof e.helpful !== "boolean") return false;
+  if (e.ambiguous !== undefined && typeof e.ambiguous !== "boolean") return false;
+  if (e.attribution !== undefined && e.attribution !== "explicit" && e.attribution !== "inferred") {
+    return false;
+  }
   return true;
 }
 
@@ -408,6 +470,118 @@ export function emitOutcome(
     ...(args.tokens !== undefined ? { tokens: args.tokens } : {}),
     ...(args.steps !== undefined ? { steps: args.steps } : {}),
     ...(args.durationMs !== undefined ? { durationMs: args.durationMs } : {}),
+    ...(args.attribution !== undefined ? { attribution: args.attribution } : {}),
+  };
+  toEmitter(target).emit(ev, args.runId !== undefined ? { runId: args.runId } : undefined);
+  return ev;
+}
+
+// ---------------------------------------------------------------------------
+// Trace-domain emission helpers (May-2026 PR 1).
+//
+// V1 `ReasoningLayer.recall()` calls `emitTraceRetrieval`; V1
+// `ReasoningLayer.feedback()` calls `emitTraceFeedback` (and optionally
+// `emitTraceAgentUsed` when the caller can attest explicit use). These
+// replace the in-memory `recallSignalCache` for attribution; the persistent
+// event log survives process restart and supports unbounded feedback
+// horizons.
+// ---------------------------------------------------------------------------
+
+export interface TraceRetrievalCandidate {
+  traceId: string;
+  score: number;
+  signals: {
+    fingerprint: number;
+    bm25: number;
+    jaccard: number;
+    structural: number;
+    cosine: number;
+    freshness: number;
+  };
+}
+
+export function emitTraceRetrieval(
+  target: EmitTarget,
+  args: {
+    queryId: string;
+    candidates: TraceRetrievalCandidate[];
+    sampledWeights: {
+      bm25: number;
+      jaccard: number;
+      structural: number;
+      cosine: number;
+      freshness: number;
+    };
+    rankerVersion: string;
+    selectedTraceIds: string[];
+    seed?: number;
+    context?: {
+      language?: string;
+      framework?: string;
+      errorType?: string;
+      corpusSize?: number;
+    };
+    ts?: number;
+    runId?: string;
+  },
+): TraceRetrievalEvent {
+  const ev: TraceRetrievalEvent = {
+    ts: args.ts ?? Date.now(),
+    queryId: args.queryId,
+    event: "trace_retrieval",
+    candidates: args.candidates,
+    sampledWeights: args.sampledWeights,
+    rankerVersion: args.rankerVersion,
+    selectedTraceIds: args.selectedTraceIds,
+    ...(args.seed !== undefined ? { seed: args.seed } : {}),
+    ...(args.context !== undefined ? { context: args.context } : {}),
+  };
+  toEmitter(target).emit(ev, args.runId !== undefined ? { runId: args.runId } : undefined);
+  return ev;
+}
+
+export function emitTraceAgentUsed(
+  target: EmitTarget,
+  args: {
+    queryId: string;
+    traceId: string;
+    matchSignal: "jaccard" | "embedding" | "explicit";
+    matchScore: number;
+    ts?: number;
+    runId?: string;
+  },
+): TraceAgentUsedEvent {
+  const ev: TraceAgentUsedEvent = {
+    ts: args.ts ?? Date.now(),
+    queryId: args.queryId,
+    event: "trace_agent_used",
+    traceId: args.traceId,
+    matchSignal: args.matchSignal,
+    matchScore: args.matchScore,
+  };
+  toEmitter(target).emit(ev, args.runId !== undefined ? { runId: args.runId } : undefined);
+  return ev;
+}
+
+export function emitTraceFeedback(
+  target: EmitTarget,
+  args: {
+    queryId: string;
+    traceId: string;
+    helpful: boolean;
+    ambiguous?: boolean;
+    attribution?: "explicit" | "inferred";
+    ts?: number;
+    runId?: string;
+  },
+): TraceFeedbackEvent {
+  const ev: TraceFeedbackEvent = {
+    ts: args.ts ?? Date.now(),
+    queryId: args.queryId,
+    event: "trace_feedback",
+    traceId: args.traceId,
+    helpful: args.helpful,
+    ...(args.ambiguous !== undefined ? { ambiguous: args.ambiguous } : {}),
     ...(args.attribution !== undefined ? { attribution: args.attribution } : {}),
   };
   toEmitter(target).emit(ev, args.runId !== undefined ? { runId: args.runId } : undefined);

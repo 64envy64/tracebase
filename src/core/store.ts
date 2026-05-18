@@ -10,6 +10,7 @@ import type {
   StorageStats,
   SimilaritySignals,
 } from "../types.js";
+import { encodeFloat32LE, decodeFloat32 } from "./embedding-codec.js";
 
 // ============================================================================
 // Schema — Version 2
@@ -23,7 +24,14 @@ import type {
 //   - Added index on p_file_path
 // ============================================================================
 
-const SCHEMA_VERSION = 3;
+// V4 (May-2026 PR 3 of the modernization):
+//   - feedback_signals gains `sig_cosine` and `sig_freshness` columns
+//     (audit #8: cosine + freshness were silently dropped, breaking
+//     weight learning for the embeddings-on path).
+//   - `pending_embeddings` table for the retry queue on failed
+//     embedding writes (replaces the pre-PR-3 silent `catch {}` in
+//     `engine.storeTraceAsync`).
+const SCHEMA_VERSION = 4;
 
 const SCHEMA_V2 = `
 -- Core trace storage
@@ -139,7 +147,10 @@ CREATE TABLE IF NOT EXISTS config (
 );
 
 -- Feedback signal log for adaptive weight learning
--- Records which signals contributed to each helpful/unhelpful recall
+-- Records which signals contributed to each helpful/unhelpful recall.
+-- May-2026 PR 3: sig_cosine + sig_freshness added (audit #8). All five
+-- signal contributions are now logged so V1 weight learning works on
+-- the embeddings-on path identically to the embeddings-off path.
 CREATE TABLE IF NOT EXISTS feedback_signals (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   trace_id        TEXT NOT NULL,
@@ -148,10 +159,27 @@ CREATE TABLE IF NOT EXISTS feedback_signals (
   sig_bm25        REAL NOT NULL DEFAULT 0,
   sig_jaccard     REAL NOT NULL DEFAULT 0,
   sig_structural  REAL NOT NULL DEFAULT 0,
+  sig_cosine      REAL NOT NULL DEFAULT 0,
+  sig_freshness   REAL NOT NULL DEFAULT 0,
   created_at      INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_feedback_trace ON feedback_signals(trace_id);
+
+-- May-2026 PR 3: pending embeddings retry queue.
+-- Replaces the silent catch in engine.storeTraceAsync (audit #1).
+-- Each row records a failed embedding attempt; the queue is drained
+-- opportunistically on every store() and forced by doctor --fix.
+CREATE TABLE IF NOT EXISTS pending_embeddings (
+  trace_id     TEXT PRIMARY KEY,
+  last_error   TEXT,
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  enqueued_at  INTEGER NOT NULL,
+  last_try_at  INTEGER,
+  FOREIGN KEY (trace_id) REFERENCES traces(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_embeddings_enqueued ON pending_embeddings(enqueued_at);
 `;
 
 // ============================================================================
@@ -192,6 +220,20 @@ const MIGRATIONS: Record<number, string[]> = {
     // Compound indexes for scale (Task #9)
     "CREATE INDEX IF NOT EXISTS idx_quality_recall ON traces(q_score DESC, q_recall_count DESC)",
     "CREATE INDEX IF NOT EXISTS idx_has_embedding ON traces(id) WHERE embedding_problem IS NOT NULL",
+  ],
+  4: [
+    // May-2026 PR 3 — full signal logging + pending-embeddings retry queue.
+    "ALTER TABLE feedback_signals ADD COLUMN sig_cosine REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE feedback_signals ADD COLUMN sig_freshness REAL NOT NULL DEFAULT 0",
+    `CREATE TABLE IF NOT EXISTS pending_embeddings (
+      trace_id     TEXT PRIMARY KEY,
+      last_error   TEXT,
+      attempts     INTEGER NOT NULL DEFAULT 0,
+      enqueued_at  INTEGER NOT NULL,
+      last_try_at  INTEGER,
+      FOREIGN KEY (trace_id) REFERENCES traces(id) ON DELETE CASCADE
+    )`,
+    "CREATE INDEX IF NOT EXISTS idx_pending_embeddings_enqueued ON pending_embeddings(enqueued_at)",
   ],
 };
 
@@ -334,9 +376,33 @@ export class TraceStore {
       ),
 
       insertFeedback: this.db.prepare(`
-        INSERT INTO feedback_signals (trace_id, helpful, sig_fingerprint, sig_bm25, sig_jaccard, sig_structural, created_at)
-        VALUES (@trace_id, @helpful, @sig_fingerprint, @sig_bm25, @sig_jaccard, @sig_structural, @created_at)
+        INSERT INTO feedback_signals (trace_id, helpful, sig_fingerprint, sig_bm25, sig_jaccard, sig_structural, sig_cosine, sig_freshness, created_at)
+        VALUES (@trace_id, @helpful, @sig_fingerprint, @sig_bm25, @sig_jaccard, @sig_structural, @sig_cosine, @sig_freshness, @created_at)
       `),
+
+      // May-2026 PR 3 — pending-embeddings retry queue.
+      enqueuePendingEmbedding: this.db.prepare(`
+        INSERT INTO pending_embeddings (trace_id, last_error, attempts, enqueued_at, last_try_at)
+        VALUES (@trace_id, @last_error, 0, @now, NULL)
+        ON CONFLICT (trace_id) DO UPDATE SET
+          last_error = excluded.last_error,
+          last_try_at = excluded.last_try_at
+      `),
+      bumpPendingEmbeddingAttempt: this.db.prepare(`
+        UPDATE pending_embeddings
+        SET attempts = attempts + 1, last_try_at = @now, last_error = @last_error
+        WHERE trace_id = @trace_id
+      `),
+      removePendingEmbedding: this.db.prepare("DELETE FROM pending_embeddings WHERE trace_id = ?"),
+      listPendingEmbeddings: this.db.prepare(`
+        SELECT trace_id, last_error, attempts, enqueued_at, last_try_at
+        FROM pending_embeddings
+        ORDER BY enqueued_at ASC
+        LIMIT @limit
+      `),
+      countPendingEmbeddings: this.db.prepare(
+        "SELECT COUNT(*) AS count FROM pending_embeddings",
+      ),
 
       existsByFingerprint: this.db.prepare(
         "SELECT id FROM traces WHERE p_fingerprint = ? LIMIT 1",
@@ -349,6 +415,13 @@ export class TraceStore {
           AND (@err IS NULL OR p_error_type = @err)
         ORDER BY q_score DESC
         LIMIT @limit
+      `),
+
+      countEligible: this.db.prepare(`
+        SELECT COUNT(*) AS count FROM traces
+        WHERE (@lang IS NULL OR p_language = @lang)
+          AND (@fw IS NULL OR p_framework = @fw)
+          AND (@err IS NULL OR p_error_type = @err)
       `),
 
       searchLike: this.db.prepare(`
@@ -463,6 +536,26 @@ export class TraceStore {
     return rows.map((r) => this.rowToCachedTrace(r));
   }
 
+  /**
+   * Count traces matching the same hard filters as
+   * `getCandidatesFiltered`, without fetching rows.
+   *
+   * Used by the BM25 small-corpus damping path (`similarity.ts`):
+   * the damping factor is keyed on the size of the **searchable
+   * corpus** after hard filters, NOT on `ftsResults.length`. A
+   * legitimately rare query that returns 2 FTS hits against a
+   * 5000-row searchable corpus must NOT be damped — it's the
+   * corpus size that says "BM25 has nothing meaningful to do".
+   */
+  countEligible(filters: { language?: string; framework?: string; errorType?: string }): number {
+    const row = this.stmts.countEligible.get({
+      lang: filters.language ?? null,
+      fw: filters.framework ?? null,
+      err: filters.errorType ?? null,
+    }) as { count: number };
+    return row.count;
+  }
+
   /** Fallback LIKE-based search when FTS query fails. Uses prepared statement. */
   private searchLike(
     query: string,
@@ -505,7 +598,11 @@ export class TraceStore {
     q.score = this.computeQualityScore(q);
     this.updateQuality(id, q);
 
-    // Log signal contributions for adaptive weight learning
+    // Log signal contributions for adaptive weight learning.
+    // May-2026 PR 3: cosine + freshness now persisted (audit #8). Pre-PR-3
+    // these were silently dropped, which meant the embeddings-on path
+    // couldn't learn from feedback even though the model carried a
+    // cosine Beta posterior.
     if (signals) {
       this.stmts.insertFeedback.run({
         trace_id: id,
@@ -514,9 +611,68 @@ export class TraceStore {
         sig_bm25: signals.bm25,
         sig_jaccard: signals.jaccard,
         sig_structural: signals.structural,
+        sig_cosine: signals.cosine,
+        sig_freshness: signals.freshness,
         created_at: Date.now(),
       });
     }
+  }
+
+  // -------------------------------------------------------------------
+  // Pending embeddings retry queue (May-2026 PR 3, audit #1).
+  // -------------------------------------------------------------------
+
+  /** Mark a traceId as needing an embedding retry. Idempotent. */
+  enqueuePendingEmbedding(traceId: string, error: string): void {
+    this.stmts.enqueuePendingEmbedding.run({
+      trace_id: traceId,
+      last_error: error.slice(0, 500), // bound the row size
+      now: Date.now(),
+    });
+  }
+
+  /** Bump the attempt counter + error for an existing pending row. */
+  bumpPendingEmbeddingAttempt(traceId: string, error: string): void {
+    this.stmts.bumpPendingEmbeddingAttempt.run({
+      trace_id: traceId,
+      last_error: error.slice(0, 500),
+      now: Date.now(),
+    });
+  }
+
+  /** Remove a pending entry — call after a successful re-embed. */
+  removePendingEmbedding(traceId: string): void {
+    this.stmts.removePendingEmbedding.run(traceId);
+  }
+
+  /** List up to `limit` pending entries in enqueue order. */
+  listPendingEmbeddings(limit = 32): Array<{
+    traceId: string;
+    lastError: string | null;
+    attempts: number;
+    enqueuedAt: number;
+    lastTryAt: number | null;
+  }> {
+    const rows = this.stmts.listPendingEmbeddings.all({ limit }) as Array<{
+      trace_id: string;
+      last_error: string | null;
+      attempts: number;
+      enqueued_at: number;
+      last_try_at: number | null;
+    }>;
+    return rows.map((r) => ({
+      traceId: r.trace_id,
+      lastError: r.last_error,
+      attempts: r.attempts,
+      enqueuedAt: r.enqueued_at,
+      lastTryAt: r.last_try_at,
+    }));
+  }
+
+  /** Count rows in the pending queue. */
+  countPendingEmbeddings(): number {
+    const row = this.stmts.countPendingEmbeddings.get() as { count: number };
+    return row.count;
   }
 
   /** Delete a trace. */
@@ -939,18 +1095,18 @@ interface RawRow {
 
 // ============================================================================
 // Binary embedding helpers
+//
+// May-2026 PR 3: switched from `Buffer.from(Float32Array.buffer)` aliasing
+// to the explicit LE-Float32 codec in `./embedding-codec.ts`. The shared
+// codec is used by both V1 (this file) and V2 (`block-store.ts`) so the
+// formats cannot drift again. Legacy v15 rows with no magic header round-
+// trip correctly during reads; the v15→v16 migration rewrites them.
 // ============================================================================
 
 function float32ToBuffer(arr: number[]): Buffer {
-  const f32 = new Float32Array(arr);
-  return Buffer.from(f32.buffer);
+  return encodeFloat32LE(arr);
 }
 
 function bufferToFloat32(buf: Buffer): number[] {
-  const f32 = new Float32Array(
-    buf.buffer,
-    buf.byteOffset,
-    buf.byteLength / Float32Array.BYTES_PER_ELEMENT,
-  );
-  return Array.from(f32);
+  return decodeFloat32(buf);
 }
