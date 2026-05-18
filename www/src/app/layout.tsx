@@ -4,6 +4,7 @@ import { ui } from "@clerk/ui";
 import clerkUiPackage from "@clerk/ui/package.json";
 import { Geist, Geist_Mono, Newsreader } from "next/font/google";
 import { AppProviders } from "@/components/providers/AppProviders";
+import { InkIntro } from "@/components/landing/brand/InkIntro";
 import { clerkAppearance } from "@/lib/clerk";
 import "./globals.css";
 
@@ -16,9 +17,9 @@ const heroSerif = Newsreader({
 });
 
 export const metadata: Metadata = {
-  title: "tracebase.ink — Every run, written in ink.",
+  title: "tracebase.ink - Agents that learn from every run.",
   description:
-    "Reasoning runtime for autonomous agents. Remembers past solutions, catches doom-loops, trims redundant tool calls, folds long contexts. Drop-in — no agent rewrites.",
+    "TraceBase turns solved work into reusable memory, so production agents carry what worked into the next task.",
   keywords: [
     "AI agents",
     "reasoning runtime",
@@ -30,7 +31,7 @@ export const metadata: Metadata = {
   ],
   openGraph: {
     title: "tracebase.ink",
-    description: "Reasoning runtime for autonomous agents. Every run, written in ink.",
+    description: "Agents that learn from every run.",
     type: "website",
   },
 };
@@ -54,6 +55,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} ${heroSerif.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <InkIntro />
         <ClerkProvider {...clerkProviderProps}>
           <AppProviders>{children}</AppProviders>
         </ClerkProvider>

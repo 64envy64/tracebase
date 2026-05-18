@@ -65,7 +65,7 @@ export function CtaSection() {
             className="max-w-[36rem] text-[14px] font-light leading-relaxed md:text-[15px]"
             style={{ color: "rgba(232,217,184,0.72)" }}
           >
-            One install for self-serve teams. Custom reasoning layer for production traffic.
+            One install for self-serve teams. Custom reasoning layer for production traffic. Open source today — MIT, self-hosted, ships out of the box.
           </p>
 
           <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -77,7 +77,7 @@ export function CtaSection() {
             className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.22em]"
             style={{ color: INK.sand }}
           >
-            MIT · self-hosted · no cloud required
+            v0.8 · may 2026 · no cloud required
           </p>
         </div>
 

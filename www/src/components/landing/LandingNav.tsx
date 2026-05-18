@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { GetStartedButton } from "@/components/auth/GetStartedButton";
 import { GitHubMark } from "@/components/ui/GitHubMark";
@@ -24,6 +25,35 @@ const mobileRowClass =
 
 const iconLinkClass =
   "inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-[var(--text-secondary)] transition-colors hover:border-white/18 hover:text-[var(--text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]";
+
+const SCROLL_LOCK_OWNER = "landing-nav";
+
+function clearLandingScrollLock(force = false) {
+  if (typeof document === "undefined") return;
+
+  const nodes = [document.body, document.documentElement];
+  for (const node of nodes) {
+    const owner = node.dataset.scrollLockOwner;
+    if (!force && owner && owner !== SCROLL_LOCK_OWNER) continue;
+
+    if (force || !owner || owner === SCROLL_LOCK_OWNER) {
+      node.style.overflow = "";
+      if (owner === SCROLL_LOCK_OWNER) {
+        delete node.dataset.scrollLockOwner;
+      }
+    }
+  }
+}
+
+function setLandingScrollLock() {
+  if (typeof document === "undefined") return;
+
+  const nodes = [document.body, document.documentElement];
+  for (const node of nodes) {
+    node.dataset.scrollLockOwner = SCROLL_LOCK_OWNER;
+    node.style.overflow = "hidden";
+  }
+}
 
 function IconMenuDouble() {
   return (
@@ -102,14 +132,26 @@ function GitHubIconLink({ className = iconLinkClass }: { className?: string }) {
 
 export function LandingNav() {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    clearLandingScrollLock(true);
+    return () => clearLandingScrollLock(true);
+  }, []);
+
+  useEffect(() => {
+    setOpen(false);
+    clearLandingScrollLock(true);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!open) {
+      clearLandingScrollLock(true);
+      return;
+    }
+
+    setLandingScrollLock();
+    return () => clearLandingScrollLock(true);
   }, [open]);
 
   useEffect(() => {

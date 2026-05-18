@@ -234,6 +234,89 @@ html {
   animation: ink-drift 7.2s ease-in-out infinite;
 }
 
+@keyframes hero-arm-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(var(--hero-arm-x, 8px), var(--hero-arm-y, -8px), 0);
+  }
+}
+
+.hero-arm-drift {
+  animation: hero-arm-drift var(--hero-arm-duration, 10s) ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes hero-arm-dots {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -120;
+  }
+}
+
+.hero-arm-dot-path {
+  animation:
+    hero-arm-drift var(--hero-arm-duration, 10s) ease-in-out infinite,
+    hero-arm-dots 5.8s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes hero-memory-pull {
+  0%,
+  12% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scale(0.96);
+    filter: blur(2px);
+  }
+  24%,
+  58% {
+    opacity: 0.42;
+    filter: blur(0);
+  }
+  72% {
+    opacity: 0.25;
+    transform: translate3d(var(--pull-x, 42px), var(--pull-y, -20px), 0) scale(0.99);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--pull-end-x, 78px), var(--pull-end-y, -48px), 0) scale(0.94);
+    filter: blur(2px);
+  }
+}
+
+.hero-memory-artifact {
+  animation: hero-memory-pull var(--hero-memory-duration, 12s) cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  animation-delay: var(--hero-memory-delay, 0ms);
+  opacity: 0;
+}
+
+@keyframes hero-memory-line {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  45% {
+    opacity: 0.85;
+  }
+}
+
+.hero-memory-line {
+  animation: hero-memory-line 2.6s ease-in-out infinite;
+}
+
+.hero-metric-strip:hover .hero-metric-caption,
+.hero-metric-strip:focus-within .hero-metric-caption,
+.hero-metric-grid:focus + .hero-metric-caption {
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+}
+
 /* Tentacle reach — stretches an SVG path toward a target. Data attribute
    "data-tentacle-active" on the wrapper flips stroke-dashoffset to 0.  */
 .tentacle-reach-path {
@@ -246,6 +329,185 @@ html {
 }
 .tentacle-reach-path[data-reach="on"] {
   stroke-dashoffset: 0;
+}
+
+/* ============================================================ */
+/*  InkIntro — brand curtain that plays on every full page load. */
+/*                                                                */
+/*  Pure-CSS drawing so the octopus starts inking-in the moment  */
+/*  the curtain paints — no React-effect lag. React only owns    */
+/*  the lift trigger (translateY) and the unmount.               */
+/* ============================================================ */
+
+/* Tentacle draw-in: each path starts at full dashoffset (hidden) and
+   eases to 0 (drawn). Per-tentacle delay comes from --intro-draw-delay
+   inlined on the element so the inks land sequentially. */
+@keyframes intro-tentacle-draw {
+  0% {
+    stroke-dashoffset: calc(var(--intro-len, 70) * 1px);
+    opacity: 0.4;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+.intro-tentacle {
+  stroke-dasharray: calc(var(--intro-len, 70) * 1px);
+  stroke-dashoffset: calc(var(--intro-len, 70) * 1px);
+  animation: intro-tentacle-draw 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--intro-draw-delay, 0ms);
+}
+
+/* Head fades + drops in after the first couple of tentacles land. */
+@keyframes intro-head-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.intro-head {
+  transform-origin: 40px 32px;
+  opacity: 0;
+  animation: intro-head-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 620ms;
+}
+
+@keyframes intro-eye-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+.intro-eye {
+  opacity: 0;
+  animation: intro-eye-in 320ms ease both;
+}
+.intro-eye-left {
+  animation-delay: 880ms;
+}
+.intro-eye-right {
+  animation-delay: 920ms;
+}
+
+/* Soft ember halo behind the head. Pulses while the curtain is up. */
+@keyframes intro-halo {
+  0%, 100% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  35% {
+    opacity: 0.1;
+    transform: scale(1);
+  }
+  70% {
+    opacity: 0.12;
+    transform: scale(1.08);
+  }
+}
+.intro-halo {
+  opacity: 0;
+  transform-origin: 40px 32px;
+  animation: intro-halo 2200ms ease-in-out both;
+  animation-delay: 200ms;
+}
+
+/* Tagline (mono brand line + serif sentence) fades up after the
+   silhouette is mostly drawn. */
+@keyframes intro-tagline-in {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.intro-tagline {
+  opacity: 0;
+  animation: intro-tagline-in 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 900ms;
+}
+
+/* The brush stroke under "ink" — scaleX from 0 to 1, left-anchored,
+   draws as the last beat before hold. */
+@keyframes intro-underline-draw {
+  0% { transform: scaleX(0); }
+  100% { transform: scaleX(1); }
+}
+.intro-underline {
+  transform: scaleX(0);
+  animation: intro-underline-draw 580ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 1200ms;
+}
+
+/* Bottom progress underline — fills across the screen at the same
+   tempo as the rest of the intro so the visitor sees a clear
+   "something is loading" cue. */
+@keyframes intro-progress-fill {
+  0% { transform: scaleX(0); }
+  100% { transform: scaleX(1); }
+}
+.intro-progress {
+  transform: scaleX(0);
+  animation: intro-progress-fill 2550ms cubic-bezier(0.5, 0, 0.2, 1) both;
+  animation-delay: 50ms;
+}
+
+/* ============================================================ */
+/*  InkPreloader — brand-native loading cue.                     */
+/*                                                                */
+/*  Each tentacle's stroke is dashed at its own length; the      */
+/*  travel keyframe slides the dashoffset from `len` → 0 → -len   */
+/*  so the stroke draws in, then quietly retracts into the head, */
+/*  then loops. The accent ember tentacle uses the same track —  */
+/*  only the per-tentacle `--ink-preloader-delay` staggers them. */
+/* ============================================================ */
+@keyframes ink-preloader-arm-draw {
+  0% {
+    stroke-dashoffset: calc(var(--ink-preloader-len, 70) * 1px);
+    opacity: 0.35;
+  }
+  35% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  70% {
+    stroke-dashoffset: calc(var(--ink-preloader-len, 70) * -1px);
+    opacity: 0.35;
+  }
+  100% {
+    stroke-dashoffset: calc(var(--ink-preloader-len, 70) * -1px);
+    opacity: 0.35;
+  }
+}
+
+.ink-preloader-arm {
+  stroke-dasharray: calc(var(--ink-preloader-len, 70) * 1px);
+  stroke-dashoffset: calc(var(--ink-preloader-len, 70) * 1px);
+  animation: ink-preloader-arm-draw var(--ink-preloader-cycle, 1200ms)
+    cubic-bezier(0.42, 0, 0.32, 1) infinite both;
+  animation-delay: var(--ink-preloader-delay, 0ms);
+}
+
+@keyframes ink-preloader-halo {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.04;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 0.14;
+  }
+}
+
+.ink-preloader-halo {
+  transform-origin: 40px 32px;
+  animation: ink-preloader-halo 1.4s ease-in-out infinite;
 }
 
 /* Step reveal — for agent trace rows */
@@ -534,11 +796,50 @@ html {
   .ink-caret,
   .ink-fill,
   .ink-drift,
+  .hero-arm-drift,
+  .hero-arm-dot-path,
+  .hero-memory-artifact,
+  .hero-memory-line,
+  .hero-metric-caption,
   .step-reveal,
   .mock-highlight-pulse,
-  .ink-chip-glow {
+  .ink-chip-glow,
+  .ink-preloader-arm,
+  .ink-preloader-halo,
+  .intro-tentacle,
+  .intro-head,
+  .intro-eye,
+  .intro-halo,
+  .intro-tagline,
+  .intro-underline,
+  .intro-progress {
     animation: none !important;
     transition: none !important;
+  }
+
+  /* Reduced-motion fallback for the intro silhouette — keep it
+     visible so the curtain still reads as a brand mark while
+     reduced-motion users wait the shortened ~150ms lift trigger. */
+  .intro-tentacle {
+    stroke-dashoffset: 0 !important;
+    opacity: 1 !important;
+  }
+  .intro-head,
+  .intro-eye,
+  .intro-tagline {
+    opacity: 1 !important;
+  }
+  .intro-underline,
+  .intro-progress {
+    transform: scaleX(1) !important;
+  }
+
+  /* Reduced-motion fallback for the preloader: keep the silhouette
+     drawn so the loading state still reads as a brand mark, just
+     without movement. */
+  .ink-preloader-arm {
+    stroke-dashoffset: 0 !important;
+    opacity: 1 !important;
   }
 
   /* Reduced-motion fallback for the looped highlight: keep the cue

@@ -37,17 +37,26 @@ const CAP_MOCKUP_BY_ID: Record<CapabilityId, () => ReactNode> = {
 
 export function TentacleSection() {
   const rowRefs = useRef<Array<HTMLElement | null>>([]);
-  // If IntersectionObserver is unavailable, fall back to all-revealed state.
-  const hasIO = typeof window !== "undefined" && typeof IntersectionObserver !== "undefined";
-  const [activeIndex, setActiveIndex] = useState<number>(() => (hasIO ? 0 : CAPABILITIES.length - 1));
-  const [revealedUpTo, setRevealedUpTo] = useState<number>(() => (hasIO ? -1 : CAPABILITIES.length - 1));
+  // Initialise to a value that matches what the server renders: index 0
+  // (first arm active). The IO fallback path is applied in useEffect so
+  // server and client agree on the first paint — branching on `typeof
+  // window` here would cause a hydration mismatch (Server: index = last,
+  // Client: index = 0) and tear the SSR tree.
+  const [activeIndex, setActiveIndex] = useState<number>(0);
+  const [revealedUpTo, setRevealedUpTo] = useState<number>(-1);
 
   const setRef = useCallback((idx: number) => (el: HTMLElement | null) => {
     rowRefs.current[idx] = el;
   }, []);
 
   useEffect(() => {
-    if (typeof IntersectionObserver === "undefined") return;
+    if (typeof IntersectionObserver === "undefined") {
+      // Older browsers without IO: reveal the full set so the section
+      // still reads usefully even without scroll-driven choreography.
+      setActiveIndex(CAPABILITIES.length - 1);
+      setRevealedUpTo(CAPABILITIES.length - 1);
+      return;
+    }
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -129,14 +138,14 @@ function SectionHeader() {
         className="mt-3 font-hero-serif text-[clamp(1.9rem,4vw,3.2rem)] font-normal leading-[1.04] tracking-tight"
         style={{ color: INK.pearl }}
       >
-        Five arms.{" "}
-        <span style={{ color: "rgba(232,217,184,0.48)" }}>One memory.</span>
+        <span style={{ color: "rgba(232,217,184,0.48)" }}>One memory.</span>{" "}
+        Five arms that earn their keep.
       </h2>
       <p
         className="mt-5 max-w-[36rem] text-[14px] font-light leading-relaxed md:text-[15px]"
         style={{ color: "rgba(232,217,184,0.68)" }}
       >
-        Each arm catches a specific failure mode agents hit at runtime. Scroll — the octopus reaches for each one in turn.
+        Each arm intervenes on a specific failure mode agents hit at runtime — and only when it does. Scroll: the octopus reaches for each one in turn.
       </p>
     </div>
   );

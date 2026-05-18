@@ -192,8 +192,8 @@ function Kicker() {
       className="mt-8 font-hero-serif text-[clamp(1.05rem,2vw,1.4rem)] font-normal leading-[1.3] tracking-tight md:mt-10"
       style={{ color: INK.pearl }}
     >
-      Intelligence without memory isn&apos;t intelligence.{" "}
-      <span style={{ color: "rgba(232,217,184,0.54)" }}>It&apos;s a receipt.</span>
+      Each line above is a paid second the agent will spend again next run.{" "}
+      <span style={{ color: "rgba(232,217,184,0.54)" }}>Unless something writes it down.</span>
     </p>
   );
 }

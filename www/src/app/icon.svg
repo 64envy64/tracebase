@@ -1,4 +1,11 @@
-<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-<rect width="200" height="200" rx="32" fill="white"/>
-<path d="M40 80C101.073 83.122 105.249 27.9675 99.7026 0H148.639C153.337 75.7073 113.405 96.5854 92.8515 97.561C145.312 104.585 151.902 168.78 148.639 200H99.7026C108.315 127.415 63.4896 113.171 40 115.122V80Z" fill="#0D0D0D"/>
+<svg width="80" height="80" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="tracebase.ink">
+  <rect width="80" height="80" rx="16" fill="#0a1014"/>
+  <path d="M 40 44 C 28 50, 18 56, 12 70" stroke="#e8d9b8" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <path d="M 40 44 C 32 54, 28 64, 30 74" stroke="#e8d9b8" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <path d="M 40 44 C 40 56, 38 68, 42 78" stroke="#ff7a5c" stroke-width="3.4" fill="none" stroke-linecap="round"/>
+  <path d="M 40 44 C 48 54, 52 64, 50 74" stroke="#e8d9b8" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <path d="M 40 44 C 52 50, 62 56, 68 70" stroke="#e8d9b8" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <ellipse cx="40" cy="32" rx="18" ry="14" fill="#0a1014" stroke="#e8d9b8" stroke-width="3"/>
+  <circle cx="34" cy="34" r="2.2" fill="#e8d9b8"/>
+  <circle cx="46" cy="34" r="2.2" fill="#e8d9b8"/>
 </svg>

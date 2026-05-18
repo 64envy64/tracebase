@@ -94,14 +94,14 @@ function UseCasesHeader() {
         className="mt-3 font-hero-serif text-[clamp(1.9rem,4vw,3.2rem)] font-normal leading-[1.04] tracking-tight"
         style={{ color: INK.pearl }}
       >
-        Where the runtime earns its keep.{" "}
-        <span style={{ color: "rgba(232,217,184,0.48)" }}>Four shapes.</span>
+        <span style={{ color: "rgba(232,217,184,0.48)" }}>Built for coding agents.</span>{" "}
+        Earning its keep in four shapes.
       </h2>
       <p
         className="mt-5 max-w-[34rem] text-[14px] font-light leading-relaxed md:text-[15px]"
         style={{ color: "rgba(232,217,184,0.68)" }}
       >
-        Memory compounds value run-over-run. These are the shapes where it bites first.
+        Memory compounds value run over run. Coding is the validated wedge; the other three are shapes where the same runtime architecturally fits.
       </p>
     </div>
   );

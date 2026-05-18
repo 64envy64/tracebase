@@ -209,13 +209,17 @@ function AnimatedPriceValue({
   const rounded = Math.round(animated);
 
   if (amount === null) {
-    return <span className="font-mono text-[clamp(2.65rem,5vw,4.35rem)] leading-[0.88] tracking-[-0.04em]">Custom</span>;
+    return (
+      <span className="font-mono text-[clamp(2.1rem,3.6vw,3.2rem)] leading-[0.92] tracking-[-0.03em] break-words">
+        Custom
+      </span>
+    );
   }
 
   return (
-    <span className="flex items-end gap-2">
-      <span className="font-mono text-[clamp(2.65rem,5vw,4.35rem)] leading-[0.88] tracking-[-0.04em] tabular-nums">${rounded}</span>
-      <span className="pb-2 text-sm font-light" style={{ color: "var(--text-secondary)" }}>
+    <span className="flex flex-wrap items-end gap-x-2 gap-y-1">
+      <span className="font-mono text-[clamp(2.1rem,3.6vw,3.2rem)] leading-[0.92] tracking-[-0.03em] tabular-nums">${rounded}</span>
+      <span className="pb-1.5 text-[13px] font-light" style={{ color: "var(--text-secondary)" }}>
         {suffix}
       </span>
     </span>
@@ -235,12 +239,12 @@ function PricingCard({
 
   return (
     <article
-      className="grid min-h-[640px] grid-rows-[minmax(132px,auto)_minmax(208px,auto)_1fr_auto] p-8 md:p-10"
+      className="grid min-h-[640px] min-w-0 grid-rows-[minmax(132px,auto)_minmax(208px,auto)_1fr_auto] overflow-hidden p-7 md:p-8 xl:p-9"
       style={{ background: "var(--bg)" }}
     >
       <header className="grid min-h-[132px] content-start gap-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <h3 className="font-mono text-[clamp(1.9rem,3vw,2.5rem)] font-medium leading-[0.94] tracking-tight">{plan.name}</h3>
+          <h3 className="font-mono text-[clamp(1.55rem,2.2vw,1.95rem)] font-medium leading-[0.96] tracking-tight break-words min-w-0">{plan.name}</h3>
           {showSavings ? (
             <span
               className="rounded-full border px-3 py-1 text-[10px] font-mono uppercase tracking-[0.16em]"
@@ -268,8 +272,8 @@ function PricingCard({
         </div>
       </header>
 
-      <div className="grid min-h-[208px] grid-rows-[minmax(96px,auto)_minmax(96px,auto)] content-start">
-        <div className="flex items-start">
+      <div className="grid min-h-[208px] min-w-0 grid-rows-[minmax(96px,auto)_minmax(96px,auto)] content-start">
+        <div className="flex min-w-0 items-start">
           <AnimatedPriceValue amount={amount} suffix={billing === "annual" ? "/mo billed yearly" : "/mo"} />
         </div>
         <div className="mt-7 space-y-2">

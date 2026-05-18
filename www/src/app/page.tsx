@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import { type ReactNode } from "react";
 import { CtaSection } from "@/components/landing/CtaSection";
@@ -6,6 +5,7 @@ import { FAQSection } from "@/components/landing/FAQSection";
 import { ForgettingTax } from "@/components/landing/ForgettingTax";
 import { HeroInk } from "@/components/landing/HeroInk";
 import { LandingNav } from "@/components/landing/LandingNav";
+import { PartnersStrip } from "@/components/landing/PartnersStrip";
 import { PricingGrid } from "@/components/landing/PricingGrid";
 import { RunSplitSection } from "@/components/landing/RunSplitSection";
 import { TentacleSection } from "@/components/landing/TentacleSection";
@@ -59,6 +59,8 @@ export default function Home() {
       <LandingNav />
 
       <HeroInk />
+
+      <PartnersStrip />
 
       <main style={{ color: INK.bone }}>
         <ForgettingTax />
@@ -115,36 +117,9 @@ function Footer() {
           className="max-w-sm text-[11px] font-light leading-relaxed"
           style={{ color: INK.sand }}
         >
-          MIT. Part of the{" "}
-          <a
-            href="https://www.daytona.io/startups"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline underline-offset-2"
-            style={{ color: INK.bone, textDecorationColor: "rgba(232,217,184,0.22)" }}
-          >
-            Daytona Startup Grid
-          </a>
-          .
+          MIT-licensed · self-hosted · v0.8 · May 2026
         </p>
       </div>
-
-      <a
-        href="https://www.daytona.io/startups"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="shrink-0 self-start opacity-80 transition-opacity hover:opacity-100 lg:self-center"
-        aria-label="Daytona Startup Grid"
-      >
-        <Image
-          src="/partners/daytonapartner.png"
-          alt=""
-          width={160}
-          height={40}
-          className="h-8 w-auto max-w-[200px] object-contain object-left"
-          sizes="200px"
-        />
-      </a>
 
       <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 self-start lg:self-center" aria-label="Footer">
         <a
