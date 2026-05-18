@@ -39,6 +39,13 @@ import type {
   InjectionEvent,
   FactInjectionEvent,
 } from "../types.js";
+import {
+  type Reranker,
+  NoopReranker,
+  blockCandidatesFor,
+  withRerankerFallback,
+} from "./reranker.js";
+import { mmr, DEFAULT_MMR_LAMBDA, type MMRItem } from "./mmr.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -199,6 +206,31 @@ export interface BlockServerOptions {
    * Errors are swallowed so a bad sink never breaks retrieval.
    */
   sideSink?: SideSink;
+  /**
+   * Cross-encoder reranker for the May-2026 B1 cascade. When set,
+   * BlockServer fetches a wider candidate window (`fetchSize * 2`),
+   * runs the reranker, then keeps the top `limit` for MMR. Defaults
+   * to `NoopReranker` (architecture exercised but no reordering).
+   *
+   * Failures (timeout, network, malformed response) gracefully fall
+   * back to the pre-rerank ordering — see `withRerankerFallback`.
+   */
+  reranker?: Reranker;
+  /** Hard timeout for one reranker call. Default 300ms. */
+  rerankerTimeoutMs?: number;
+  /**
+   * MMR diversity tradeoff in [0, 1]. 1.0 = pure relevance (MMR is a
+   * no-op), 0.0 = pure diversity. Default 0.7 — empirical sweet spot.
+   * Set to 1.0 to disable MMR entirely without touching reranker.
+   */
+  mmrLambda?: number;
+  /**
+   * Pre-reranker over-fetch multiplier. The reranker / MMR cascade is
+   * pointless without enough candidates to choose from. Default 4 —
+   * with limit=5 we fetch ~20 before reranking. Set to 1 to disable
+   * the over-fetch path (useful for benchmarks).
+   */
+  cascadeFetchMultiplier?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,6 +244,11 @@ export class BlockServer {
   private readonly emitEvents: boolean;
   private readonly now: () => number;
   private readonly emitter: EventEmitter;
+  // May-2026 B1 cascade — reranker + MMR.
+  private readonly reranker: Reranker;
+  private readonly rerankerTimeoutMs: number;
+  private readonly mmrLambda: number;
+  private readonly cascadeFetchMultiplier: number;
 
   constructor(store: BlockStore, opts: BlockServerOptions = {}) {
     this.store = store;
@@ -223,14 +260,23 @@ export class BlockServer {
     // shared with emit helpers) or a fresh one wrapping the store and
     // optional sideSink shim.
     this.emitter = opts.emitter ?? new EventEmitter(store, opts.sideSink);
+    this.reranker = opts.reranker ?? new NoopReranker();
+    this.rerankerTimeoutMs = opts.rerankerTimeoutMs ?? 300;
+    this.mmrLambda = opts.mmrLambda ?? DEFAULT_MMR_LAMBDA;
+    this.cascadeFetchMultiplier = Math.max(1, opts.cascadeFetchMultiplier ?? 4);
   }
 
   /**
-   * Run retrieval. Returns hits plus a `shouldInject` recommendation.
-   * Emits a `retrieval` event (always) and one `injection` event per
-   * block and one `fact_injection` event per fact that pass the gate
-   * (unless the query is shadow). Blocks and facts attribute
-   * independently at aggregation time.
+   * Run retrieval (synchronous, cascade-free). Returns hits plus a
+   * `shouldInject` recommendation. Emits a `retrieval` event (always)
+   * and one `injection` event per block and one `fact_injection` event
+   * per fact that pass the gate (unless the query is shadow). Blocks
+   * and facts attribute independently at aggregation time.
+   *
+   * Use `recallAsync()` instead when the May-2026 B1 cascade
+   * (cross-encoder reranker + MMR) is desired. `recall()` is kept
+   * synchronous for back-compat with the existing MCP path and tests;
+   * it ignores the reranker / mmrLambda options entirely.
    */
   recall(query: BlockRecallQuery): RecallV2Result {
     const queryId = query.queryId ?? randomUUID();
@@ -241,6 +287,114 @@ export class BlockServer {
 
     const blocks = this.searchBlocks(query.text, query.invariants, limit);
     const rawFacts = this.searchFacts(query.text, query.invariants, query.scope, factLimit);
+
+    return this.finalizeRecall(query, queryId, manualShadow, refLimit, blocks, rawFacts);
+  }
+
+  /**
+   * Async variant of `recall()` that runs the May-2026 B1 cascade:
+   *
+   *     hard-filter → BM25 over-fetch → cross-encoder rerank
+   *                 → MMR diversity → calibrator gate → events
+   *
+   * The reranker call is bounded by `rerankerTimeoutMs` and falls back
+   * to the pre-rerank ordering on timeout / error / malformed response
+   * — the cascade NEVER blocks injection unbounded and NEVER throws.
+   *
+   * Configure via `BlockServerOptions`:
+   *   • `reranker`: any `Reranker` impl (NoopReranker default).
+   *   • `mmrLambda`: relevance/diversity tradeoff. 1.0 disables MMR.
+   *   • `cascadeFetchMultiplier`: over-fetch ratio (default 4× limit).
+   *
+   * With the default `NoopReranker` and lambda=0.7 the cascade still
+   * runs (MMR over BM25 candidates), so a default install gets free
+   * deduplication. Behaviour matches `recall()` only when
+   * `mmrLambda === 1` AND reranker is `NoopReranker`.
+   */
+  async recallAsync(query: BlockRecallQuery): Promise<RecallV2Result> {
+    const queryId = query.queryId ?? randomUUID();
+    const manualShadow = query.shadow ?? false;
+    const limit = query.limit ?? 5;
+    const factLimit = query.factLimit ?? 5;
+    const refLimit = query.refLimit ?? 3;
+
+    // Stage 1+2: hard-filter + BM25 with cascade over-fetch.
+    const fetchLimit = limit * this.cascadeFetchMultiplier;
+    const wideBlocks = this.searchBlocks(query.text, query.invariants, fetchLimit);
+
+    // Stage 3: cross-encoder rerank.
+    const rerankedBlocks = await this.applyReranker(query.text, wideBlocks);
+
+    // Stage 4: MMR diversity, narrowing to `limit`.
+    const finalBlocks = this.applyMMR(rerankedBlocks, limit);
+
+    // Facts stay on the existing simpler path — cross-encoder rerank
+    // for L4 semantic memory lands in a future PR; today's fact recall
+    // is confidence-based and already produces a small list.
+    const rawFacts = this.searchFacts(query.text, query.invariants, query.scope, factLimit);
+
+    return this.finalizeRecall(query, queryId, manualShadow, refLimit, finalBlocks, rawFacts);
+  }
+
+  /**
+   * Apply the configured reranker to a candidate window. NoopReranker
+   * is a pass-through (returns input unchanged after a constant-score
+   * pseudo-rerank). Real rerankers reorder by relevance score; the
+   * `withRerankerFallback` wrapper enforces the timeout + graceful
+   * fallback contract.
+   */
+  private async applyReranker(
+    queryText: string,
+    blocks: Array<{ block: ReasoningBlock; score: number }>,
+  ): Promise<Array<{ block: ReasoningBlock; score: number }>> {
+    if (blocks.length <= 1) return blocks;
+    const candidates = blockCandidatesFor(blocks);
+    const byId = new Map(blocks.map((b) => [b.block.id, b]));
+    const { reranked } = await withRerankerFallback(
+      this.reranker,
+      queryText,
+      candidates,
+      { timeoutMs: this.rerankerTimeoutMs },
+    );
+    return reranked.map((c) => byId.get(c.blockId)!).filter(Boolean);
+  }
+
+  /**
+   * Apply greedy MMR over the reranked window. Inter-doc similarity
+   * uses Jaccard over trigger text (cosine slot reserved for the
+   * future block-embedding rollout). When `mmrLambda` is 1.0, MMR
+   * degenerates to "sort by relevance" — the no-op fast path.
+   */
+  private applyMMR(
+    blocks: Array<{ block: ReasoningBlock; score: number }>,
+    k: number,
+  ): Array<{ block: ReasoningBlock; score: number }> {
+    if (this.mmrLambda >= 1 || blocks.length <= 1) {
+      return blocks.slice(0, k);
+    }
+    const items: MMRItem[] = blocks.map((b) => ({
+      id: b.block.id,
+      relevance: b.score,
+      text: b.block.trigger.situation,
+    }));
+    const picked = mmr(items, k, { lambda: this.mmrLambda });
+    const byId = new Map(blocks.map((b) => [b.block.id, b]));
+    return picked.map((it) => byId.get(it.id)!).filter(Boolean);
+  }
+
+  /**
+   * Shared post-search finalization: calibrate → holdout decision →
+   * build hits → emit events → assemble result. Used by both `recall()`
+   * (sync, cascade-free) and `recallAsync()` (cascade-on).
+   */
+  private finalizeRecall(
+    query: BlockRecallQuery,
+    queryId: string,
+    manualShadow: boolean,
+    refLimit: number,
+    blocks: Array<{ block: ReasoningBlock; score: number }>,
+    rawFacts: Array<{ fact: ProjectFact; score: number }>,
+  ): RecallV2Result {
 
     // Pre-compute calibrated probabilities once. Both the holdout
     // eligibility decision and the final BlockHit / FactHit

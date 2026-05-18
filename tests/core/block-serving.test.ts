@@ -9,6 +9,7 @@ import {
 } from "../../src/core/block-serving.js";
 import { createBlock } from "../../src/core/block.js";
 import type { StoreBlockInput, ReasoningBlock } from "../../src/types.js";
+import type { Reranker, RerankerCandidate } from "../../src/core/reranker.js";
 
 function makeStore(): BlockStore {
   return new BlockStore(new Database(":memory:"));
@@ -601,5 +602,188 @@ describe("Gate/payload contract — passesGate drives both formatter and events"
     expect(out.facts.length).toBeGreaterThan(0);
     expect(out.shouldInject).toBe(false);
     expect(formatInjection(out)).toBe("");
+  });
+});
+
+// ============================================================================
+// May-2026 B1 cascade — cross-encoder reranker + MMR diversity.
+// ============================================================================
+describe("BlockServer — recallAsync cascade (B1)", () => {
+  function makeServerWithReranker(reranker?: Reranker, lambda = 0.7) {
+    const store = makeStore();
+    // Seed 6 blocks: 3 near-duplicate React blocks + 3 distinct topics.
+    const reactDup1: StoreBlockInput = {
+      trigger: {
+        situation: "react useEffect dependency array missing causes stale state",
+        invariants: { language: "typescript", framework: "react" },
+      },
+      body: {
+        mechanism: "closure captures initial state",
+        deadEnds: [],
+        unlock: "add value to dependency array",
+        verification: "state updates reflect across renders",
+      },
+      provenance: { sourceTaskId: "react-stale-1", extractedFrom: "trajectory", distilledBy: "llm" },
+    };
+    const reactDup2: StoreBlockInput = {
+      ...reactDup1,
+      trigger: {
+        situation: "react useEffect missing dependency causing stale closure on state",
+        invariants: { language: "typescript", framework: "react" },
+      },
+      provenance: { sourceTaskId: "react-stale-2", extractedFrom: "trajectory", distilledBy: "llm" },
+    };
+    const reactDup3: StoreBlockInput = {
+      ...reactDup1,
+      trigger: {
+        situation: "react useEffect stale state when dependency array empty array []",
+        invariants: { language: "typescript", framework: "react" },
+      },
+      provenance: { sourceTaskId: "react-stale-3", extractedFrom: "trajectory", distilledBy: "llm" },
+    };
+    const diverseA: StoreBlockInput = {
+      trigger: {
+        situation: "python typer command nested subcommand registration import",
+        invariants: { language: "python" },
+      },
+      body: { mechanism: "x", deadEnds: [], unlock: "y", verification: "z" },
+      provenance: { sourceTaskId: "typer-1", extractedFrom: "trajectory", distilledBy: "llm" },
+    };
+    const diverseB: StoreBlockInput = {
+      trigger: {
+        situation: "rust serde untagged enum variant fallback default",
+        invariants: { language: "rust" },
+      },
+      body: { mechanism: "x", deadEnds: [], unlock: "y", verification: "z" },
+      provenance: { sourceTaskId: "serde-1", extractedFrom: "trajectory", distilledBy: "llm" },
+    };
+    const diverseC: StoreBlockInput = {
+      trigger: {
+        situation: "go context deadline exceeded grpc client transport closing",
+        invariants: { language: "go" },
+      },
+      body: { mechanism: "x", deadEnds: [], unlock: "y", verification: "z" },
+      provenance: { sourceTaskId: "grpc-1", extractedFrom: "trajectory", distilledBy: "llm" },
+    };
+
+    storeActive(store, reactDup1);
+    storeActive(store, reactDup2);
+    storeActive(store, reactDup3);
+    storeActive(store, diverseA);
+    storeActive(store, diverseB);
+    storeActive(store, diverseC);
+
+    return new BlockServer(store, {
+      emitEvents: false,
+      ...(reranker ? { reranker } : {}),
+      mmrLambda: lambda,
+      cascadeFetchMultiplier: 4,
+    });
+  }
+
+  it("recallAsync returns same shape as recall (default NoopReranker, λ=1.0)", async () => {
+    const store = makeStore();
+    storeActive(store, PY_BLOCK);
+    storeActive(store, TS_BLOCK);
+    const server = new BlockServer(store, { emitEvents: false, mmrLambda: 1.0 });
+    const out = await server.recallAsync({ text: "metaclass inspect iterates" });
+    expect(out.queryId).toBeDefined();
+    expect(out.blocks.length).toBeGreaterThan(0);
+    expect(out.shouldInject).toBeDefined();
+  });
+
+  it("MMR vs pure-relevance produces a different ordering on near-duplicate pool", async () => {
+    // The 3 react duplicates dominate FTS for this query; the diverse
+    // blocks score zero and don't enter the candidate pool. That's the
+    // realistic case where MMR matters: choosing AMONG near-duplicates
+    // in the same topic, not pulling in unrelated topics.
+    //
+    // λ=1.0 → MMR is a no-op (sort by relevance).
+    // λ=0.0 → pure diversity. Greedy picks the most-rel block first,
+    //        then the LEAST similar remaining block, etc. The result
+    //        order MUST differ from pure relevance unless all three
+    //        candidates happen to be equidistant — which they aren't.
+    const srvRel = makeServerWithReranker(undefined, 1.0);
+    const srvMmr = makeServerWithReranker(undefined, 0.0);
+    const query = { text: "react useEffect stale state dependency", limit: 3 };
+    const relOut = await srvRel.recallAsync(query);
+    const mmrOut = await srvMmr.recallAsync(query);
+
+    // Both should surface all three react blocks; MMR with low λ must
+    // produce a different order. This is the direct cascade-affecting-
+    // ordering check, not the "diversity wins over relevance" check
+    // which only holds when alternative topics enter the pool.
+    expect(relOut.blocks.length).toBe(3);
+    expect(mmrOut.blocks.length).toBe(3);
+    const relOrder = relOut.blocks.map((h) => h.block.id).join("|");
+    const mmrOrder = mmrOut.blocks.map((h) => h.block.id).join("|");
+    expect(mmrOrder).not.toBe(relOrder);
+  });
+
+  it("custom reranker reorders the top-K by its scores", async () => {
+    // Reranker that strongly prefers the second candidate, regardless
+    // of upstream BM25 score.
+    const reranker: Reranker = {
+      name: "test-reranker",
+      async score(_q, cands) {
+        // Boost any candidate whose triggerText mentions "rust"
+        return cands.map((c: RerankerCandidate) =>
+          /\brust\b/i.test(c.triggerText) ? 0.99 : 0.01,
+        );
+      },
+    };
+    const server = makeServerWithReranker(reranker, 1.0); // disable MMR to isolate rerank effect
+    const out = await server.recallAsync({
+      text: "fallback variant for serialization",
+      limit: 3,
+    });
+    expect(out.blocks.length).toBeGreaterThan(0);
+    // The rust block (serde) should now be first thanks to the reranker.
+    expect(out.blocks[0]!.block.trigger.invariants.language).toBe("rust");
+  });
+
+  it("reranker timeout falls back to pre-rerank order — recall still succeeds", async () => {
+    const slowReranker: Reranker = {
+      name: "slow-reranker",
+      async score(_q, cands) {
+        // Far longer than the 50ms timeout below.
+        await new Promise((r) => setTimeout(r, 200));
+        return cands.map(() => 0.5);
+      },
+    };
+    const store = makeStore();
+    storeActive(store, PY_BLOCK);
+    storeActive(store, TS_BLOCK);
+    const server = new BlockServer(store, {
+      emitEvents: false,
+      reranker: slowReranker,
+      rerankerTimeoutMs: 50,
+      mmrLambda: 1.0,
+    });
+    const start = Date.now();
+    const out = await server.recallAsync({ text: "metaclass inspect" });
+    const elapsed = Date.now() - start;
+    expect(out.blocks.length).toBeGreaterThan(0);
+    // Must respect the timeout budget (with generous slack for slow CI).
+    expect(elapsed).toBeLessThan(180);
+  });
+
+  it("reranker that throws is contained — recall path never propagates the error", async () => {
+    const brokenReranker: Reranker = {
+      name: "broken",
+      async score() {
+        throw new Error("model session crashed");
+      },
+    };
+    const store = makeStore();
+    storeActive(store, PY_BLOCK);
+    storeActive(store, TS_BLOCK);
+    const server = new BlockServer(store, {
+      emitEvents: false,
+      reranker: brokenReranker,
+      mmrLambda: 1.0,
+    });
+    const out = await server.recallAsync({ text: "metaclass inspect" });
+    expect(out.blocks.length).toBeGreaterThan(0);
   });
 });
