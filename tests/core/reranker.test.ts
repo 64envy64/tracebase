@@ -207,4 +207,106 @@ describe("withRerankerFallback", () => {
     expect(reranked).toEqual([]);
     expect(fellBack).toBe(false);
   });
+
+  // ---------- B1.1 hardening regressions ----------
+
+  it("B1.1 P1 #1: returns the per-candidate scores aligned with reranked order", async () => {
+    // Scores must come back next to the reordered items so downstream
+    // MMR can use them as relevance instead of falling back to BM25.
+    const reranker: Reranker = {
+      name: "scored",
+      async score() { return [0.2, 0.9, 0.5]; },
+    };
+    const items = [cand("a", "x"), cand("b", "y"), cand("c", "z")];
+    const result = await withRerankerFallback(reranker, "q", items);
+    expect(result.fellBack).toBe(false);
+    expect(result.scores).toEqual([0.9, 0.5, 0.2]);
+    expect(result.reranked.map((r) => r.blockId)).toEqual(["b", "c", "a"]);
+  });
+
+  it("B1.1 P1 #2: timeout actually aborts the underlying fetch via signal", async () => {
+    // Capture whether the AbortSignal fired before the fetch would have
+    // resolved on its own. Pre-hardening the race only ignored the late
+    // promise — the fetch kept running. Now we MUST observe abort.
+    let abortObserved = false;
+    const reranker: Reranker = {
+      name: "abort-aware",
+      async score(_q, _c, opts) {
+        return await new Promise<number[] | null>((resolve) => {
+          const t = setTimeout(() => resolve([0.5]), 500);
+          opts?.signal?.addEventListener("abort", () => {
+            abortObserved = true;
+            clearTimeout(t);
+            resolve(null);
+          });
+        });
+      },
+    };
+    const items = [cand("a", "x")];
+    const result = await withRerankerFallback(reranker, "q", items, { timeoutMs: 50 });
+    expect(result.fellBack).toBe(true);
+    expect(result.reason).toBe("timeout");
+    expect(abortObserved).toBe(true);
+  });
+
+  it("B1.1 P3 #1: rejects NaN scores from custom rerankers (validation fallback)", async () => {
+    const reranker: Reranker = {
+      name: "broken-nan",
+      async score() { return [0.5, Number.NaN, 0.7]; },
+    };
+    const items = [cand("a", "x"), cand("b", "y"), cand("c", "z")];
+    const result = await withRerankerFallback(reranker, "q", items);
+    expect(result.fellBack).toBe(true);
+    expect(result.reason).toBe("validation");
+    // Falls back to input order — never silently sorts against NaN.
+    expect(result.reranked.map((r) => r.blockId)).toEqual(["a", "b", "c"]);
+  });
+
+  it("B1.1 P3 #1: rejects Infinity scores", async () => {
+    const reranker: Reranker = {
+      name: "broken-inf",
+      async score() { return [Number.POSITIVE_INFINITY, 0.5]; },
+    };
+    const items = [cand("a", "x"), cand("b", "y")];
+    const result = await withRerankerFallback(reranker, "q", items);
+    expect(result.fellBack).toBe(true);
+    expect(result.reason).toBe("validation");
+  });
+
+  it("B1.1 P3 #1: rejects out-of-band scores (negative or > 1)", async () => {
+    const reranker: Reranker = {
+      name: "broken-range",
+      async score() { return [-0.1, 0.5]; },
+    };
+    const items = [cand("a", "x"), cand("b", "y")];
+    const result = await withRerankerFallback(reranker, "q", items);
+    expect(result.fellBack).toBe(true);
+    expect(result.reason).toBe("validation");
+
+    const reranker2: Reranker = {
+      name: "broken-range",
+      async score() { return [0.5, 1.5]; },
+    };
+    const result2 = await withRerankerFallback(reranker2, "q", items);
+    expect(result2.fellBack).toBe(true);
+    expect(result2.reason).toBe("validation");
+  });
+
+  it("B1.1 P1 #2: CloudReranker forwards AbortSignal to fetch", async () => {
+    // The signal passed to score() must reach the fetch call; otherwise
+    // a slow endpoint keeps burning bandwidth after our timeout fires.
+    let observedSignal: AbortSignal | undefined;
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      observedSignal = init?.signal ?? undefined;
+      return new Response(JSON.stringify({ scores: [0.5] }), { status: 200 });
+    });
+    const r = new CloudReranker({
+      endpoint: "https://example.test/rerank",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const ctrl = new AbortController();
+    await r.score("q", [cand("a", "x")], { signal: ctrl.signal });
+    expect(observedSignal).toBeDefined();
+    expect(observedSignal).toBe(ctrl.signal);
+  });
 });

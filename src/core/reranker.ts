@@ -61,6 +61,13 @@ export interface RerankerCandidate {
  *
  * Async because remote callers (CloudReranker) and worker-thread local
  * callers (future MiniLMReranker) are both async by nature.
+ *
+ * Cancellation contract (B1.1 hardening): when `options.signal` is
+ * provided, implementations SHOULD abort their underlying work as soon
+ * as the signal fires. CloudReranker passes the signal to `fetch`;
+ * future worker-thread rerankers wire the signal to `worker.terminate()`.
+ * Without this contract, `withRerankerFallback`'s timeout only "races"
+ * against work that keeps burning CPU/network in the background.
  */
 export interface Reranker {
   /** Human-readable id for logging / observability / doctor surface. */
@@ -71,11 +78,13 @@ export interface Reranker {
    * input length; the i-th score corresponds to the i-th candidate.
    *
    * MUST return `null` on any failure mode. MUST resolve within the
-   * timeout the caller supplies via `withRerankerFallback`.
+   * timeout the caller supplies via `withRerankerFallback`. SHOULD
+   * abort underlying I/O / compute when `options.signal` fires.
    */
   score(
     query: string,
     candidates: RerankerCandidate[],
+    options?: { signal?: AbortSignal },
   ): Promise<number[] | null>;
 }
 
@@ -96,7 +105,7 @@ export interface Reranker {
  */
 export class NoopReranker implements Reranker {
   readonly name = "noop";
-  async score(_query: string, candidates: RerankerCandidate[]): Promise<number[]> {
+  async score(_query: string, candidates: RerankerCandidate[], _options?: { signal?: AbortSignal }): Promise<number[]> {
     return candidates.map(() => 0.5);
   }
 }
@@ -144,6 +153,7 @@ export class CloudReranker implements Reranker {
   async score(
     query: string,
     candidates: RerankerCandidate[],
+    options?: { signal?: AbortSignal },
   ): Promise<number[] | null> {
     if (candidates.length === 0) return [];
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -157,7 +167,13 @@ export class CloudReranker implements Reranker {
     if (!f) return null;
     let res: Response;
     try {
-      res = await f(this.opts.endpoint, { method: "POST", headers, body });
+      // B1.1: forward AbortSignal so fetch is actually cancelled when
+      // withRerankerFallback times out. Pre-hardening the race only
+      // ignored the late response — the network call kept running
+      // and burned bandwidth until the server's own timeout fired.
+      const init: RequestInit = { method: "POST", headers, body };
+      if (options?.signal) init.signal = options.signal;
+      res = await f(this.opts.endpoint, init);
     } catch {
       return null;
     }
@@ -192,46 +208,86 @@ export interface RerankerOptions {
   /** Hard timeout for one reranker call. Default 300ms. */
   timeoutMs?: number;
   /** Callback for observability — fires on every failure mode. */
-  onFallback?: (reason: "timeout" | "error" | "null" | "empty") => void;
+  onFallback?: (reason: RerankerFallbackReason) => void;
 }
 
 /**
- * Apply a reranker with a strict timeout and graceful fallback.
+ * Reason a reranker call collapsed to the fallback path.
+ *
+ *   • "timeout"     — withRerankerFallback aborted the call.
+ *   • "error"       — score() threw an exception.
+ *   • "null"        — score() returned null (graceful failure).
+ *   • "empty"       — length mismatch between scores and candidates.
+ *   • "validation"  — at least one score was NaN / Infinity / out of
+ *                     band (a custom Reranker that misbehaves; B1.1
+ *                     adds wrapper-level checks since not every
+ *                     implementation validates internally).
+ */
+export type RerankerFallbackReason = "timeout" | "error" | "null" | "empty" | "validation";
+
+/**
+ * Apply a reranker with a strict timeout, cancellation, and graceful
+ * fallback.
  *
  * The cascade contract: a reranker MUST NEVER block the injection path
  * unbounded, and MUST NEVER throw to the caller. This wrapper enforces
- * both: it races the reranker call against a timeout, swallows any
- * error, and on fallback returns the input order unchanged.
+ * both:
+ *
+ *   • Race the score() call against a timeout (default 300ms).
+ *   • On timeout, abort the controller passed via `options.signal`
+ *     so the reranker can stop its in-flight I/O / compute — pre-B1.1
+ *     the race only ignored the late return, but CloudReranker's fetch
+ *     and future ONNX worker_threads kept burning resources.
+ *   • Validate every returned score is finite and in [0, 1]; out-of-
+ *     band values would otherwise corrupt downstream sort/MMR math.
+ *   • On any failure, return the input order unchanged + a reason
+ *     code so the caller can stamp telemetry.
  *
  * On success, returns the candidates sorted DESC by reranker score
- * (stable sort, so equal scores preserve relative input order).
- *
- * Returns `{ reranked, fellBack }` so the caller can stamp telemetry
- * (e.g. a `reranker:timeout` event) without an out-of-band channel.
+ * (stable sort, equal scores preserve input order) along with the
+ * per-candidate `scores` array — keeping the scores around lets MMR
+ * use them as relevance instead of falling back to the pre-rerank
+ * BM25 score, which would otherwise defeat the point of the rerank.
  */
 export async function withRerankerFallback<T extends RerankerCandidate>(
   reranker: Reranker,
   query: string,
   candidates: T[],
   opts: RerankerOptions = {},
-): Promise<{ reranked: T[]; fellBack: boolean; reason?: "timeout" | "error" | "null" | "empty" }> {
+): Promise<{
+  reranked: T[];
+  scores?: number[];
+  fellBack: boolean;
+  reason?: RerankerFallbackReason;
+}> {
   if (candidates.length === 0) {
     return { reranked: candidates, fellBack: false };
   }
   const timeoutMs = opts.timeoutMs ?? 300;
 
-  const timeoutPromise = new Promise<{ scores: null; reason: "timeout" }>((resolve) => {
-    setTimeout(() => resolve({ scores: null, reason: "timeout" }), timeoutMs).unref?.();
-  });
+  const controller = new AbortController();
+  let timeoutFired = false;
+  const timeoutHandle = setTimeout(() => {
+    timeoutFired = true;
+    controller.abort();
+  }, timeoutMs);
+  timeoutHandle.unref?.();
 
-  let result: { scores: number[] | null; reason?: "timeout" | "error" | "null" };
+  let result: { scores: number[] | null; reason?: RerankerFallbackReason };
   try {
-    result = await Promise.race([
-      reranker.score(query, candidates).then((scores) => ({ scores })),
-      timeoutPromise,
-    ]);
+    const scores = await reranker.score(query, candidates, { signal: controller.signal });
+    result = { scores };
   } catch {
-    result = { scores: null, reason: "error" };
+    result = { scores: null, reason: timeoutFired ? "timeout" : "error" };
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+
+  // Detect the case where the awaited call returned after timeout
+  // fired (race between throw-on-abort and natural completion). Treat
+  // as timeout so telemetry isn't muddied.
+  if (timeoutFired && !result.reason) {
+    result = { scores: null, reason: "timeout" };
   }
 
   if (!result.scores) {
@@ -244,11 +300,28 @@ export async function withRerankerFallback<T extends RerankerCandidate>(
     return { reranked: candidates, fellBack: true, reason: "empty" };
   }
 
+  // B1.1: wrapper-level numeric validation. Custom rerankers (or a
+  // misbehaving CloudReranker endpoint that escapes its own clamping)
+  // could return NaN / Infinity / negative / >1 values; we'd silently
+  // sort against them and produce garbage. Hard-reject the whole batch
+  // rather than try to coerce — better to fall back than to ship
+  // ranking based on corrupted scores.
+  for (const s of result.scores) {
+    if (typeof s !== "number" || !Number.isFinite(s) || s < 0 || s > 1) {
+      opts.onFallback?.("validation");
+      return { reranked: candidates, fellBack: true, reason: "validation" };
+    }
+  }
+
   // Stable sort by score DESC. Pair items with scores and indices to
   // tie-break on original position so equal scores leave order intact.
   const indexed = candidates.map((c, i) => ({ c, s: result.scores![i]!, i }));
   indexed.sort((a, b) => (b.s - a.s) || (a.i - b.i));
-  return { reranked: indexed.map((x) => x.c), fellBack: false };
+  return {
+    reranked: indexed.map((x) => x.c),
+    scores: indexed.map((x) => x.s),
+    fellBack: false,
+  };
 }
 
 // ---------------------------------------------------------------------------

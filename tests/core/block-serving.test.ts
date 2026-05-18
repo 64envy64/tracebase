@@ -786,4 +786,162 @@ describe("BlockServer — recallAsync cascade (B1)", () => {
     const out = await server.recallAsync({ text: "metaclass inspect" });
     expect(out.blocks.length).toBeGreaterThan(0);
   });
+
+  // ---------- B1.1 hardening regressions ----------
+
+  it("B1.1 P1 #1: MMR uses rerankerScore as relevance, NOT pre-rerank BM25", async () => {
+    // Pre-hardening: MMR fell back to BM25 score for relevance, so a
+    // cross-encoder that flipped the ranking was overruled by MMR.
+    // Now MMR uses rerankerScore when present.
+    //
+    // Setup: two blocks. BM25 ranks A above B (because the query
+    // matches A's trigger more heavily). The reranker inverts that —
+    // it scores B much higher. With λ=1.0 (relevance-only MMR), the
+    // final order MUST be [B, A] because rerankerScore dominates.
+    const store = makeStore();
+    const blockA: StoreBlockInput = {
+      trigger: {
+        situation: "alpha bravo charlie delta echo foxtrot",
+        invariants: {},
+      },
+      body: { mechanism: "x", deadEnds: [], unlock: "y", verification: "z" },
+      provenance: { sourceTaskId: "a-task", extractedFrom: "trajectory", distilledBy: "llm" },
+    };
+    const blockB: StoreBlockInput = {
+      trigger: {
+        situation: "alpha bravo",
+        invariants: {},
+      },
+      body: { mechanism: "x", deadEnds: [], unlock: "y", verification: "z" },
+      provenance: { sourceTaskId: "b-task", extractedFrom: "trajectory", distilledBy: "llm" },
+    };
+    const a = storeActive(store, blockA);
+    const b = storeActive(store, blockB);
+
+    const inverter: Reranker = {
+      name: "inverter",
+      async score(_q, cands) {
+        // Score B high, A low — exactly the opposite of BM25.
+        return cands.map((c) => (c.blockId === b.id ? 0.99 : 0.01));
+      },
+    };
+    const server = new BlockServer(store, {
+      emitEvents: false,
+      reranker: inverter,
+      mmrLambda: 1.0,
+    });
+    const out = await server.recallAsync({
+      text: "alpha bravo charlie delta",
+      limit: 2,
+    });
+    expect(out.blocks.length).toBe(2);
+    expect(out.blocks[0]!.block.id).toBe(b.id);
+    expect(out.blocks[1]!.block.id).toBe(a.id);
+    // BlockHit carries the reranker score for telemetry.
+    expect(out.blocks[0]!.rerankerScore).toBeCloseTo(0.99, 5);
+    expect(out.blocks[0]!.rerankerRank).toBe(1);
+    expect(out.blocks[1]!.rerankerScore).toBeCloseTo(0.01, 5);
+    expect(out.blocks[1]!.rerankerRank).toBe(2);
+  });
+
+  it("B1.1 P2 #2: retrieval event carries pre-cascade slate + cascade telemetry", async () => {
+    const store = makeStore();
+    // Need at least 3 distinct stored blocks so the slate is non-trivial.
+    storeActive(store, {
+      trigger: { situation: "ruby rails activerecord callback after_commit", invariants: {} },
+      body: { mechanism: "x", deadEnds: [], unlock: "y", verification: "z" },
+      provenance: { sourceTaskId: "rb-1", extractedFrom: "trajectory", distilledBy: "llm" },
+    });
+    storeActive(store, {
+      trigger: { situation: "ruby rails activerecord transaction nested savepoint", invariants: {} },
+      body: { mechanism: "x", deadEnds: [], unlock: "y", verification: "z" },
+      provenance: { sourceTaskId: "rb-2", extractedFrom: "trajectory", distilledBy: "llm" },
+    });
+    storeActive(store, {
+      trigger: { situation: "ruby rails activerecord scope chaining merge override", invariants: {} },
+      body: { mechanism: "x", deadEnds: [], unlock: "y", verification: "z" },
+      provenance: { sourceTaskId: "rb-3", extractedFrom: "trajectory", distilledBy: "llm" },
+    });
+    const reranker: Reranker = {
+      name: "test-cloud",
+      async score(_q, cands) { return cands.map(() => 0.5); },
+    };
+    const events: import("../../src/types.js").RetrievalEvent[] = [];
+    const server = new BlockServer(store, {
+      reranker,
+      mmrLambda: 0.7,
+      cascadeFetchMultiplier: 4,
+      sideSink: (ev) => {
+        if (ev.event === "retrieval") events.push(ev);
+      },
+    });
+    const out = await server.recallAsync({
+      text: "ruby rails activerecord",
+      limit: 2,
+    });
+    expect(out.blocks.length).toBeGreaterThan(0);
+    expect(events.length).toBe(1);
+    const ev = events[0]!;
+
+    // Cascade telemetry stamped.
+    expect(ev.rerankerName).toBe("test-cloud");
+    expect(ev.rerankerFellBack).toBe(false);
+    expect(ev.mmrLambda).toBe(0.7);
+    expect(ev.cascadePolicyId).toBe("linear+rerank+mmr.v1");
+
+    // Pre-cascade slate present and STRICTLY LARGER than the top-K
+    // — that's the whole point: B3 replay needs every counter-factual.
+    expect(ev.preCascadeSlate).toBeDefined();
+    expect(ev.preCascadeSlate!.length).toBeGreaterThan(ev.candidates.length);
+
+    // Each candidate carries the reranker score it earned.
+    for (const c of ev.candidates) {
+      expect(c.rerankerScore).toBeCloseTo(0.5, 6);
+      expect(c.rerankerRank).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("B1.1 P1 #2 telemetry: retrieval event records reranker fallback reason on timeout", async () => {
+    const slowReranker: Reranker = {
+      name: "slow",
+      async score(_q, _c, opts) {
+        return await new Promise<number[] | null>((resolve) => {
+          const t = setTimeout(() => resolve(_c.map(() => 0.5)), 500);
+          opts?.signal?.addEventListener("abort", () => {
+            clearTimeout(t);
+            resolve(null);
+          });
+        });
+      },
+    };
+    // The cascade short-circuits with ≤1 candidate (no work for a
+    // reranker), so seed enough overlapping blocks that FTS returns
+    // multiple candidates for the test query.
+    const store = makeStore();
+    for (const marker of ["alpha", "bravo", "charlie", "delta"]) {
+      storeActive(store, {
+        trigger: { situation: `timeout regression marker ${marker} foo bar baz`, invariants: {} },
+        body: { mechanism: "x", deadEnds: [], unlock: "y", verification: "z" },
+        provenance: { sourceTaskId: `t-${marker}`, extractedFrom: "trajectory", distilledBy: "llm" },
+      });
+    }
+    const events: import("../../src/types.js").RetrievalEvent[] = [];
+    const server = new BlockServer(store, {
+      reranker: slowReranker,
+      rerankerTimeoutMs: 50,
+      mmrLambda: 1.0,
+      sideSink: (ev) => {
+        if (ev.event === "retrieval") events.push(ev);
+      },
+    });
+    await server.recallAsync({ text: "timeout regression marker foo bar baz" });
+    expect(events.length).toBe(1);
+    const ev = events[0]!;
+    expect(ev.rerankerFellBack).toBe(true);
+    expect(ev.rerankerFallbackReason).toBe("timeout");
+    // No rerankerScore stamped on candidates when we fell back.
+    for (const c of ev.candidates) {
+      expect(c.rerankerScore).toBeUndefined();
+    }
+  });
 });

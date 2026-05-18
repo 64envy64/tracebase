@@ -184,6 +184,15 @@ function isValidRetrieval(e: Record<string, unknown>): boolean {
     const cc = c as Record<string, unknown>;
     if (typeof cc.blockId !== "string" || cc.blockId.length === 0) return false;
     if (typeof cc.score !== "number" || !Number.isFinite(cc.score)) return false;
+    // B1.1: cross-encoder fields are optional. When present they MUST
+    // be finite numbers; the wrapper-level numeric check rejects
+    // anything else upstream so this is mostly a JSONL-import guard.
+    if (cc.rerankerScore !== undefined && (typeof cc.rerankerScore !== "number" || !Number.isFinite(cc.rerankerScore))) {
+      return false;
+    }
+    if (cc.rerankerRank !== undefined && (typeof cc.rerankerRank !== "number" || !Number.isFinite(cc.rerankerRank))) {
+      return false;
+    }
   }
   // factCandidates is optional; when present, validate its shape.
   if (e.factCandidates !== undefined) {
@@ -195,6 +204,28 @@ function isValidRetrieval(e: Record<string, unknown>): boolean {
       if (typeof cc.score !== "number" || !Number.isFinite(cc.score)) return false;
     }
   }
+  // B1.1 cascade metadata — all optional, all permissive on type.
+  if (e.preCascadeSlate !== undefined) {
+    if (!Array.isArray(e.preCascadeSlate)) return false;
+    for (const c of e.preCascadeSlate) {
+      if (!c || typeof c !== "object") return false;
+      const cc = c as Record<string, unknown>;
+      if (typeof cc.blockId !== "string" || cc.blockId.length === 0) return false;
+      if (typeof cc.score !== "number" || !Number.isFinite(cc.score)) return false;
+    }
+  }
+  if (e.rerankerName !== undefined && typeof e.rerankerName !== "string") return false;
+  if (e.rerankerFellBack !== undefined && typeof e.rerankerFellBack !== "boolean") return false;
+  if (
+    e.rerankerFallbackReason !== undefined &&
+    !["timeout", "error", "null", "empty", "validation"].includes(e.rerankerFallbackReason as string)
+  ) {
+    return false;
+  }
+  if (e.mmrLambda !== undefined && (typeof e.mmrLambda !== "number" || !Number.isFinite(e.mmrLambda))) {
+    return false;
+  }
+  if (e.cascadePolicyId !== undefined && typeof e.cascadePolicyId !== "string") return false;
   return true;
 }
 

@@ -1575,7 +1575,46 @@ interface EventBase {
 
 export interface RetrievalEvent extends EventBase {
   event: "retrieval";
-  candidates: Array<{ blockId: string; score: number }>;
+  /**
+   * Top-K block candidates AFTER the full cascade
+   * (BM25 → rerank → MMR). `rerankerScore` + `rerankerRank` are
+   * present when the cross-encoder ran successfully and absent
+   * when the reranker was NoopReranker or fell back — exactly
+   * the signal B3 replay-screening needs to distinguish "reranker
+   * influenced this slot" from "BM25 won by default".
+   */
+  candidates: Array<{
+    blockId: string;
+    score: number;
+    rerankerScore?: number;
+    rerankerRank?: number;
+  }>;
+  /**
+   * The full pre-cascade slate (every BM25 candidate scored by the
+   * linear ranker) — added by May-2026 B1.1 hardening. Required by
+   * B3 replay-screening: without the counter-factuals the harness
+   * cannot evaluate "could a different policy have picked something
+   * better than the actual top-K". Optional only for backward
+   * compatibility with pre-B1.1 events.
+   */
+  preCascadeSlate?: Array<{ blockId: string; score: number }>;
+  /**
+   * Cascade telemetry — stamped by May-2026 B1.1.
+   *
+   * `rerankerName`           which Reranker impl ran
+   * `rerankerFellBack`       true when the cascade collapsed to BM25
+   * `rerankerFallbackReason` why we fell back (timeout / error / null / empty / validation)
+   * `mmrLambda`              relevance/diversity tradeoff used
+   * `cascadePolicyId`        e.g. "linear+rerank+mmr.v1" — change
+   *                          this string when the cascade semantics
+   *                          change so historical events can be
+   *                          replayed honestly.
+   */
+  rerankerName?: string;
+  rerankerFellBack?: boolean;
+  rerankerFallbackReason?: "timeout" | "error" | "null" | "empty" | "validation";
+  mmrLambda?: number;
+  cascadePolicyId?: string;
   /** Fact candidates retrieved alongside procedural blocks (may be empty). */
   factCandidates?: Array<{ factId: string; score: number }>;
   /** Whether this query is in the control arm (no injection will fire). */

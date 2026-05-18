@@ -41,11 +41,38 @@ import type {
 } from "../types.js";
 import {
   type Reranker,
+  type RerankerFallbackReason,
   NoopReranker,
   blockCandidatesFor,
   withRerankerFallback,
 } from "./reranker.js";
 import { mmr, DEFAULT_MMR_LAMBDA, type MMRItem } from "./mmr.js";
+
+/**
+ * Cascade-internal candidate shape. `linearScore` is the BM25 +
+ * multi-signal output (what the calibrator was fit on). `rerankerScore`
+ * + `rerankerRank` carry the cross-encoder's verdict so MMR can use
+ * it as relevance rather than dropping back to BM25 — keeping the two
+ * scores separate so calibration math doesn't drift.
+ */
+interface CascadeCandidate {
+  block: ReasoningBlock;
+  /** Pre-cascade score: BM25 + multi-signal. Calibrator input. */
+  linearScore: number;
+  /** Cross-encoder score in [0, 1] when the reranker ran successfully. */
+  rerankerScore?: number;
+  /** 1-based rank from the reranker. Logged for OPE replay; never used in math. */
+  rerankerRank?: number;
+}
+
+/** Cascade telemetry — stamped onto the retrieval event. */
+interface CascadeTelemetry {
+  rerankerName: string;
+  rerankerFellBack: boolean;
+  rerankerFallbackReason?: RerankerFallbackReason;
+  mmrLambda: number;
+  cascadePolicyId: string;
+}
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -117,6 +144,20 @@ export interface BlockHit {
   block: ReasoningBlock;
   /** Normalized 0..1 ranker score (higher = more relevant). */
   score: number;
+  /**
+   * Cross-encoder relevance in [0, 1]. Present when the B1 cascade
+   * ran a non-Noop reranker and didn't fall back. Optional for back-
+   * compat with sync `recall()` and library consumers that haven't
+   * configured a reranker. Logged to the retrieval event so off-policy
+   * screening can distinguish "cross-encoder ranked this high" from
+   * "BM25 ranked this high".
+   */
+  rerankerScore?: number;
+  /**
+   * 1-based position the reranker assigned this candidate (1 = best).
+   * Only present when `rerankerScore` is present.
+   */
+  rerankerRank?: number;
   /** Gate output: calibrated P(helpful). Identity by default. */
   calibratedProb: number;
   /**
@@ -322,63 +363,137 @@ export class BlockServer {
     const fetchLimit = limit * this.cascadeFetchMultiplier;
     const wideBlocks = this.searchBlocks(query.text, query.invariants, fetchLimit);
 
-    // Stage 3: cross-encoder rerank.
-    const rerankedBlocks = await this.applyReranker(query.text, wideBlocks);
+    // Capture the full pre-cascade slate for the retrieval event so B3
+    // replay-screening has every counter-factual the policy under
+    // evaluation needs. The cascade narrows from this slate by
+    // reranking + MMR + limit; without logging the original we'd only
+    // be able to evaluate "did the policy agree with us on the winners",
+    // not "could a different policy have picked something better".
+    const slate: CascadeCandidate[] = wideBlocks.map((b) => ({
+      block: b.block,
+      linearScore: b.score,
+    }));
 
-    // Stage 4: MMR diversity, narrowing to `limit`.
-    const finalBlocks = this.applyMMR(rerankedBlocks, limit);
+    // Stage 3: cross-encoder rerank — informs both ordering AND
+    // downstream MMR relevance. B1.1 fix for P1 #1: pre-hardening MMR
+    // used the BM25 linearScore as relevance, which threw away every
+    // bit of work the cross-encoder did.
+    const { reranked: cascadeRanked, telemetry } = await this.applyReranker(
+      query.text,
+      slate,
+    );
+
+    // Stage 4: MMR diversity, narrowing to `limit`. Uses rerankerScore
+    // when available (the real relevance signal post-rerank); falls
+    // back to linearScore for the NoopReranker path.
+    const finalBlocks = this.applyMMR(cascadeRanked, limit);
 
     // Facts stay on the existing simpler path — cross-encoder rerank
     // for L4 semantic memory lands in a future PR; today's fact recall
     // is confidence-based and already produces a small list.
     const rawFacts = this.searchFacts(query.text, query.invariants, query.scope, factLimit);
 
-    return this.finalizeRecall(query, queryId, manualShadow, refLimit, finalBlocks, rawFacts);
+    return this.finalizeRecall(
+      query,
+      queryId,
+      manualShadow,
+      refLimit,
+      // finalizeRecall expects { block, score } pairs — pass the score
+      // the calibrator was fit on (linear), NOT the reranker score.
+      // Calibrator math stays valid; reranker info is logged separately.
+      finalBlocks.map((c) => ({ block: c.block, score: c.linearScore })),
+      rawFacts,
+      { cascade: cascadeRanked, telemetry },
+    );
   }
 
   /**
-   * Apply the configured reranker to a candidate window. NoopReranker
-   * is a pass-through (returns input unchanged after a constant-score
-   * pseudo-rerank). Real rerankers reorder by relevance score; the
-   * `withRerankerFallback` wrapper enforces the timeout + graceful
-   * fallback contract.
+   * Apply the configured reranker to a candidate window. Returns
+   * enriched candidates carrying both `linearScore` (BM25, for the
+   * calibrator) and `rerankerScore` + `rerankerRank` (cross-encoder,
+   * for MMR + telemetry). NoopReranker fills `rerankerScore` with a
+   * constant — MMR's relevance term still uses it, which is identical
+   * to using `linearScore` after normalization since constants drop
+   * out of the relative ordering.
+   *
+   * `withRerankerFallback` enforces the timeout + cancellation +
+   * graceful-fallback + numeric-validation contracts. Failure modes
+   * collapse to `{rerankerScore: undefined, telemetry.fellBack: true}`.
    */
   private async applyReranker(
     queryText: string,
-    blocks: Array<{ block: ReasoningBlock; score: number }>,
-  ): Promise<Array<{ block: ReasoningBlock; score: number }>> {
-    if (blocks.length <= 1) return blocks;
-    const candidates = blockCandidatesFor(blocks);
-    const byId = new Map(blocks.map((b) => [b.block.id, b]));
-    const { reranked } = await withRerankerFallback(
+    candidates: CascadeCandidate[],
+  ): Promise<{ reranked: CascadeCandidate[]; telemetry: CascadeTelemetry }> {
+    const cascadePolicyId = "linear+rerank+mmr.v1";
+    const baseTelemetry: CascadeTelemetry = {
+      rerankerName: this.reranker.name,
+      rerankerFellBack: false,
+      mmrLambda: this.mmrLambda,
+      cascadePolicyId,
+    };
+
+    if (candidates.length <= 1) {
+      return { reranked: candidates, telemetry: baseTelemetry };
+    }
+    const rerankCandidates = blockCandidatesFor(
+      candidates.map((c) => ({ block: c.block, score: c.linearScore })),
+    );
+    const byId = new Map(candidates.map((c) => [c.block.id, c]));
+    const result = await withRerankerFallback(
       this.reranker,
       queryText,
-      candidates,
+      rerankCandidates,
       { timeoutMs: this.rerankerTimeoutMs },
     );
-    return reranked.map((c) => byId.get(c.blockId)!).filter(Boolean);
+
+    if (result.fellBack || !result.scores) {
+      // Fallback: preserve pre-rerank order, no rerankerScore stamped.
+      return {
+        reranked: candidates,
+        telemetry: {
+          ...baseTelemetry,
+          rerankerFellBack: true,
+          ...(result.reason ? { rerankerFallbackReason: result.reason } : {}),
+        },
+      };
+    }
+
+    // Success: pair each reordered candidate with its reranker score
+    // and 1-based rank. byId lookup avoids relying on stable map insert
+    // order in the post-sort array.
+    const reranked: CascadeCandidate[] = result.reranked.map((rc, i) => {
+      const cand = byId.get(rc.blockId)!;
+      return {
+        ...cand,
+        rerankerScore: result.scores![i],
+        rerankerRank: i + 1,
+      };
+    }).filter((c) => c.block !== undefined);
+    return { reranked, telemetry: baseTelemetry };
   }
 
   /**
-   * Apply greedy MMR over the reranked window. Inter-doc similarity
-   * uses Jaccard over trigger text (cosine slot reserved for the
-   * future block-embedding rollout). When `mmrLambda` is 1.0, MMR
-   * degenerates to "sort by relevance" — the no-op fast path.
+   * Apply greedy MMR over the reranked window. Relevance is `rerankerScore`
+   * when available (B1.1 fix for P1 #1 — pre-hardening MMR silently
+   * used linearScore, which made the reranker's reorder cosmetic),
+   * else `linearScore` for the NoopReranker / fellBack path. Inter-doc
+   * similarity uses Jaccard over trigger text. When `mmrLambda` is 1.0,
+   * MMR degenerates to "sort by relevance" — fast path.
    */
-  private applyMMR(
-    blocks: Array<{ block: ReasoningBlock; score: number }>,
-    k: number,
-  ): Array<{ block: ReasoningBlock; score: number }> {
-    if (this.mmrLambda >= 1 || blocks.length <= 1) {
-      return blocks.slice(0, k);
+  private applyMMR(candidates: CascadeCandidate[], k: number): CascadeCandidate[] {
+    if (this.mmrLambda >= 1 || candidates.length <= 1) {
+      // When relevance==1.0, the post-rerank order is already optimal.
+      // Take it as-is and slice to k. (`reranked` from applyReranker
+      // is sorted DESC by rerankerScore when present.)
+      return candidates.slice(0, k);
     }
-    const items: MMRItem[] = blocks.map((b) => ({
-      id: b.block.id,
-      relevance: b.score,
-      text: b.block.trigger.situation,
+    const items: MMRItem[] = candidates.map((c) => ({
+      id: c.block.id,
+      relevance: c.rerankerScore ?? c.linearScore,
+      text: c.block.trigger.situation,
     }));
     const picked = mmr(items, k, { lambda: this.mmrLambda });
-    const byId = new Map(blocks.map((b) => [b.block.id, b]));
+    const byId = new Map(candidates.map((c) => [c.block.id, c]));
     return picked.map((it) => byId.get(it.id)!).filter(Boolean);
   }
 
@@ -386,6 +501,11 @@ export class BlockServer {
    * Shared post-search finalization: calibrate → holdout decision →
    * build hits → emit events → assemble result. Used by both `recall()`
    * (sync, cascade-free) and `recallAsync()` (cascade-on).
+   *
+   * `cascadeInfo` is optional: only `recallAsync()` produces it. When
+   * present, BlockHits gain `rerankerScore` + `rerankerRank` and the
+   * retrieval event carries the full pre-cascade slate plus cascade
+   * telemetry (reranker name, fallback reason, MMR lambda).
    */
   private finalizeRecall(
     query: BlockRecallQuery,
@@ -394,6 +514,7 @@ export class BlockServer {
     refLimit: number,
     blocks: Array<{ block: ReasoningBlock; score: number }>,
     rawFacts: Array<{ fact: ProjectFact; score: number }>,
+    cascadeInfo?: { cascade: CascadeCandidate[]; telemetry: CascadeTelemetry },
   ): RecallV2Result {
 
     // Pre-compute calibrated probabilities once. Both the holdout
@@ -458,13 +579,33 @@ export class BlockServer {
     // injection formatter and analytics emission both key off, and
     // it reuses the calibrator output computed above so holdout
     // eligibility and downstream gate decision cannot drift.
-    const blockHits: BlockHit[] = blockCalibrated.map((h) => ({
-      block: h.block,
-      score: h.score,
-      calibratedProb: h.calibratedProb,
-      passesGate: !shadow && h.calibratedProb >= this.gateThreshold,
-      refs: h.refs,
-    }));
+    //
+    // Build a cascade lookup so each BlockHit can carry the
+    // (rerankerScore, rerankerRank) it earned during the cascade.
+    // When `cascadeInfo` is absent (sync recall path), the lookup
+    // is empty and BlockHits have no reranker fields — the same
+    // shape as before B1.1.
+    const cascadeById = new Map<string, CascadeCandidate>();
+    if (cascadeInfo) {
+      for (const c of cascadeInfo.cascade) cascadeById.set(c.block.id, c);
+    }
+    const blockHits: BlockHit[] = blockCalibrated.map((h) => {
+      const cascade = cascadeById.get(h.block.id);
+      const hit: BlockHit = {
+        block: h.block,
+        score: h.score,
+        calibratedProb: h.calibratedProb,
+        passesGate: !shadow && h.calibratedProb >= this.gateThreshold,
+        refs: h.refs,
+      };
+      if (cascade?.rerankerScore !== undefined) {
+        hit.rerankerScore = cascade.rerankerScore;
+      }
+      if (cascade?.rerankerRank !== undefined) {
+        hit.rerankerRank = cascade.rerankerRank;
+      }
+      return hit;
+    });
 
     // Facts: no calibrator slot yet (Phase 5). Same gate threshold
     // as blocks; per-item-type thresholds can be introduced later
@@ -484,7 +625,15 @@ export class BlockServer {
     // Emit events. One injection event per hit with passesGate=true —
     // one-to-one correspondence with what the formatter will render.
     if (this.emitEvents) {
-      this.emitRetrieval(queryId, blockHits, factHits, shadow, controlReason, query.runId);
+      this.emitRetrieval(
+        queryId,
+        blockHits,
+        factHits,
+        shadow,
+        controlReason,
+        query.runId,
+        cascadeInfo,
+      );
       for (const h of blockHits) {
         if (h.passesGate) this.emitInjection(queryId, h, query.runId);
       }
@@ -643,12 +792,21 @@ export class BlockServer {
     shadow: boolean,
     controlReason: "shadow" | "holdout" | undefined,
     runId?: string,
+    cascadeInfo?: { cascade: CascadeCandidate[]; telemetry: CascadeTelemetry },
   ): void {
     const ev: RetrievalEvent = {
       ts: this.now(),
       queryId,
       event: "retrieval",
-      candidates: blockHits.map((h) => ({ blockId: h.block.id, score: h.score })),
+      candidates: blockHits.map((h) => {
+        const c: RetrievalEvent["candidates"][number] = {
+          blockId: h.block.id,
+          score: h.score,
+        };
+        if (h.rerankerScore !== undefined) c.rerankerScore = h.rerankerScore;
+        if (h.rerankerRank !== undefined) c.rerankerRank = h.rerankerRank;
+        return c;
+      }),
       shadow,
       // Only write `controlReason` when we have one. Manual shadow
       // keeps an undefined tag so back-compat readers classify it
@@ -656,6 +814,24 @@ export class BlockServer {
       ...(controlReason ? { controlReason } : {}),
       ...(factHits.length > 0
         ? { factCandidates: factHits.map((h) => ({ factId: h.fact.id, score: h.score })) }
+        : {}),
+      // B1.1 hardening (P2 #2): the full pre-cascade slate is required
+      // for honest B3 replay-screening. Logged only when the cascade
+      // ran (recallAsync); sync recall() retains the prior compact event.
+      ...(cascadeInfo
+        ? {
+            preCascadeSlate: cascadeInfo.cascade.map((c) => ({
+              blockId: c.block.id,
+              score: c.linearScore,
+            })),
+            rerankerName: cascadeInfo.telemetry.rerankerName,
+            rerankerFellBack: cascadeInfo.telemetry.rerankerFellBack,
+            ...(cascadeInfo.telemetry.rerankerFallbackReason
+              ? { rerankerFallbackReason: cascadeInfo.telemetry.rerankerFallbackReason }
+              : {}),
+            mmrLambda: cascadeInfo.telemetry.mmrLambda,
+            cascadePolicyId: cascadeInfo.telemetry.cascadePolicyId,
+          }
         : {}),
     };
     this.emitter.emit(ev, runId !== undefined ? { runId } : undefined);
