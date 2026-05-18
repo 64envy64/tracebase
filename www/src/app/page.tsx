@@ -14,7 +14,7 @@ import { InkInterstitial, TracebaseInkWordmark } from "@/components/landing/bran
 import { SectionLabel } from "@/components/landing/brand/Primitives";
 import { Reveal } from "@/components/landing/brand/Reveal";
 import { INK } from "@/components/landing/brand/tokens";
-import { GitHubMark } from "@/components/ui/GitHubMark";
+import { GitHubStarButton } from "@/components/ui/GitHubStarButton";
 
 /* ============================================================ */
 /*  Shared layout primitives                                     */
@@ -122,16 +122,7 @@ function Footer() {
       </div>
 
       <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 self-start lg:self-center" aria-label="Footer">
-        <a
-          href="https://github.com/64envy64/tracebase"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border transition-colors hover:text-[var(--bone)]"
-          style={{ borderColor: "rgba(232,217,184,0.12)", color: INK.sand }}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="GitHub repository"
-        >
-          <GitHubMark className="h-[18px] w-[18px]" />
-        </a>
+        <GitHubStarButton className="h-9" />
         <Link href="/docs" className="text-xs font-light" style={{ color: INK.sand }}>
           Docs
         </Link>
