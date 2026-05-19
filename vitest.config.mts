@@ -21,5 +21,14 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     testTimeout: 10_000,
     pool: "forks",
+    // Unit tests run on tiny single-block FTS5 corpuses where IDF is
+    // degenerate, so the production gate (0.4) would mask hits. Pin
+    // gate=0 in test processes — production paths read this env var
+    // via `resolveProductionGateThreshold()` and fall back to the
+    // safe production default when unset. Individual tests can
+    // override by setting the env var explicitly in beforeAll.
+    env: {
+      TRACEBASE_GATE_THRESHOLD: "0",
+    },
   },
 });

@@ -26,7 +26,7 @@ import { Command } from "commander";
 import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { BlockStore } from "../../core/block-store.js";
-import { BlockServer } from "../../core/block-serving.js";
+import { BlockServer, resolveProductionGateThreshold } from "../../core/block-serving.js";
 import { loadBlockCalibrator } from "../../lifecycle/calibrator.js";
 import { findProjectRoot, isInitialized, loadConfig, readCascadeConfig, readHoldoutConfig } from "../../core/config.js";
 import {
@@ -589,7 +589,7 @@ async function withBlockServer<T>(
     const server = new BlockServer(store, {
       calibrator: loadBlockCalibrator(store),
       emitEvents: false,
-      gateThreshold: 0,
+      gateThreshold: resolveProductionGateThreshold(),
       reranker,
       ...cascadeKnobs,
     });

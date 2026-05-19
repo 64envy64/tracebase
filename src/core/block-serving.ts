@@ -213,11 +213,45 @@ export type Calibrator = (score: number, block: ReasoningBlock) => number;
 
 export const identityCalibrator: Calibrator = (score) => score;
 
+/**
+ * May-2026 — production gate default. Reserved for the post-calibrator
+ * world: when an isotonic calibrator is fit (Phase 5), `calibratedProb`
+ * stops being identity-passed-through from raw FTS bm25, and a non-
+ * zero gate starts filtering low-confidence hits in the demo path.
+ * Pre-calibrator the maxRel-normalized top hit is always 1.0, so any
+ * gate below 1 lets it through — the gate scaffolding ships ahead of
+ * the calibrator so production behavior shifts automatically when
+ * the model lands.
+ */
+export const DEFAULT_GATE_THRESHOLD = 0.4;
+
+/**
+ * May-2026 — env override for production callsites. Lets integration
+ * tests (which exercise the production code path directly, not the
+ * test-friendly class default) pin gate=0 on tiny FTS corpuses where
+ * IDF degenerates. Returns `DEFAULT_GATE_THRESHOLD` when the env var
+ * is unset or unparseable — an invalid value is treated as "not
+ * configured", never as a silent disable, since silently dropping
+ * the gate would re-introduce the single-hit-1.0 pathology once the
+ * calibrator ships.
+ */
+export function resolveProductionGateThreshold(): number {
+  const raw = process.env.TRACEBASE_GATE_THRESHOLD;
+  if (raw === undefined || raw === "") return DEFAULT_GATE_THRESHOLD;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    return DEFAULT_GATE_THRESHOLD;
+  }
+  return parsed;
+}
+
 export interface BlockServerOptions {
   /**
-   * Minimum calibrated probability for `shouldInject = true`.
-   * Default 0 — everything passes. Bump in production once the
-   * isotonic calibrator is fitted.
+   * Minimum calibrated probability for `shouldInject = true`. Defaults
+   * to 0 (everything passes) so unit tests with tiny corpuses can
+   * observe hits. Production callsites should pass
+   * `DEFAULT_GATE_THRESHOLD` so weak single-hit matches do not pollute
+   * the live context window.
    */
   gateThreshold?: number;
   /** Maps raw ranker score + block → P(helpful). Identity by default. */
@@ -275,6 +309,41 @@ export interface BlockServerOptions {
 }
 
 // ---------------------------------------------------------------------------
+// FTS stop-word list
+// ---------------------------------------------------------------------------
+//
+// Lowercase tokens dropped by `sanitizeFtsQuery` before FTS5 sees the
+// query. Three groups: English stop-words; Claude Code tool names that
+// commonly appear in agent prompts but carry no semantic weight for
+// block lookup; generic agent-prompt verbs / fillers. Keep this list
+// closed-vocabulary — speculative additions (domain terms a user might
+// genuinely care about) belong in calibration, not here.
+const FTS_STOP_WORDS = new Set<string>([
+  // English stop-words
+  "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+  "of", "in", "on", "at", "to", "from", "by", "for", "with", "about",
+  "into", "onto", "over", "under", "as", "than", "then", "so",
+  "i", "you", "he", "she", "it", "we", "they", "me", "him", "her",
+  "us", "them", "my", "your", "our", "their", "its",
+  "this", "that", "these", "those",
+  "and", "or", "but", "if", "not", "no", "yes",
+  "do", "does", "did", "doing", "done",
+  "have", "has", "had", "having",
+  "will", "would", "can", "could", "should", "may", "might", "must",
+  "how", "what", "when", "where", "why", "who", "which",
+  "just", "only", "also", "very", "more", "less", "most", "least",
+  // Claude Code tool names — common in prompts but never useful as
+  // retrieval signal for reasoning blocks.
+  "read", "write", "edit", "bash", "grep", "glob", "task", "agent",
+  "webfetch", "websearch", "notebookedit", "exitplanmode", "todowrite",
+  "tool", "tools", "file", "files",
+  // Generic agent verbs / fillers
+  "please", "help", "need", "want", "like", "get", "make", "use", "using",
+  "run", "running", "try", "trying", "check", "checking", "look", "looking",
+  "see", "show", "find", "finding", "let", "lets",
+]);
+
+// ---------------------------------------------------------------------------
 // BlockServer
 // ---------------------------------------------------------------------------
 
@@ -293,6 +362,13 @@ export class BlockServer {
 
   constructor(store: BlockStore, opts: BlockServerOptions = {}) {
     this.store = store;
+    // Class default stays 0 so unit tests with tiny single-block
+    // corpuses (where FTS5 IDF degenerates) still observe hits.
+    // Production callsites read `resolveProductionGateThreshold()`
+    // which returns `DEFAULT_GATE_THRESHOLD` unless the env var
+    // `TRACEBASE_GATE_THRESHOLD` overrides — the gate becomes
+    // meaningful once an isotonic calibrator is fit and
+    // `calibratedProb` stops being identity-passed-through.
     this.gateThreshold = opts.gateThreshold ?? 0;
     this.calibrator = opts.calibrator ?? identityCalibrator;
     this.emitEvents = opts.emitEvents ?? true;
@@ -730,6 +806,16 @@ export class BlockServer {
 
     // FTS5 bm25 returns negative values; lower == better. Convert to
     // positive "relevance" and query-level-normalize to 0..1.
+    //
+    // May-2026 — we deliberately keep the maxRel normalization here
+    // and rely on `sanitizeFtsQuery`'s stop-word / tool-word filter
+    // to prevent the "single noise-token hit gets score=1.0" pathology
+    // upstream: queries dominated by stop-words now produce no FTS
+    // candidates at all. An absolute saturating scale was tried and
+    // rejected because in unit tests (N=1 FTS corpus where IDF
+    // degenerates) it underflows the gate; the cascade reranker +
+    // isotonic calibrator slots are where corpus-size-invariant
+    // confidence is meant to live, not in the raw BM25 mapping.
     const relevances = filtered.map((r) => -r.raw_rank);
     const maxRel = Math.max(...relevances, Number.EPSILON);
     return filtered.slice(0, limit).map((r) => ({
@@ -760,8 +846,19 @@ export class BlockServer {
   private sanitizeFtsQuery(query: string): string {
     const cleaned = query.replace(/[*"():^~{}[\]\\]/g, " ").trim();
     if (!cleaned) return "";
-    const words = cleaned.split(/\s+/).filter(Boolean);
-    if (words.length === 0) return "";
+    const rawWords = cleaned.split(/\s+/).filter(Boolean);
+    if (rawWords.length === 0) return "";
+    // May-2026 — drop English stop-words, Claude Code tool names, and
+    // generic agent-prompt noise before FTS. Without this, queries like
+    // "use the Read tool to check the file" dominate BM25 with the
+    // tool-name term and surface unrelated blocks that happen to mention
+    // "Read". Single-character tokens fall out too (rarely informative,
+    // often FTS syntax artifacts). Fall back to the unfiltered list if
+    // filtering empties the query — better a noisy match than no match.
+    const filtered = rawWords.filter(
+      (w) => w.length > 1 && !FTS_STOP_WORDS.has(w.toLowerCase()),
+    );
+    const words = filtered.length > 0 ? filtered : rawWords;
     const joiner = words.length <= 3 ? " " : " OR ";
     return words.map((w) => `"${w}"`).join(joiner);
   }

@@ -253,9 +253,11 @@ describe("BlockServer — gate + calibrator", () => {
     store = makeStore();
   });
 
-  it("shouldInject is true by default when hits exist", () => {
+  it("shouldInject is true when any hit clears the gate", () => {
     storeActive(store, PY_BLOCK);
-    const server = new BlockServer(store);
+    // Tiny single-block corpus has degenerate FTS5 IDF; gate=0 here
+    // isolates the shouldInject contract from the absolute-score scale.
+    const server = new BlockServer(store, { gateThreshold: 0 });
     const out = server.recall({ text: "metaclass inspect" });
     expect(out.shouldInject).toBe(true);
   });
@@ -321,7 +323,8 @@ describe("BlockServer — events", () => {
   it("emits an injection event per hit above gate", () => {
     storeActive(store, PY_BLOCK);
     storeActive(store, TS_BLOCK);
-    const server = new BlockServer(store);
+    // Tiny corpus → gate=0 so the emission contract is observable.
+    const server = new BlockServer(store, { gateThreshold: 0 });
     server.recall({ text: "missing stale" });
     const evs = store.readEvents({ eventType: "injection" });
     expect(evs.length).toBeGreaterThan(0);
@@ -344,7 +347,7 @@ describe("BlockServer — events", () => {
 
   it("emitEvents=false suppresses events", () => {
     storeActive(store, PY_BLOCK);
-    const server = new BlockServer(store, { emitEvents: false });
+    const server = new BlockServer(store, { emitEvents: false, gateThreshold: 0 });
     server.recall({ text: "metaclass inspect" });
     expect(store.countEvents()).toBe(0);
   });
@@ -410,7 +413,7 @@ describe("formatInjection", () => {
   it("markdown framing is declarative-hypothesis, not imperative", () => {
     const store = makeStore();
     const b = storeActive(store, PY_BLOCK);
-    const server = new BlockServer(store, { emitEvents: false });
+    const server = new BlockServer(store, { emitEvents: false, gateThreshold: 0 });
     const out = server.recall({ text: "metaclass inspect" });
     const md = formatInjection(out);
     // Contains hypothesis framing.
@@ -424,7 +427,7 @@ describe("formatInjection", () => {
   it("xml format emits <hypothesis> tags", () => {
     const store = makeStore();
     storeActive(store, PY_BLOCK);
-    const server = new BlockServer(store, { emitEvents: false });
+    const server = new BlockServer(store, { emitEvents: false, gateThreshold: 0 });
     const out = server.recall({ text: "metaclass inspect" });
     const xml = formatInjection(out, { format: "xml" });
     expect(xml).toContain("<prior_reasoning>");
@@ -435,7 +438,7 @@ describe("formatInjection", () => {
   it("includeAudit=false hides block ids", () => {
     const store = makeStore();
     const b = storeActive(store, PY_BLOCK);
-    const server = new BlockServer(store, { emitEvents: false });
+    const server = new BlockServer(store, { emitEvents: false, gateThreshold: 0 });
     const out = server.recall({ text: "metaclass inspect" });
     const md = formatInjection(out, { includeAudit: false });
     expect(md).not.toContain(b.id);
@@ -451,7 +454,7 @@ describe("formatInjection", () => {
       invariants: {},
       source: { origin: "declared" },
     });
-    const server = new BlockServer(store, { emitEvents: false });
+    const server = new BlockServer(store, { emitEvents: false, gateThreshold: 0 });
     const out = server.recall({ text: "metaclass inspect" });
     const md = formatInjection(out, { includeFacts: false });
     expect(md).not.toContain("favor small PRs");
@@ -675,6 +678,7 @@ describe("BlockServer — recallAsync cascade (B1)", () => {
 
     return new BlockServer(store, {
       emitEvents: false,
+      gateThreshold: 0,
       ...(reranker ? { reranker } : {}),
       mmrLambda: lambda,
       cascadeFetchMultiplier: 4,
@@ -685,7 +689,7 @@ describe("BlockServer — recallAsync cascade (B1)", () => {
     const store = makeStore();
     storeActive(store, PY_BLOCK);
     storeActive(store, TS_BLOCK);
-    const server = new BlockServer(store, { emitEvents: false, mmrLambda: 1.0 });
+    const server = new BlockServer(store, { emitEvents: false, mmrLambda: 1.0, gateThreshold: 0 });
     const out = await server.recallAsync({ text: "metaclass inspect iterates" });
     expect(out.queryId).toBeDefined();
     expect(out.blocks.length).toBeGreaterThan(0);
@@ -734,7 +738,12 @@ describe("BlockServer — recallAsync cascade (B1)", () => {
     };
     const server = makeServerWithReranker(reranker, 1.0); // disable MMR to isolate rerank effect
     const out = await server.recallAsync({
-      text: "fallback variant for serialization",
+      // 4 non-stop tokens so sanitizeFtsQuery uses OR-joiner. With the
+      // May-2026 stop-word filter, "for" is dropped and a 3-token query
+      // would pivot to AND, which only diverseB matches anyway — but
+      // the explicit OR posture documents that we want a broad slate
+      // here so the reranker has something to reorder.
+      text: "fallback variant serialization default",
       limit: 3,
     });
     expect(out.blocks.length).toBeGreaterThan(0);

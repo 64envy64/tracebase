@@ -2,7 +2,7 @@ import type { CascadeConfig, HoldoutConfig, TraceBaseConfig } from "../types.js"
 import { ReasoningLayer } from "../core/engine.js";
 import Database from "better-sqlite3";
 import { BlockStore } from "../core/block-store.js";
-import { BlockServer, formatInjection } from "../core/block-serving.js";
+import { BlockServer, formatInjection, resolveProductionGateThreshold } from "../core/block-serving.js";
 import { EventEmitter, emitAgentUsed, emitFactAgentUsed, emitOutcome } from "../core/analytics.js";
 import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
 import {
@@ -126,7 +126,7 @@ export async function startMcpServer(
 
   const blockServer = new BlockServer(blockStore, {
     calibrator: loadBlockCalibrator(blockStore),
-    gateThreshold: 0, // can be tuned via config later
+    gateThreshold: resolveProductionGateThreshold(),
     reranker,
     ...cascadeKnobs,
   });

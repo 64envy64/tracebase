@@ -31,7 +31,7 @@
  */
 
 import { BlockStore } from "../core/block-store.js";
-import { BlockServer } from "../core/block-serving.js";
+import { BlockServer, resolveProductionGateThreshold } from "../core/block-serving.js";
 import {
   EventEmitter,
   emitAgentUsed,
@@ -256,7 +256,7 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
     this.blockStore = new BlockStore(opts.storagePath);
     this.blockServer = new BlockServer(this.blockStore, {
       calibrator: loadBlockCalibrator(this.blockStore),
-      gateThreshold: 0,
+      gateThreshold: resolveProductionGateThreshold(),
     });
     this.eventEmitter = new EventEmitter(this.blockStore);
     if (opts.readHoldoutConfig) {

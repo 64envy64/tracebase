@@ -34,7 +34,7 @@
 
 import Database from "better-sqlite3";
 import { BlockStore } from "../core/block-store.js";
-import { BlockServer } from "../core/block-serving.js";
+import { BlockServer, resolveProductionGateThreshold } from "../core/block-serving.js";
 import { detectToolPattern, type ToolPatternSignal } from "../core/tool-loop-detect.js";
 import {
   findProjectRoot,
@@ -194,7 +194,7 @@ export function createRuntime(
     const server = new BlockServer(store, {
       calibrator: loadBlockCalibrator(store),
       emitEvents: false,
-      gateThreshold: 0,
+      gateThreshold: resolveProductionGateThreshold(),
       reranker,
       ...cascadeKnobs,
     });

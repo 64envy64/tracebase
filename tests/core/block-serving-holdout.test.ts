@@ -76,7 +76,12 @@ describe("Phase 3.2 — BlockServer experimental-holdout hookup", () => {
   beforeEach(() => {
     store = makeStore();
     seedActive(store, SAMPLE_BLOCK);
-    server = new BlockServer(store);
+    // Tiny single-block corpus produces near-zero FTS5 BM25 IDF, so a
+    // production-realistic gate (May-2026 default 0.4) would mask the
+    // holdout-wiring contract we want to assert here. The eligibility +
+    // shadow-vs-treatment semantics are independent of the gate value
+    // — explicitly setting gate=0 isolates this file's responsibility.
+    server = new BlockServer(store, { gateThreshold: 0 });
   });
 
   it("is a 100% no-op when `experiment` is omitted — identical to pre-Phase-3 behaviour", () => {
@@ -260,7 +265,12 @@ describe("Phase 3.2 — BlockServer experimental-holdout hookup", () => {
     // The two below-gate tests following this one assert the
     // converse — and only their co-presence lets the causal layer
     // trust the cohort.
-    const highGateServer = new BlockServer(store, { gateThreshold: 0.1 });
+    // Gate=0 still distinguishes "has eligible candidate" (any hit row
+    // returned by FTS) from "no candidate", which is the contrast the
+    // converse below-gate tests rely on. We avoid asserting a specific
+    // BM25-derived score here — the holdout file owns wiring, not the
+    // scoring scale.
+    const highGateServer = new BlockServer(store, { gateThreshold: 0 });
     const queryId = "qid-positive-above-gate";
     const res = highGateServer.recall({
       text: "tokenizer drops zero-width joiner",
