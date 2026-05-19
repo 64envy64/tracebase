@@ -439,6 +439,188 @@ export function readCascadeConfig(basePath: string): CascadeConfig | null {
   return extractCascadeConfig(raw);
 }
 
+// ============================================================================
+// May-2026 B1.4 — cascade-config write helpers (CLI surface).
+// ============================================================================
+
+/** Default rollout rate on first `tracebase cascade enable`. */
+export const DEFAULT_CASCADE_RATE = 0.05;
+
+export type CascadeRerankerKind = CascadeConfig["reranker"]["kind"];
+
+export interface EnableCascadeInput {
+  /** Rollout rate in (0, 1]. Defaults to DEFAULT_CASCADE_RATE. */
+  rate?: number;
+  /** Reranker kind. Defaults to "noop" so the cascade architecture
+   *  is exercised without any external dependency. */
+  kind?: CascadeRerankerKind;
+  /** Optional CloudReranker endpoint (kind="cloud" only). */
+  endpoint?: string;
+  /** Optional Bearer token for the cloud endpoint. */
+  apiKey?: string;
+  /** Optional model id pass-through to the reranker. */
+  model?: string;
+  /** Tunable knobs. Undefined leaves the on-disk value untouched. */
+  timeoutMs?: number;
+  mmrLambda?: number;
+  fetchMultiplier?: number;
+  /** Test seam: deterministic salt generation. */
+  saltFactory?: () => string;
+  /** Test seam: deterministic clock. */
+  now?: () => Date;
+}
+
+/**
+ * Enable the cascade on this project (writes to .tracebase/config.json).
+ *
+ * Idempotent and field-preserving:
+ *   • If no project config exists, returns null and does not create
+ *     one — `tracebase init` must run first. Mirrors holdout semantics.
+ *   • Existing `salt` and `createdAt` are preserved across enable
+ *     cycles; `enabled: true` + `updatedAt` are refreshed.
+ *   • Tunables left undefined in `input` keep their on-disk values
+ *     so `enable --rate 0.5` doesn't accidentally reset mmrLambda.
+ *   • The cloud-reranker preconditions (`endpoint` required when
+ *     `kind === "cloud"`) are NOT enforced here — that's a `doctor`
+ *     concern. enableCascade just persists; doctor flags malformed
+ *     combinations. Keeping policy out of the writer means CLI tests
+ *     stay simple and the user can rewind / fix without re-typing
+ *     the whole config.
+ */
+export function enableCascade(
+  basePath: string,
+  input: EnableCascadeInput = {},
+): CascadeConfig | null {
+  const rate = input.rate ?? DEFAULT_CASCADE_RATE;
+  if (!Number.isFinite(rate) || rate <= 0 || rate > 1) {
+    throw new Error(`cascade rate must be in (0, 1]; got ${rate}`);
+  }
+  const nowIso = (input.now ?? (() => new Date()))().toISOString();
+  const raw = readConfigFileRaw(basePath);
+  if (raw === null) return null;
+
+  const existing = extractCascadeConfig(raw);
+  const saltFactory = input.saltFactory ?? generateHoldoutSalt;
+
+  const next: CascadeConfig = {
+    enabled: true,
+    rollout: {
+      rate,
+      salt: existing?.rollout.salt ?? saltFactory(),
+    },
+    reranker: {
+      kind: input.kind ?? existing?.reranker.kind ?? "noop",
+      ...(input.endpoint
+        ? { endpoint: input.endpoint }
+        : existing?.reranker.endpoint
+          ? { endpoint: existing.reranker.endpoint }
+          : {}),
+      ...(input.apiKey
+        ? { apiKey: input.apiKey }
+        : existing?.reranker.apiKey
+          ? { apiKey: existing.reranker.apiKey }
+          : {}),
+      ...(input.model
+        ? { model: input.model }
+        : existing?.reranker.model
+          ? { model: existing.reranker.model }
+          : {}),
+    },
+    ...(input.timeoutMs !== undefined
+      ? { timeoutMs: input.timeoutMs }
+      : existing?.timeoutMs !== undefined
+        ? { timeoutMs: existing.timeoutMs }
+        : {}),
+    ...(input.mmrLambda !== undefined
+      ? { mmrLambda: input.mmrLambda }
+      : existing?.mmrLambda !== undefined
+        ? { mmrLambda: existing.mmrLambda }
+        : {}),
+    ...(input.fetchMultiplier !== undefined
+      ? { fetchMultiplier: input.fetchMultiplier }
+      : existing?.fetchMultiplier !== undefined
+        ? { fetchMultiplier: existing.fetchMultiplier }
+        : {}),
+    createdAt: existing?.createdAt ?? nowIso,
+    updatedAt: nowIso,
+  };
+  writeExperimentField(basePath, raw, { cascade: next });
+  return next;
+}
+
+/**
+ * Disable the cascade. Preserves `salt`, `createdAt`, and every other
+ * tunable so the next `enable` resumes at the same configuration.
+ */
+export function disableCascade(
+  basePath: string,
+  input: { now?: () => Date } = {},
+): CascadeConfig | null {
+  const raw = readConfigFileRaw(basePath);
+  if (raw === null) return null;
+  const existing = extractCascadeConfig(raw);
+  if (!existing) return null;
+  const nowIso = (input.now ?? (() => new Date()))().toISOString();
+  const next: CascadeConfig = {
+    ...existing,
+    enabled: false,
+    updatedAt: nowIso,
+  };
+  writeExperimentField(basePath, raw, { cascade: next });
+  return next;
+}
+
+/**
+ * Update only the rollout rate, keeping every other field. Useful
+ * for `tracebase cascade set-rate 0.25` — the most common ramp
+ * operation.
+ */
+export function setCascadeRate(
+  basePath: string,
+  rate: number,
+  input: { now?: () => Date } = {},
+): CascadeConfig | null {
+  if (!Number.isFinite(rate) || rate < 0 || rate > 1) {
+    throw new Error(`cascade rate must be in [0, 1]; got ${rate}`);
+  }
+  const raw = readConfigFileRaw(basePath);
+  if (raw === null) return null;
+  const existing = extractCascadeConfig(raw);
+  if (!existing) return null;
+  const nowIso = (input.now ?? (() => new Date()))().toISOString();
+  const next: CascadeConfig = {
+    ...existing,
+    rollout: { ...existing.rollout, rate },
+    updatedAt: nowIso,
+  };
+  writeExperimentField(basePath, raw, { cascade: next });
+  return next;
+}
+
+/**
+ * Update only the reranker kind. Note that switching kind requires a
+ * server restart because BlockServer captures the reranker reference
+ * at construction (B1.2 contract).
+ */
+export function setCascadeKind(
+  basePath: string,
+  kind: CascadeRerankerKind,
+  input: { now?: () => Date } = {},
+): CascadeConfig | null {
+  const raw = readConfigFileRaw(basePath);
+  if (raw === null) return null;
+  const existing = extractCascadeConfig(raw);
+  if (!existing) return null;
+  const nowIso = (input.now ?? (() => new Date()))().toISOString();
+  const next: CascadeConfig = {
+    ...existing,
+    reranker: { ...existing.reranker, kind },
+    updatedAt: nowIso,
+  };
+  writeExperimentField(basePath, raw, { cascade: next });
+  return next;
+}
+
 function readConfigFileRaw(basePath: string): Record<string, unknown> | null {
   const configFile = join(basePath, CONFIG_DIR, CONFIG_FILE);
   if (!existsSync(configFile)) return null;
@@ -449,33 +631,86 @@ function readConfigFileRaw(basePath: string): Record<string, unknown> | null {
   }
 }
 
+/**
+ * Merge a partial `ExperimentConfig` into `raw.experiment`, preserving
+ * sibling fields. Pre-B1.4 this function replaced the whole experiment
+ * object — which meant writing cascade would silently wipe holdout
+ * (and vice-versa). Now each field is updated only when its key is
+ * present on `experiment`; absent keys leave the on-disk value intact.
+ *
+ * Pass `{ holdout: undefined }` to DELETE the holdout field (same
+ * trick for `{ cascade: undefined }`). This matches the prior
+ * "empty serialization deletes the experiment namespace" behaviour
+ * for the symmetric case where both fields end up absent.
+ */
 function writeExperimentField(
   basePath: string,
   raw: Record<string, unknown>,
-  experiment: ExperimentConfig,
+  experiment: Partial<ExperimentConfig>,
 ): void {
-  const serialized = serializeExperimentConfig(experiment);
-  if (Object.keys(serialized).length === 0) {
+  const existing = (raw.experiment && typeof raw.experiment === "object")
+    ? (raw.experiment as Record<string, unknown>)
+    : {};
+  const merged = { ...existing };
+  // Only touch keys explicitly present on `experiment` so callers can
+  // update one field at a time without re-supplying the others.
+  if ("holdout" in experiment) {
+    if (experiment.holdout === undefined) delete merged.holdout;
+    else merged.holdout = serializeHoldout(experiment.holdout);
+  }
+  if ("cascade" in experiment) {
+    if (experiment.cascade === undefined) delete merged.cascade;
+    else merged.cascade = serializeCascade(experiment.cascade);
+  }
+  if (Object.keys(merged).length === 0) {
     delete raw.experiment;
   } else {
-    raw.experiment = serialized;
+    raw.experiment = merged;
   }
   const configFile = join(basePath, CONFIG_DIR, CONFIG_FILE);
   writeFileSync(configFile, JSON.stringify(raw, null, 2) + "\n");
 }
 
+/**
+ * Top-level serializer kept for the initConfig fast-path that writes
+ * the whole experiment block at once. B1.4 merge-aware writeExperimentField
+ * doesn't go through this — it spreads sibling fields explicitly so we
+ * can't accidentally drop one. Both paths must agree on field shapes,
+ * which is why each per-field helper has its own function.
+ */
 function serializeExperimentConfig(exp: ExperimentConfig): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  if (exp.holdout) {
-    out.holdout = {
-      enabled: exp.holdout.enabled,
-      rate: exp.holdout.rate,
-      salt: exp.holdout.salt,
-      createdAt: exp.holdout.createdAt,
-      updatedAt: exp.holdout.updatedAt,
-    };
-  }
+  if (exp.holdout) out.holdout = serializeHoldout(exp.holdout);
+  if (exp.cascade) out.cascade = serializeCascade(exp.cascade);
   return out;
+}
+
+function serializeHoldout(h: HoldoutConfig): Record<string, unknown> {
+  return {
+    enabled: h.enabled,
+    rate: h.rate,
+    salt: h.salt,
+    createdAt: h.createdAt,
+    updatedAt: h.updatedAt,
+  };
+}
+
+function serializeCascade(c: CascadeConfig): Record<string, unknown> {
+  return {
+    enabled: c.enabled,
+    rollout: { rate: c.rollout.rate, salt: c.rollout.salt },
+    reranker: {
+      kind: c.reranker.kind,
+      ...(c.reranker.endpoint ? { endpoint: c.reranker.endpoint } : {}),
+      ...(c.reranker.apiKey ? { apiKey: c.reranker.apiKey } : {}),
+      ...(c.reranker.model ? { model: c.reranker.model } : {}),
+    },
+    ...(c.timeoutMs !== undefined ? { timeoutMs: c.timeoutMs } : {}),
+    ...(c.mmrLambda !== undefined ? { mmrLambda: c.mmrLambda } : {}),
+    ...(c.fetchMultiplier !== undefined ? { fetchMultiplier: c.fetchMultiplier } : {}),
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+  };
 }
 
 function extractHoldoutConfig(raw: Record<string, unknown>): HoldoutConfig | null {

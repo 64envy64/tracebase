@@ -1,0 +1,236 @@
+/**
+ * Cascade A/B aggregator — May-2026 B1.4.
+ *
+ * Splits the analytics_events log into a `cascade` arm (retrieval
+ * events with `cascadePolicyId` stamped — these went through
+ * BlockServer.recallAsync) and a `sync` arm (retrieval events
+ * without it — these went through BlockServer.recall).
+ *
+ * For each arm, computes the §L6 helpful definition:
+ *     helpful = injection ∧ agent_used ∧ outcome.resolved
+ * and surfaces the rate, sample size, and (cascade arm only) the
+ * fallback breakdown by reason.
+ *
+ * Honesty contract — what this is NOT:
+ *   • Not a hypothesis test. We report the lift and the sample sizes;
+ *     the reader decides whether the spread is big enough to act on.
+ *   • Not a causal estimate. Cascade rollout is fingerprint-deterministic
+ *     so queries don't randomise across arms; in particular, easy
+ *     queries that always match a high-bm25 block flow through both
+ *     arms similarly, while hard queries where reranking helps are
+ *     the ones where the arms diverge. The B3 replay screening
+ *     harness (deferred) is the right tool for causal claims; this
+ *     aggregator is the operational dashboard.
+ *
+ * Sample-size guard: when either arm has fewer than `MIN_SAMPLE`
+ * outcomes we still return the numbers but flag `lowSample: true`
+ * so the CLI can render a warning.
+ */
+
+import type { BlockStore } from "../core/block-store.js";
+import type { AnalyticsEvent } from "../types.js";
+
+/**
+ * Per-arm aggregate. `helpfulRuns / totalRuns` is the §L6 rate.
+ * `totalRuns` counts retrievals that produced an outcome (either
+ * resolved or not) — retrievals without a matching outcome event
+ * are not yet attributable and are excluded from the denominator.
+ */
+export interface CascadeArmMetrics {
+  /** Retrieval events in this arm. */
+  retrievals: number;
+  /** Retrievals that also got at least one injection event. */
+  injections: number;
+  /** Retrievals where the agent provably used a hit and resolved. */
+  helpfulRuns: number;
+  /** Retrievals with any outcome event (resolved or not). */
+  totalRuns: number;
+  /** helpfulRuns / totalRuns; null when totalRuns === 0. */
+  helpfulRate: number | null;
+}
+
+export interface CascadeFallbackBreakdown {
+  /** Reranker call timed out. */
+  timeout: number;
+  /** Reranker threw / returned null. */
+  error: number;
+  /** Reranker returned null without throwing. */
+  null: number;
+  /** Score-length mismatch with candidate set. */
+  empty: number;
+  /** Wrapper rejected NaN/Infinity/out-of-band scores. */
+  validation: number;
+}
+
+export interface CascadeComparison {
+  cascade: CascadeArmMetrics;
+  sync: CascadeArmMetrics;
+  /** Per-reason fallback counts within the cascade arm. */
+  cascadeFallback: CascadeFallbackBreakdown;
+  /** Cascade arm runs where the reranker successfully scored (didn't fall back). */
+  cascadeRerankerRan: number;
+  /**
+   * `cascade.helpfulRate - sync.helpfulRate`, computed only when both
+   * arms have non-null rates. The CLI renders this with the sample
+   * sizes so the reader can judge confidence.
+   */
+  lift: number | null;
+  /**
+   * True iff either arm has fewer than `MIN_SAMPLE` outcomes. The CLI
+   * uses this to render a "too early to tell" banner.
+   */
+  lowSample: boolean;
+  /** Window the aggregation covered. */
+  window: { afterTs?: number; beforeTs?: number };
+}
+
+/** Below this many outcomes per arm, lift is mostly noise. */
+export const MIN_SAMPLE = 50;
+
+export interface CompareOptions {
+  /** Only count events with `ts > afterTs`. */
+  afterTs?: number;
+  /** Only count events with `ts < beforeTs`. */
+  beforeTs?: number;
+  /** Page size for the underlying event read. */
+  pageLimit?: number;
+}
+
+/**
+ * Compute the cascade-vs-sync comparison from the persisted event log.
+ *
+ * Reads up to `pageLimit` (default 1,000,000) events in a single
+ * batch — `analytics_events` is bounded by the project's recall
+ * volume and tends to fit comfortably in memory. Larger projects
+ * should pass a narrower `afterTs` / `beforeTs` window.
+ */
+export function computeCascadeComparison(
+  store: BlockStore,
+  opts: CompareOptions = {},
+): CascadeComparison {
+  const events = store.readEvents({
+    ...(opts.afterTs !== undefined ? { afterTs: opts.afterTs } : {}),
+    ...(opts.beforeTs !== undefined ? { beforeTs: opts.beforeTs } : {}),
+    limit: opts.pageLimit ?? 1_000_000,
+  });
+
+  // Partition retrieval events by arm.
+  const cascadeQueryIds = new Set<string>();
+  const syncQueryIds = new Set<string>();
+  const fallback: CascadeFallbackBreakdown = {
+    timeout: 0,
+    error: 0,
+    null: 0,
+    empty: 0,
+    validation: 0,
+  };
+  let cascadeRerankerRan = 0;
+
+  // Per-arm bookkeeping for injection / agent_used / outcome.
+  const arms = {
+    cascade: { retrievals: 0, injections: new Set<string>(), agentUsedPairs: new Set<string>(), outcomes: new Map<string, boolean>() },
+    sync: { retrievals: 0, injections: new Set<string>(), agentUsedPairs: new Set<string>(), outcomes: new Map<string, boolean>() },
+  };
+
+  for (const ev of events) {
+    if (ev.event === "retrieval") {
+      const isCascade = typeof ev.cascadePolicyId === "string" && ev.cascadePolicyId.length > 0;
+      if (isCascade) {
+        cascadeQueryIds.add(ev.queryId);
+        arms.cascade.retrievals++;
+        if (ev.rerankerFellBack) {
+          const reason = ev.rerankerFallbackReason;
+          if (reason && reason in fallback) {
+            fallback[reason as keyof CascadeFallbackBreakdown]++;
+          }
+        } else if (ev.rerankerName) {
+          cascadeRerankerRan++;
+        }
+      } else {
+        syncQueryIds.add(ev.queryId);
+        arms.sync.retrievals++;
+      }
+    }
+  }
+
+  // Second pass to attribute injections / agent_used / outcomes to arms.
+  for (const ev of events) {
+    if (ev.event === "injection") {
+      if (cascadeQueryIds.has(ev.queryId)) arms.cascade.injections.add(ev.queryId);
+      else if (syncQueryIds.has(ev.queryId)) arms.sync.injections.add(ev.queryId);
+    } else if (ev.event === "agent_used") {
+      const key = `${ev.queryId}|${ev.blockId}`;
+      if (cascadeQueryIds.has(ev.queryId)) arms.cascade.agentUsedPairs.add(key);
+      else if (syncQueryIds.has(ev.queryId)) arms.sync.agentUsedPairs.add(key);
+    } else if (ev.event === "outcome") {
+      if (cascadeQueryIds.has(ev.queryId)) arms.cascade.outcomes.set(ev.queryId, ev.resolved);
+      else if (syncQueryIds.has(ev.queryId)) arms.sync.outcomes.set(ev.queryId, ev.resolved);
+    }
+  }
+
+  const cascade = summarise(arms.cascade);
+  const sync = summarise(arms.sync);
+  const lift =
+    cascade.helpfulRate !== null && sync.helpfulRate !== null
+      ? cascade.helpfulRate - sync.helpfulRate
+      : null;
+  const lowSample = cascade.totalRuns < MIN_SAMPLE || sync.totalRuns < MIN_SAMPLE;
+
+  return {
+    cascade,
+    sync,
+    cascadeFallback: fallback,
+    cascadeRerankerRan,
+    lift,
+    lowSample,
+    window: {
+      ...(opts.afterTs !== undefined ? { afterTs: opts.afterTs } : {}),
+      ...(opts.beforeTs !== undefined ? { beforeTs: opts.beforeTs } : {}),
+    },
+  };
+}
+
+function summarise(arm: {
+  retrievals: number;
+  injections: Set<string>;
+  agentUsedPairs: Set<string>;
+  outcomes: Map<string, boolean>;
+}): CascadeArmMetrics {
+  let helpfulRuns = 0;
+  let totalRuns = 0;
+  for (const [queryId, resolved] of arm.outcomes) {
+    totalRuns++;
+    if (!arm.injections.has(queryId)) continue;
+    // Look for ANY agent_used pair on this queryId. The pair key is
+    // (queryId, blockId) so we walk the set for any matching prefix.
+    const hasAgentUsed = anyAgentUsedFor(arm.agentUsedPairs, queryId);
+    if (hasAgentUsed && resolved) helpfulRuns++;
+  }
+  return {
+    retrievals: arm.retrievals,
+    injections: arm.injections.size,
+    helpfulRuns,
+    totalRuns,
+    helpfulRate: totalRuns === 0 ? null : helpfulRuns / totalRuns,
+  };
+}
+
+function anyAgentUsedFor(pairs: Set<string>, queryId: string): boolean {
+  const prefix = `${queryId}|`;
+  for (const key of pairs) {
+    if (key.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+/**
+ * Type guard for an `AnalyticsEvent` of a given variant. Useful when
+ * filtering in callers without losing TypeScript's discriminated-union
+ * narrowing. Currently used only by tests; kept here so it lives with
+ * the rest of the cascade-event taxonomy.
+ */
+export function isRetrievalWithCascade(
+  ev: AnalyticsEvent,
+): ev is AnalyticsEvent & { event: "retrieval"; cascadePolicyId: string } {
+  return ev.event === "retrieval" && typeof (ev as { cascadePolicyId?: string }).cascadePolicyId === "string";
+}

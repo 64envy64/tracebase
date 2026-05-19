@@ -30,6 +30,7 @@ import { usageCommand } from "../src/cli/commands/usage.js";
 // <rate>`. The experiment-config helpers in `src/core/config.ts`
 // (enable / disable / read) stay exported for programmatic use.
 import { memoryCommand } from "../src/cli/commands/memory.js";
+import { cascadeCommand } from "../src/cli/commands/cascade.js";
 import { impactCommand } from "../src/cli/commands/impact.js";
 import { savingsCommand } from "../src/cli/commands/savings.js";
 import { distillCommand } from "../src/cli/commands/distill.js";
@@ -77,6 +78,7 @@ program.addCommand(captureContextCommand);
 program.addCommand(captureToolUseCommand);
 program.addCommand(capturePreToolUseCommand);
 program.addCommand(memoryCommand);
+program.addCommand(cascadeCommand);
 program.addCommand(impactCommand);
 program.addCommand(savingsCommand);
 program.addCommand(distillCommand);

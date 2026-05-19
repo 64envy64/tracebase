@@ -298,6 +298,12 @@ export interface TraceBaseConfig {
  */
 export interface ExperimentConfig {
   holdout?: HoldoutConfig;
+  /**
+   * May-2026 B1.2 — cascade rollout state. Lives as a sibling of
+   * `holdout` under the shared `experiment` namespace so every
+   * runtime-tunable experimental knob lives under one roof.
+   */
+  cascade?: CascadeConfig;
 }
 
 /**
