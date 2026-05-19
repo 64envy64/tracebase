@@ -153,6 +153,31 @@ export interface UsageIntegrity {
   outcomesWithoutRetrieval: number;
 }
 
+export interface UsageCalibration {
+  /** Lower is better. Null until at least one shown memory has an outcome. */
+  brierScore: number | null;
+  /** Higher is better. Null until both positive and negative labels exist. */
+  auc: number | null;
+  /** Number of shown block memories included in Brier/AUC. */
+  scoredInjections: number;
+  /** Successful auto-refits in the window. */
+  refitCount: number;
+  /** Most recent fittedAt timestamp from a refit event in the window. */
+  lastRefitAt: number | null;
+  /** Non-shadow block + fact candidates returned by retrieval. */
+  candidatesSeen: number;
+  /** Candidates that reached the prompt as block/fact injections. */
+  candidatesShown: number;
+  /** Seen but not shown, after gate + budget. */
+  candidatesFiltered: number;
+  /** candidatesFiltered / candidatesSeen, null when no candidates were seen. */
+  candidateFilterRate: number | null;
+  /** Drift-triggered forced recalls that produced injected context. */
+  driftInjectionCount: number;
+  /** Total patterns surfaced by drift-triggered recalls. */
+  driftPatternsInjected: number;
+}
+
 /**
  * 0.5.4 §6 — TB TOOL / TB LOOP aggregates. Counts only; the
  * matched substring is never surfaced. `toolFamilyCounts` ships
@@ -222,6 +247,12 @@ export interface UsageMetrics {
    * enters the causal numbers.
    */
   causal?: UsageCausal;
+  /**
+   * May-2026 every-run-learning panel. Optional for backward
+   * compatibility with older synced samples; current clients always
+   * populate it from `EventAggregates.calibration`.
+   */
+  calibration?: UsageCalibration;
   integrity: UsageIntegrity;
   /**
    * 0.5.4 §6 — TB TOOL / TB LOOP aggregates. Optional: present only
@@ -418,6 +449,7 @@ export function computeUsageMetrics(
     // outcome on record. Absence is the honest "experiment not
     // running / no data yet" signal.
     ...(causal ? { causal } : {}),
+    calibration: { ...agg.calibration },
     integrity: {
       shadowControlMismatches: integrity.shadowControlMismatches,
       outcomesWithoutRetrieval: integrity.outcomesWithoutRetrieval,

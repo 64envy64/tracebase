@@ -950,7 +950,7 @@ export interface BlockProvenance {
   sourceTaskId: string;
   sourceAgent?: string;
   sourceModel?: string;
-  extractedFrom: "trajectory" | "gold_patch" | "manual" | "imported";
+  extractedFrom: "trajectory" | "gold_patch" | "manual" | "imported" | "distilled";
   distilledAt: number;
   distilledBy: "llm" | "rule" | "manual";
   distilledWithModel?: string;
@@ -1638,7 +1638,10 @@ export type AnalyticsEvent =
   | LoopFallbackEvent
   | ContextFoldedEvent
   | ContextFoldSkippedEvent
-  | CachePromptHitEvent;
+  | CachePromptHitEvent
+  // May-2026 — every-run-learning signals.
+  | CalibratorRefitEvent
+  | DriftInjectionEvent;
 
 interface EventBase {
   ts: number;
@@ -2091,4 +2094,36 @@ export interface CachePromptHitEvent extends EventBase {
   event: "cache.prompt_hit";
   surface: "anthropic" | "openai";
   tokensSaved: number;
+}
+
+/**
+ * Emitted by the auto-refit loop in `src/lifecycle/calibrator-refit.ts`
+ * when a fresh isotonic model lands in `calibrator_models` and the
+ * BlockServer hot-swaps. The dashboard counts these to surface "the
+ * calibrator improved N times this week" — a directly human-readable
+ * "every run teaches the next run" signal.
+ */
+export interface CalibratorRefitEvent extends EventBase {
+  event: "calibrator_refit";
+  /** Number of `outcome` events accumulated since the previous fit. */
+  freshOutcomes: number;
+  /** `fittedAt` stamped on the new model. */
+  fittedAt: number;
+}
+
+/**
+ * Emitted when a drift signal (tool-loop / pingpong / duplicate)
+ * triggered a forced recall on the NEXT UserPromptSubmit. Distinct from
+ * `loop.redirected` (which fires when the redirect label is composed)
+ * — `drift_injection` fires when the widened+relaxed recall actually
+ * surfaced patterns for the agent to use. Counts to "auto-recoveries
+ * this week" on the dashboard.
+ */
+export interface DriftInjectionEvent extends EventBase {
+  event: "drift_injection";
+  signalKind: "straight" | "pingpong" | "duplicate";
+  /** Number of patterns the widened/relaxed recall surfaced. */
+  patternsInjected: number;
+  /** Gate threshold applied — usually lower than production. */
+  gateThreshold: number;
 }

@@ -565,10 +565,12 @@ describe("importEventsFromJsonl — strict validation", () => {
       `{"ts":1,"queryId":"q","event":"retrieval","shadow":false,"candidates":[{"blockId":"b","score":0.9}]}\n` +
       `{"ts":2,"queryId":"q","event":"injection","blockId":"b","score":0.9}\n` +
       `{"ts":3,"queryId":"q","event":"agent_used","blockId":"b","matchSignal":"jaccard","matchScore":0.4}\n` +
-      `{"ts":4,"queryId":"q","event":"outcome","resolved":true,"control":false}\n`,
+      `{"ts":4,"queryId":"q","event":"outcome","resolved":true,"control":false}\n` +
+      `{"ts":5,"queryId":"fit","event":"calibrator_refit","freshOutcomes":20,"fittedAt":5}\n` +
+      `{"ts":6,"queryId":"q","event":"drift_injection","signalKind":"duplicate","patternsInjected":2,"gateThreshold":0.2}\n`,
     );
     const store = makeStore();
-    expect(importEventsFromJsonl(store, path)).toBe(4);
+    expect(importEventsFromJsonl(store, path)).toBe(6);
 
 });
   it("rejects an outcome with an unrecognised \`attribution\` value", () => {

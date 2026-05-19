@@ -5,6 +5,7 @@ import { BlockStore } from "../core/block-store.js";
 import { BlockServer, formatInjection, resolveProductionGateThreshold } from "../core/block-serving.js";
 import { EventEmitter, emitAgentUsed, emitFactAgentUsed, emitOutcome } from "../core/analytics.js";
 import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
+import { maybeRefitCalibrator } from "../lifecycle/calibrator-refit.js";
 import {
   buildRerankerFromCascadeConfig,
   extractCascadeKnobs,
@@ -628,6 +629,13 @@ export async function startMcpServer(
         ...(args.durationMs !== undefined ? { durationMs: args.durationMs } : {}),
         ...(args.runId ? { runId: args.runId } : {}),
       });
+
+      // Every-run-learning loop: outcome just landed → maybe refit the
+      // calibrator. The function is internally cheap (one COUNT(*) when
+      // below threshold, a full PAVA fit when above) and swallows all
+      // exceptions, so the outcome-recording surface stays load-bearing
+      // even if the calibrator pipeline trips.
+      maybeRefitCalibrator({ store: blockStore, server: blockServer });
 
       // When the task resolved but no prior pattern was credited, the
       // agent has just learned something that isn't in memory yet.

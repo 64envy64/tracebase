@@ -66,6 +66,49 @@ describe("computeUsageMetrics — funnel invariants", () => {
     expect(usage.observed.resolvedRateWithMemory).toBeCloseTo(1 / 3);
   });
 
+  it("surfaces calibration reliability and filtering diagnostics", () => {
+    const store = makeStore();
+    store.appendEvent({
+      ts: 1,
+      queryId: "q1",
+      event: "retrieval",
+      candidates: [
+        { blockId: "b1", score: 0.8 },
+        { blockId: "b2", score: 0.1 },
+      ],
+      shadow: false,
+    });
+    store.appendEvent({ ts: 2, queryId: "q1", event: "injection", blockId: "b1", score: 0.8 });
+    store.appendEvent({ ts: 3, queryId: "q1", event: "agent_used", blockId: "b1", matchSignal: "explicit", matchScore: 1 });
+    store.appendEvent({ ts: 4, queryId: "q1", event: "outcome", resolved: true, control: false });
+
+    store.appendEvent({ ts: 5, queryId: "q2", event: "retrieval", candidates: [{ blockId: "b1", score: 0.2 }], shadow: false });
+    store.appendEvent({ ts: 6, queryId: "q2", event: "injection", blockId: "b1", score: 0.2 });
+    store.appendEvent({ ts: 7, queryId: "q2", event: "outcome", resolved: false, control: false });
+
+    store.appendEvent({ ts: 8, queryId: "fit", event: "calibrator_refit", freshOutcomes: 20, fittedAt: 8 });
+    store.appendEvent({
+      ts: 9,
+      queryId: "q3",
+      event: "drift_injection",
+      signalKind: "duplicate",
+      patternsInjected: 2,
+      gateThreshold: 0.2,
+    });
+
+    const usage = computeUsageMetrics(computeAggregates(store));
+    expect(usage.calibration?.scoredInjections).toBe(2);
+    expect(usage.calibration?.brierScore).toBeCloseTo(0.04);
+    expect(usage.calibration?.auc).toBe(1);
+    expect(usage.calibration?.candidatesSeen).toBe(3);
+    expect(usage.calibration?.candidatesShown).toBe(2);
+    expect(usage.calibration?.candidateFilterRate).toBeCloseTo(1 / 3);
+    expect(usage.calibration?.refitCount).toBe(1);
+    expect(usage.calibration?.lastRefitAt).toBe(8);
+    expect(usage.calibration?.driftInjectionCount).toBe(1);
+    expect(usage.calibration?.driftPatternsInjected).toBe(2);
+  });
+
   it("estimated tokensSaved becomes non-null only when both arms have tokens", () => {
     const store = makeStore();
     // Treatment query with tokens.

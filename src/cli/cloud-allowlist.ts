@@ -106,6 +106,20 @@ const USAGE_TOOL_BATCH_SPEC: AllowlistSpec = {
   errorClassCounts: ERROR_CLASS_SPEC,
 };
 
+const USAGE_CALIBRATION_SPEC: AllowlistSpec = {
+  brierScore: true,
+  auc: true,
+  scoredInjections: true,
+  refitCount: true,
+  lastRefitAt: true,
+  candidatesSeen: true,
+  candidatesShown: true,
+  candidatesFiltered: true,
+  candidateFilterRate: true,
+  driftInjectionCount: true,
+  driftPatternsInjected: true,
+};
+
 // ---------------------------------------------------------------------------
 // 0.7.0-rc.1 — per-event-kind aggregate specs (PLAN-0.7 §rc.1 Ground).
 //
@@ -307,6 +321,7 @@ export const USAGE_SAMPLE_ALLOWLIST: AllowlistSpec = {
       latencyLift: USAGE_ESTIMATE_SPEC,
       minCohortSize: true,
     },
+    calibration: USAGE_CALIBRATION_SPEC,
     integrity: {
       shadowControlMismatches: true,
       outcomesWithoutRetrieval: true,

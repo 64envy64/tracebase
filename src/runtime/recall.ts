@@ -33,6 +33,7 @@ import type { readCascadeConfig, readHoldoutConfig } from "../core/config.js";
 
 import { detectToolPattern } from "../core/tool-loop-detect.js";
 import { buildInjectionPayload } from "../core/build-injection-payload.js";
+import { buildDriftAugmentation } from "../core/drift-trigger.js";
 import { drainIndexerPending, recallFiles } from "../core/file-indexer.js";
 import { normalizeIntentKey } from "../core/intent-key.js";
 import { resolveLoopRedirect, type LoopRedirectResult } from "../core/loop-redirect.js";
@@ -145,6 +146,63 @@ export async function recallForPrompt(
   cascadeLoader?: CascadeLoader,
 ): Promise<RecallForPromptResult> {
   const recallScope = opts.sessionId ? sessionScope(opts.sessionId) : "project";
+
+  // May-2026 — drift-as-injection-trigger. Fetch the recent tool
+  // observations ONCE here, run BOTH the literal and intent-key
+  // detectors, and stash the results. The post-recall redirect path
+  // below reuses the same observations + signal — no second fetch,
+  // no second detector call, no chance of the two paths disagreeing
+  // on whether the agent is stuck.
+  //
+  // When the chosen signal is non-`none`, build a drift augmentation
+  // (widened query + relaxed gate) and thread it through to the
+  // recall call below. Everything is best-effort: any failure here
+  // falls through to the pre-drift behaviour.
+  let recentObservations: Awaited<
+    ReturnType<typeof store.recentToolObservations>
+  > = [];
+  let signal: ToolPatternSignal = { kind: "none", count: 0 };
+  // Set to the semantic-key shape when the semantic detector wins, so
+  // the resolver's loop_redirect_dedupe row keys on intent_key
+  // (`grep`→`rg`→`ag` rotations dedupe), and to the literal shape
+  // otherwise. 0.7.0-rc.5 hardening.
+  let observationsForResolver: typeof recentObservations = [];
+  if (opts.sessionId && opts.enableToolDetection !== false) {
+    try {
+      recentObservations = store.recentToolObservations(
+        opts.sessionId,
+        opts.toolWindowSize ?? 6,
+      );
+      observationsForResolver = recentObservations;
+      if (recentObservations.length >= 2) {
+        signal = detectToolPattern(recentObservations);
+        // ALWAYS run semantic, prefer it when it fires (rc.5: a cross-
+        // alias rotation `grep`→`rg`→`ag` shows up as literal duplicate
+        // on Grep + a separate `rg` argKey, so without the semantic
+        // pass the resolver dedupes on the stale literal key).
+        const semantic = recentObservations.map((o) => ({
+          ...o,
+          argKey: normalizeIntentKey(o.argSummary, o.toolName),
+        }));
+        const semanticSignal = detectToolPattern(semantic);
+        if (semanticSignal.kind !== "none") {
+          signal = semanticSignal;
+          observationsForResolver = semantic;
+        }
+      }
+    } catch {
+      // detector is non-load-bearing on the prompt path — swallow
+    }
+  }
+  const driftAug =
+    signal.kind !== "none"
+      ? buildDriftAugmentation({
+          baseText: opts.prompt,
+          signal,
+          observations: recentObservations,
+        })
+      : null;
+
   // May-2026 B1.2 — runReasoningPatternsRecall is async because the
   // cascade rollout decision can route the query through
   // recallAsync(). When `cascadeLoader` is omitted or returns null,
@@ -153,13 +211,14 @@ export async function recallForPrompt(
   const raw = await runReasoningPatternsRecall(
     server,
     {
-      problem: opts.prompt,
+      problem: driftAug ? driftAug.text : opts.prompt,
       scope: recallScope,
       // Stamp every retrieval/injection event with run_id = sessionId
       // so Stop-hook attribution inference can scope its candidate
       // set to this session only. inject-context plumbs the Claude
       // Code session_id straight into sessionId here.
       ...(opts.sessionId ? { runId: opts.sessionId } : {}),
+      ...(driftAug ? { gateOverride: driftAug.gateOverride } : {}),
     },
     {
       readHoldoutConfig: holdoutLoader,
@@ -214,71 +273,35 @@ export async function recallForPrompt(
     chunkHits,
   });
 
-  let signal: ToolPatternSignal = { kind: "none", count: 0 };
-  let loopRedirect: LoopRedirectResult | undefined = undefined;
-  let recentObservations: Awaited<
-    ReturnType<typeof store.recentToolObservations>
-  > = [];
-  // 0.7.0-rc.5 hardening — keep both shapes around. When the
-  // SECOND (intent_key-keyed) detector pass produces the signal,
-  // the resolver MUST dedupe on intent_key, not raw argKey —
-  // otherwise cross-alias rotations (`grep` → `rg` → `ag` → ...)
-  // present the same anchor over and over because each rotation
-  // brings a fresh raw argKey that bypasses loop_redirect_dedupe.
-  // We track which observation list to hand to the resolver via
-  // `observationsForResolver`.
-  let observationsForResolver: typeof recentObservations = [];
-  if (opts.sessionId && opts.enableToolDetection !== false) {
-    try {
-      recentObservations = store.recentToolObservations(
-        opts.sessionId,
-        opts.toolWindowSize ?? 6,
-      );
-      observationsForResolver = recentObservations;
-
-      // First pass: argKey-keyed detector (rc.4 substrate).
-      // Catches duplicate / straight / pingpong on the literal
-      // sanitised arg shape.
-      signal = detectToolPattern(recentObservations);
-
-      // 0.7.0-rc.5 hardening — ALWAYS run the semantic
-      // (intent_key-keyed) detector, not just when raw returns
-      // none. Prefer the semantic result whenever it fires.
-      //
-      // Why: a session that did 3 identical Greps and then one
-      // equivalent `rg` rotation has a window like
-      //   [Grep, Grep, Grep, rg]
-      // The raw detector still fires (`duplicate` on Grep
-      // count=3), so under "only run semantic when raw is none"
-      // the semantic pass is skipped, the resolver gets raw obs,
-      // and its dedupe row keys on the FRESH `rg` argKey rather
-      // than the intent_key already seen on the first matched
-      // call. Result: same anchor surfaces twice in a row across
-      // a cross-alias rotation.
-      //
-      // Always-run-semantic + prefer-semantic-when-it-fires fixes
-      // this. Semantic is a strict superset of raw (same
-      // argSummary → same normalized intent_key, never the
-      // reverse), so we never lose a raw-only signal — the
-      // semantic detector catches the same loop AND the cross-
-      // alias rotation.
-      if (recentObservations.length >= 2) {
-        const semantic = recentObservations.map((o) => ({
-          ...o,
-          argKey: normalizeIntentKey(o.argSummary, o.toolName),
-        }));
-        const semanticSignal = detectToolPattern(semantic);
-        if (semanticSignal.kind !== "none") {
-          signal = semanticSignal;
-          // Hand the semantic shape to the resolver so its
-          // dedupe row keys on intent_key, not raw argKey.
-          observationsForResolver = semantic;
-        }
+  // Drift-injection event: emit ONLY when the relaxed recall actually
+  // surfaced patterns that reached the bounded payload. We count the
+  // ids the agent can see, not every gate-passing hit from the raw
+  // recall, so dashboard "auto-recoveries" cannot overstate impact.
+  if (driftAug && payload.hasContent) {
+    const injectedCount = payload.blockIds.length + payload.factIds.length;
+    if (injectedCount > 0) {
+      try {
+        store.appendEvent({
+          ts: Date.now(),
+          queryId: raw.queryId,
+          event: "drift_injection",
+          signalKind: driftAug.signal.kind as "straight" | "pingpong" | "duplicate",
+          patternsInjected: injectedCount,
+          gateThreshold: driftAug.gateOverride,
+          ...(opts.sessionId ? { runId: opts.sessionId } : {}),
+        });
+      } catch {
+        // never break the recall path on telemetry failure
       }
-    } catch {
-      // detector is non-load-bearing on the prompt path — swallow
     }
   }
+
+  // The pre-recall block above already fetched observations and ran
+  // BOTH the literal and intent-key-normalised detectors. Reuse those
+  // results — the drift-augmentation path and the redirect-resolver
+  // path are now guaranteed to see the same signal on the same
+  // observations.
+  let loopRedirect: LoopRedirectResult | undefined = undefined;
 
   // 0.7.0-rc.5 §rc.5 — loop redirect resolver. Runs only when a
   // signal fired; never throws (resolver is wrapped). Surfaces

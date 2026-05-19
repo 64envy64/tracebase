@@ -40,6 +40,11 @@ import { findProjectRoot, loadConfig } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
 import { DistillationPipeline, type DistillationResult, type RejectionReason } from "../../distillation/pipeline.js";
 import { AnthropicDistiller } from "../../distillation/llm-distiller.js";
+import {
+  distillDomain,
+  type DistillDomainResult,
+  type DomainKey,
+} from "../../distillation/domain-distiller.js";
 import { fingerprint } from "../../core/fingerprint.js";
 import type { AnthropicMessagesLike } from "../../distillation/llm-distiller.js";
 import type { ReasoningBlock, ReasoningTrace } from "../../types.js";
@@ -129,6 +134,134 @@ export const distillCommand = new Command("distill")
     }
     renderResult(source!, result, !!opts.quality);
   });
+
+// ---------------------------------------------------------------------------
+// Domain self-distillation subcommand
+// ---------------------------------------------------------------------------
+
+interface DomainOptions {
+  path: string;
+  language?: string;
+  framework?: string;
+  errorType?: string;
+  k?: string;
+  budget?: string;
+  min?: string;
+  json?: boolean;
+  skipQualityFloor?: boolean;
+}
+
+const domainSubcommand = new Command("domain")
+  .description(
+    "Compress the top-K patterns in a (language, framework) domain into one primer block. " +
+      "Deterministic extractive mode by default; no API key needed.",
+  )
+  .option("-p, --path <path>", "project root", process.cwd())
+  .option("--language <lang>", "language invariant (e.g. typescript, python)")
+  .option("--framework <fw>", "framework invariant (e.g. react, django)")
+  .option("--error-type <kind>", "error type invariant (rare; use when patterns cluster by error class)")
+  .option("--k <n>", "how many top patterns to compress (default 7)")
+  .option("--budget <n>", "primer token budget (default 600)")
+  .option("--min <n>", "minimum source patterns required to distill (default 3)")
+  .option(
+    "--skip-quality-floor",
+    "include patterns with no recorded outcomes (use for cold-start eval; not for production)",
+  )
+  .option("--json", "machine-readable JSON output")
+  .action((opts: DomainOptions) => {
+    const projectRoot = findProjectRoot(opts.path);
+    if (!projectRoot) {
+      fatal("Not initialized in this directory. Run `npx tracebase-ai init` first.");
+    }
+    if (!opts.language && !opts.framework && !opts.errorType) {
+      fatal(
+        "At least one of --language / --framework / --error-type is required. " +
+          "Try `tracebase distill domain --language typescript --framework react`.",
+      );
+    }
+    const domain: DomainKey = {
+      ...(opts.language ? { language: opts.language } : {}),
+      ...(opts.framework ? { framework: opts.framework } : {}),
+      ...(opts.errorType ? { errorType: opts.errorType } : {}),
+    };
+    const k = parsePositiveInt(opts.k, 7, "--k");
+    const tokenBudget = parsePositiveInt(opts.budget, 600, "--budget");
+    const minPatterns = parsePositiveInt(opts.min, 3, "--min");
+
+    const cfg = loadConfig(opts.path);
+    const db = new Database(cfg.storagePath);
+    const store = new BlockStore(db);
+    let result: DistillDomainResult;
+    try {
+      result = distillDomain(store, domain, {
+        k,
+        tokenBudget,
+        minPatterns,
+        ...(opts.skipQualityFloor ? { skipQualityFloor: true } : {}),
+      });
+    } finally {
+      store.close();
+    }
+
+    if (opts.json) {
+      process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+      return;
+    }
+    renderDomainResult(domain, result);
+  });
+
+distillCommand.addCommand(domainSubcommand);
+
+function renderDomainResult(domain: DomainKey, result: DistillDomainResult): void {
+  console.log();
+  const label =
+    [domain.language, domain.framework, domain.errorType].filter(Boolean).join(" · ") ||
+    "(no domain key)";
+  console.log(pc.bold("TraceBase distill domain") + pc.dim(`  · ${label}`));
+  console.log();
+  if (result.status === "skipped") {
+    console.log(pc.yellow("  Skipped.") + " " + describeDomainSkip(result.reason, result.foundPatterns));
+    console.log();
+    return;
+  }
+  console.log(pc.green("  ✓ Stored") + " a domain primer.");
+  console.log(pc.dim("    primer id:    ") + result.block.id.slice(0, 24) + "…");
+  console.log(pc.dim("    sources:      ") + result.sourceIds.map((s) => s.slice(0, 8)).join(", "));
+  console.log(pc.dim("    body tokens:  ") + estimatePrimerTokens(result.block).toString());
+  console.log();
+}
+
+function describeDomainSkip(reason: string, found: number): string {
+  switch (reason) {
+    case "no-domain-key":
+      return "no domain key was supplied — pass --language / --framework / --error-type.";
+    case "too-few-patterns":
+      return `only ${found} usable pattern(s) found in this domain — bring more outcomes through (or pass --skip-quality-floor to include unproven blocks).`;
+    case "no-actionable-content":
+      return `${found} patterns matched but produced an empty primer — their unlock / mechanism fields were blank or duplicates.`;
+    default:
+      return `reason: ${reason}`;
+  }
+}
+
+function estimatePrimerTokens(block: ReasoningBlock): number {
+  const text = [
+    block.body.mechanism,
+    block.body.unlock,
+    block.body.verification,
+    ...block.body.deadEnds,
+  ].join(" ");
+  return Math.ceil(text.length / 4);
+}
+
+function parsePositiveInt(raw: string | undefined, dflt: number, flag: string): number {
+  if (raw === undefined) return dflt;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1 || !Number.isInteger(n)) {
+    fatal(`${flag} must be a positive integer; got ${raw}`);
+  }
+  return n;
+}
 
 // ---------------------------------------------------------------------------
 // Trace synthesis — block → ReasoningTrace

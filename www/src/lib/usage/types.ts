@@ -42,6 +42,20 @@ export interface UsageIntegrity {
   outcomesWithoutRetrieval: number;
 }
 
+export interface UsageCalibration {
+  brierScore: number | null;
+  auc: number | null;
+  scoredInjections: number;
+  refitCount: number;
+  lastRefitAt: number | null;
+  candidatesSeen: number;
+  candidatesShown: number;
+  candidatesFiltered: number;
+  candidateFilterRate: number | null;
+  driftInjectionCount: number;
+  driftPatternsInjected: number;
+}
+
 export interface UsageMetrics {
   scope: UsageScope;
   window: UsageWindow;
@@ -54,6 +68,7 @@ export interface UsageMetrics {
    * data yet" signal.
    */
   causal?: UsageCausal;
+  calibration?: UsageCalibration;
   integrity: UsageIntegrity;
 }
 

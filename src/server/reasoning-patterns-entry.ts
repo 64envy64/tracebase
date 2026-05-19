@@ -33,6 +33,12 @@ export interface ReasoningPatternsArgs {
   limit?: number;
   factLimit?: number;
   shadow?: boolean;
+  /**
+   * Per-call gate override. Threads through to `BlockRecallQuery.gateOverride`.
+   * Set by the drift-trigger path in `recallForPrompt`; production traffic
+   * leaves this undefined so the configured gate stands.
+   */
+  gateOverride?: number;
 }
 
 export interface ReasoningPatternsDeps {
@@ -106,6 +112,7 @@ export async function runReasoningPatternsRecall(
     ...(args.factLimit !== undefined ? { factLimit: args.factLimit } : {}),
     shadow: args.shadow ?? false,
     ...(experiment ? { experiment } : {}),
+    ...(args.gateOverride !== undefined ? { gateOverride: args.gateOverride } : {}),
   };
 
   // B1.2 cascade rollout: deterministic per-query decision.

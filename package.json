@@ -36,6 +36,7 @@
     "bench:sdk": "tsx scripts/bench-sdk.ts",
     "bench:mechanisms": "tsx scripts/bench-mechanisms.ts",
     "bench:gate": "tsx scripts/bench-gate.ts",
+    "demo:cross-agent": "tsx scripts/cross-agent-report.ts",
     "eval:retrieval": "tsx eval/retrieval/runner.ts",
     "smoke:agent": "tsx scripts/agent-smoke.ts",
     "prepublishOnly": "npm run build"

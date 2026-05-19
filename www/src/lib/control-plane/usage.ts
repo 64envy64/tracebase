@@ -24,6 +24,7 @@
 // resolution via tsconfig paths.
 import { DEFAULT_MIN_CAUSAL_COHORT } from "../usage/types";
 import type {
+  UsageCalibration,
   UsageCausal,
   UsageCohort,
   UsageEstimate,
@@ -209,6 +210,19 @@ export function foldImpactWindow(input: {
 
   let shadowControlMismatches = 0;
   let outcomesWithoutRetrieval = 0;
+  let hasCalibration = false;
+  let brierWeightedSum = 0;
+  let brierWeight = 0;
+  let aucWeightedSum = 0;
+  let aucWeight = 0;
+  let calibrationScoredInjections = 0;
+  let calibrationRefitCount = 0;
+  let calibrationLastRefitAt: number | null = null;
+  let candidatesSeen = 0;
+  let candidatesShown = 0;
+  let candidatesFiltered = 0;
+  let driftInjectionCount = 0;
+  let driftPatternsInjected = 0;
 
   for (const bucket of buckets) {
     const o = bucket.metrics.observed;
@@ -236,12 +250,53 @@ export function foldImpactWindow(input: {
 
     shadowControlMismatches += bucket.metrics.integrity.shadowControlMismatches;
     outcomesWithoutRetrieval += bucket.metrics.integrity.outcomesWithoutRetrieval;
+
+    const c = bucket.metrics.calibration;
+    if (c) {
+      hasCalibration = true;
+      if (c.brierScore !== null && c.scoredInjections > 0) {
+        brierWeightedSum += c.brierScore * c.scoredInjections;
+        brierWeight += c.scoredInjections;
+      }
+      if (c.auc !== null && c.scoredInjections > 0) {
+        aucWeightedSum += c.auc * c.scoredInjections;
+        aucWeight += c.scoredInjections;
+      }
+      calibrationScoredInjections += c.scoredInjections;
+      calibrationRefitCount += c.refitCount;
+      if (c.lastRefitAt !== null) {
+        calibrationLastRefitAt =
+          calibrationLastRefitAt === null
+            ? c.lastRefitAt
+            : Math.max(calibrationLastRefitAt, c.lastRefitAt);
+      }
+      candidatesSeen += c.candidatesSeen;
+      candidatesShown += c.candidatesShown;
+      candidatesFiltered += c.candidatesFiltered;
+      driftInjectionCount += c.driftInjectionCount;
+      driftPatternsInjected += c.driftPatternsInjected;
+    }
   }
 
   const resolvedRateWithMemory =
     injectedRuns > 0 ? helpfulRuns / injectedRuns : null;
 
   const causal = foldCausalAcrossBuckets(buckets, minCausalCohort);
+  const calibration: UsageCalibration | undefined = hasCalibration
+    ? {
+        brierScore: brierWeight > 0 ? brierWeightedSum / brierWeight : null,
+        auc: aucWeight > 0 ? aucWeightedSum / aucWeight : null,
+        scoredInjections: calibrationScoredInjections,
+        refitCount: calibrationRefitCount,
+        lastRefitAt: calibrationLastRefitAt,
+        candidatesSeen,
+        candidatesShown,
+        candidatesFiltered,
+        candidateFilterRate: candidatesSeen > 0 ? candidatesFiltered / candidatesSeen : null,
+        driftInjectionCount,
+        driftPatternsInjected,
+      }
+    : undefined;
 
   const totals: UsageMetrics = {
     scope: "workspace",
@@ -276,6 +331,7 @@ export function foldImpactWindow(input: {
     // on different data (all shadow vs holdout-only) and must be
     // presented separately.
     ...(causal ? { causal } : {}),
+    ...(calibration ? { calibration } : {}),
     integrity: {
       shadowControlMismatches,
       outcomesWithoutRetrieval,
@@ -420,7 +476,24 @@ function emptyMetrics(afterTs: string, beforeTs: string): UsageMetrics {
         formula: "needs at least one bucket with a shadow arm",
       },
     },
+    calibration: emptyCalibration(),
     integrity: { shadowControlMismatches: 0, outcomesWithoutRetrieval: 0 },
+  };
+}
+
+function emptyCalibration(): UsageCalibration {
+  return {
+    brierScore: null,
+    auc: null,
+    scoredInjections: 0,
+    refitCount: 0,
+    lastRefitAt: null,
+    candidatesSeen: 0,
+    candidatesShown: 0,
+    candidatesFiltered: 0,
+    candidateFilterRate: null,
+    driftInjectionCount: 0,
+    driftPatternsInjected: 0,
   };
 }
 
@@ -462,6 +535,13 @@ function parseUsageMetricsRecord(raw: Record<string, unknown>): UsageMetrics | n
     causal = parsed;
   }
 
+  let calibration: UsageCalibration | undefined;
+  if (raw.calibration !== undefined) {
+    const parsed = pickCalibration(raw.calibration);
+    if (!parsed) return null;
+    calibration = parsed;
+  }
+
   return {
     scope,
     window: {
@@ -471,6 +551,7 @@ function parseUsageMetricsRecord(raw: Record<string, unknown>): UsageMetrics | n
     observed: obs,
     estimated: est,
     ...(causal ? { causal } : {}),
+    ...(calibration ? { calibration } : {}),
     integrity: itg,
   };
 }
@@ -508,6 +589,47 @@ function pickIntegrity(raw: Record<string, unknown>): UsageMetrics["integrity"] 
   const o = raw.outcomesWithoutRetrieval;
   if (typeof s !== "number" || typeof o !== "number") return null;
   return { shadowControlMismatches: s, outcomesWithoutRetrieval: o };
+}
+
+function pickCalibration(raw: unknown): UsageCalibration | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const brierScore = nullableNumber(r.brierScore);
+  const auc = nullableNumber(r.auc);
+  const lastRefitAt = nullableNumber(r.lastRefitAt);
+  const candidateFilterRate = nullableNumber(r.candidateFilterRate);
+  if (brierScore === undefined || auc === undefined) return null;
+  if (lastRefitAt === undefined || candidateFilterRate === undefined) return null;
+  const numericKeys = [
+    "scoredInjections",
+    "refitCount",
+    "candidatesSeen",
+    "candidatesShown",
+    "candidatesFiltered",
+    "driftInjectionCount",
+    "driftPatternsInjected",
+  ] as const;
+  for (const key of numericKeys) {
+    if (typeof r[key] !== "number" || !Number.isFinite(r[key])) return null;
+  }
+  return {
+    brierScore,
+    auc,
+    scoredInjections: r.scoredInjections as number,
+    refitCount: r.refitCount as number,
+    lastRefitAt,
+    candidatesSeen: r.candidatesSeen as number,
+    candidatesShown: r.candidatesShown as number,
+    candidatesFiltered: r.candidatesFiltered as number,
+    candidateFilterRate,
+    driftInjectionCount: r.driftInjectionCount as number,
+    driftPatternsInjected: r.driftPatternsInjected as number,
+  };
+}
+
+function nullableNumber(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 /**

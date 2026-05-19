@@ -176,6 +176,105 @@ describe("foldImpactWindow", () => {
     expect(window.totals.estimated.latencySavedMs.value).toBeNull();
     expect(window.totals.observed.eligibleRuns).toBe(7);
   });
+
+  it("folds calibration reliability diagnostics across buckets", () => {
+    const calibration = (
+      overrides: Partial<NonNullable<UsageMetrics["calibration"]>>,
+    ): NonNullable<UsageMetrics["calibration"]> => ({
+      brierScore: null,
+      auc: null,
+      scoredInjections: 0,
+      refitCount: 0,
+      lastRefitAt: null,
+      candidatesSeen: 0,
+      candidatesShown: 0,
+      candidatesFiltered: 0,
+      candidateFilterRate: null,
+      driftInjectionCount: 0,
+      driftPatternsInjected: 0,
+      ...overrides,
+    });
+    const buckets = [
+      {
+        date: "2026-04-20",
+        metrics: {
+          ...bucket({ eligibleRuns: 4 }),
+          calibration: calibration({
+            brierScore: 0.1,
+            auc: 0.7,
+            scoredInjections: 2,
+            refitCount: 1,
+            lastRefitAt: 10,
+            candidatesSeen: 4,
+            candidatesShown: 2,
+            candidatesFiltered: 2,
+            candidateFilterRate: 0.5,
+            driftInjectionCount: 1,
+            driftPatternsInjected: 2,
+          }),
+        },
+      },
+      {
+        date: "2026-04-21",
+        metrics: {
+          ...bucket({ eligibleRuns: 6 }),
+          calibration: calibration({
+            brierScore: 0.2,
+            scoredInjections: 3,
+            candidatesSeen: 6,
+            candidatesShown: 3,
+            candidatesFiltered: 3,
+            candidateFilterRate: 0.5,
+          }),
+        },
+      },
+    ];
+    const window = foldImpactWindow({
+      afterTs: "2026-04-20T00:00:00.000Z",
+      beforeTs: "2026-04-22T00:00:00.000Z",
+      buckets,
+    });
+    expect(window.totals.calibration?.brierScore).toBeCloseTo(0.16);
+    expect(window.totals.calibration?.auc).toBeCloseTo(0.7);
+    expect(window.totals.calibration?.scoredInjections).toBe(5);
+    expect(window.totals.calibration?.refitCount).toBe(1);
+    expect(window.totals.calibration?.lastRefitAt).toBe(10);
+    expect(window.totals.calibration?.candidateFilterRate).toBeCloseTo(0.5);
+    expect(window.totals.calibration?.driftInjectionCount).toBe(1);
+    expect(window.totals.calibration?.driftPatternsInjected).toBe(2);
+  });
+});
+
+describe("parseUsageMetrics calibration field", () => {
+  const VALID_CALIBRATION = {
+    brierScore: 0.12,
+    auc: 0.74,
+    scoredInjections: 10,
+    refitCount: 1,
+    lastRefitAt: 123,
+    candidatesSeen: 20,
+    candidatesShown: 8,
+    candidatesFiltered: 12,
+    candidateFilterRate: 0.6,
+    driftInjectionCount: 2,
+    driftPatternsInjected: 3,
+  };
+
+  it("preserves a valid calibration block", () => {
+    const parsed = parseUsageMetrics({
+      ...(bucket({ eligibleRuns: 1 }) as unknown as Record<string, unknown>),
+      calibration: VALID_CALIBRATION,
+    });
+    expect(parsed?.calibration).toEqual(VALID_CALIBRATION);
+  });
+
+  it("rejects malformed calibration blocks", () => {
+    const parsed = parseUsageMetrics({
+      ...(bucket({ eligibleRuns: 1 }) as unknown as Record<string, unknown>),
+      calibration: { ...VALID_CALIBRATION, brierScore: "low" },
+    });
+    expect(parsed).toBeNull();
+  });
 });
 
 function inst(id: string, localWorkspaceId: string): ControlPlaneInstallation {

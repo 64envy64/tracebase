@@ -6,8 +6,8 @@ import { EmptyState } from "@/components/dashboard/charts/EmptyState";
 import { PageHeader } from "@/components/dashboard/primitives/PageHeader";
 import { ActionPill } from "@/components/dashboard/primitives/Buttons";
 import { IconKey, IconLink, IconRocket } from "@/components/dashboard/primitives/Icons";
-import type { ImpactWindow } from "@/lib/control-plane/usage";
-import type { UsageCausal, UsageCohort } from "@/lib/usage/types";
+import type { DailyBucket, ImpactWindow } from "@/lib/control-plane/usage";
+import type { UsageCalibration, UsageCausal, UsageCohort } from "@/lib/usage/types";
 
 const ACCENT_POSITIVE = "rgba(177, 255, 109, 0.85)";
 const ACCENT_INJECTED = "rgba(125, 211, 252, 0.85)";
@@ -34,6 +34,16 @@ function formatMs(ms: number): string {
 function formatRate(value: number | null): string {
   if (value === null) return "—";
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatDecimal(value: number | null, digits = 3): string {
+  if (value === null) return "—";
+  return value.toFixed(digits);
+}
+
+function formatDate(value: number | null): string {
+  if (value === null) return "no refit in window";
+  return new Date(value).toLocaleDateString();
 }
 
 export function ImpactView({
@@ -212,6 +222,8 @@ export function ImpactView({
             />
           </section>
 
+          <CalibrationSection calibration={totals.calibration} buckets={buckets} />
+
           <CausalSection causal={totals.causal} />
 
           <section aria-label="Diagnostic estimate (shadow-based)">
@@ -329,6 +341,100 @@ export function ImpactView({
           ) : null}
         </>
       )}
+    </section>
+  );
+}
+
+function CalibrationSection({
+  calibration,
+  buckets,
+}: {
+  calibration?: UsageCalibration;
+  buckets: readonly DailyBucket[];
+}) {
+  if (!calibration) return null;
+  const hasSignal =
+    calibration.scoredInjections > 0 ||
+    calibration.refitCount > 0 ||
+    calibration.candidatesSeen > 0 ||
+    calibration.driftInjectionCount > 0;
+  if (!hasSignal) return null;
+
+  const reliabilityBuckets = buckets.filter(
+    (b) =>
+      b.metrics.calibration?.brierScore !== null &&
+      b.metrics.calibration?.brierScore !== undefined,
+  );
+  const reliabilityLabels = reliabilityBuckets.map((b) => b.date);
+  const brierSeries = {
+    name: "Brier x100",
+    values: reliabilityBuckets.map((b) => (b.metrics.calibration!.brierScore ?? 0) * 100),
+    color: ACCENT_POSITIVE,
+  };
+
+  return (
+    <section aria-label="Reliability over time" className="space-y-3">
+      <header className="flex flex-col gap-1">
+        <p
+          className="text-[10px] font-mono uppercase tracking-[0.22em]"
+          style={{ color: "var(--text-tertiary)" }}
+        >
+          Learning
+        </p>
+        <h2 className="text-[0.98rem] font-medium tracking-tight">Reliability over time</h2>
+        <p
+          className="max-w-[44rem] text-[12px] font-light leading-relaxed"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          Each outcome teaches the gate which memories to trust next. Lower Brier means the
+          system is getting better at predicting what will help before it spends prompt tokens.
+        </p>
+      </header>
+
+      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricTile
+          label="Brier score"
+          value={formatDecimal(calibration.brierScore)}
+          note={
+            calibration.scoredInjections > 0
+              ? `${calibration.scoredInjections.toLocaleString()} scored memories / AUC ${formatDecimal(calibration.auc, 2)}`
+              : "waiting for outcome labels"
+          }
+          tone="positive"
+        />
+        <MetricTile
+          label="Filtered hints"
+          value={formatRate(calibration.candidateFilterRate)}
+          note={
+            calibration.candidatesSeen > 0
+              ? `${calibration.candidatesFiltered.toLocaleString()} of ${calibration.candidatesSeen.toLocaleString()} candidates not shown`
+              : "waiting for retrieval traffic"
+          }
+        />
+        <MetricTile
+          label="Auto-refits"
+          value={calibration.refitCount.toLocaleString()}
+          note={formatDate(calibration.lastRefitAt)}
+        />
+        <MetricTile
+          label="Drift recoveries"
+          value={calibration.driftInjectionCount.toLocaleString()}
+          note={
+            calibration.driftPatternsInjected > 0
+              ? `${calibration.driftPatternsInjected.toLocaleString()} patterns surfaced when the agent was stuck`
+              : "no stuck-loop injection yet"
+          }
+        />
+      </div>
+
+      {reliabilityBuckets.length >= 2 ? (
+        <div
+          className="rounded-lg border p-5"
+          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+        >
+          <Timeseries labels={reliabilityLabels} series={[brierSeries]} />
+        </div>
+      ) : null}
     </section>
   );
 }

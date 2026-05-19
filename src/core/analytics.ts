@@ -172,6 +172,8 @@ function isValidEvent(ev: unknown): ev is AnalyticsEvent {
     case "trace_retrieval":  return isValidTraceRetrieval(e);
     case "trace_agent_used": return isValidTraceAgentUsed(e);
     case "trace_feedback":   return isValidTraceFeedback(e);
+    case "calibrator_refit": return isValidCalibratorRefit(e);
+    case "drift_injection":  return isValidDriftInjection(e);
     default:                 return false;
   }
 }
@@ -340,6 +342,21 @@ function isValidTraceFeedback(e: Record<string, unknown>): boolean {
   if (e.attribution !== undefined && e.attribution !== "explicit" && e.attribution !== "inferred") {
     return false;
   }
+  return true;
+}
+
+function isValidCalibratorRefit(e: Record<string, unknown>): boolean {
+  if (typeof e.freshOutcomes !== "number" || !Number.isFinite(e.freshOutcomes)) return false;
+  if (typeof e.fittedAt !== "number" || !Number.isFinite(e.fittedAt)) return false;
+  return true;
+}
+
+function isValidDriftInjection(e: Record<string, unknown>): boolean {
+  if (e.signalKind !== "straight" && e.signalKind !== "pingpong" && e.signalKind !== "duplicate") {
+    return false;
+  }
+  if (typeof e.patternsInjected !== "number" || !Number.isFinite(e.patternsInjected)) return false;
+  if (typeof e.gateThreshold !== "number" || !Number.isFinite(e.gateThreshold)) return false;
   return true;
 }
 
@@ -780,6 +797,38 @@ export interface AggregateRates {
   tokenLift: number | null;
 }
 
+export interface CalibrationAggregates {
+  /**
+   * Brier score over shown block memories that have a later outcome.
+   * Lower is better. Prediction uses `injection.calibratedProb` when
+   * present and falls back to the raw score for pre-calibrator rows.
+   */
+  brierScore: number | null;
+  /**
+   * ROC AUC over the same scored set. Null until both positive and
+   * negative labels exist.
+   */
+  auc: number | null;
+  /** Number of shown block memories with outcome labels. */
+  scoredInjections: number;
+  /** Number of `calibrator_refit` events in the window. */
+  refitCount: number;
+  /** Most recent model fit timestamp in the window, if any. */
+  lastRefitAt: number | null;
+  /** Non-shadow block + fact candidates returned by retrieval. */
+  candidatesSeen: number;
+  /** Block + fact candidates that actually reached the prompt. */
+  candidatesShown: number;
+  /** `candidatesSeen - candidatesShown`, clamped at 0. */
+  candidatesFiltered: number;
+  /** Filtered share of candidates. Null when no candidates were seen. */
+  candidateFilterRate: number | null;
+  /** Drift-triggered forced recalls that produced injected context. */
+  driftInjectionCount: number;
+  /** Total patterns surfaced by drift-triggered recalls. */
+  driftPatternsInjected: number;
+}
+
 export interface PerBlockStats {
   blockId: string;
   retrieved: number;
@@ -863,6 +912,11 @@ export interface EventAggregates {
    * tally is by closed-enum bucket key, not by source string.
    */
   mechanisms: MechanismAggregates;
+  /**
+   * May-2026 every-run-learning diagnostics. Aggregate-only; no ids,
+   * prompts, paths, or block bodies.
+   */
+  calibration: CalibrationAggregates;
   /** The window used; undefined on either side means "open-ended". */
   window: { afterTs?: number; beforeTs?: number };
 }
@@ -1206,6 +1260,7 @@ export function computeAggregates(
   const injectionsByQuery = new Map<string, Set<string>>();  // queryId → blockIds
   const agentUsedByQuery = new Map<string, Set<string>>();
   const outcomeByQuery = new Map<string, OutcomeEvent>();
+  const injectionEvents: InjectionEvent[] = [];
   const retrievalTreatment = new Set<string>();  // queryIds with non-shadow retrieval
   const retrievalShadow = new Set<string>();
   // Fact-side indexes — parallel to the block-side ones.
@@ -1226,6 +1281,11 @@ export function computeAggregates(
   // 0.7.0 §6 stable §2 — mechanism aggregates. Tallied in the same
   // event walk so we make exactly one pass over `events`.
   const mechanisms = emptyMechanismAggregates();
+  let candidatesSeen = 0;
+  let refitCount = 0;
+  let lastRefitAt: number | null = null;
+  let driftInjectionCount = 0;
+  let driftPatternsInjected = 0;
 
   for (const ev of events) {
     // Mechanism tally runs first — it dispatches on its own event-
@@ -1251,10 +1311,14 @@ export function computeAggregates(
         const anyCandidates =
           ev.candidates.length > 0 || (ev.factCandidates?.length ?? 0) > 0;
         if (anyCandidates) recalledQueries.add(ev.queryId);
+        if (!ev.shadow) {
+          candidatesSeen += ev.candidates.length + (ev.factCandidates?.length ?? 0);
+        }
         break;
       }
       case "injection": {
         counts.injection++;
+        injectionEvents.push(ev);
         let set = injectionsByQuery.get(ev.queryId);
         if (!set) { set = new Set(); injectionsByQuery.set(ev.queryId, set); }
         set.add(ev.blockId);
@@ -1284,6 +1348,17 @@ export function computeAggregates(
         let set = factAgentUsedByQuery.get(ev.queryId);
         if (!set) { set = new Set(); factAgentUsedByQuery.set(ev.queryId, set); }
         set.add(ev.factId);
+        break;
+      }
+      case "calibrator_refit": {
+        refitCount++;
+        lastRefitAt =
+          lastRefitAt === null ? ev.fittedAt : Math.max(lastRefitAt, ev.fittedAt);
+        break;
+      }
+      case "drift_injection": {
+        driftInjectionCount++;
+        driftPatternsInjected += ev.patternsInjected;
         break;
       }
     }
@@ -1505,6 +1580,18 @@ export function computeAggregates(
     verifiedHelpfulRuns: verifiedHelpfulQueries.size,
   };
 
+  const calibration = computeCalibrationAggregates({
+    injections: injectionEvents,
+    agentUsedByQuery,
+    outcomeByQuery,
+    candidatesSeen,
+    candidatesShown: counts.injection + counts.factInjection,
+    refitCount,
+    lastRefitAt,
+    driftInjectionCount,
+    driftPatternsInjected,
+  });
+
   // Phase 3 causal split — classify each queryId with an outcome
   // strictly by retrieval.controlReason. Legacy / manual shadow
   // (controlReason undefined or "shadow") never enters either arm.
@@ -1552,11 +1639,85 @@ export function computeAggregates(
       outcomesWithoutRetrieval,
     },
     mechanisms,
+    calibration,
     window: {
       ...(opts.afterTs !== undefined ? { afterTs: opts.afterTs } : {}),
       ...(opts.beforeTs !== undefined ? { beforeTs: opts.beforeTs } : {}),
     },
   };
+}
+
+interface CalibrationInput {
+  injections: readonly InjectionEvent[];
+  agentUsedByQuery: Map<string, Set<string>>;
+  outcomeByQuery: Map<string, OutcomeEvent>;
+  candidatesSeen: number;
+  candidatesShown: number;
+  refitCount: number;
+  lastRefitAt: number | null;
+  driftInjectionCount: number;
+  driftPatternsInjected: number;
+}
+
+function computeCalibrationAggregates(input: CalibrationInput): CalibrationAggregates {
+  const points: Array<{ prediction: number; label: 0 | 1 }> = [];
+  let brierSum = 0;
+
+  for (const inj of input.injections) {
+    const outcome = input.outcomeByQuery.get(inj.queryId);
+    if (!outcome) continue;
+    const used = input.agentUsedByQuery.get(inj.queryId)?.has(inj.blockId) ?? false;
+    const label: 0 | 1 = used && outcome.resolved ? 1 : 0;
+    const prediction = clampProbability(inj.calibratedProb ?? inj.score);
+    points.push({ prediction, label });
+    const err = prediction - label;
+    brierSum += err * err;
+  }
+
+  const candidatesFiltered = Math.max(0, input.candidatesSeen - input.candidatesShown);
+  return {
+    brierScore: points.length > 0 ? brierSum / points.length : null,
+    auc: computeAuc(points),
+    scoredInjections: points.length,
+    refitCount: input.refitCount,
+    lastRefitAt: input.lastRefitAt,
+    candidatesSeen: input.candidatesSeen,
+    candidatesShown: input.candidatesShown,
+    candidatesFiltered,
+    candidateFilterRate:
+      input.candidatesSeen > 0 ? candidatesFiltered / input.candidatesSeen : null,
+    driftInjectionCount: input.driftInjectionCount,
+    driftPatternsInjected: input.driftPatternsInjected,
+  };
+}
+
+function computeAuc(points: readonly { prediction: number; label: 0 | 1 }[]): number | null {
+  let positives = 0;
+  for (const p of points) if (p.label === 1) positives++;
+  const negatives = points.length - positives;
+  if (positives === 0 || negatives === 0) return null;
+
+  const sorted = [...points].sort((a, b) => a.prediction - b.prediction);
+  let rankSumPositive = 0;
+  let i = 0;
+  while (i < sorted.length) {
+    let j = i + 1;
+    while (j < sorted.length && sorted[j]!.prediction === sorted[i]!.prediction) j++;
+    const averageRank = (i + 1 + j) / 2;
+    for (let k = i; k < j; k++) {
+      if (sorted[k]!.label === 1) rankSumPositive += averageRank;
+    }
+    i = j;
+  }
+
+  return (rankSumPositive - (positives * (positives + 1)) / 2) / (positives * negatives);
+}
+
+function clampProbability(x: number): number {
+  if (!Number.isFinite(x)) return 0;
+  if (x < 0) return 0;
+  if (x > 1) return 1;
+  return x;
 }
 
 function mean(xs: number[]): number {

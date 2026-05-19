@@ -117,6 +117,19 @@ export interface BlockRecallQuery {
    * the experiment for that run than fabricate a cohort.
    */
   experiment?: ExperimentInput;
+  /**
+   * Per-call gate override on [0, 1]. When set, replaces
+   * `BlockServerOptions.gateThreshold` for this single recall. Used by
+   * the drift-trigger path in `src/runtime/recall.ts`: when the tool-
+   * pattern detector fires (agent is stuck / repeating / pingponging),
+   * the prior strongly favors "any past pattern is worth surfacing"
+   * over the static production gate. The relaxed gate is applied for
+   * one call only — concurrent recalls retain the configured gate.
+   *
+   * Out-of-range values (NaN, <0, >1) are ignored — same fail-safe
+   * posture as `resolveProductionGateThreshold`.
+   */
+  gateOverride?: number;
 }
 
 /**
@@ -245,6 +258,35 @@ export function resolveProductionGateThreshold(): number {
   return parsed;
 }
 
+/**
+ * Resolve the effective gate for a single recall call. When the caller
+ * supplied a valid `gateOverride` on the query (a finite number in [0,
+ * 1]), it wins; otherwise the BlockServer-configured `gateThreshold`
+ * stands. An out-of-range override is treated as "not configured" — we
+ * never silently swing the gate to something the caller didn't intend.
+ */
+export function resolveQueryGate(
+  override: number | undefined,
+  configured: number,
+): number {
+  if (override === undefined) return configured;
+  if (!Number.isFinite(override) || override < 0 || override > 1) {
+    return configured;
+  }
+  return override;
+}
+
+/**
+ * Default gate threshold for drift-triggered recalls — half of
+ * production. The agent being in a tool loop is a strong prior that
+ * "any past pattern is worth surfacing", so we deliberately accept
+ * lower-confidence hits that the static production gate would filter.
+ * This is the only place the drift path is allowed to relax safety
+ * checks; everything else (FTS sanitization, leakage scans, holdout
+ * eligibility) continues to apply unchanged.
+ */
+export const DEFAULT_DRIFT_GATE_THRESHOLD = DEFAULT_GATE_THRESHOLD * 0.5;
+
 export interface BlockServerOptions {
   /**
    * Minimum calibrated probability for `shouldInject = true`. Defaults
@@ -350,7 +392,12 @@ const FTS_STOP_WORDS = new Set<string>([
 export class BlockServer {
   private readonly store: BlockStore;
   private readonly gateThreshold: number;
-  private readonly calibrator: Calibrator;
+  // Mutable so a freshly-fitted calibrator can be hot-swapped without
+  // restarting the MCP server. The auto-refit loop in
+  // `src/lifecycle/calibrator-refit.ts` calls `setCalibrator()` after
+  // it persists a new isotonic model — production traffic immediately
+  // routes through the better-fit model on the next recall.
+  private calibrator: Calibrator;
   private readonly emitEvents: boolean;
   private readonly now: () => number;
   private readonly emitter: EventEmitter;
@@ -381,6 +428,18 @@ export class BlockServer {
     this.rerankerTimeoutMs = opts.rerankerTimeoutMs ?? 300;
     this.mmrLambda = opts.mmrLambda ?? DEFAULT_MMR_LAMBDA;
     this.cascadeFetchMultiplier = Math.max(1, opts.cascadeFetchMultiplier ?? 4);
+  }
+
+  /**
+   * Hot-swap the calibrator. Called by the auto-refit loop after a new
+   * isotonic model lands in `calibrator_models`. The swap is atomic — the
+   * NEXT recall on this BlockServer instance sees the new model; in-flight
+   * recalls (`recallAsync` on the cascade path) keep the reference they
+   * captured at the start of their call, so a swap mid-recall cannot
+   * produce a mixed-scoring result.
+   */
+  setCalibrator(calibrator: Calibrator): void {
+    this.calibrator = calibrator;
   }
 
   /**
@@ -636,9 +695,12 @@ export class BlockServer {
     // (no injection events, passesGate = false everywhere,
     // shouldInject = false, formatInjection renders empty) and the
     // retrieval event carries `controlReason: "holdout"`.
+    // Per-call gate (drift trigger relaxes this; the rest of the
+    // production traffic uses the configured `gateThreshold`).
+    const effectiveGate = resolveQueryGate(query.gateOverride, this.gateThreshold);
     const wouldInjectAbsentShadow =
-      blockCalibrated.some((h) => h.calibratedProb >= this.gateThreshold) ||
-      factCalibrated.some((h) => h.calibratedProb >= this.gateThreshold);
+      blockCalibrated.some((h) => h.calibratedProb >= effectiveGate) ||
+      factCalibrated.some((h) => h.calibratedProb >= effectiveGate);
     const holdoutApplied =
       !manualShadow &&
       wouldInjectAbsentShadow &&
@@ -671,7 +733,7 @@ export class BlockServer {
         block: h.block,
         score: h.score,
         calibratedProb: h.calibratedProb,
-        passesGate: !shadow && h.calibratedProb >= this.gateThreshold,
+        passesGate: !shadow && h.calibratedProb >= effectiveGate,
         refs: h.refs,
       };
       if (cascade?.rerankerScore !== undefined) {
@@ -690,7 +752,7 @@ export class BlockServer {
       fact: h.fact,
       score: h.score,
       calibratedProb: h.calibratedProb,
-      passesGate: !shadow && h.calibratedProb >= this.gateThreshold,
+      passesGate: !shadow && h.calibratedProb >= effectiveGate,
     }));
 
     // shouldInject: true iff any hit passes the gate. passesGate

@@ -77,6 +77,19 @@ describe("sanitizeForCloud — real UsageMetrics fields pass through", () => {
           latencyLift: { value: 100, sampleSize: 4, formula: "..." },
           minCohortSize: 3,
         },
+        calibration: {
+          brierScore: 0.12,
+          auc: 0.74,
+          scoredInjections: 10,
+          refitCount: 1,
+          lastRefitAt: 123,
+          candidatesSeen: 20,
+          candidatesShown: 8,
+          candidatesFiltered: 12,
+          candidateFilterRate: 0.6,
+          driftInjectionCount: 2,
+          driftPatternsInjected: 3,
+        },
         integrity: {
           shadowControlMismatches: 0,
           outcomesWithoutRetrieval: 1,
@@ -389,6 +402,7 @@ describe("sanitizeForCloud — edge cases", () => {
     expect(typeof metrics).toBe("object");
     if (typeof metrics !== "object") return;
     expect(Object.keys(metrics).sort()).toEqual([
+      "calibration",
       "causal",
       "estimated",
       "integrity",
