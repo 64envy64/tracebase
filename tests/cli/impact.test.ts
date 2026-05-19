@@ -30,6 +30,7 @@ import Database from "better-sqlite3";
 import {
   initConfig,
   loadConfig,
+  enableCascade,
   enableHoldoutExperiment,
 } from "../../src/core/config.js";
 import { BlockStore } from "../../src/core/block-store.js";
@@ -51,6 +52,8 @@ function seedRetrieval(opts: {
   controlReason?: "shadow" | "holdout";
   injectedTokens?: number;
   ts?: number;
+  cascade?: boolean;
+  fallbackReason?: "timeout" | "error" | "null" | "empty" | "validation";
 }): void {
   // Use the path-constructor so BlockStore owns + closes the
   // underlying handle. Multiple short-lived connections without
@@ -64,6 +67,15 @@ function seedRetrieval(opts: {
     candidates: [],
     shadow: opts.shadow,
     ...(opts.controlReason ? { controlReason: opts.controlReason } : {}),
+    ...(opts.cascade
+      ? {
+          cascadePolicyId: "linear+rerank+mmr.v1",
+          rerankerName: "minilm",
+          mmrLambda: 0.7,
+          rerankerFellBack: opts.fallbackReason !== undefined,
+          ...(opts.fallbackReason ? { rerankerFallbackReason: opts.fallbackReason } : {}),
+        }
+      : {}),
     ...(opts.injectedTokens !== undefined
       ? { injectedTokensEstimate: opts.injectedTokens }
       : {}),
@@ -113,6 +125,24 @@ function seedInjection(opts: {
   store.close();
 }
 
+function seedAgentUsed(opts: {
+  queryId: string;
+  blockId?: string;
+  ts?: number;
+}): void {
+  const cfg = loadConfig(projectDir);
+  const store = new BlockStore(cfg.storagePath);
+  store.appendEvent({
+    ts: opts.ts ?? Date.now(),
+    queryId: opts.queryId,
+    event: "agent_used",
+    blockId: opts.blockId ?? "block-stub",
+    matchSignal: "explicit",
+    matchScore: 1,
+  });
+  store.close();
+}
+
 function setPricingConfig(input: number, output: number): void {
   const file = join(projectDir, ".tracebase", "config.json");
   const raw = JSON.parse(readFileSync(file, "utf-8")) as Record<string, unknown>;
@@ -157,6 +187,7 @@ describe("runImpact — readiness gates", () => {
     expect(r.readiness).toBe("no-holdout");
     expect(r.metrics?.causal).toBeUndefined();
     expect(r.metrics?.totalInjectedTokensEstimate).toBe(2400);
+    expect(renderImpactLine(r)).not.toMatch(/cascade:/);
   });
 
   it("0.5.9 — below-cohort when holdout exists but arms are tiny", () => {
@@ -653,5 +684,57 @@ describe("runImpact — mechanism savings (0.7.0-rc.7)", () => {
     expect(line).toMatch(/Not enough data yet/);
     expect(line).toMatch(/estimated mechanisms:/);
     expect(line).toMatch(/tool supervision ≈ /);
+  });
+});
+
+describe("runImpact — cascade visibility (B1.5)", () => {
+  it("embeds the cascade-vs-sync rollout comparison in the main impact surface", () => {
+    initConfig(projectDir);
+    enableCascade(projectDir, {
+      rate: 1,
+      kind: "minilm",
+      saltFactory: () => "cascade-test-salt",
+    });
+
+    seedRetrieval({ queryId: "c-1", shadow: false, injectedTokens: 100, cascade: true });
+    seedInjection({ queryId: "c-1" });
+    seedAgentUsed({ queryId: "c-1" });
+    seedOutcome({ queryId: "c-1", resolved: true, control: false });
+
+    seedRetrieval({ queryId: "s-1", shadow: false, injectedTokens: 100 });
+    seedInjection({ queryId: "s-1" });
+    seedAgentUsed({ queryId: "s-1" });
+    seedOutcome({ queryId: "s-1", resolved: false, control: false });
+
+    const r = runImpact({ path: projectDir });
+    expect(r.cascade?.configured).toBe(true);
+    expect(r.cascade?.enabled).toBe(true);
+    expect(r.cascade?.kind).toBe("minilm");
+    expect(r.cascade?.comparison?.lift).toBe(1);
+
+    const line = renderImpactLine(r);
+    expect(line).toMatch(/cascade:/);
+    expect(line).toMatch(/kind=minilm/);
+    expect(line).toMatch(/lift \+100\.00pp/);
+  });
+
+  it("surfaces configured cascade state even before rollout events land", () => {
+    initConfig(projectDir);
+    enableCascade(projectDir, {
+      rate: 0.05,
+      kind: "noop",
+      saltFactory: () => "cascade-test-salt",
+    });
+    const cfg = loadConfig(projectDir);
+    const db = new Database(cfg.storagePath);
+    new BlockStore(db).close();
+    db.close();
+
+    const r = runImpact({ path: projectDir });
+    expect(r.readiness).toBe("no-runs");
+    expect(r.cascade?.configured).toBe(true);
+    const line = renderImpactLine(r);
+    expect(line).toMatch(/cascade:/);
+    expect(line).toMatch(/collecting rollout events/);
   });
 });

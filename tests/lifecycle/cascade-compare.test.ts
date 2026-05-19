@@ -10,6 +10,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
 import { BlockStore } from "../../src/core/block-store.js";
 import {
+  computeCascadeComparisonByDay,
   computeCascadeComparison,
   MIN_SAMPLE,
 } from "../../src/lifecycle/cascade-compare.js";
@@ -43,8 +44,9 @@ function seedQuery(args: {
   resolved?: boolean;
   /** When set, the retrieval event reports a reranker fallback (cascade arm only). */
   fallbackReason?: "timeout" | "error" | "null" | "empty" | "validation";
+  ts?: number;
 }): void {
-  const ts = Date.now();
+  const ts = args.ts ?? Date.now();
   store.appendEvent({
     ts,
     queryId: args.queryId,
@@ -219,5 +221,46 @@ describe("computeCascadeComparison — time window", () => {
     const cmp = computeCascadeComparison(store, { afterTs: Date.now() + 60_000 });
     expect(cmp.cascade.retrievals).toBe(0);
     expect(cmp.sync.retrievals).toBe(0);
+  });
+});
+
+describe("computeCascadeComparisonByDay — trend buckets", () => {
+  it("groups comparisons by UTC day using the same arm math", () => {
+    const day1 = Date.UTC(2026, 4, 17, 12);
+    const day2 = Date.UTC(2026, 4, 18, 12);
+    seedQuery({
+      queryId: "c-day-1",
+      arm: "cascade",
+      injection: true,
+      agentUsed: true,
+      resolved: true,
+      ts: day1,
+    });
+    seedQuery({
+      queryId: "s-day-1",
+      arm: "sync",
+      injection: true,
+      agentUsed: true,
+      resolved: false,
+      ts: day1 + 10,
+    });
+    seedQuery({
+      queryId: "c-day-2",
+      arm: "cascade",
+      injection: true,
+      agentUsed: true,
+      resolved: false,
+      ts: day2,
+    });
+
+    const buckets = computeCascadeComparisonByDay(store, {
+      afterTs: Date.UTC(2026, 4, 17),
+      beforeTs: Date.UTC(2026, 4, 19),
+    });
+    expect(buckets.map((b) => b.day)).toEqual(["2026-05-17", "2026-05-18"]);
+    expect(buckets[0]!.comparison.cascade.helpfulRate).toBe(1);
+    expect(buckets[0]!.comparison.sync.helpfulRate).toBe(0);
+    expect(buckets[1]!.comparison.cascade.helpfulRate).toBe(0);
+    expect(buckets[1]!.comparison.sync.helpfulRate).toBeNull();
   });
 });

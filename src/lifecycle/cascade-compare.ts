@@ -84,6 +84,17 @@ export interface CascadeComparison {
   window: { afterTs?: number; beforeTs?: number };
 }
 
+export interface CascadeComparisonBucket {
+  /** UTC day label, YYYY-MM-DD. */
+  day: string;
+  /** Inclusive UTC bucket start. */
+  bucketStartTs: number;
+  /** Exclusive UTC bucket end. */
+  bucketEndTs: number;
+  /** Same arm metrics as the summary, scoped to this day. */
+  comparison: CascadeComparison;
+}
+
 /** Below this many outcomes per arm, lift is mostly noise. */
 export const MIN_SAMPLE = 50;
 
@@ -108,12 +119,62 @@ export function computeCascadeComparison(
   store: BlockStore,
   opts: CompareOptions = {},
 ): CascadeComparison {
-  const events = store.readEvents({
+  const events = readWindowEvents(store, opts);
+  return computeCascadeComparisonFromEvents(events, {
+    ...(opts.afterTs !== undefined ? { afterTs: opts.afterTs } : {}),
+    ...(opts.beforeTs !== undefined ? { beforeTs: opts.beforeTs } : {}),
+  });
+}
+
+/**
+ * Daily trend view for the same operational comparison. Buckets are UTC
+ * days and include only days that have at least one event in the window.
+ */
+export function computeCascadeComparisonByDay(
+  store: BlockStore,
+  opts: CompareOptions = {},
+): CascadeComparisonBucket[] {
+  const events = readWindowEvents(store, opts);
+  const buckets = new Map<number, AnalyticsEvent[]>();
+  for (const ev of events) {
+    const start = utcDayStart(ev.ts);
+    const bucket = buckets.get(start);
+    if (bucket) bucket.push(ev);
+    else buckets.set(start, [ev]);
+  }
+
+  return [...buckets.keys()]
+    .sort((a, b) => a - b)
+    .map((bucketStartTs) => {
+      const bucketEndTs = bucketStartTs + DAY_MS;
+      const afterTs =
+        opts.afterTs !== undefined ? Math.max(bucketStartTs, opts.afterTs) : bucketStartTs;
+      const beforeTs =
+        opts.beforeTs !== undefined ? Math.min(bucketEndTs, opts.beforeTs) : bucketEndTs;
+      return {
+        day: new Date(bucketStartTs).toISOString().slice(0, 10),
+        bucketStartTs,
+        bucketEndTs,
+        comparison: computeCascadeComparisonFromEvents(buckets.get(bucketStartTs) ?? [], {
+          afterTs,
+          beforeTs,
+        }),
+      };
+    });
+}
+
+function readWindowEvents(store: BlockStore, opts: CompareOptions): AnalyticsEvent[] {
+  return store.readEvents({
     ...(opts.afterTs !== undefined ? { afterTs: opts.afterTs } : {}),
     ...(opts.beforeTs !== undefined ? { beforeTs: opts.beforeTs } : {}),
     limit: opts.pageLimit ?? 1_000_000,
   });
+}
 
+function computeCascadeComparisonFromEvents(
+  events: AnalyticsEvent[],
+  window: { afterTs?: number; beforeTs?: number },
+): CascadeComparison {
   // Partition retrieval events by arm.
   const cascadeQueryIds = new Set<string>();
   const syncQueryIds = new Set<string>();
@@ -183,10 +244,7 @@ export function computeCascadeComparison(
     cascadeRerankerRan,
     lift,
     lowSample,
-    window: {
-      ...(opts.afterTs !== undefined ? { afterTs: opts.afterTs } : {}),
-      ...(opts.beforeTs !== undefined ? { beforeTs: opts.beforeTs } : {}),
-    },
+    window,
   };
 }
 
@@ -233,4 +291,11 @@ export function isRetrievalWithCascade(
   ev: AnalyticsEvent,
 ): ev is AnalyticsEvent & { event: "retrieval"; cascadePolicyId: string } {
   return ev.event === "retrieval" && typeof (ev as { cascadePolicyId?: string }).cascadePolicyId === "string";
+}
+
+const DAY_MS = 86_400_000;
+
+function utcDayStart(ts: number): number {
+  const d = new Date(ts);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 }

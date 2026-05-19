@@ -1,20 +1,26 @@
 import { Command } from "commander";
 import pc from "picocolors";
+import Database from "better-sqlite3";
+import { existsSync } from "node:fs";
 import { ReasoningLayer } from "../../core/engine.js";
-import { loadConfig } from "../../core/config.js";
+import { findProjectRoot, loadConfig, readCascadeConfig } from "../../core/config.js";
+import { BlockStore } from "../../core/block-store.js";
+import { computeCascadeComparison } from "../../lifecycle/cascade-compare.js";
 
 export const statsCommand = new Command("stats")
   .description("Show storage statistics")
   .option("--json", "output as JSON")
   .action((opts) => {
-    const config = loadConfig();
+    const projectRoot = findProjectRoot(process.cwd()) ?? process.cwd();
+    const config = loadConfig(projectRoot);
     const layer = new ReasoningLayer(config);
 
     try {
       const s = layer.stats();
+      const cascade = loadCascadeStats(projectRoot, config.storagePath);
 
       if (opts.json) {
-        console.log(JSON.stringify(s, null, 2));
+        console.log(JSON.stringify({ ...s, cascade }, null, 2));
         return;
       }
 
@@ -61,6 +67,10 @@ export const statsCommand = new Command("stats")
         console.log();
       }
 
+      console.log(pc.dim("  Cascade"));
+      console.log(`    ${renderCascadeStats(cascade)}`);
+      console.log();
+
       console.log(pc.dim("  Storage"));
       console.log(`    DB size: ${formatBytes(s.dbSizeBytes)}`);
       if (s.oldestTrace) {
@@ -80,4 +90,62 @@ function formatBytes(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   const value = bytes / Math.pow(1024, i);
   return `${value.toFixed(1)} ${units[i]}`;
+}
+
+type CascadeStatsView =
+  | { configured: false }
+  | {
+      configured: true;
+      enabled: boolean;
+      rate: number;
+      kind: string;
+      comparison: ReturnType<typeof computeCascadeComparison> | null;
+    };
+
+function loadCascadeStats(projectRoot: string, storagePath: string): CascadeStatsView {
+  const cfg = readCascadeConfig(projectRoot);
+  if (!cfg) return { configured: false };
+  if (!existsSync(storagePath)) {
+    return {
+      configured: true,
+      enabled: cfg.enabled,
+      rate: cfg.rollout.rate,
+      kind: cfg.reranker.kind,
+      comparison: null,
+    };
+  }
+  const db = new Database(storagePath, { readonly: true });
+  try {
+    const store = new BlockStore(db, { skipMigrate: true });
+    try {
+      return {
+        configured: true,
+        enabled: cfg.enabled,
+        rate: cfg.rollout.rate,
+        kind: cfg.reranker.kind,
+        comparison: computeCascadeComparison(store, { afterTs: Date.now() - 7 * 86_400_000 }),
+      };
+    } finally {
+      store.close();
+    }
+  } finally {
+    if (db.open) db.close();
+  }
+}
+
+function renderCascadeStats(cascade: CascadeStatsView): string {
+  if (!cascade.configured) return "not configured";
+  const state = cascade.enabled ? pc.green("on") : pc.dim("off");
+  const head = `${state}  rate=${(cascade.rate * 100).toFixed(1)}%  kind=${cascade.kind}`;
+  const cmp = cascade.comparison;
+  if (!cmp || (cmp.cascade.retrievals === 0 && cmp.sync.retrievals === 0)) {
+    return `${head}  ${pc.dim("collecting")}`;
+  }
+  const lift =
+    cmp.lift === null
+      ? "lift collecting"
+      : `lift ${cmp.lift >= 0 ? "+" : ""}${(cmp.lift * 100).toFixed(2)}pp`;
+  return `${head}  ${lift}  ` +
+    `cascade=${cmp.cascade.helpfulRuns}/${cmp.cascade.totalRuns}  ` +
+    `sync=${cmp.sync.helpfulRuns}/${cmp.sync.totalRuns}`;
 }

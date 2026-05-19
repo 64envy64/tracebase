@@ -42,6 +42,7 @@ import {
   findProjectRoot,
   isInitialized,
   loadConfig,
+  readCascadeConfig,
   readHoldoutConfig,
   DEFAULT_HOLDOUT_RATE,
 } from "../../core/config.js";
@@ -56,6 +57,11 @@ import {
   computeMechanismSavings,
   type MechanismSavings,
 } from "../../analytics/mechanism-savings.js";
+import {
+  computeCascadeComparison,
+  type CascadeComparison,
+} from "../../lifecycle/cascade-compare.js";
+import type { CascadeConfig } from "../../types.js";
 
 interface ImpactOptions {
   path?: string;
@@ -145,7 +151,22 @@ export interface ImpactReport {
    * lift. `null` when no events were recorded in the window.
    */
   mechanisms: MechanismSavings | null;
+  /**
+   * May-2026 B1.5 - operational cascade visibility. This is not a
+   * causal estimate; it is the same sync-vs-cascade rollout dashboard
+   * exposed by `tracebase cascade compare`, embedded in impact so the
+   * main value surface acknowledges the active ranking policy.
+   */
+  cascade: ImpactCascadeState | null;
   error?: string;
+}
+
+export interface ImpactCascadeState {
+  configured: boolean;
+  enabled: boolean;
+  rate: number | null;
+  kind: CascadeConfig["reranker"]["kind"] | "unknown";
+  comparison: CascadeComparison | null;
 }
 
 export function runImpact(opts: ImpactOptions): ImpactReport {
@@ -159,12 +180,14 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
       pricing: null,
       experiment: null,
       mechanisms: null,
+      cascade: null,
       error: "not initialized — run `npx tracebase-ai init` first",
     };
   }
   const config = loadConfig(projectRoot);
   const pricing = resolvePricing(opts, config.pricing);
   const holdout = readHoldoutConfig(projectRoot);
+  const cascadeConfig = readCascadeConfig(projectRoot);
 
   if (!existsSync(config.storagePath)) {
     return {
@@ -183,6 +206,7 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
           }
         : null,
       mechanisms: null,
+      cascade: buildCascadeState(cascadeConfig, null),
     };
   }
 
@@ -194,6 +218,7 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
   let metrics: UsageMetrics;
   let agg: EventAggregates;
   let mechanisms: MechanismSavings;
+  let cascadeComparison: CascadeComparison;
   try {
     agg = computeAggregates(store, { afterTs, beforeTs });
     metrics = computeUsageMetrics(agg);
@@ -201,10 +226,12 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
     // Reads four event kinds directly off `analytics_events`;
     // never overlaps with the causal block.
     mechanisms = computeMechanismSavings(store, { afterTs, beforeTs });
+    cascadeComparison = computeCascadeComparison(store, { afterTs, beforeTs });
   } finally {
     store.close();
     if (db.open) db.close();
   }
+  const cascade = buildCascadeState(cascadeConfig, cascadeComparison);
 
   // 0.6.0 — pull experiment-side counts directly off the
   // aggregator. `metrics.causal` is filtered out when
@@ -230,6 +257,7 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
       pricing,
       experiment,
       mechanisms: mechanisms.total > 0 ? mechanisms : null,
+      cascade,
     };
   }
 
@@ -258,6 +286,7 @@ export function runImpact(opts: ImpactOptions): ImpactReport {
     pricing,
     experiment,
     mechanisms: mechanisms.total > 0 ? mechanisms : null,
+    cascade,
   };
 }
 
@@ -279,8 +308,9 @@ export function renderImpactLine(report: ImpactReport): string {
     // outside the causal-eligible run path). Render the mechanism
     // line if any component landed.
     const mech = renderMechanismLine(report);
+    const cascade = renderCascadeLine(report);
     const head = pc.dim("Not enough data yet — no eligible runs in the window.");
-    return mech ? `${head}\n${mech}` : head;
+    return [head, mech, cascade].filter((s) => s.length > 0).join("\n");
   }
 
   const windowDays = Math.max(
@@ -297,7 +327,8 @@ export function renderImpactLine(report: ImpactReport): string {
   // confuse it with the verified causal segment above. Skipped
   // entirely when `report.mechanisms` is null (no events landed).
   const mech = renderMechanismLine(report);
-  return mech ? `${primary}\n${mech}` : primary;
+  const cascade = renderCascadeLine(report);
+  return [primary, mech, cascade].filter((s) => s.length > 0).join("\n");
 }
 
 /**
@@ -334,6 +365,29 @@ function renderMechanismLine(report: ImpactReport): string {
   const components = parts.length > 0 ? ` (${parts.join(" · ")})` : "";
   const total = `≈ ${humanTokens(mech.total)} total estimated saved`;
   return pc.dim(`estimated mechanisms: ${total}${components}`);
+}
+
+function renderCascadeLine(report: ImpactReport): string {
+  const cascade = report.cascade;
+  if (!cascade) return "";
+  const state = cascade.enabled ? `on rate=${formatPercent(cascade.rate)}` : "off";
+  const head = `cascade: ${state} kind=${cascade.kind}`;
+  const cmp = cascade.comparison;
+  if (!cmp || (cmp.cascade.retrievals === 0 && cmp.sync.retrievals === 0)) {
+    return pc.dim(`${head} - collecting rollout events`);
+  }
+
+  const lift =
+    cmp.lift === null
+      ? "lift collecting"
+      : `lift ${cmp.lift >= 0 ? "+" : ""}${(cmp.lift * 100).toFixed(2)}pp`;
+  const fb = cmp.cascadeFallback;
+  const fbTotal = fb.timeout + fb.error + fb.null + fb.empty + fb.validation;
+  const low = cmp.lowSample ? " - low sample" : "";
+  return pc.dim(
+    `${head} - ${lift} (cascade ${cmp.cascade.helpfulRuns}/${cmp.cascade.totalRuns}, ` +
+      `sync ${cmp.sync.helpfulRuns}/${cmp.sync.totalRuns}, fallback=${fbTotal})${low}`,
+  );
 }
 
 function renderHead(m: UsageMetrics): string {
@@ -507,6 +561,21 @@ function resolveBasePath(explicit: string | undefined): string | null {
   return findProjectRoot(process.cwd()) ?? process.cwd();
 }
 
+function buildCascadeState(
+  config: CascadeConfig | null,
+  comparison: CascadeComparison | null,
+): ImpactCascadeState | null {
+  const hasCascadeEvents = !!comparison && comparison.cascade.retrievals > 0;
+  if (!config && !hasCascadeEvents) return null;
+  return {
+    configured: !!config,
+    enabled: config?.enabled ?? false,
+    rate: config?.rollout.rate ?? null,
+    kind: config?.reranker.kind ?? "unknown",
+    comparison,
+  };
+}
+
 /**
  * Pricing resolution. CLI flags win over config; both prices
  * must resolve to positive finite numbers, otherwise we return
@@ -552,6 +621,10 @@ function humanTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return `${Math.round(n)}`;
+}
+
+function formatPercent(rate: number | null): string {
+  return rate === null ? "unknown" : (rate * 100).toFixed(1) + "%";
 }
 
 function humanSignedTokens(n: number): string {

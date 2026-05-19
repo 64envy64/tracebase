@@ -40,9 +40,11 @@ import {
 } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
 import {
+  computeCascadeComparisonByDay,
   computeCascadeComparison,
   MIN_SAMPLE,
   type CascadeArmMetrics,
+  type CascadeComparisonBucket,
   type CascadeComparison,
 } from "../../lifecycle/cascade-compare.js";
 
@@ -69,6 +71,7 @@ interface SetKindOpts extends BaseOpts {
 
 interface CompareOpts extends BaseOpts {
   since?: string;
+  byDay?: boolean;
 }
 
 const KINDS: readonly CascadeRerankerKind[] = ["noop", "cloud", "minilm", "bge-v2-m3"];
@@ -151,6 +154,7 @@ export const cascadeCommand = new Command("cascade")
         "--since <duration>",
         "window the comparison: `7d`, `24h`, `90m`. Default: all-time.",
       )
+      .option("--by-day", "include a UTC daily trend table")
       .option("--json", "machine-readable output")
       .action((opts: CompareOpts) => runCompare(opts)),
   );
@@ -335,7 +339,17 @@ function runCompare(opts: CompareOpts): void {
     const cmp = computeCascadeComparison(store, {
       ...(afterTs !== undefined ? { afterTs } : {}),
     });
-    emit(opts.json, cmp, () => renderCompare(cmp));
+    if (opts.byDay) {
+      const byDay = computeCascadeComparisonByDay(store, {
+        ...(afterTs !== undefined ? { afterTs } : {}),
+      });
+      emit(opts.json, { summary: cmp, byDay }, () => {
+        renderCompare(cmp);
+        renderByDay(byDay);
+      });
+    } else {
+      emit(opts.json, cmp, () => renderCompare(cmp));
+    }
   } finally {
     db.close();
   }
@@ -380,6 +394,29 @@ function renderArm(label: string, arm: CascadeArmMetrics): string {
   const rate =
     arm.helpfulRate === null ? "—" : (arm.helpfulRate * 100).toFixed(2) + "%";
   return `${label}  retrievals=${arm.retrievals}  injections=${arm.injections}  helpful=${arm.helpfulRuns}/${arm.totalRuns}  rate=${rate}`;
+}
+
+function renderByDay(buckets: CascadeComparisonBucket[]): void {
+  if (buckets.length === 0) return;
+  process.stdout.write(`\nby day (UTC)\n`);
+  for (const bucket of buckets) {
+    const c = bucket.comparison;
+    const lift =
+      c.lift === null
+        ? "lift=--"
+        : `lift=${c.lift >= 0 ? "+" : ""}${(c.lift * 100).toFixed(2)}pp`;
+    const cascadeRate = formatRate(c.cascade.helpfulRate);
+    const syncRate = formatRate(c.sync.helpfulRate);
+    const low = c.lowSample ? "  low-sample" : "";
+    process.stdout.write(
+      `  ${bucket.day}  cascade=${cascadeRate} (${c.cascade.helpfulRuns}/${c.cascade.totalRuns})` +
+        `  sync=${syncRate} (${c.sync.helpfulRuns}/${c.sync.totalRuns})  ${lift}${low}\n`,
+    );
+  }
+}
+
+function formatRate(rate: number | null): string {
+  return rate === null ? "--" : (rate * 100).toFixed(2) + "%";
 }
 
 function validateKind(input: string): CascadeRerankerKind | null {

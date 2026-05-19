@@ -317,9 +317,10 @@ export interface ExperimentConfig {
 /**
  * Persistent cascade config — May-2026 B1.2.
  *
- * Lives at `.tracebase/cascade.json` and is loaded fresh on every MCP
- * invocation so `tracebase cascade enable|disable|set-rate` takes
- * effect without restarting the server. Mirrors the
+ * Lives under `.tracebase/config.json` at `experiment.cascade` and is
+ * loaded fresh on every MCP invocation so
+ * `tracebase cascade enable|disable|set-rate` takes effect without
+ * restarting the server. Mirrors the
  * `HoldoutConfig`-on-disk pattern so the team has one mental model
  * for "runtime-tunable experimental knobs" instead of two.
  *
@@ -333,8 +334,9 @@ export interface ExperimentConfig {
  *   • `reranker` — which Reranker impl to construct at server boot.
  *     `kind: "noop"` is the default and exercises the cascade
  *     architecture without any network calls; `kind: "cloud"` swaps
- *     in CloudReranker with the endpoint config. ONNX kinds (minilm /
- *     bge-v2-m3) land in a follow-up PR alongside `doctor --fix`.
+ *     in CloudReranker with the endpoint config. `kind: "minilm"` runs
+ *     the local ONNX worker; `bge-v2-m3` remains reserved for the larger
+ *     quality-preset follow-up.
  *
  * Changing `reranker.kind` / `endpoint` / `apiKey` requires a server
  * restart (the BlockServer captures the reranker reference at

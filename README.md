@@ -205,7 +205,7 @@ Footnotes: ¹ Claude Code's prompt cache is provider-side. ² Bare wrappers don'
 
 ## How it works (in one paragraph)
 
-The pattern DB is project-scoped SQLite. Retrieval is a two-stage rank: fingerprint + FTS5/BM25 narrow the candidate set; structural similarity, Jaccard, and (optional) cosine embeddings re-rank. Above the threshold, the resolved trace gets injected into the prompt as context — never as a directive. After the run, an outcome event closes the loop: was the injected pattern actually used? Did the run resolve? Patterns that stop earning their keep get demoted automatically (Wilson interval lower bound on the helpfulness rate). Signal weights aren't hardcoded — they update via Thompson sampling on the outcome stream.
+The pattern DB is project-scoped SQLite. Retrieval starts with fingerprint + FTS5/BM25, then combines structural/Jaccard/cosine signals with Thompson-sampled weights; when enabled, the B1 cascade over-fetches candidates, reranks with a local or cloud cross-encoder, applies MMR diversity, and gates through calibration. Above the threshold, the resolved trace gets injected into the prompt as context - never as a directive. After the run, an outcome event closes the loop: was the injected pattern actually used? Did the run resolve? Patterns that stop earning their keep get demoted automatically (Wilson interval lower bound on the helpfulness rate). Signal weights aren't hardcoded - they update via Thompson sampling on the outcome stream, and `tracebase cascade compare` / `tracebase impact` show whether the new ranker is helping before you ramp it.
 
 Full architecture and the SWE-bench whitepaper at [tracebase.ink/whitepaper](https://tracebase.ink/whitepaper).
 

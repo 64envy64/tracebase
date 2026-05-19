@@ -10,6 +10,10 @@ import {
   extractCascadeKnobs,
 } from "../experiments/cascade-rollout.js";
 import {
+  computeCascadeComparison,
+  type CascadeComparison,
+} from "../lifecycle/cascade-compare.js";
+import {
   collectInjectedFromQuery,
   CONTEXTUAL_RUNTIME_PROTOCOL,
   deletePattern,
@@ -357,11 +361,16 @@ export async function startMcpServer(
     {},
     async () => {
       const s = layer.stats();
+      const cascade = cascadeConfigLoader();
+      const cascadeComparison = computeCascadeComparison(blockStore, {
+        afterTs: Date.now() - 7 * 86_400_000,
+      });
       const text = [
         `Total traces: ${s.totalTraces}`,
         `Successful: ${s.successfulTraces} | Failed: ${s.failedTraces} | Partial: ${s.partialTraces}`,
         `Avg quality: ${s.avgQualityScore.toFixed(3)}`,
         `Recalls: ${s.totalRecalls} (${s.totalHelpful} helpful)`,
+        renderCascadeStats(cascade, cascadeComparison),
         s.topLanguages.length > 0
           ? `Languages: ${s.topLanguages.map((l) => `${l.language}(${l.count})`).join(", ")}`
           : "",
@@ -979,4 +988,23 @@ export async function startMcpServer(
   // Start stdio transport
   const transport = new StdioServerTransport();
   await server.connect(transport);
+}
+
+function renderCascadeStats(
+  cascade: CascadeConfig | null,
+  comparison: CascadeComparison,
+): string {
+  if (!cascade && comparison.cascade.retrievals === 0) {
+    return "Cascade: not configured";
+  }
+  const state = cascade?.enabled ? "on" : "off";
+  const rate = cascade ? `${(cascade.rollout.rate * 100).toFixed(1)}%` : "unknown";
+  const kind = cascade?.reranker.kind ?? "unknown";
+  const lift =
+    comparison.lift === null
+      ? "lift collecting"
+      : `lift ${comparison.lift >= 0 ? "+" : ""}${(comparison.lift * 100).toFixed(2)}pp`;
+  return `Cascade: ${state} rate=${rate} kind=${kind} | 7d ${lift} ` +
+    `(cascade ${comparison.cascade.helpfulRuns}/${comparison.cascade.totalRuns}, ` +
+    `sync ${comparison.sync.helpfulRuns}/${comparison.sync.totalRuns})`;
 }
