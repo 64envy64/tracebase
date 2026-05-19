@@ -5,6 +5,7 @@ import {
   extractCascadeKnobs,
 } from "../../src/experiments/cascade-rollout.js";
 import { CloudReranker, NoopReranker } from "../../src/core/reranker.js";
+import { MiniLMReranker } from "../../src/core/rerankers/minilm.js";
 import type { CascadeConfig } from "../../src/types.js";
 
 function cfg(overrides: Partial<CascadeConfig> = {}): CascadeConfig {
@@ -56,13 +57,17 @@ describe("buildRerankerFromCascadeConfig — fail-safe to identity", () => {
     expect(r).toBeInstanceOf(NoopReranker);
   });
 
-  it("downgrades reserved local-ONNX kinds to NoopReranker (forward-compat)", () => {
-    // Config can name a future kind that hasn't shipped yet (minilm /
-    // bge-v2-m3). Until the ONNX worker PR lands, we silently downgrade
-    // so a forward-declared config doesn't break the cascade.
-    const minilm = buildRerankerFromCascadeConfig(cfg({ reranker: { kind: "minilm" } }));
+  it("constructs MiniLMReranker for kind: minilm (B1.3)", () => {
+    const r = buildRerankerFromCascadeConfig(cfg({ reranker: { kind: "minilm" } }));
+    expect(r).toBeInstanceOf(MiniLMReranker);
+    expect(r.name).toBe("minilm");
+  });
+
+  it("still downgrades kind: bge-v2-m3 to NoopReranker (deferred to B1.4)", () => {
+    // BGE-v2-m3 needs its own cache + latency + worker-pool config
+    // story. Until that PR lands, the kind is parsed but routed to
+    // Noop so a forward-declared config doesn't break the cascade.
     const bge = buildRerankerFromCascadeConfig(cfg({ reranker: { kind: "bge-v2-m3" } }));
-    expect(minilm).toBeInstanceOf(NoopReranker);
     expect(bge).toBeInstanceOf(NoopReranker);
   });
 });

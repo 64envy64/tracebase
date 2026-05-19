@@ -600,3 +600,120 @@ describe("runDoctor — file indexer (0.7.0-rc.2)", () => {
     expect(c.message).toMatch(/1 pending dir\(s\)/);
   });
 });
+
+// ============================================================================
+// May-2026 B1.3 — cascade reranker health surface.
+// ============================================================================
+
+describe("runDoctor — cascade reranker check (B1.3)", () => {
+  function writeCascade(payload: object): void {
+    initConfig(dir);
+    const configFile = join(dir, ".tracebase", "config.json");
+    const raw = JSON.parse(readFileSync(configFile, "utf-8")) as Record<string, unknown>;
+    const experiment = (raw.experiment as Record<string, unknown>) ?? {};
+    experiment.cascade = payload;
+    raw.experiment = experiment;
+    writeFileSync(configFile, JSON.stringify(raw, null, 2));
+  }
+
+  it("reports info when cascade is not configured (default install)", () => {
+    initConfig(dir);
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "cascade-reranker")!;
+    expect(c.level).toBe("info");
+    expect(c.message).toMatch(/not configured/);
+  });
+
+  it("reports info when cascade is configured but disabled", () => {
+    writeCascade({
+      enabled: false,
+      rollout: { rate: 0, salt: "s" },
+      reranker: { kind: "minilm" },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "cascade-reranker")!;
+    expect(c.level).toBe("info");
+    expect(c.message).toMatch(/disabled/);
+  });
+
+  it("passes when kind=\"noop\" with cascade enabled", () => {
+    writeCascade({
+      enabled: true,
+      rollout: { rate: 0.1, salt: "s" },
+      reranker: { kind: "noop" },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "cascade-reranker")!;
+    expect(c.level).toBe("pass");
+    expect(c.message).toMatch(/kind="noop"/);
+  });
+
+  it("passes when kind=\"cloud\" with endpoint set", () => {
+    writeCascade({
+      enabled: true,
+      rollout: { rate: 0.1, salt: "s" },
+      reranker: { kind: "cloud", endpoint: "https://example.test/rerank" },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "cascade-reranker")!;
+    expect(c.level).toBe("pass");
+    expect(c.message).toMatch(/cloud/);
+    expect(c.message).toMatch(/example\.test/);
+  });
+
+  it("warns when kind=\"bge-v2-m3\" (deferred to B1.4)", () => {
+    writeCascade({
+      enabled: true,
+      rollout: { rate: 0.1, salt: "s" },
+      reranker: { kind: "bge-v2-m3" },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "cascade-reranker")!;
+    expect(c.level).toBe("warn");
+    expect(c.message).toMatch(/B1\.4/);
+  });
+
+  it("fails on kind=\"minilm\" when @xenova/transformers is absent + emits actionable install command", () => {
+    // This test runs in CI where @xenova/transformers is NOT installed.
+    // The contract: we surface the FAIL with the exact npm command —
+    // we DO NOT auto-install (doing so would be a side effect in a
+    // foreign project).
+    writeCascade({
+      enabled: true,
+      rollout: { rate: 1.0, salt: "s" },
+      reranker: { kind: "minilm" },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "cascade-reranker")!;
+    expect(c.level).toBe("fail");
+    expect(c.message).toMatch(/@xenova\/transformers/);
+    expect(c.fix).toMatch(/npm install @xenova\/transformers/);
+    // The fix text MUST explicitly say "we never auto-install" — that's
+    // the user-protection contract from the B1.1 review.
+    expect(c.fix).toMatch(/never auto-install/);
+  });
+
+  it("fails on kind=\"cloud\" without endpoint + emits actionable fix", () => {
+    writeCascade({
+      enabled: true,
+      rollout: { rate: 1.0, salt: "s" },
+      reranker: { kind: "cloud" }, // endpoint missing
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const r = runDoctor(dir);
+    const c = byName(r.checks, "cascade-reranker")!;
+    expect(c.level).toBe("fail");
+    expect(c.fix).toMatch(/endpoint/);
+  });
+});

@@ -40,6 +40,7 @@ import {
   NoopReranker,
   CloudReranker,
 } from "../core/reranker.js";
+import { MiniLMReranker } from "../core/rerankers/minilm.js";
 import { shouldHoldOut } from "./holdout.js";
 
 /**
@@ -72,9 +73,17 @@ export function buildRerankerFromCascadeConfig(
       });
     }
     case "minilm":
+      // May-2026 B1.3 — local ONNX cross-encoder in a worker_threads
+      // worker. Optional peer dep `@xenova/transformers`. If the dep
+      // is missing at runtime the worker emits a structured error and
+      // MiniLMReranker.score() returns null; withRerankerFallback
+      // then collapses to the pre-rerank order with reason "error".
+      // The host should pre-warm via `tracebase doctor --fix`.
+      return new MiniLMReranker();
     case "bge-v2-m3":
-      // Reserved for the local-ONNX PR. Downgrade to Noop so a
-      // forward-declared config doesn't break the cascade.
+      // Reserved for B1.4 (570MB int8 — different cache, latency, and
+      // worker config). Downgrade to Noop so a forward-declared config
+      // doesn't break the cascade.
       return new NoopReranker();
     case "noop":
     default:

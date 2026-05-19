@@ -19,10 +19,12 @@ import {
   findProjectRoot,
   loadConfig,
   normalizeInstallAgents,
+  readCascadeConfig,
   readHoldoutConfig,
 } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
-import type { TraceBaseConfig } from "../../types.js";
+import type { CascadeConfig, TraceBaseConfig } from "../../types.js";
+import { MiniLMReranker } from "../../core/rerankers/minilm.js";
 import {
   getAgentTargetMeta,
   hookEventsForAgent,
@@ -64,8 +66,19 @@ export const doctorCommand = new Command("doctor")
   .description("Verify install integrity and surface broken config with fix hints")
   .option("-p, --path <path>", "project root", process.cwd())
   .option("--json", "machine-readable JSON output")
-  .action((opts: { path: string; json?: boolean }) => {
+  .option(
+    "--fix",
+    "apply safe auto-fixes (e.g. pre-warm the configured reranker). Never installs native deps — those are printed as actionable npm commands instead.",
+  )
+  .action(async (opts: { path: string; json?: boolean; fix?: boolean }) => {
     const report = runDoctor(opts.path);
+    if (opts.fix) {
+      // applyDoctorFixes runs the safe-side actions (model pre-warm,
+      // pending-embedding drain, FTS rebuild — landed incrementally
+      // across B1.3+). It mutates `report` in place so the rendered
+      // output reflects post-fix state.
+      await applyDoctorFixes(report, opts.path);
+    }
     if (opts.json) {
       process.stdout.write(JSON.stringify(report, null, 2) + "\n");
     } else {
@@ -335,6 +348,17 @@ export function runDoctor(invocationPath: string): DoctorReport {
             "or (for local dev) run `npm install` in the tracebase-ai package.",
         },
   );
+
+  // --- Cascade reranker (May-2026 B1.3)
+  //
+  // When cascade.enabled is true and reranker.kind is non-noop, the
+  // cascade path will eventually try to spawn a worker. Surface any
+  // missing-deps / unknown-kind state HERE so users discover it
+  // during `doctor` rather than mid-traffic. The check is purely
+  // diagnostic — `doctor --fix` runs the safe-side pre-warm (model
+  // download via @xenova/transformers cache). We NEVER auto-`npm
+  // install` native deps; missing-dep FAIL emits the exact command.
+  appendCascadeRerankerCheck(checks, projectRoot);
 
   // --- Live MCP boot probe
   //
@@ -1178,6 +1202,226 @@ function appendAgentIntegrationChecks(
 
 function stateAbbrev(s: HookEventState): string {
   return s === "canonical" ? "ok" : s;
+}
+
+// ============================================================================
+// May-2026 B1.3 — cascade reranker health + safe-side pre-warm.
+// ============================================================================
+
+/**
+ * Diagnostic check for the cascade reranker. Reads `cascade.json`,
+ * decides what state the reranker should be in, and produces one
+ * `DoctorCheck` row reflecting reality:
+ *
+ *   • Cascade disabled / no config       → info row, "cascade off"
+ *   • kind: "noop"                       → pass, "cascade on, no-op reranker"
+ *   • kind: "cloud" + endpoint           → pass, "cascade on, cloud endpoint"
+ *   • kind: "cloud" without endpoint     → fail with fix command
+ *   • kind: "minilm" + dep present       → pass, "ready (run --fix to pre-warm)"
+ *   • kind: "minilm" without dep         → fail with exact npm install command
+ *   • kind: "bge-v2-m3"                  → warn, "deferred to B1.4 (downgrades to noop)"
+ *
+ * No work happens here beyond reading config + probing whether the
+ * @xenova/transformers module is resolvable. Pre-warm (spawning a
+ * worker, loading the model) is the job of `applyDoctorFixes` when
+ * the user explicitly runs `doctor --fix`.
+ */
+function appendCascadeRerankerCheck(checks: DoctorCheck[], projectRoot: string): void {
+  let cfg: CascadeConfig | null;
+  try {
+    cfg = readCascadeConfig(projectRoot);
+  } catch {
+    cfg = null;
+  }
+  if (!cfg) {
+    checks.push({
+      name: "cascade-reranker",
+      level: "info",
+      message: "cascade not configured (sync recall path; default install behaviour)",
+    });
+    return;
+  }
+  if (!cfg.enabled) {
+    checks.push({
+      name: "cascade-reranker",
+      level: "info",
+      message: `cascade present but disabled (kind="${cfg.reranker.kind}")`,
+      fix: "Re-enable with `tracebase cascade enable` once you're ready to ramp the rollout.",
+    });
+    return;
+  }
+
+  const kind = cfg.reranker.kind;
+  if (kind === "noop") {
+    checks.push({
+      name: "cascade-reranker",
+      level: "pass",
+      message: `cascade on with kind="noop" (architecture exercised, no semantic rerank)`,
+    });
+    return;
+  }
+  if (kind === "cloud") {
+    if (!cfg.reranker.endpoint) {
+      checks.push({
+        name: "cascade-reranker",
+        level: "fail",
+        message: `kind="cloud" but no endpoint configured`,
+        fix:
+          "Set `experiment.cascade.reranker.endpoint` in .tracebase/config.json to a reranker URL, " +
+          "or switch kind to \"noop\" / \"minilm\".",
+      });
+      return;
+    }
+    checks.push({
+      name: "cascade-reranker",
+      level: "pass",
+      message: `cascade on with kind="cloud" → ${cfg.reranker.endpoint}`,
+    });
+    return;
+  }
+  if (kind === "bge-v2-m3") {
+    checks.push({
+      name: "cascade-reranker",
+      level: "warn",
+      message: `kind="bge-v2-m3" is deferred to B1.4 — request silently downgrades to noop until then`,
+      fix: "Track B1.4 or switch to kind=\"minilm\" for local reranking today.",
+    });
+    return;
+  }
+  // kind === "minilm"
+  const depPresent = isModuleResolvable("@xenova/transformers");
+  if (!depPresent) {
+    checks.push({
+      name: "cascade-reranker",
+      level: "fail",
+      message: `kind="minilm" requires @xenova/transformers (optional peer dep — not installed)`,
+      fix:
+        "Install in YOUR project (we never auto-install native deps): " +
+        "`npm install @xenova/transformers`. " +
+        "Or switch to kind=\"cloud\" / \"noop\" if you don't want a local model.",
+    });
+    return;
+  }
+  checks.push({
+    name: "cascade-reranker",
+    level: "pass",
+    message: `kind="minilm" ready (@xenova/transformers resolvable). ` +
+      `Run \`tracebase doctor --fix\` to pre-warm the worker + model cache.`,
+  });
+}
+
+/**
+ * Whether `name` is resolvable from this install's module graph.
+ * Mirrors the @modelcontextprotocol/sdk probe earlier in the file —
+ * `require.resolve` survives tsup's CJS/ESM split because tsup emits
+ * a CJS shim for the dual-format build.
+ */
+function isModuleResolvable(name: string): boolean {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require.resolve(name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Run the safe-side automatic fixes implied by the current report.
+ * Mutates `report` so the rendered output reflects the post-fix
+ * state. Two invariants:
+ *
+ *   1. NEVER installs native deps (no `npm install` shelled out).
+ *      Missing deps stay as FAIL with the actionable command —
+ *      installing into a foreign project is a side effect we
+ *      refuse to take.
+ *   2. Idempotent. Running `doctor --fix` twice in a row is safe;
+ *      already-warm rerankers re-warm into the same cache.
+ *
+ * Currently fixes:
+ *   • cascade-reranker / kind:"minilm" — spawn the worker, send a
+ *     dummy score request, terminate. Forces @xenova/transformers
+ *     to download model weights into its cache so the first
+ *     production query doesn't pay the latency.
+ *
+ * Future calls (B1.4+) plug in here: pending_embeddings drain, FTS5
+ * rebuild, etc. Same contract: safe-side only, idempotent, never
+ * installs deps.
+ */
+export async function applyDoctorFixes(
+  report: DoctorReport,
+  projectRoot: string,
+): Promise<void> {
+  const cfg = readCascadeConfig(projectRoot);
+  if (cfg?.enabled && cfg.reranker.kind === "minilm" && isModuleResolvable("@xenova/transformers")) {
+    const warmResult = await prewarmMiniLM(cfg);
+    // Replace the cascade-reranker check with the post-warm state
+    // so users see the result of their `--fix` invocation, not the
+    // pre-fix snapshot.
+    const idx = report.checks.findIndex((c) => c.name === "cascade-reranker");
+    if (idx >= 0) {
+      report.checks[idx] = warmResult;
+      // Recompute the summary tallies since we replaced a row.
+      report.summary = recountSummary(report.checks);
+    } else {
+      report.checks.push(warmResult);
+      report.summary = recountSummary(report.checks);
+    }
+  }
+}
+
+/**
+ * Spawn a MiniLMReranker, send a tiny score request, wait for the
+ * response (or a generous timeout), terminate. Doesn't propagate
+ * the result to anyone — the call is purely a side-effect to
+ * populate the @xenova/transformers model cache so the first
+ * production query is hot.
+ *
+ * Timeout is intentionally generous (60s) because the first cold
+ * run can pull ~80MB over the network from HF. Test that user wants
+ * a faster ceiling, they can interrupt with ^C — runDoctor exits
+ * cleanly because the worker is in a separate thread.
+ */
+async function prewarmMiniLM(cfg: CascadeConfig): Promise<DoctorCheck> {
+  const reranker = new MiniLMReranker({
+    ...(cfg.reranker.model ? { modelId: cfg.reranker.model } : {}),
+  });
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), 60_000);
+  timeout.unref?.();
+  try {
+    const start = Date.now();
+    const scores = await reranker.score(
+      "warm-up query: do not act on this content",
+      [{ blockId: "_warm", triggerText: "warm-up candidate trigger text" }],
+      { signal: ctrl.signal },
+    );
+    const ms = Date.now() - start;
+    if (scores === null) {
+      return {
+        name: "cascade-reranker",
+        level: "fail",
+        message: `kind="minilm" pre-warm failed (scoring returned null after ${ms}ms)`,
+        fix:
+          "Check the @xenova/transformers install + network access to huggingface.co. " +
+          "Or switch to kind=\"cloud\" / \"noop\".",
+      };
+    }
+    return {
+      name: "cascade-reranker",
+      level: "pass",
+      message: `kind="minilm" warm — worker + model loaded in ${ms}ms; first production query will be hot`,
+    };
+  } finally {
+    clearTimeout(timeout);
+    reranker.terminate();
+  }
+}
+
+function recountSummary(checks: DoctorCheck[]): DoctorReport["summary"] {
+  const out = { pass: 0, info: 0, warn: 0, fail: 0 };
+  for (const c of checks) out[c.level]++;
+  return out;
 }
 
 function finalize(projectPath: string, checks: DoctorCheck[]): DoctorReport {
