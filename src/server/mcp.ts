@@ -18,6 +18,7 @@ import {
   CONTEXTUAL_RUNTIME_PROTOCOL,
   deletePattern,
   deleteProjectFact,
+  lookupCascadeProvenance,
   resolveUsedItems,
   storeReasoningPattern,
   StorePatternValidationError,
@@ -572,11 +573,26 @@ export async function startMcpServer(
           usedBlockIds: z.array(z.string()),
           usedFactIds: z.array(z.string()),
           durationMs: z.number().optional(),
+          // May-2026 B1.6 — cascade provenance so the agent can
+          // observe whether the retrieval that produced its slate
+          // was reranker-assisted, and whether the reranker fell
+          // back. Absent when the queryId can't be located in the
+          // event log.
+          cascade: z
+            .object({
+              viaCascade: z.boolean(),
+              policyId: z.string().optional(),
+              rerankerName: z.string().optional(),
+              fellBack: z.boolean().optional(),
+              fallbackReason: z.enum(["timeout", "error", "null", "empty", "validation"]).optional(),
+            })
+            .optional(),
         }),
       },
     },
     async (args) => {
       const injected = collectInjectedFromQuery(blockStore, args.queryId);
+      const cascade = lookupCascadeProvenance(blockStore, args.queryId);
       const resolved = resolveUsedItems(injected, {
         ...(args.usedPattern !== undefined ? { usedPattern: args.usedPattern } : {}),
         ...(args.usedBlocks !== undefined ? { usedBlocks: args.usedBlocks } : {}),
@@ -629,12 +645,30 @@ export async function startMcpServer(
           "Without this, the next agent will re-derive the same solution from scratch."
         : "";
 
+      // Cascade provenance line in the agent-facing text. The agent
+      // reading this learns: "my recall was reranker-assisted vs not",
+      // and on fellBack=true, "the reranker collapsed to BM25 — the
+      // patterns I saw came from lexical scoring, not the cross-encoder".
+      // This is the difference between trusting a hit and second-guessing.
+      let cascadeLine = "";
+      if (cascade) {
+        if (!cascade.viaCascade) {
+          cascadeLine = "\n  cascade:     sync recall (cascade rollout not active for this query)";
+        } else if (cascade.fellBack) {
+          const reason = cascade.fallbackReason ? ` (${cascade.fallbackReason})` : "";
+          cascadeLine = `\n  cascade:     fell back to BM25 ordering${reason} — reranker did not influence this slate`;
+        } else {
+          cascadeLine = `\n  cascade:     reranker-assisted via ${cascade.rerankerName ?? "unknown"}`;
+        }
+      }
+
       const summary =
         `Recorded outcome for ${args.queryId}:\n` +
         `  resolved=${args.resolved}\n` +
         `  used blocks: ${resolved.usedBlockIds.length}/${injected.blockIds.length}\n` +
         `  used facts:  ${resolved.usedFactIds.length}/${injected.factIds.length}` +
         (args.durationMs !== undefined ? `\n  durationMs:  ${args.durationMs}` : "") +
+        cascadeLine +
         captureHint;
 
       const structured: OutcomeStructured = {
@@ -645,6 +679,7 @@ export async function startMcpServer(
           usedBlockIds: resolved.usedBlockIds,
           usedFactIds: resolved.usedFactIds,
           ...(args.durationMs !== undefined ? { durationMs: args.durationMs } : {}),
+          ...(cascade ? { cascade } : {}),
         },
       };
 

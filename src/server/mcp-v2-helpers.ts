@@ -194,6 +194,87 @@ export interface OutcomeStructured {
     usedBlockIds: string[];
     usedFactIds: string[];
     durationMs?: number;
+    /**
+     * May-2026 B1.6 — cascade provenance for this query.
+     *
+     * Present iff a retrieval event for `queryId` is recoverable. The
+     * agent reads this to know whether its run was on the cascade arm
+     * (reranker-assisted) or the sync arm — a meaningful diagnostic
+     * when post-mortem'ing why a pattern surfaced or didn't. Surfacing
+     * fallback reason is the difference between "the cascade chose this
+     * block" and "the cascade fell back to BM25 ordering and BM25
+     * chose this block" — both legitimate, very different signals.
+     */
+    cascade?: OutcomeCascadeProvenance;
+  };
+}
+
+/**
+ * Provenance block attached to outcome responses. Optional fields are
+ * absent on the sync arm; `viaCascade: false` is the explicit
+ * "sync recall path" marker so consumers don't have to infer.
+ */
+export interface OutcomeCascadeProvenance {
+  /** True iff the retrieval went through BlockServer.recallAsync (cascade path). */
+  viaCascade: boolean;
+  /** Cascade policy version, e.g. "linear+rerank+mmr.v1". Present only on cascade arm. */
+  policyId?: string;
+  /** Concrete reranker that ran, e.g. "minilm" / "cloud" / "noop". Present only on cascade arm. */
+  rerankerName?: string;
+  /** True iff the reranker call collapsed to the pre-rerank ordering. */
+  fellBack?: boolean;
+  /** Reason for fallback when `fellBack: true`. */
+  fallbackReason?: "timeout" | "error" | "null" | "empty" | "validation";
+}
+
+/**
+ * Recover cascade provenance for a queryId by reading its retrieval
+ * event from the analytics log. Returns `null` when no retrieval
+ * event exists (e.g. legacy queryId from before B1.2, or a malformed
+ * queryId the agent fabricated) — callers should treat that as
+ * "no provenance available, don't render the cascade line".
+ *
+ * Pure read; never throws. Used by `record_reasoning_outcome` to
+ * surface cascade metadata in the agent-facing response.
+ */
+export function lookupCascadeProvenance(
+  store: BlockStore,
+  queryId: string,
+): OutcomeCascadeProvenance | null {
+  let retrieval: Record<string, unknown> | null = null;
+  try {
+    const events = store.readEvents({ queryId, limit: 100 });
+    for (const ev of events) {
+      if (ev.event === "retrieval") {
+        retrieval = ev as unknown as Record<string, unknown>;
+        break;
+      }
+    }
+  } catch {
+    return null;
+  }
+  if (!retrieval) return null;
+
+  const policyId = typeof retrieval.cascadePolicyId === "string" ? retrieval.cascadePolicyId : undefined;
+  const rerankerName = typeof retrieval.rerankerName === "string" ? retrieval.rerankerName : undefined;
+  const fellBack = typeof retrieval.rerankerFellBack === "boolean" ? retrieval.rerankerFellBack : undefined;
+  const fallbackReasonRaw = retrieval.rerankerFallbackReason;
+  const fallbackReason =
+    fallbackReasonRaw === "timeout" ||
+    fallbackReasonRaw === "error" ||
+    fallbackReasonRaw === "null" ||
+    fallbackReasonRaw === "empty" ||
+    fallbackReasonRaw === "validation"
+      ? fallbackReasonRaw
+      : undefined;
+
+  const viaCascade = policyId !== undefined;
+  return {
+    viaCascade,
+    ...(policyId !== undefined ? { policyId } : {}),
+    ...(rerankerName !== undefined ? { rerankerName } : {}),
+    ...(fellBack !== undefined ? { fellBack } : {}),
+    ...(fallbackReason !== undefined ? { fallbackReason } : {}),
   };
 }
 

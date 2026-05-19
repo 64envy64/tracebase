@@ -157,6 +157,18 @@ export const cascadeCommand = new Command("cascade")
       .option("--by-day", "include a UTC daily trend table")
       .option("--json", "machine-readable output")
       .action((opts: CompareOpts) => runCompare(opts)),
+  )
+  .addCommand(
+    new Command("explain")
+      .description(
+        "Post-mortem one query: which arm it landed in, what BM25 + reranker chose, " +
+          "whether the cascade fell back, and what got injected. " +
+          "Pass the queryId from a prior get_reasoning_patterns or trace_retrieval event.",
+      )
+      .argument("<queryId>", "queryId returned by get_reasoning_patterns / recall")
+      .option("-p, --path <path>", "project root", process.cwd())
+      .option("--json", "machine-readable output")
+      .action((queryId: string, opts: BaseOpts) => runExplain(queryId, opts)),
   );
 
 // ---------------------------------------------------------------------------
@@ -439,6 +451,161 @@ function parseDurationAgo(s: string): number | null {
   const ms =
     unit === "d" ? n * 24 * 60 * 60 * 1000 : unit === "h" ? n * 60 * 60 * 1000 : n * 60 * 1000;
   return Date.now() - ms;
+}
+
+/**
+ * B1.6 explain — post-mortem on a single queryId.
+ *
+ * Reads every event tagged with `queryId` and renders:
+ *   • the arm (cascade vs sync, decided by cascadePolicyId)
+ *   • the slate the user actually saw (selectedTraceIds when stamped,
+ *     otherwise the candidates list from the retrieval event)
+ *   • reranker outcome — succeeded vs fellBack + reason
+ *   • blocks the cascade decided to inject
+ *   • whether outcome closed (resolved/not)
+ *
+ * The whole point is debugging "why did THIS query surface THESE
+ * blocks". Without explain users would have to read raw event JSONL
+ * and hand-correlate by queryId.
+ */
+interface ExplainReport {
+  queryId: string;
+  found: boolean;
+  arm?: "cascade" | "sync";
+  cascadePolicyId?: string;
+  rerankerName?: string;
+  rerankerFellBack?: boolean;
+  rerankerFallbackReason?: string;
+  mmrLambda?: number;
+  shadow?: boolean;
+  candidateCount?: number;
+  injectedBlockIds: string[];
+  injectedFactIds: string[];
+  usedBlockIds: string[];
+  usedFactIds: string[];
+  outcome?: { resolved: boolean; durationMs?: number };
+}
+
+function runExplain(queryId: string, opts: BaseOpts): void {
+  const basePath = resolveBasePath(opts.path);
+  if (!basePath) {
+    fail("project not initialised — run `npx tracebase-ai init` first");
+    return;
+  }
+  const config = loadConfig(basePath);
+  if (!existsSync(config.storagePath)) {
+    emit(opts.json, { queryId, found: false }, () => {
+      process.stdout.write(pc.dim(`no memory.db yet — nothing to explain.\n`));
+    });
+    return;
+  }
+  const db = new Database(config.storagePath, { readonly: true });
+  try {
+    const store = new BlockStore(db, { skipMigrate: true });
+    const events = store.readEvents({ queryId, limit: 1000 });
+    if (events.length === 0) {
+      emit(opts.json, { queryId, found: false }, () => {
+        process.stdout.write(pc.dim(`queryId not found in event log.\n`));
+      });
+      return;
+    }
+    const report = buildExplainReport(queryId, events);
+    emit(opts.json, report, () => renderExplain(report));
+  } finally {
+    db.close();
+  }
+}
+
+function buildExplainReport(
+  queryId: string,
+  events: ReadonlyArray<import("../../types.js").AnalyticsEvent>,
+): ExplainReport {
+  const report: ExplainReport = {
+    queryId,
+    found: true,
+    injectedBlockIds: [],
+    injectedFactIds: [],
+    usedBlockIds: [],
+    usedFactIds: [],
+  };
+  for (const ev of events) {
+    if (ev.event === "retrieval") {
+      const isCascade =
+        typeof ev.cascadePolicyId === "string" && ev.cascadePolicyId.length > 0;
+      report.arm = isCascade ? "cascade" : "sync";
+      report.shadow = ev.shadow;
+      report.candidateCount = ev.candidates.length;
+      if (isCascade) {
+        report.cascadePolicyId = ev.cascadePolicyId;
+        report.rerankerName = ev.rerankerName;
+        report.rerankerFellBack = ev.rerankerFellBack;
+        report.rerankerFallbackReason = ev.rerankerFallbackReason;
+        report.mmrLambda = ev.mmrLambda;
+      }
+    } else if (ev.event === "injection" && !report.injectedBlockIds.includes(ev.blockId)) {
+      report.injectedBlockIds.push(ev.blockId);
+    } else if (ev.event === "fact_injection" && !report.injectedFactIds.includes(ev.factId)) {
+      report.injectedFactIds.push(ev.factId);
+    } else if (ev.event === "agent_used" && !report.usedBlockIds.includes(ev.blockId)) {
+      report.usedBlockIds.push(ev.blockId);
+    } else if (ev.event === "fact_agent_used" && !report.usedFactIds.includes(ev.factId)) {
+      report.usedFactIds.push(ev.factId);
+    } else if (ev.event === "outcome") {
+      report.outcome = {
+        resolved: ev.resolved,
+        ...(ev.durationMs !== undefined ? { durationMs: ev.durationMs } : {}),
+      };
+    }
+  }
+  return report;
+}
+
+function renderExplain(r: ExplainReport): void {
+  process.stdout.write(`query ${r.queryId}\n`);
+  if (r.arm === "cascade") {
+    const policy = r.cascadePolicyId ?? "unknown";
+    if (r.rerankerFellBack) {
+      const reason = r.rerankerFallbackReason ? ` (${r.rerankerFallbackReason})` : "";
+      process.stdout.write(
+        `  arm:        ${pc.yellow("cascade — fell back")}${reason}\n`,
+      );
+    } else {
+      process.stdout.write(
+        `  arm:        ${pc.green("cascade")}  reranker=${r.rerankerName ?? "unknown"}\n`,
+      );
+    }
+    process.stdout.write(`  policy:     ${policy}\n`);
+    if (r.mmrLambda !== undefined) process.stdout.write(`  mmrLambda:  ${r.mmrLambda}\n`);
+  } else if (r.arm === "sync") {
+    process.stdout.write(`  arm:        ${pc.dim("sync")}  (cascade rollout did not route this query)\n`);
+  } else {
+    process.stdout.write(`  arm:        ${pc.dim("unknown — no retrieval event")}\n`);
+  }
+  if (r.shadow) {
+    process.stdout.write(pc.dim(`  shadow:     true — no injection fired\n`));
+  }
+  if (r.candidateCount !== undefined) {
+    process.stdout.write(`  candidates: ${r.candidateCount} scored\n`);
+  }
+  process.stdout.write(
+    `  injected:   ${r.injectedBlockIds.length} block(s), ${r.injectedFactIds.length} fact(s)\n`,
+  );
+  if (r.injectedBlockIds.length > 0) {
+    process.stdout.write(pc.dim(`    blocks: ${r.injectedBlockIds.join(", ")}\n`));
+  }
+  if (r.injectedFactIds.length > 0) {
+    process.stdout.write(pc.dim(`    facts:  ${r.injectedFactIds.join(", ")}\n`));
+  }
+  process.stdout.write(
+    `  used:       ${r.usedBlockIds.length} block(s), ${r.usedFactIds.length} fact(s)\n`,
+  );
+  if (r.outcome) {
+    const resolved = r.outcome.resolved ? pc.green("resolved") : pc.red("not resolved");
+    const ms = r.outcome.durationMs !== undefined ? `  durationMs=${r.outcome.durationMs}` : "";
+    process.stdout.write(`  outcome:    ${resolved}${ms}\n`);
+  } else {
+    process.stdout.write(pc.dim(`  outcome:    not yet recorded\n`));
+  }
 }
 
 function resolveBasePath(explicit: string): string | null {
