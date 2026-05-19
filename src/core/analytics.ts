@@ -551,6 +551,8 @@ export function emitTraceRetrieval(
       framework?: string;
       errorType?: string;
       corpusSize?: number;
+      /** May-2026 B2 — contextual bandit bucket key. */
+      bucketKey?: string;
     };
     ts?: number;
     runId?: string;

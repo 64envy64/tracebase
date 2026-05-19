@@ -19,11 +19,16 @@ import { loadConfig, findConfigDir, initConfig, resolveProjectBase } from "./con
 import {
   loadWeightState,
   computeWeightsMean,
-  sampleWeights,
   seededRng,
-  updateWeights,
   type SignalWeights,
 } from "./weights.js";
+import {
+  bucketKeyFor,
+  loadContextualBandit,
+  sampleContextualWeights,
+  updateContextualWeights,
+  type BucketContext,
+} from "./contextual-bandit.js";
 import {
   emitTraceRetrieval,
   emitTraceAgentUsed,
@@ -239,11 +244,17 @@ export class ReasoningLayer {
   recall(query: RecallQuery): RecallResult[] {
     this.ensureOpen();
 
-    // Load adaptive weights from DB and draw a Thompson sample for this
-    // query. The seed is the public correlation point — log it so
-    // off-policy screening can replay the exact draw later.
-    const weightState = loadWeightState(this.store.rawDb);
-    const { weights, seed } = this.drawWeights(weightState, /*hasEmbeddings*/ false);
+    // May-2026 B2 — sample weights from the contextual bandit. The
+    // hierarchical empirical-Bayes layer collapses to the global
+    // posterior for unseen buckets, so existing test fixtures see
+    // identical behaviour; per-context divergence only emerges once
+    // bucket-local feedback accumulates. The seed is the public
+    // correlation point — log it so off-policy screening can replay
+    // the exact draw later.
+    const { weights, seed, bucketKey } = this.drawWeights(
+      this.contextFor(query),
+      /*hasEmbeddings*/ false,
+    );
 
     const { results, allCandidates } = recallWithAllCandidates(
       this.store,
@@ -261,6 +272,7 @@ export class ReasoningLayer {
       weights,
       /*hasEmbeddings*/ false,
       seed,
+      bucketKey,
     );
     const stamped = results.map((r) => ({ ...r, queryId }));
     this.emit({ type: "trace:recalled", query, results: stamped });
@@ -396,9 +408,11 @@ export class ReasoningLayer {
       }
     }
 
-    // Load adaptive weights with cosine enabled and draw a Thompson sample.
-    const weightState = loadWeightState(this.store.rawDb);
-    const { weights, seed } = this.drawWeights(weightState, /*hasEmbeddings*/ true);
+    // Sample weights from the contextual bandit with cosine enabled.
+    const { weights, seed, bucketKey } = this.drawWeights(
+      this.contextFor(query),
+      /*hasEmbeddings*/ true,
+    );
 
     const { results, allCandidates } = recallWithAllCandidates(
       this.store,
@@ -416,6 +430,7 @@ export class ReasoningLayer {
       weights,
       /*hasEmbeddings*/ true,
       seed,
+      bucketKey,
     );
     const stamped = results.map((r) => ({ ...r, queryId }));
     this.emit({ type: "trace:recalled", query, results: stamped });
@@ -524,18 +539,23 @@ export class ReasoningLayer {
     // pre-PR-1 history) → also skip; the trace exists but we have no
     // contribution data to credit.
     if (resolved.signals && !resolved.ambiguous) {
-      const weightState = loadWeightState(this.store.rawDb);
-      const updated = updateWeights(
+      // B2 — update both the global posterior AND the bucket-local
+      // observation counters. `updateContextualWeights` writes both
+      // atomically so a partial update can't desync the layers.
+      const { global, contextual } = loadContextualBandit(this.store.rawDb);
+      const updated = updateContextualWeights(
         this.store.rawDb,
-        weightState,
+        global,
+        contextual,
+        resolved.bucketContext ?? {},
         resolved.signals,
         helpful,
       );
-      // Emit the posterior MEAN of the updated state (not a fresh
-      // sample) so observers see a stable "model thinks X" snapshot
-      // after each feedback — the actual recall path samples fresh
-      // every query.
-      const newWeights = computeWeightsMean(updated);
+      // Emit the posterior MEAN of the updated GLOBAL state (not a
+      // fresh sample, not the bucket-conditional mean) so observers
+      // see a stable "model thinks X" snapshot. Bucket-level views
+      // live in `tracebase explain` / B3, not in the event emitter.
+      const newWeights = computeWeightsMean(updated.global);
       this.emit({
         type: "weights:updated",
         weights: newWeights as unknown as Record<string, number>,
@@ -716,23 +736,38 @@ export class ReasoningLayer {
 
   /**
    * Draw a fresh Thompson sample of the weight vector for the next
-   * recall. Returns the sample plus the 32-bit seed used to produce it
-   * so the caller can log the seed onto the `trace_retrieval` event
-   * payload — that's the contract that lets off-policy screening
-   * replay the same draw deterministically.
+   * recall, conditioned on the query's BucketContext.
+   *
+   * B2 contextual layer (`contextual-bandit.ts`) wraps the global
+   * Beta posterior with an empirical-Bayes per-(language, framework,
+   * errorType) bucket. A bucket with zero observations samples from
+   * the global posterior (identical mean, slightly tighter spread
+   * thanks to the κ prior strength), so cold-start behaviour matches
+   * pre-B2 exactly. Buckets diverge only when their own observation
+   * counters dominate κ ≈ 10.
+   *
+   * Returns the sample plus the 32-bit seed AND the bucket key. The
+   * caller logs all three onto the `trace_retrieval` event payload —
+   * the seed lets off-policy screening replay deterministically; the
+   * bucket key lets diagnostic surfaces (and B3) join feedback rows
+   * to the posterior that produced them.
    */
   private drawWeights(
-    state: ReturnType<typeof loadWeightState>,
+    context: BucketContext,
     hasEmbeddings: boolean,
-  ): { weights: SignalWeights; seed: number } {
+  ): { weights: SignalWeights; seed: number; bucketKey: string } {
     // Crypto-random 32-bit seed — non-deterministic by default; tests
     // and OPE pass a seeded RNG to override this branch entirely
     // (future hook on the constructor; in PR 2 the public API is
     // implicit production-only).
     const seed = (Math.random() * 0x100000000) >>> 0;
     const rng = seededRng(seed);
-    const weights = sampleWeights(state, hasEmbeddings, rng);
-    return { weights, seed };
+    const { global, contextual } = loadContextualBandit(this.store.rawDb);
+    const weights = sampleContextualWeights(global, contextual, context, {
+      hasEmbeddings,
+      rng,
+    });
+    return { weights, seed, bucketKey: bucketKeyFor(context) };
   }
 
   /**
@@ -761,6 +796,7 @@ export class ReasoningLayer {
     weights: SignalWeights,
     hasEmbeddings: boolean,
     seed?: number,
+    bucketKey?: string,
   ): string {
     const queryId = randomUUID();
     const candidates: TraceRetrievalCandidate[] = allCandidates.map((r) => ({
@@ -788,8 +824,9 @@ export class ReasoningLayer {
           ...(query.context.framework !== undefined ? { framework: query.context.framework } : {}),
           ...(query.context.errorType !== undefined ? { errorType: query.context.errorType } : {}),
           corpusSize: this.store.count(),
+          ...(bucketKey !== undefined ? { bucketKey } : {}),
         }
-      : { corpusSize: this.store.count() };
+      : { corpusSize: this.store.count(), ...(bucketKey !== undefined ? { bucketKey } : {}) };
     try {
       emitTraceRetrieval(this.blockStore, {
         queryId,
@@ -836,6 +873,7 @@ export class ReasoningLayer {
   ): {
     queryId?: string;
     signals?: SimilaritySignals;
+    bucketContext?: BucketContext;
     ambiguous?: boolean;
     alreadyCredited?: boolean;
   } {
@@ -850,6 +888,21 @@ export class ReasoningLayer {
     } catch {
       return {};
     }
+
+    // Pull the BucketContext off a retrieval event's `context` payload
+    // so the feedback path can credit the right contextual bucket.
+    // Pre-B2 events have no language/framework/errorType in context;
+    // we fall back to an empty context which collapses to the
+    // "everything-is-anonymous" bucket.
+    const bucketFromEvent = (ev: { context?: Record<string, unknown> }): BucketContext => {
+      const c = ev.context;
+      if (!c) return {};
+      const ctx: BucketContext = {};
+      if (typeof c.language === "string") ctx.language = c.language;
+      if (typeof c.framework === "string") ctx.framework = c.framework;
+      if (typeof c.errorType === "string") ctx.errorType = c.errorType;
+      return ctx;
+    };
 
     if (explicitQueryId) {
       // Exact-match path. First scan for an existing trace_feedback for
@@ -870,7 +923,11 @@ export class ReasoningLayer {
         if (ev.queryId !== explicitQueryId) continue;
         const cand = ev.candidates.find((c) => c.traceId === traceId);
         if (!cand) continue;
-        return { queryId: explicitQueryId, signals: cand.signals };
+        return {
+          queryId: explicitQueryId,
+          signals: cand.signals,
+          bucketContext: bucketFromEvent(ev),
+        };
       }
       // queryId given but no matching retrieval event found — treat as
       // no-attribution. Caller will update quality but not weights.
@@ -887,26 +944,49 @@ export class ReasoningLayer {
         feedbackQueryIds.add(ev.queryId);
       }
     }
-    const candidates: Array<{ queryId: string; signals: SimilaritySignals }> = [];
+    const candidates: Array<{
+      queryId: string;
+      signals: SimilaritySignals;
+      bucketContext: BucketContext;
+    }> = [];
     for (const ev of events) {
       if (ev.event !== "trace_retrieval") continue;
       if (feedbackQueryIds.has(ev.queryId)) continue;
       if (!ev.selectedTraceIds.includes(traceId)) continue;
       const cand = ev.candidates.find((c) => c.traceId === traceId);
       if (!cand) continue;
-      candidates.push({ queryId: ev.queryId, signals: cand.signals });
+      candidates.push({
+        queryId: ev.queryId,
+        signals: cand.signals,
+        bucketContext: bucketFromEvent(ev),
+      });
     }
 
     if (candidates.length === 0) {
       return {};
     }
     if (candidates.length === 1) {
-      return { queryId: candidates[0]!.queryId, signals: candidates[0]!.signals };
+      const c = candidates[0]!;
+      return { queryId: c.queryId, signals: c.signals, bucketContext: c.bucketContext };
     }
     // Ambiguous: prefer the most recent retrieval for the feedback row's
     // queryId so observability tooling can join it back, but flag the
     // skip so the weight driver bails out.
     const last = candidates[candidates.length - 1]!;
-    return { queryId: last.queryId, signals: last.signals, ambiguous: true };
+    return {
+      queryId: last.queryId,
+      signals: last.signals,
+      bucketContext: last.bucketContext,
+      ambiguous: true,
+    };
+  }
+
+  /** Extract a BucketContext from a RecallQuery — light coercion only. */
+  private contextFor(query: RecallQuery): BucketContext {
+    const ctx: BucketContext = {};
+    if (query.context?.language) ctx.language = query.context.language;
+    if (query.context?.framework) ctx.framework = query.context.framework;
+    if (query.context?.errorType) ctx.errorType = query.context.errorType;
+    return ctx;
   }
 }

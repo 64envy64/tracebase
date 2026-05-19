@@ -1895,6 +1895,15 @@ export interface TraceRetrievalEvent extends EventBase {
     framework?: string;
     errorType?: string;
     corpusSize?: number;
+    /**
+     * May-2026 B2 — bucket key from the contextual bandit
+     * (`bucketKeyFor(context)`). Logged so off-policy replay knows
+     * which bucket's effective posterior was sampled, and so
+     * diagnostic surfaces can show per-bucket divergence over time.
+     * Absent on pre-B2 events; present on every recall after the
+     * bandit lands.
+     */
+    bucketKey?: string;
   };
   /**
    * The traceIds actually returned to the caller as the top-K (subset of
