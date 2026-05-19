@@ -471,14 +471,38 @@ function parseDurationAgo(s: string): number | null {
 interface ExplainReport {
   queryId: string;
   found: boolean;
+  /**
+   * Which retrieval pathway produced this query. "sync" covers both
+   * V1 trace_retrieval events AND V2 retrieval events without a
+   * cascadePolicyId; "cascade" only covers V2 retrieval events with
+   * a cascadePolicyId stamp.
+   */
   arm?: "cascade" | "sync";
+  /** Which event kind the retrieval came from — exposes V1/V2 split honestly. */
+  retrievalSource?: "trace_retrieval" | "retrieval";
   cascadePolicyId?: string;
   rerankerName?: string;
   rerankerFellBack?: boolean;
   rerankerFallbackReason?: string;
   mmrLambda?: number;
   shadow?: boolean;
-  candidateCount?: number;
+  /**
+   * Total candidates the ranker scored (BM25 + multi-signal pass).
+   * For V2 cascade events this is preCascadeSlate.length so users see
+   * how many blocks the reranker actually evaluated, not how many
+   * survived MMR/gate. For V1 trace_retrieval this is candidates.length
+   * (V1 logs the full scored set). Falls back to candidates.length when
+   * preCascadeSlate is absent (sync V2 path, legacy events).
+   */
+  scoredCount?: number;
+  /**
+   * Top-K actually surfaced to the agent — what the user saw.
+   * Distinct from `scoredCount` because cascade narrows scored→selected
+   * via reranker + MMR + gate.
+   */
+  selectedCount?: number;
+  /** B2 bucket key from the retrieval event's context payload. */
+  bucketKey?: string;
   injectedBlockIds: string[];
   injectedFactIds: string[];
   usedBlockIds: string[];
@@ -530,11 +554,23 @@ function buildExplainReport(
   };
   for (const ev of events) {
     if (ev.event === "retrieval") {
+      // B1.6 review P1-A: V2 retrieval events have `candidates` =
+      // post-MMR top-K and `preCascadeSlate` = full pre-cascade scoring
+      // breadth. Label "scored" against the slate the reranker actually
+      // evaluated, not the surface the user saw — those are different
+      // numbers in the cascade arm.
       const isCascade =
         typeof ev.cascadePolicyId === "string" && ev.cascadePolicyId.length > 0;
       report.arm = isCascade ? "cascade" : "sync";
+      report.retrievalSource = "retrieval";
       report.shadow = ev.shadow;
-      report.candidateCount = ev.candidates.length;
+      const selected = ev.candidates.length;
+      const scored =
+        ev.preCascadeSlate && ev.preCascadeSlate.length > 0
+          ? ev.preCascadeSlate.length
+          : selected;
+      report.selectedCount = selected;
+      report.scoredCount = scored;
       if (isCascade) {
         report.cascadePolicyId = ev.cascadePolicyId;
         report.rerankerName = ev.rerankerName;
@@ -542,6 +578,21 @@ function buildExplainReport(
         report.rerankerFallbackReason = ev.rerankerFallbackReason;
         report.mmrLambda = ev.mmrLambda;
       }
+    } else if (ev.event === "trace_retrieval") {
+      // B1.6 review P1-B: V1 trace_retrieval events were ignored
+      // entirely — meaning any CLI / middleware queryId returned
+      // "not found" even though the event existed. V1 traffic never
+      // routes through the cascade, so arm is always "sync"; but the
+      // candidates + selected + bucketKey provenance still matters
+      // for debugging.
+      report.arm = "sync";
+      report.retrievalSource = "trace_retrieval";
+      // V1 logs the FULL scored set in `candidates`; the user-visible
+      // top-K lives in `selectedTraceIds`. Match the V2 label semantics.
+      report.scoredCount = ev.candidates.length;
+      report.selectedCount = ev.selectedTraceIds.length;
+      const bucketKey = ev.context?.bucketKey;
+      if (typeof bucketKey === "string") report.bucketKey = bucketKey;
     } else if (ev.event === "injection" && !report.injectedBlockIds.includes(ev.blockId)) {
       report.injectedBlockIds.push(ev.blockId);
     } else if (ev.event === "fact_injection" && !report.injectedFactIds.includes(ev.factId)) {
@@ -577,15 +628,33 @@ function renderExplain(r: ExplainReport): void {
     process.stdout.write(`  policy:     ${policy}\n`);
     if (r.mmrLambda !== undefined) process.stdout.write(`  mmrLambda:  ${r.mmrLambda}\n`);
   } else if (r.arm === "sync") {
-    process.stdout.write(`  arm:        ${pc.dim("sync")}  (cascade rollout did not route this query)\n`);
+    const source =
+      r.retrievalSource === "trace_retrieval"
+        ? "V1 recall (middleware / CLI)"
+        : "V2 sync recall (cascade rollout did not route this query)";
+    process.stdout.write(`  arm:        ${pc.dim("sync")}  ${pc.dim(source)}\n`);
   } else {
     process.stdout.write(`  arm:        ${pc.dim("unknown — no retrieval event")}\n`);
   }
   if (r.shadow) {
     process.stdout.write(pc.dim(`  shadow:     true — no injection fired\n`));
   }
-  if (r.candidateCount !== undefined) {
-    process.stdout.write(`  candidates: ${r.candidateCount} scored\n`);
+  // Honest provenance: show scored breadth AND user-visible top-K
+  // separately when they differ. Equal values render as one line so
+  // we don't pad sync queries with redundant info.
+  if (r.scoredCount !== undefined && r.selectedCount !== undefined) {
+    if (r.scoredCount !== r.selectedCount) {
+      process.stdout.write(
+        `  candidates: ${r.scoredCount} scored → ${r.selectedCount} selected ` +
+          pc.dim(`(reranker + MMR narrowed)`) +
+          `\n`,
+      );
+    } else {
+      process.stdout.write(`  candidates: ${r.scoredCount} scored / selected\n`);
+    }
+  }
+  if (r.bucketKey) {
+    process.stdout.write(pc.dim(`  bucket:     ${r.bucketKey}\n`));
   }
   process.stdout.write(
     `  injected:   ${r.injectedBlockIds.length} block(s), ${r.injectedFactIds.length} fact(s)\n`,

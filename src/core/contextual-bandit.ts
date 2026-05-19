@@ -10,6 +10,43 @@
  * difference: a new bucket samples from the global posterior; a
  * heavily-observed bucket dominates its own data.
  *
+ * Scope — honest statement of what this learns (B2.1 RC review)
+ * ---------------------------------------------------------------
+ * The contextual bandit drives the V1 5-signal weighted combination
+ * in `engine.ts:recall*`. Updates flow through `ReasoningLayer.feedback`
+ * which routes to `updateContextualWeights`. That covers:
+ *
+ *   • CLI: `tracebase recall` + `tracebase feedback`
+ *   • SDK middleware: OpenAI / Anthropic auto-feedback paths
+ *   • MCP `recall` + `feedback` tools (V1 surfaces)
+ *
+ * It does NOT learn from the V2 cascade arm. V2 retrieval uses BM25
+ * + reranker + isotonic calibrator — those have their own quality
+ * lever (the calibrator fitted from `injection` / `agent_used` /
+ * `outcome` events). Cascade rollout improves V2 ranking; the
+ * contextual bandit improves V1 ranking. Two systems, two layers.
+ *
+ * Operational consequence: a project that runs traffic only through
+ * the contextual MCP runtime (`get_reasoning_patterns` →
+ * `record_reasoning_outcome`, the cascade path) will accumulate
+ * cascade telemetry but will NOT shift the bandit weights. To
+ * exercise B2 you need V1 feedback to flow.
+ *
+ * Global prior drift caveat
+ * -------------------------
+ * `updateContextualWeights` bumps BOTH the bucket-local counters
+ * AND the global posterior on every call. If one bucket dominates
+ * traffic (e.g., 99% of feedback is Python projects), the global
+ * posterior reflects that bucket — not a uniform cross-bucket
+ * average. Cold-start buckets then inherit a Python-biased prior.
+ *
+ * This is intentional: freezing the global at install-time defaults
+ * would let it never learn. But for installs with a single
+ * dominant bucket, consider treating bucket means as the
+ * authoritative ranker and ignoring the global drift; the
+ * `tracebase explain` view exposes both so the operator can spot
+ * disagreement.
+ *
  * Sampling formula (per signal `s`, per bucket `b`):
  *   α_eff = κ · m_s + α_obs_{s,b}
  *   β_eff = κ · (1 − m_s) + β_obs_{s,b}

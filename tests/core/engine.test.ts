@@ -381,6 +381,131 @@ describe("ReasoningLayer", () => {
       expect(payload.selectedTraceIds.length).toBeLessThanOrEqual(2);
     });
 
+    // ----------------------------------------------------------------
+    // B2 contextual bandit — bucket round-trip pins (May-2026 review).
+    // The recall path must stamp bucketKey on every event; feedback
+    // must credit the same bucket via context recovery. Without this
+    // round-trip B2's per-context learning silently goes nowhere —
+    // the user-named "wrong bucket got credit" failure mode.
+    // ----------------------------------------------------------------
+
+    it("B2: recall stamps bucketKey on the trace_retrieval event", () => {
+      const trace = layer.storeTrace({
+        problem: {
+          description: "B2 bucket stamping smoke test",
+          language: "python",
+          framework: "django",
+          errorType: "ImportError",
+          tags: [],
+        },
+        solution: { summary: "fix", steps: [], outcome: "success" },
+      });
+      const results = layer.recall({
+        problem: "B2 bucket stamping smoke test",
+        context: { language: "python", framework: "django", errorType: "ImportError" },
+      });
+      expect(results.length).toBeGreaterThanOrEqual(1);
+      const queryId = results[0]!.queryId!;
+      // Read the trace_retrieval event back and check the bucket key.
+      const events = layer.rawStore.rawDb
+        .prepare(
+          "SELECT payload FROM analytics_events WHERE query_id = ? AND event_type = 'trace_retrieval' LIMIT 1",
+        )
+        .all(queryId) as Array<{ payload: string }>;
+      expect(events.length).toBe(1);
+      const payload = JSON.parse(events[0]!.payload) as {
+        context?: { bucketKey?: string };
+      };
+      expect(payload.context?.bucketKey).toBe("python|django|importerror");
+      void trace;
+    });
+
+    it("B2: two distinct contexts get distinct bucketKeys (no spurious collisions)", () => {
+      layer.storeTrace({
+        problem: { description: "B2 distinct buckets seed", tags: [] },
+        solution: { summary: "fix", steps: [], outcome: "success" },
+      });
+      const a = layer.recall({
+        problem: "B2 distinct buckets query A",
+        context: { language: "python" },
+      });
+      const b = layer.recall({
+        problem: "B2 distinct buckets query B",
+        context: { language: "rust" },
+      });
+      function bucketOf(queryId: string): string | undefined {
+        const row = layer.rawStore.rawDb
+          .prepare(
+            "SELECT payload FROM analytics_events WHERE query_id = ? AND event_type = 'trace_retrieval' LIMIT 1",
+          )
+          .get(queryId) as { payload: string } | undefined;
+        if (!row) return undefined;
+        const p = JSON.parse(row.payload) as { context?: { bucketKey?: string } };
+        return p.context?.bucketKey;
+      }
+      const ka = bucketOf(a[0]!.queryId!);
+      const kb = bucketOf(b[0]!.queryId!);
+      expect(ka).toBe("python|_|_");
+      expect(kb).toBe("rust|_|_");
+      expect(ka).not.toBe(kb);
+    });
+
+    it("B2: feedback credits the correct bucket via context recovery", () => {
+      const trace = layer.storeTrace({
+        problem: {
+          description: "B2 feedback bucket-credit test",
+          language: "go",
+          tags: [],
+        },
+        solution: { summary: "fix", steps: [], outcome: "success" },
+      });
+      const results = layer.recall({
+        problem: "B2 feedback bucket-credit test",
+        context: { language: "go" },
+      });
+      layer.feedback({ queryId: results[0]!.queryId!, traceId: trace.id, helpful: true });
+
+      // Read the contextual_weights config row directly and check the
+      // bucket got incremented (any signal — the test only asserts that
+      // the right bucket was touched, not which signal).
+      const row = layer.rawStore.rawDb
+        .prepare("SELECT value FROM config WHERE key = 'contextual_weights'")
+        .get() as { value: string } | undefined;
+      expect(row).toBeDefined();
+      const state = JSON.parse(row!.value) as {
+        buckets: Record<string, { feedbackCount: number }>;
+      };
+      expect(state.buckets["go|_|_"]?.feedbackCount).toBe(1);
+      expect(state.buckets["python|_|_"]).toBeUndefined();
+    });
+
+    it("B2: legacy feedback (no queryId) still recovers the bucket from the retrieval event", () => {
+      const trace = layer.storeTrace({
+        problem: {
+          description: "B2 legacy feedback bucket recovery",
+          language: "rust",
+          errorType: "lifetime",
+          tags: [],
+        },
+        solution: { summary: "fix", steps: [], outcome: "success" },
+      });
+      // ONE recall, then legacy feedback (no queryId). The legacy
+      // path is unambiguous → bucket should still be credited.
+      layer.recall({
+        problem: "B2 legacy feedback bucket recovery",
+        context: { language: "rust", errorType: "lifetime" },
+      });
+      layer.feedback(trace.id, true);
+
+      const row = layer.rawStore.rawDb
+        .prepare("SELECT value FROM config WHERE key = 'contextual_weights'")
+        .get() as { value: string } | undefined;
+      const state = JSON.parse(row!.value) as {
+        buckets: Record<string, { feedbackCount: number }>;
+      };
+      expect(state.buckets["rust|_|lifetime"]?.feedbackCount).toBe(1);
+    });
+
     it("survives a close + reopen — attribution persists in the event log", () => {
       const trace = layer.storeTrace({
         problem: { description: "persistence across restart test", tags: [] },
