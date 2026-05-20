@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState, type CSSProperties } from "react";
-import { CopyCommand } from "@/components/CopyButton";
 import { GetStartedButton } from "@/components/auth/GetStartedButton";
 import { SWE_BENCH_SNAPSHOT } from "@/content/benchmarkStats";
 import { InkUnderline } from "./brand/Marks";
 import { INK } from "./brand/tokens";
+import { WaitlistForm } from "./WaitlistForm";
 
 type HeroMetric = { value: string; label: string; tone: "ember" | "bone" };
 
@@ -144,7 +144,7 @@ export function HeroInk() {
             style={{ ["--ink-rise-delay" as string]: "460ms" }}
           >
             <GetStartedButton size="large" onMedia />
-            <CopyCommand command="npx tracebase-ai init" onMedia />
+            <WaitlistForm size="large" onMedia />
           </div>
         </div>
       </div>

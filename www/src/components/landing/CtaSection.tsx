@@ -1,11 +1,11 @@
 "use client";
 
-import { CopyCommand } from "@/components/CopyButton";
 import { GetStartedButton } from "@/components/auth/GetStartedButton";
 import { CtaOcto, InkSplatter, InkUnderline } from "./brand/Marks";
 import { SectionLabel } from "./brand/Primitives";
 import { INK } from "./brand/tokens";
 import { useInView } from "./brand/useInView";
+import { WaitlistForm } from "./WaitlistForm";
 
 /* ============================================================ */
 /*  CtaSection — full-bleed closing moment.                      */
@@ -70,7 +70,7 @@ export function CtaSection() {
 
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <GetStartedButton size="large" />
-            <CopyCommand command="npx tracebase-ai init" />
+            <WaitlistForm size="large" />
           </div>
 
           <p
