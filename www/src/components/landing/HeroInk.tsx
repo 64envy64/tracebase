@@ -131,8 +131,8 @@ export function HeroInk() {
               ["--ink-rise-delay" as string]: "220ms",
             }}
           >
-            TraceBase turns solved work into reusable memory, so production agents carry what worked
-            into the next task.
+            TraceBase turns solved work into shared memory, so every team and every agent carries
+            what worked into the next run.
           </p>
 
           <div className="ink-rise" style={{ ["--ink-rise-delay" as string]: "340ms" }}>

@@ -27,7 +27,7 @@ type FaqItem = {
 const FAQ_ITEMS: readonly FaqItem[] = [
   {
     q: "What does Tracebase actually do?",
-    a: "Captures resolved agent work and surfaces it on the next similar run. Five failure modes: repeat reasoning, forgotten file meaning, doom-loops, redundant tool calls, and context-window thrashing on long sessions.",
+    a: "Captures resolved agent work — from any team, any agent — and surfaces it on the next similar run. Five failure modes it closes: repeat reasoning, forgotten file meaning, doom-loops, redundant tool calls, and context-window thrashing on long sessions.",
   },
   {
     q: "How is this different from mem0, Letta, or a vector store?",
