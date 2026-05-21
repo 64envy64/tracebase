@@ -1651,7 +1651,12 @@ export type AnalyticsEvent =
   | CachePromptHitEvent
   // May-2026 — every-run-learning signals.
   | CalibratorRefitEvent
-  | DriftInjectionEvent;
+  | DriftInjectionEvent
+  // May-2026 C4 — lifecycle: a block transitioned active → demoted
+  // via the memory-health gate. Emitted exactly once per
+  // demotion; carries the reason codes and component breakdown
+  // so the dashboard can show *why* memory shrank.
+  | BlockDemotedEvent;
 
 interface EventBase {
   ts: number;
@@ -2188,4 +2193,50 @@ export interface DriftInjectionEvent extends EventBase {
   patternsInjected: number;
   /** Gate threshold applied — usually lower than production. */
   gateThreshold: number;
+}
+
+/**
+ * May-2026 C4 — a block was demoted (status active → demoted) by
+ * the memory-health gate. Emitted from `tracebase memory health
+ * --apply` ONLY when the block landed in `report.wouldDemote` —
+ * i.e. composite health ≤ threshold AND at least one reason code
+ * fired (the cold-start floor and stale-guard in C3.1 keep this
+ * honest).
+ *
+ * The event is lifecycle, not query-bound — `queryId` is the
+ * synthetic constant `"lifecycle:memory-health"` so it satisfies
+ * the `EventBase` contract without polluting per-query analytics.
+ * The dashboard's aggregator treats this id as a sentinel.
+ *
+ * Payload privacy: NO raw triggers, bodies, transcripts, prompts,
+ * or paths. Only the block id, scalar component values, and the
+ * reason-code enum (already a closed vocabulary in C3).
+ */
+export interface BlockDemotedEvent extends EventBase {
+  event: "block_demoted";
+  blockId: string;
+  /** Composite health number at demotion time. */
+  health: number;
+  /** Threshold the report ran against. */
+  demotionThreshold: number;
+  /** Demotion reason codes (closed enum from C3). Always non-empty. */
+  reasons: ReadonlyArray<
+    | "low_wilson_lb"
+    | "high_counterproductive"
+    | "stale"
+    | "duplicate"
+    | "generic"
+    | "negative_roi"
+  >;
+  /** Per-component breakdown — exact same shape as MemoryHealthComponents. */
+  components: {
+    wilsonLb: number;
+    counterproductiveRate: number;
+    stalePenalty: number;
+    duplicationPenalty: number;
+    genericnessPenalty: number;
+    negativeRoiPenalty: number;
+  };
+  /** Observed labeled-trial count — for at-a-glance sample-size context. */
+  labeledTrials: number;
 }

@@ -37,6 +37,7 @@ import type {
   TraceRetrievalEvent,
   TraceAgentUsedEvent,
   TraceFeedbackEvent,
+  BlockDemotedEvent,
 } from "../types.js";
 import type { BlockStore } from "./block-store.js";
 import {
@@ -180,6 +181,7 @@ function isValidEvent(ev: unknown): ev is AnalyticsEvent {
     case "trace_feedback":   return isValidTraceFeedback(e);
     case "calibrator_refit": return isValidCalibratorRefit(e);
     case "drift_injection":  return isValidDriftInjection(e);
+    case "block_demoted":    return isValidBlockDemoted(e);
     default:                 return false;
   }
 }
@@ -436,6 +438,40 @@ function isValidDriftInjection(e: Record<string, unknown>): boolean {
   return true;
 }
 
+const VALID_DEMOTION_REASONS = new Set([
+  "low_wilson_lb",
+  "high_counterproductive",
+  "stale",
+  "duplicate",
+  "generic",
+  "negative_roi",
+]);
+
+function isValidBlockDemoted(e: Record<string, unknown>): boolean {
+  if (typeof e.blockId !== "string" || e.blockId.length === 0) return false;
+  if (typeof e.health !== "number" || !Number.isFinite(e.health)) return false;
+  if (typeof e.demotionThreshold !== "number" || !Number.isFinite(e.demotionThreshold)) return false;
+  if (typeof e.labeledTrials !== "number" || !Number.isFinite(e.labeledTrials)) return false;
+  if (!Array.isArray(e.reasons) || e.reasons.length === 0) return false;
+  for (const r of e.reasons) {
+    if (typeof r !== "string" || !VALID_DEMOTION_REASONS.has(r)) return false;
+  }
+  if (!e.components || typeof e.components !== "object") return false;
+  const c = e.components as Record<string, unknown>;
+  const numericFields = [
+    "wilsonLb",
+    "counterproductiveRate",
+    "stalePenalty",
+    "duplicationPenalty",
+    "genericnessPenalty",
+    "negativeRoiPenalty",
+  ];
+  for (const f of numericFields) {
+    if (typeof c[f] !== "number" || !Number.isFinite(c[f] as number)) return false;
+  }
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // EventEmitter — unified emission with optional side-sink fan-out.
 //
@@ -607,6 +643,72 @@ export function emitOutcome(
     ...(args.steps !== undefined ? { steps: args.steps } : {}),
     ...(args.durationMs !== undefined ? { durationMs: args.durationMs } : {}),
     ...(args.attribution !== undefined ? { attribution: args.attribution } : {}),
+  };
+  toEmitter(target).emit(ev, args.runId !== undefined ? { runId: args.runId } : undefined);
+  return ev;
+}
+
+/**
+ * Synthetic queryId for lifecycle events that aren't tied to a
+ * specific user query. The aggregator and dashboard treat this id
+ * as a sentinel — events stamped with it never contribute to
+ * per-query analytics (funnel, perBlock, perFact) and surface
+ * only on the lifecycle / dashboard side.
+ */
+export const LIFECYCLE_MEMORY_HEALTH_QUERY_ID = "lifecycle:memory-health";
+
+/**
+ * Emit a `block_demoted` event. Called from the C4 `tracebase
+ * memory health --apply` flow EXCLUSIVELY when the block was on
+ * `report.wouldDemote` — i.e. composite health ≤ threshold AND ≥1
+ * reason code fired. Never invoked from raw `health <= threshold`
+ * checks (C3 cold-start floor would let those pass through and
+ * miseducate the dashboard).
+ */
+export function emitBlockDemoted(
+  target: EmitTarget,
+  args: {
+    blockId: string;
+    health: number;
+    demotionThreshold: number;
+    reasons: ReadonlyArray<
+      | "low_wilson_lb"
+      | "high_counterproductive"
+      | "stale"
+      | "duplicate"
+      | "generic"
+      | "negative_roi"
+    >;
+    components: {
+      wilsonLb: number;
+      counterproductiveRate: number;
+      stalePenalty: number;
+      duplicationPenalty: number;
+      genericnessPenalty: number;
+      negativeRoiPenalty: number;
+    };
+    labeledTrials: number;
+    ts?: number;
+    runId?: string;
+  },
+): BlockDemotedEvent {
+  if (args.reasons.length === 0) {
+    // Guard against accidental misuse — the caller already
+    // promised this block was in `wouldDemote`, which requires
+    // ≥1 reason. Throw rather than emit a degenerate event that
+    // future validators may reject.
+    throw new Error("emitBlockDemoted requires at least one reason code");
+  }
+  const ev: BlockDemotedEvent = {
+    ts: args.ts ?? Date.now(),
+    queryId: LIFECYCLE_MEMORY_HEALTH_QUERY_ID,
+    event: "block_demoted",
+    blockId: args.blockId,
+    health: args.health,
+    demotionThreshold: args.demotionThreshold,
+    reasons: args.reasons,
+    components: args.components,
+    labeledTrials: args.labeledTrials,
   };
   toEmitter(target).emit(ev, args.runId !== undefined ? { runId: args.runId } : undefined);
   return ev;

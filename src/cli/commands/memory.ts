@@ -56,6 +56,7 @@ import {
   type MemoryHealthReport,
   type MemoryHealthScore,
 } from "../../lifecycle/memory-health.js";
+import { emitBlockDemoted } from "../../core/analytics.js";
 
 interface PruneOptions {
   path?: string;
@@ -107,11 +108,12 @@ export const memoryCommand = new Command("memory")
   .addCommand(
     new Command("health")
       .description(
-        "Read-only C3 health scoring. Prints the lowest-scoring " +
-          "active blocks with the component breakdown (wilson_lb, " +
-          "counterproductive_rate, stale/duplication/genericness/" +
-          "negative-ROI penalties) and the demotion reason codes. " +
-          "No store mutations — C4 will wire the demotion pass.",
+        "C3/C4 memory health scoring. Default is dry-run: prints the " +
+          "lowest-scoring active blocks with the component breakdown " +
+          "(wilson_lb, counterproductive_rate, stale/duplication/" +
+          "genericness/negative-ROI penalties) and the demotion reason " +
+          "codes. Pass --apply to actually transition blocks in " +
+          "`wouldDemote` from active → demoted (reversible).",
       )
       .option("-p, --path <path>", "project root", process.cwd())
       .option("--json", "emit the full report as JSON to stdout")
@@ -123,6 +125,17 @@ export const memoryCommand = new Command("memory")
       .option(
         "--threshold <value>",
         `composite-health threshold for wouldDemote classification (default ${DEFAULT_MEMORY_HEALTH_CONFIG.demotionThreshold})`,
+      )
+      .option(
+        "--apply",
+        "DEMOTE every block on `wouldDemote` (status active → demoted). " +
+          "Reversible — never deletes. Honours the C3.1 cold-start floor + " +
+          "reason-code gate; a block with health ≤ threshold but no reason " +
+          "code is NOT touched.",
+      )
+      .option(
+        "--dry-run",
+        "(default) score blocks but make no mutations",
       )
       .action(async (opts: HealthOptions) => {
         const result = runMemoryHealth(opts);
@@ -493,11 +506,19 @@ interface HealthOptions {
   json?: boolean;
   top?: string;
   threshold?: string;
+  apply?: boolean;
+  dryRun?: boolean;
 }
 
 export interface MemoryHealthOutcome extends MemoryHealthReport {
   /** Project root that was scanned, for display in the CLI banner. */
   projectRoot: string | null;
+  /** True iff this run wrote to the store. */
+  applied: boolean;
+  /** Block ids actually transitioned active → demoted (only when --apply). */
+  demoted: string[];
+  /** Block ids that were on `wouldDemote` but the transition failed. */
+  demoteFailures: Array<{ blockId: string; error: string }>;
   /** Set when the command failed before scoring could complete. */
   error?: string;
 }
@@ -513,6 +534,9 @@ export function runMemoryHealth(opts: HealthOptions): MemoryHealthOutcome {
     generatedAt: Date.now(),
     config: DEFAULT_MEMORY_HEALTH_CONFIG,
     projectRoot,
+    applied: false,
+    demoted: [],
+    demoteFailures: [],
     ...(error ? { error } : {}),
   });
 
@@ -522,6 +546,10 @@ export function runMemoryHealth(opts: HealthOptions): MemoryHealthOutcome {
   if (!existsSync(config.storagePath)) return empty();
 
   const threshold = parseOptionalNumber(opts.threshold);
+  // `--apply` and `--dry-run` are mutually exclusive; if both were
+  // passed the user is confused — prefer the safer dry-run. Mirrors
+  // the rule in `runMemoryPrune` above.
+  const effectiveApply = opts.apply === true && opts.dryRun !== true;
 
   const db = new Database(config.storagePath);
   const store = new BlockStore(db);
@@ -529,7 +557,75 @@ export function runMemoryHealth(opts: HealthOptions): MemoryHealthOutcome {
     const report = computeMemoryHealth(store, {
       ...(threshold !== null ? { config: { demotionThreshold: threshold } } : {}),
     });
-    return { ...report, projectRoot };
+
+    if (!effectiveApply) {
+      return {
+        ...report,
+        projectRoot,
+        applied: false,
+        demoted: [],
+        demoteFailures: [],
+      };
+    }
+
+    // Apply path. Demote EVERY block on `wouldDemote`. By C3
+    // construction `wouldDemote` requires BOTH composite health ≤
+    // threshold AND ≥1 fired reason code; the cold-start floor is
+    // already enforced upstream. We MUST NOT consult raw health
+    // here — that's the failure mode the review caught.
+    const demoted: string[] = [];
+    const demoteFailures: MemoryHealthOutcome["demoteFailures"] = [];
+    for (const candidate of report.wouldDemote) {
+      try {
+        const updated = store.updateBlockStatus(candidate.blockId, "demoted");
+        if (updated) {
+          demoted.push(candidate.blockId);
+          // Emit `block_demoted` for dashboard + audit trail. The
+          // event records the exact reasons and component values
+          // that drove the decision, so a future operator can
+          // explain WHY each block was demoted without re-running
+          // the scorer against now-stale data.
+          try {
+            emitBlockDemoted(store, {
+              blockId: candidate.blockId,
+              health: candidate.health,
+              demotionThreshold: report.demotionThreshold,
+              reasons: candidate.reasons,
+              components: candidate.components,
+              labeledTrials: candidate.evidence.labeledTrials,
+            });
+          } catch (emitErr) {
+            // Telemetry failure must NOT roll back the demotion —
+            // the status change is the user-visible action.
+            process.stderr.write(
+              `tracebase memory health: emit failed for ${candidate.blockId}: ${emitErr instanceof Error ? emitErr.message : String(emitErr)}\n`,
+            );
+          }
+        } else {
+          // updateBlockStatus returns null when the block doesn't
+          // exist any more (race with another writer). Record it
+          // as a soft failure rather than throwing.
+          demoteFailures.push({
+            blockId: candidate.blockId,
+            error: "block not found (concurrent modification?)",
+          });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(
+          `tracebase memory health: skip ${candidate.blockId}: ${msg}\n`,
+        );
+        demoteFailures.push({ blockId: candidate.blockId, error: msg });
+      }
+    }
+
+    return {
+      ...report,
+      projectRoot,
+      applied: true,
+      demoted,
+      demoteFailures,
+    };
   } finally {
     store.close();
   }
@@ -547,8 +643,12 @@ function renderHealthReport(result: MemoryHealthOutcome, opts: HealthOptions): v
   if (result.projectRoot) {
     console.log(pc.dim(`  project   ${result.projectRoot}`));
   }
-  console.log(pc.dim(`  mode      dry-run (read-only — C4 wires the demotion pass)`));
-  console.log(pc.dim(`  threshold ${result.demotionThreshold.toFixed(3)} (blocks with health ≤ threshold listed below)`));
+  console.log(
+    pc.dim(
+      `  mode      ${result.applied ? "apply (demoting wouldDemote blocks)" : "dry-run (read-only)"}`,
+    ),
+  );
+  console.log(pc.dim(`  threshold ${result.demotionThreshold.toFixed(3)} (blocks with health ≤ threshold AND ≥1 reason code)`));
   console.log();
 
   if (result.error) {
@@ -564,7 +664,26 @@ function renderHealthReport(result: MemoryHealthOutcome, opts: HealthOptions): v
   }
 
   console.log(pc.dim(`  scanned   ${result.scanned} active block(s)`));
-  console.log(pc.dim(`  wouldDemote ${result.wouldDemote.length} block(s) at threshold ${result.demotionThreshold.toFixed(3)}`));
+  if (result.applied) {
+    console.log(
+      pc.dim(
+        `  demoted   ${result.demoted.length}/${result.wouldDemote.length} block(s) transitioned active → demoted`,
+      ),
+    );
+    if (result.demoteFailures.length > 0) {
+      console.log(
+        pc.yellow(
+          `  failed    ${result.demoteFailures.length} block(s) (see stderr for details)`,
+        ),
+      );
+    }
+  } else {
+    console.log(
+      pc.dim(
+        `  wouldDemote ${result.wouldDemote.length} block(s) at threshold ${result.demotionThreshold.toFixed(3)}`,
+      ),
+    );
+  }
   console.log();
 
   const topRaw = opts.top ?? "20";
