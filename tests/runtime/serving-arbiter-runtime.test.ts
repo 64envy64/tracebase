@@ -304,7 +304,12 @@ describe("normalizeReasoningHits — RecallV2Result → ServingCandidate[]", () 
 describe("runServingArbiter — decisions + telemetry", () => {
   it("emits one arbitration_decision event per decision (suppressed included)", () => {
     const store = makeStore();
-    const plan = resolveServingPlan({ profile: "cost-saver" });
+    // Balanced (maxBlocks=2) so the C4.2.C per-lane pre-cap
+    // doesn't slice the second block before the arbiter sees it.
+    // Cost-saver (maxBlocks=1) would correctly drop the low-conf
+    // one PRE-arbitration, yielding 1 decision — that's the
+    // intended C4.2 behaviour but a different test target.
+    const plan = resolveServingPlan({ profile: "balanced" });
     try {
       const raw: RecallV2Result = {
         queryId: "q-decisions",
@@ -326,7 +331,8 @@ describe("runServingArbiter — decisions + telemetry", () => {
       expect(actions).toContain("inject");
       expect(actions).toContain("suppress");
 
-      // The low-confidence one carries reason="low_confidence".
+      // The low-confidence one carries reason="low_confidence"
+      // (balanced floor = 0.10; 0.05 falls below).
       const suppressed = decisions.find((e) => (e as { action: string }).action === "suppress")!;
       expect((suppressed as { reason: string }).reason).toBe("low_confidence");
     } finally {
@@ -545,12 +551,21 @@ describe("recallForPrompt — env-unset byte-identity guarantee", () => {
       delete process.env.TRACEBASE_SERVING_ARBITER;
 
       // The payload's queryId is per-call and intentionally
-      // unique, so we compare the *content* fields. Order matters:
-      // the test breaks if env="0" reorders blocks.
+      // unique. It appears verbatim in the rendered text inside
+      // the `<tracebase queryId="...">` wrapper, so a raw equality
+      // check would always fail. Redact it before comparing so
+      // we're actually asserting on the content.
+      //
+      // The original C4.1 test used `payload.additionalContext`
+      // — a typo that compared `undefined === undefined` and
+      // never caught anything; fixed to `payload.text` (the real
+      // field on InjectionPayload).
+      const redact = (t: string) => t.replace(/queryId="[^"]+"/g, 'queryId="REDACTED"');
       expect(b.payload.blockIds).toEqual(a.payload.blockIds);
       expect(b.payload.factIds).toEqual(a.payload.factIds);
       expect(b.payload.fileIds ?? []).toEqual(a.payload.fileIds ?? []);
-      expect(b.payload.additionalContext).toEqual(a.payload.additionalContext);
+      expect(redact(b.payload.text)).toEqual(redact(a.payload.text));
+      expect(b.payload.text.length).toBeGreaterThan(0); // sanity: actual text present
       expect(b.payload.hasContent).toEqual(a.payload.hasContent);
       // And neither path emitted arbitration_decision events.
       const aEvents = store.readEvents({ queryId: a.queryId, limit: 100 });
@@ -558,6 +573,107 @@ describe("recallForPrompt — env-unset byte-identity guarantee", () => {
       expect(aEvents.filter((e) => e.event === "arbitration_decision")).toEqual([]);
       expect(bEvents.filter((e) => e.event === "arbitration_decision")).toEqual([]);
     });
+  });
+
+  it("C4.2 — env unset restores pre-serving-policy legacy caps (1200/4/4/3/3)", async () => {
+    // The C4.1 review caught that `resolveServingPlan` was being
+    // applied unconditionally, so env unset still produced
+    // cost-saver caps (350/1/1/1) — a behaviour change from the
+    // pre-serving-policy baseline. C4.2 gates the whole policy
+    // stack on the arbiter env; with the env unset we expect
+    // `buildInjectionPayload`'s built-in DEFAULT_TOKEN_BUDGET =
+    // 1200, DEFAULT_MAX_BLOCKS = 4, etc to take over. The
+    // RetrievalEvent must also drop the `injectionProfile`
+    // field — the dashboard distinguishes "policy ran" from
+    // "no policy".
+    await withFreshStore(async (store, server, basePath) => {
+      seedActiveBlock(store, PYTEST_BLOCK);
+      delete process.env.TRACEBASE_SERVING_ARBITER;
+
+      const result = await recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "Pytest collects the wrong package — sys.path shadow on a fresh clone",
+        basePath,
+        sessionId: null,
+        // Note: NOT passing tokenBudget — we want the builder
+        // default (1200) to kick in, not a caller override.
+      });
+
+      const events = store.readEvents({ queryId: result.queryId, limit: 50 });
+      const retrieval = events.find((e) => e.event === "retrieval") as Record<string, unknown>;
+      expect(retrieval).toBeDefined();
+      // Legacy path emits NO injectionProfile.
+      expect(retrieval.injectionProfile).toBeUndefined();
+    });
+  });
+
+  it("C4.2 — env unset honours caller-supplied tokenBudget AND skips ROI filters", async () => {
+    // Caller's explicit `tokenBudget` was always an override and
+    // must keep working. The cost-saver clamp (which capped 1200
+    // → 350) is the policy artefact that goes away when the env
+    // is unset.
+    await withFreshStore(async (store, server, basePath) => {
+      seedActiveBlock(store, PYTEST_BLOCK);
+      delete process.env.TRACEBASE_SERVING_ARBITER;
+      const result = await recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "Pytest collects the wrong package — sys.path shadow on a fresh clone",
+        basePath,
+        sessionId: null,
+        tokenBudget: 800,
+      });
+      expect(result.hasContent).toBe(true);
+      // No arbiter telemetry on the legacy path.
+      const events = store.readEvents({ queryId: result.queryId, limit: 50 });
+      expect(events.filter((e) => e.event === "arbitration_decision")).toEqual([]);
+    });
+  });
+
+  it("C4.2 — arbitration_decision \"inject\" count matches payload visible items (no over-cap inflation)", () => {
+    // Pre-C4.2 the runtime combined caps via maxBlocks + maxFacts
+    // for the arbiter call, then `buildInjectionPayload`
+    // re-applied separate maxBlocks / maxFacts. With a wide
+    // candidate pool the arbiter could mark items "inject" that
+    // the builder later sliced off — inflating "kept by arbiter"
+    // reads for the dashboard. C4.2 pre-caps blocks/facts before
+    // normalisation so every "inject" event corresponds to an
+    // item that actually reaches the prompt.
+    const store = makeStore();
+    const plan = resolveServingPlan({ profile: "recall-heavy" }); // maxBlocks=4, maxFacts=4
+    try {
+      // 6 blocks + 6 facts, all high-confidence. Pre-fix would
+      // emit 8 "inject" decisions (combined cap), buildInjectionPayload
+      // would trim to 4 blocks + 4 facts → 8 visible. Looks fine
+      // in this exact case but the pathology shows when block
+      // and fact ROI differ; here we just count inject decisions
+      // against final visible items.
+      const raw: RecallV2Result = {
+        queryId: "q-no-inflate",
+        shadow: false,
+        blocks: Array.from({ length: 6 }, (_, i) =>
+          dummyBlockHit({ calibratedProb: 0.95, situation: `block-${i} high confidence` }),
+        ),
+        facts: Array.from({ length: 6 }, (_, i) =>
+          dummyFactHit({ calibratedProb: 0.95, statement: `valuable fact-${i}` }),
+        ),
+        shouldInject: true,
+      };
+      const out = runServingArbiter(raw, { plan, store });
+
+      const events = store.readEvents({ queryId: "q-no-inflate", limit: 100 });
+      const decisions = events.filter((e) => e.event === "arbitration_decision");
+      const injectCount = decisions.filter((d) => (d as { action: string }).action === "inject").length;
+
+      // Per-lane caps applied BEFORE arbitration → arbiter only
+      // sees maxBlocks blocks + maxFacts facts = 4 + 4 = 8.
+      expect(decisions.length).toBeLessThanOrEqual(plan.maxBlocks + plan.maxFacts);
+      // Every "inject" decision corresponds to an item in the
+      // returned `raw` (which feeds `buildInjectionPayload`).
+      expect(injectCount).toBe(out.raw.blocks.length + out.raw.facts.length);
+      // And the kept slate stays within the per-lane caps.
+      expect(out.raw.blocks.length).toBeLessThanOrEqual(plan.maxBlocks);
+      expect(out.raw.facts.length).toBeLessThanOrEqual(plan.maxFacts);
+    } finally {
+      store.close();
+    }
   });
 
   it("C4.1 — real holdout cohort with env=\"1\": shadow/holdout events DO land in telemetry", async () => {

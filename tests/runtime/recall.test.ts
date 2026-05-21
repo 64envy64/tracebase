@@ -108,7 +108,7 @@ describe("shouldQueryForPrompt", () => {
 
 describe("recallForPrompt — match path", () => {
   it("returns hasContent=true and writes retrieval + injection events on a real match", async () => {
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       seedBlock(store, PYTEST_BLOCK);
 
       const result = await recallForPrompt(store === store ? server : server, store, NO_HOLDOUT, {
@@ -129,11 +129,22 @@ describe("recallForPrompt — match path", () => {
       const events = store.readEvents({ queryId: result.queryId, limit: 100 });
       expect(events.some((e) => e.event === "retrieval")).toBe(true);
       expect(events.some((e) => e.event === "injection")).toBe(true);
+      const retrieval = events.find((e) => e.event === "retrieval");
+      expect(retrieval?.event).toBe("retrieval");
+      if (retrieval?.event === "retrieval") {
+        // C4.2 — `injectionProfile` is omitted on the legacy path
+        // (env unset). The test runs under that path; the dashboard
+        // distinguishes "policy ran" from "no policy" via the
+        // field's presence.
+        expect(retrieval.injectionProfile).toBeUndefined();
+        expect(retrieval.injectedItemCounts?.blocks).toBe(1);
+        expect(retrieval.injectedSectionTokensEstimate?.priorPatterns).toBeGreaterThan(0);
+      }
     });
   });
 
   it("emits TB LOOP signal when 3 identical observations precede the prompt", async () => {
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       seedBlock(store, PYTEST_BLOCK);
       store.recordToolObservations([
         { sessionId: "S-loop", batchOrder: 0, toolName: "Read", argSummary: "x", argKey: "kA" },
@@ -154,7 +165,7 @@ describe("recallForPrompt — match path", () => {
 
 describe("recallForPrompt — no-match path", () => {
   it("returns hasContent=false on an empty store", async () => {
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       const result = await recallForPrompt(server, store, NO_HOLDOUT, {
         prompt: "something completely unrelated to anything in the empty store at all",
         basePath,
@@ -172,7 +183,7 @@ describe("recallForPrompt — no-match path", () => {
 
 describe("recallForPrompt — toggles", () => {
   it("enableToolDetection: false skips the detector even with observations present", async () => {
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       store.recordToolObservations([
         { sessionId: "S-x", batchOrder: 0, toolName: "Read", argSummary: "x", argKey: "kA" },
         { sessionId: "S-x", batchOrder: 1, toolName: "Read", argSummary: "x", argKey: "kA" },
@@ -189,7 +200,7 @@ describe("recallForPrompt — toggles", () => {
   });
 
   it("toolWindowSize narrows the detector input", async () => {
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       // 6 rows: A,A,A,B,B,B. Default window=6 → straight on B (count=3).
       // Window=3 → still B,B,B → straight on B.
       // Window=2 → only last two B,B → duplicate not straight.
@@ -227,7 +238,7 @@ describe("recallForPrompt — toggles", () => {
 
 describe("recallForPrompt — file memory integration", () => {
   it("renders the <file_memory> section when files match the prompt", async () => {
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       seedBlock(store, PYTEST_BLOCK);
 
       // Plant + index a file the prompt overlaps.
@@ -243,6 +254,7 @@ describe("recallForPrompt — file memory integration", () => {
         prompt: "Pytest collects the wrong package — sys.path shadow on a fresh clone",
         basePath,
         sessionId: null,
+        servingProfile: "recall-heavy",
       });
 
       expect(result.payload.text).toContain("<file_memory>");
@@ -253,7 +265,7 @@ describe("recallForPrompt — file memory integration", () => {
   });
 
   it("emits file_memory.recalled with aggregate fields when files surface", async () => {
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       seedBlock(store, PYTEST_BLOCK);
       mkdirSync(join(basePath, "src"), { recursive: true });
       writeFileSync(
@@ -266,6 +278,7 @@ describe("recallForPrompt — file memory integration", () => {
         prompt: "sys.path shadow long enough to pass the gate without being trivial",
         basePath,
         sessionId: null,
+        servingProfile: "recall-heavy",
       });
 
       const events = store.readEvents({ eventType: "file_memory.recalled" });
@@ -278,7 +291,7 @@ describe("recallForPrompt — file memory integration", () => {
   });
 
   it("does NOT emit file_memory.recalled when no files clear the gate", async () => {
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       seedBlock(store, PYTEST_BLOCK);
       // No files indexed → recallFiles returns empty → no event.
       await recallForPrompt(server, store, NO_HOLDOUT, {
@@ -291,11 +304,43 @@ describe("recallForPrompt — file memory integration", () => {
     });
   });
 
+  it("cost-saver profile suppresses tiny file-only hits that cannot pay for themselves", async () => {
+    // C4.2 — the cost-saver `filterFileHitsForRoi` floor is part
+    // of the serving-policy stack that's now gated on
+    // TRACEBASE_SERVING_ARBITER=1. This test exercises that
+    // policy explicitly, so it must opt in.
+    await withFreshStore(async (store, server, basePath) => {
+      mkdirSync(join(basePath, "src"), { recursive: true });
+      writeFileSync(
+        join(basePath, "src", "tiny-auth.ts"),
+        "/** Authentication middleware */\nexport function authenticate() {}\n",
+      );
+      indexWorkspace(store, { root: basePath });
+
+      const priorArbiter = process.env.TRACEBASE_SERVING_ARBITER;
+      process.env.TRACEBASE_SERVING_ARBITER = "1";
+      try {
+        const result = await recallForPrompt(server, store, NO_HOLDOUT, {
+          prompt: "How does our authentication middleware sign requests at the gateway?",
+          basePath,
+          sessionId: null,
+        });
+
+        expect(result.payload.fileIds).toEqual([]);
+        expect(result.payload.hasContent).toBe(false);
+        expect(store.readEvents({ eventType: "file_memory.recalled" })).toEqual([]);
+      } finally {
+        if (priorArbiter === undefined) delete process.env.TRACEBASE_SERVING_ARBITER;
+        else process.env.TRACEBASE_SERVING_ARBITER = priorArbiter;
+      }
+    });
+  });
+
   // 0.7.0-rc.3 hardening — P1 regression. File memory must inject
   // even when no block/fact recall hits, as long as the recall
   // isn't in the holdout/shadow arm.
   it("renders file_memory section when ONLY indexed files match (no blocks, no facts)", async () => {
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       // No block seeded — shouldInject will be false.
       mkdirSync(join(basePath, "src"), { recursive: true });
       writeFileSync(
@@ -308,6 +353,7 @@ describe("recallForPrompt — file memory integration", () => {
         prompt: "How does our authentication middleware sign requests at the gateway?",
         basePath,
         sessionId: null,
+        servingProfile: "recall-heavy",
       });
 
       // No block recall hit → blockIds empty, factIds empty, but
@@ -336,7 +382,7 @@ describe("recallForPrompt — file memory integration", () => {
   // not the full payload total. Verify with a mixed recall where
   // both a block AND a file land.
   it("file_memory.recalled.tokensInjected counts only the file section, not blocks", async () => {
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       seedBlock(store, PYTEST_BLOCK);
 
       mkdirSync(join(basePath, "src"), { recursive: true });
@@ -350,6 +396,7 @@ describe("recallForPrompt — file memory integration", () => {
         prompt: "Pytest collects the wrong package — sys.path shadow on a fresh clone",
         basePath,
         sessionId: null,
+        servingProfile: "recall-heavy",
       });
 
       // Mixed recall: block + file both surface.
@@ -376,7 +423,7 @@ describe("recallForPrompt — file memory integration", () => {
   // drive that condition, then 100% holdout-rate forces every
   // fingerprint into the control arm.
   it("holdout/shadow recall suppresses file_memory section + emits no event", async () => {
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       seedBlock(store, PYTEST_BLOCK);
 
       mkdirSync(join(basePath, "src"), { recursive: true });
@@ -430,7 +477,7 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
 
   it("renders <context_fold> section when chunks exist for the session", async () => {
     const { foldTurns } = await import("../../src/core/context-fold.js");
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       const sessionId = "S-fold";
       // Plant 16 turns of meaty content → 2 chunks worth.
       const turns = makeChunkPair();
@@ -454,7 +501,7 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
 
   it("badge numbers match SUM(tokens_before/after) over rendered chunks (within ±1)", async () => {
     const { foldTurns } = await import("../../src/core/context-fold.js");
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       const sessionId = "S-badge";
       const turns = makeChunkPair();
       const folded = foldTurns({ sessionId, turns, existingWatermark: -1 });
@@ -495,7 +542,7 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
 
   it("cross-session recall: chunks from session A do NOT leak into session B's prompt", async () => {
     const { foldTurns } = await import("../../src/core/context-fold.js");
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       const turnsA = makeChunkPair();
       const fA = foldTurns({ sessionId: "S-A", turns: turnsA, existingWatermark: -1 });
       store.recordSessionChunks(fA.chunks);
@@ -515,7 +562,7 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
   // chunks against the prompt, not just return the most recent K.
   it("prompt-aware chunk recall: chunk 0 with matching tokens beats newer chunks 3-5", async () => {
     const { foldTurns } = await import("../../src/core/context-fold.js");
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       const sessionId = "S-prompt-aware";
 
       // Plant 6 chunks. Chunk 0 carries the unique token
@@ -589,7 +636,7 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
   // rows.
   it("prompt-aware recall surfaces the OLDEST chunk in a >32-chunk session when it matches", async () => {
     const { foldTurns } = await import("../../src/core/context-fold.js");
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       const sessionId = "S-long";
 
       // Plant 50 chunks. Chunk 0 carries the unique token "kerberos"
@@ -672,7 +719,7 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
 
   it("missing sessionId on options → no chunk recall, no <context_fold> in payload", async () => {
     const { foldTurns } = await import("../../src/core/context-fold.js");
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       const turns = makeChunkPair();
       const folded = foldTurns({ sessionId: "S-fold", turns, existingWatermark: -1 });
       store.recordSessionChunks(folded.chunks);
@@ -694,7 +741,7 @@ describe("recallForPrompt — context fold integration (rc.6)", () => {
 
 describe("recallForPrompt — semantic-loop dedupe (P1 hardening)", () => {
   it("cross-alias rotation: grep → rg with same intent_key triggers anti-self-loop", async () => {
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       // Seed a block whose situation/keywords match the
       // auth_token search query.
       seedBlock(store, {
@@ -831,7 +878,7 @@ describe("recallForPrompt — semantic-loop dedupe (P1 hardening)", () => {
   // none, and the resolver dedupe-keyed on the rotated raw
   // argKey, surfacing the SAME matched anchor twice.
   it("3 identical Grep calls matched, then ONE equivalent rg rotation triggers anti-self-loop", async () => {
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       seedBlock(store, {
         trigger: {
           situation: "search for the auth_token symbol across the codebase",
@@ -944,7 +991,7 @@ describe("recallForPrompt — semantic-loop dedupe (P1 hardening)", () => {
   });
 
   it("dedupe still scoped per-session: the same intent_key in a fresh session matches", async () => {
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       seedBlock(store, {
         trigger: {
           situation: "search for the auth_token symbol across the codebase",
@@ -1034,7 +1081,7 @@ describe("recallForPrompt — drain budget cap (P2 hardening)", () => {
   });
 
   it("queues many pending rows but indexes at most RECALL_PATH_DRAIN_MAX_FILES per recall", async () => {
-    withFreshStore(async (store, server, basePath) => {
+    await withFreshStore(async (store, server, basePath) => {
       seedBlock(store, PYTEST_BLOCK);
 
       // Plant 30 files + queue them all as file-pending. A single

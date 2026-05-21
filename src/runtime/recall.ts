@@ -219,12 +219,24 @@ export async function recallForPrompt(
           observations: recentObservations,
         })
       : null;
-  const servingPlan = resolveServingPlan({
-    profile: opts.servingProfile,
-    tokenBudget: opts.tokenBudget,
-    signalKind: signal.kind,
-    hasSession: !!opts.sessionId,
-  });
+  // May-2026 C4.2 — the cost-saver `serving-policy` defaults are
+  // a behaviour change from the pre-`serving-policy` baseline
+  // (1200/4/4/3/3 from `build-injection-payload`'s built-in
+  // defaults). We gate this whole policy stack on the same env
+  // flag as the arbiter so a user who hasn't opted into the new
+  // ROI gating gets exactly the legacy behaviour they had before
+  // any of this landed. Passing `null` downstream skips the
+  // file/chunk ROI filters and lets `buildInjectionPayload` use
+  // its own DEFAULT_TOKEN_BUDGET / DEFAULT_MAX_* constants.
+  const arbiterOn = isServingArbiterEnabled();
+  const servingPlan = arbiterOn
+    ? resolveServingPlan({
+        profile: opts.servingProfile,
+        tokenBudget: opts.tokenBudget,
+        signalKind: signal.kind,
+        hasSession: !!opts.sessionId,
+      })
+    : null;
 
   // May-2026 B1.2 — runReasoningPatternsRecall is async because the
   // cascade rollout decision can route the query through
@@ -259,9 +271,12 @@ export async function recallForPrompt(
   try {
     const rawFileHits = recallFiles(store, {
       prompt: opts.prompt,
-      k: opts.fileHitsK ?? servingPlan.fileHitsK,
+      k: opts.fileHitsK ?? servingPlan?.fileHitsK ?? FILE_HITS_DEFAULT_K,
     });
-    fileHits = filterFileHitsForRoi(rawFileHits, servingPlan);
+    // ROI filter is part of the cost-saver policy stack — skipped
+    // when the arbiter env flag is unset so legacy callers get the
+    // raw top-K with no minFileNetTokens floor.
+    fileHits = servingPlan ? filterFileHitsForRoi(rawFileHits, servingPlan) : rawFileHits;
   } catch {
     fileHits = [];
   }
@@ -284,9 +299,10 @@ export async function recallForPrompt(
       chunkHits = store.recallSessionChunksForPrompt(
         opts.sessionId,
         opts.prompt,
-        opts.chunkHitsK ?? servingPlan.chunkHitsK,
+        opts.chunkHitsK ?? servingPlan?.chunkHitsK ?? CHUNK_HITS_DEFAULT_K,
       );
-      chunkHits = filterChunkHitsForRoi(chunkHits, servingPlan);
+      // Same gating as fileHits — chunk ROI is policy-driven.
+      if (servingPlan) chunkHits = filterChunkHitsForRoi(chunkHits, servingPlan);
     } catch {
       chunkHits = [];
     }
@@ -307,7 +323,7 @@ export async function recallForPrompt(
   // arbiter lands in a follow-up so this commit's change surface
   // stays small.
   let arbitratedRaw = raw;
-  if (isServingArbiterEnabled()) {
+  if (arbiterOn && servingPlan) {
     const out = runServingArbiter(raw, {
       plan: servingPlan,
       store,
@@ -317,12 +333,24 @@ export async function recallForPrompt(
     arbitratedRaw = out.raw;
   }
 
+  // C4.2 — when the arbiter is OFF, pass NO caps / budget to the
+  // builder so its built-in defaults (1200/4/4/3/3) — the
+  // pre-`serving-policy` legacy — take over. Only the caller's
+  // explicit `tokenBudget` is honoured (it was always an
+  // override, not a serving-policy artefact). When ON, the
+  // policy stack governs as designed.
   const payload = buildInjectionPayload(arbitratedRaw, {
-    tokenBudget: servingPlan.tokenBudget,
-    maxBlocks: servingPlan.maxBlocks,
-    maxFacts: servingPlan.maxFacts,
-    maxFiles: servingPlan.maxFiles,
-    maxChunks: servingPlan.maxChunks,
+    ...(servingPlan
+      ? {
+          tokenBudget: servingPlan.tokenBudget,
+          maxBlocks: servingPlan.maxBlocks,
+          maxFacts: servingPlan.maxFacts,
+          maxFiles: servingPlan.maxFiles,
+          maxChunks: servingPlan.maxChunks,
+        }
+      : {
+          ...(opts.tokenBudget !== undefined ? { tokenBudget: opts.tokenBudget } : {}),
+        }),
     fileHits,
     chunkHits,
   });
@@ -554,7 +582,7 @@ function recordRecallEvents(
   store: BlockStore,
   result: RecallV2Result,
   payload: InjectionPayload,
-  servingPlan: ServingPlan,
+  servingPlan: ServingPlan | null,
 ): void {
   let ts = Date.now();
   const nextTs = () => ts++;
@@ -575,7 +603,12 @@ function recordRecallEvents(
     // payload actually carried content; 0 captures "gate cleared
     // nothing".
     injectedTokensEstimate: payload.hasContent ? payload.tokensEstimate : 0,
-    injectionProfile: servingPlan.profile,
+    // `injectionProfile` is optional on RetrievalEvent — omit when
+    // the cost-saver policy stack wasn't applied (arbiter off,
+    // legacy path) so the dashboard can distinguish "policy ran"
+    // from "no policy". Pre-C4.2 we stamped a profile here
+    // unconditionally because `servingPlan` was non-null.
+    ...(servingPlan ? { injectionProfile: servingPlan.profile } : {}),
     injectedSectionTokensEstimate: payload.sectionTokensEstimate,
     injectedItemCounts: {
       blocks: payload.blockIds.length,

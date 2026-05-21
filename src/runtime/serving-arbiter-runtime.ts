@@ -263,8 +263,26 @@ export function runServingArbiter(
   raw: RecallV2Result,
   opts: RunServingArbiterOptions,
 ): RunServingArbiterResult {
+  // C4.2 — pre-cap blocks at `plan.maxBlocks` and facts at
+  // `plan.maxFacts` BEFORE normalisation. The per-lane caps are
+  // rank-based (top-K from the ranker) and live outside the
+  // arbiter's ROI judgment; the items the per-lane cap slices off
+  // would never reach the prompt regardless. Without this
+  // pre-cap, the arbiter could emit `action="inject"` for blocks
+  // 5..N that `buildInjectionPayload` then trims away — which
+  // would inflate the dashboard's "kept by arbiter" count vs the
+  // actually-rendered slate. By pre-slicing here, every
+  // `arbitration_decision` event corresponds to an item the
+  // arbiter actually got to judge, and any "inject" decision is
+  // a real candidate for the rendered prompt (modulo the
+  // arbiter's own budget gate, which IS its responsibility).
+  const cappedRaw: RecallV2Result = {
+    ...raw,
+    blocks: raw.blocks.slice(0, opts.plan.maxBlocks),
+    facts: raw.facts.slice(0, opts.plan.maxFacts),
+  };
   const { candidates, blockByCandidateId, factByCandidateId } =
-    normalizeReasoningHits(raw);
+    normalizeReasoningHits(cappedRaw);
 
   // Blocks AND facts normalise to capability="reasoning_reuse"
   // (facts don't have their own slot in the directive's closed
@@ -317,16 +335,22 @@ export function runServingArbiter(
   // Build the filtered raw. We keep BlockHit / FactHit instances
   // identical (just the array is trimmed) so downstream code
   // sees the same object identities and `buildInjectionPayload`
-  // can rely on its existing invariants.
+  // can rely on its existing invariants. Filter against
+  // `cappedRaw` (not the original `raw`) so items the per-lane
+  // cap sliced off are intentionally absent from the returned
+  // slate. The arbiter enforces the per-lane invariant here so
+  // `arbitration_decision.action="inject"` events match what
+  // actually reaches the prompt.
   const kept = new Set(
     arbitration.decisions.filter((d) => d.action === "inject").map((d) => d.candidateId),
   );
-  const keptBlocks = raw.blocks.filter((hit, i) => {
-    if (!hit.passesGate) return false; // already excluded
+  const acceptAllForShadow = raw.shadow === true;
+  const keptBlocks = cappedRaw.blocks.filter((hit, i) => {
+    if (!acceptAllForShadow && !hit.passesGate) return false;
     return kept.has(`block:${hit.block.id}#${i}`);
   });
-  const keptFacts = raw.facts.filter((hit, i) => {
-    if (!hit.passesGate) return false;
+  const keptFacts = cappedRaw.facts.filter((hit, i) => {
+    if (!acceptAllForShadow && !hit.passesGate) return false;
     return kept.has(`fact:${hit.fact.id}#${i}`);
   });
 
