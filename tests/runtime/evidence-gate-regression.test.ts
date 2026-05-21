@@ -79,6 +79,14 @@ describe("C2.1 regression — strict gate in computeAggregates", () => {
     expect(stats.helpful).toBe(0);   // strict gate denies
     expect(stats.verifiedHelpful).toBe(0); // denied downstream of helpful
     expect(stats.neutral).toBe(1);   // falls through to neutral
+    // C2.2 — funnel must agree with per-block. Pre-C2.2 the funnel
+    // would have promoted this run to helpful (and verifiedHelpful)
+    // purely on (injection ∧ ANY agent_used ∧ resolved), inflating
+    // memory-health top-line metrics that the dashboard reads from.
+    expect(agg.funnel.injectedRuns).toBe(1);
+    expect(agg.funnel.usedRuns).toBe(1);            // observability — weak still counts
+    expect(agg.funnel.helpfulRuns).toBe(0);          // strict §L6 gate at the funnel
+    expect(agg.funnel.verifiedHelpfulRuns).toBe(0);  // denied downstream
   });
 
   it("moderate agent_used + resolved → helpfulRuns=1", () => {
@@ -100,6 +108,9 @@ describe("C2.1 regression — strict gate in computeAggregates", () => {
     // additionally requires outcome.attribution !== "inferred"; pre-
     // C2 events default to explicit attribution).
     expect(stats.verifiedHelpful).toBe(1);
+    // C2.2 — funnel agrees with per-block on the positive case.
+    expect(agg.funnel.helpfulRuns).toBe(1);
+    expect(agg.funnel.verifiedHelpfulRuns).toBe(1);
   });
 
   it("explicit agent_used + resolved → helpfulRuns=1 AND verifiedHelpfulRuns=1", () => {
@@ -118,6 +129,8 @@ describe("C2.1 regression — strict gate in computeAggregates", () => {
     const stats = agg.perBlock.find((b) => b.blockId === "b-3")!;
     expect(stats.helpful).toBe(1);
     expect(stats.verifiedHelpful).toBe(1);
+    expect(agg.funnel.helpfulRuns).toBe(1);
+    expect(agg.funnel.verifiedHelpfulRuns).toBe(1);
   });
 
   it("weak + NOT resolved → counterproductive stays 0, neutral=1 (no harsh penalty for ambiguous signal)", () => {
@@ -137,6 +150,11 @@ describe("C2.1 regression — strict gate in computeAggregates", () => {
     // we can't blame the block when we don't believe the agent used it.
     expect(stats.counterproductive).toBe(0);
     expect(stats.neutral).toBe(1);
+    // Funnel never promotes — outcome.resolved=false keeps helpfulRuns at 0
+    // regardless of strength gate. Pinning explicitly so a later refactor
+    // can't reintroduce a "weak + unresolved = helpful" pathway.
+    expect(agg.funnel.helpfulRuns).toBe(0);
+    expect(agg.funnel.verifiedHelpfulRuns).toBe(0);
   });
 
   it("pre-C2 event (no evidenceStrength, matchSignal=explicit) credits via legacy ladder", () => {
@@ -159,6 +177,8 @@ describe("C2.1 regression — strict gate in computeAggregates", () => {
     const stats = agg.perBlock.find((b) => b.blockId === "b-5")!;
     expect(stats.helpful).toBe(1);
     expect(stats.verifiedHelpful).toBe(1);
+    expect(agg.funnel.helpfulRuns).toBe(1);
+    expect(agg.funnel.verifiedHelpfulRuns).toBe(1);
   });
 
   it("pre-C2 event with low matchScore (jaccard=0.05) → gate rejects via derived strength", () => {
@@ -181,6 +201,56 @@ describe("C2.1 regression — strict gate in computeAggregates", () => {
     const stats = agg.perBlock.find((b) => b.blockId === "b-6")!;
     expect(stats.helpful).toBe(0);
     expect(stats.verifiedHelpful).toBe(0);
+    // Funnel respects the same derived strength — legacy noisy
+    // Jaccard never promotes to helpful at the dashboard level.
+    expect(agg.funnel.helpfulRuns).toBe(0);
+    expect(agg.funnel.verifiedHelpfulRuns).toBe(0);
+  });
+
+  it("C2.2 — mixed cohort: one weak + one moderate same queryId → funnel helpful=1 (any strong-enough use suffices)", () => {
+    // The funnel gate is OR across the queryId's evidence — pre-fix
+    // it was "ANY agent_used", post-fix it is "ANY agent_used at
+    // moderate+ strength". A queryId that touched two blocks (one
+    // weak, one moderate) is still a helpful run, because the
+    // strong-enough block satisfies §L6 for that query. This pins
+    // the OR semantics so a future refactor cannot accidentally
+    // require ALL pairs to be strong-enough.
+    seedRetrievalAndInjection("q-mixed", "b-mixed-weak");
+    store.appendEvent({
+      ts: Date.now(),
+      queryId: "q-mixed",
+      event: "injection",
+      blockId: "b-mixed-strong",
+      score: 0.7,
+      calibratedProb: 0.7,
+    });
+    emitAgentUsed(store, {
+      queryId: "q-mixed",
+      blockId: "b-mixed-weak",
+      matchSignal: "jaccard",
+      matchScore: 0.05,
+      evidenceStrength: "weak",
+    });
+    emitAgentUsed(store, {
+      queryId: "q-mixed",
+      blockId: "b-mixed-strong",
+      matchSignal: "jaccard",
+      matchScore: 0.5,
+      evidenceStrength: "strong",
+      evidenceKind: "diff_touches_recalled_file",
+    });
+    emitOutcome(store, { queryId: "q-mixed", resolved: true, control: false });
+
+    const agg = computeAggregates(store);
+    const weakRow = agg.perBlock.find((b) => b.blockId === "b-mixed-weak")!;
+    const strongRow = agg.perBlock.find((b) => b.blockId === "b-mixed-strong")!;
+    // Per-block remains strict: weak block stays neutral, strong block helpful.
+    expect(weakRow.helpful).toBe(0);
+    expect(weakRow.neutral).toBe(1);
+    expect(strongRow.helpful).toBe(1);
+    // Funnel counts the QUERY once — the strong attribution promotes it.
+    expect(agg.funnel.helpfulRuns).toBe(1);
+    expect(agg.funnel.verifiedHelpfulRuns).toBe(1);
   });
 });
 

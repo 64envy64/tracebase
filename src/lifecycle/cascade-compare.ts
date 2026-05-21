@@ -29,6 +29,12 @@
 
 import type { BlockStore } from "../core/block-store.js";
 import type { AnalyticsEvent } from "../types.js";
+import {
+  effectiveAttributionStrength,
+  meetsHelpfulThreshold,
+  STRENGTH_RANK,
+  type AttributionStrength,
+} from "../runtime/attribution-evidence.js";
 
 /**
  * Per-arm aggregate. `helpfulRuns / totalRuns` is the §L6 rate.
@@ -188,9 +194,18 @@ function computeCascadeComparisonFromEvents(
   let cascadeRerankerRan = 0;
 
   // Per-arm bookkeeping for injection / agent_used / outcome.
+  //
+  // C2.2 — `agentUsedPairs` is keyed by `(queryId, blockId)` and the
+  // value is the STRONGEST observed evidence strength for that pair.
+  // The §L6 helpful gate then requires at least one pair on the
+  // queryId at moderate-or-stronger strength, matching the funnel
+  // and per-block gates in `core/analytics.ts`. Pre-C2.2 this was a
+  // bare `Set<string>` that admitted any agent_used regardless of
+  // strength, which inflated cascade-arm helpfulRate on noisy
+  // Jaccard hits.
   const arms = {
-    cascade: { retrievals: 0, injections: new Set<string>(), agentUsedPairs: new Set<string>(), outcomes: new Map<string, boolean>() },
-    sync: { retrievals: 0, injections: new Set<string>(), agentUsedPairs: new Set<string>(), outcomes: new Map<string, boolean>() },
+    cascade: { retrievals: 0, injections: new Set<string>(), agentUsedPairs: new Map<string, AttributionStrength>(), outcomes: new Map<string, boolean>() },
+    sync: { retrievals: 0, injections: new Set<string>(), agentUsedPairs: new Map<string, AttributionStrength>(), outcomes: new Map<string, boolean>() },
   };
 
   for (const ev of events) {
@@ -221,8 +236,22 @@ function computeCascadeComparisonFromEvents(
       else if (syncQueryIds.has(ev.queryId)) arms.sync.injections.add(ev.queryId);
     } else if (ev.event === "agent_used") {
       const key = `${ev.queryId}|${ev.blockId}`;
-      if (cascadeQueryIds.has(ev.queryId)) arms.cascade.agentUsedPairs.add(key);
-      else if (syncQueryIds.has(ev.queryId)) arms.sync.agentUsedPairs.add(key);
+      const strength = effectiveAttributionStrength(ev);
+      const target = cascadeQueryIds.has(ev.queryId)
+        ? arms.cascade.agentUsedPairs
+        : syncQueryIds.has(ev.queryId)
+          ? arms.sync.agentUsedPairs
+          : null;
+      if (target) {
+        // Keep the STRONGEST observed strength for the pair so a
+        // weak-then-strong stream still credits at strong, and the
+        // reverse never downgrades. Mirrors the per-pair update
+        // pattern in `core/analytics.ts`.
+        const prev = target.get(key);
+        if (prev === undefined || STRENGTH_RANK[strength] > STRENGTH_RANK[prev]) {
+          target.set(key, strength);
+        }
+      }
     } else if (ev.event === "outcome") {
       if (cascadeQueryIds.has(ev.queryId)) arms.cascade.outcomes.set(ev.queryId, ev.resolved);
       else if (syncQueryIds.has(ev.queryId)) arms.sync.outcomes.set(ev.queryId, ev.resolved);
@@ -251,7 +280,7 @@ function computeCascadeComparisonFromEvents(
 function summarise(arm: {
   retrievals: number;
   injections: Set<string>;
-  agentUsedPairs: Set<string>;
+  agentUsedPairs: Map<string, AttributionStrength>;
   outcomes: Map<string, boolean>;
 }): CascadeArmMetrics {
   let helpfulRuns = 0;
@@ -259,10 +288,12 @@ function summarise(arm: {
   for (const [queryId, resolved] of arm.outcomes) {
     totalRuns++;
     if (!arm.injections.has(queryId)) continue;
-    // Look for ANY agent_used pair on this queryId. The pair key is
-    // (queryId, blockId) so we walk the set for any matching prefix.
-    const hasAgentUsed = anyAgentUsedFor(arm.agentUsedPairs, queryId);
-    if (hasAgentUsed && resolved) helpfulRuns++;
+    // C2.2: require at least one agent_used pair on this queryId at
+    // moderate-or-stronger evidence strength. Weak Jaccard hits no
+    // longer inflate cascade-arm helpfulRate, so lift comparisons
+    // against the sync arm reflect the real §L6 helpful count.
+    const hasStrongEnoughUse = anyStrongAgentUsedFor(arm.agentUsedPairs, queryId);
+    if (hasStrongEnoughUse && resolved) helpfulRuns++;
   }
   return {
     retrievals: arm.retrievals,
@@ -273,10 +304,13 @@ function summarise(arm: {
   };
 }
 
-function anyAgentUsedFor(pairs: Set<string>, queryId: string): boolean {
+function anyStrongAgentUsedFor(
+  pairs: Map<string, AttributionStrength>,
+  queryId: string,
+): boolean {
   const prefix = `${queryId}|`;
-  for (const key of pairs) {
-    if (key.startsWith(prefix)) return true;
+  for (const [key, strength] of pairs) {
+    if (key.startsWith(prefix) && meetsHelpfulThreshold(strength)) return true;
   }
   return false;
 }

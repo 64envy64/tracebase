@@ -1683,9 +1683,37 @@ export function computeAggregates(
   for (const qid of injectionsByQuery.keys()) injectedQueries.add(qid);
   for (const qid of factInjectionsByQuery.keys()) injectedQueries.add(qid);
 
+  // usedRuns is the observability count — any strength of agent_used
+  // counts here (mirrors per-block `agentUsed`). Strength gating is
+  // applied separately when we promote to helpful/verifiedHelpful.
   const usedQueries = new Set<string>();
   for (const qid of agentUsedByQuery.keys()) usedQueries.add(qid);
   for (const qid of factAgentUsedByQuery.keys()) usedQueries.add(qid);
+
+  // C2.2 — strict §L6 gate at the funnel level. Pre-C2.2 helpfulRuns
+  // and verifiedHelpfulRuns were promoted on (injection ∧ ANY
+  // agent_used ∧ resolved), which let weak Jaccard signals inflate
+  // top-line memory health. usage-metrics.ts (and the dashboard
+  // derived from it) read these funnel counts directly, so the bug
+  // propagated into resolvedRateWithMemory and the heuristic savings
+  // estimate. We now require at least one (block|fact) attribution
+  // at moderate-or-stronger evidence strength for the queryId to
+  // promote into helpful — matching the per-block gate above.
+  const hasStrongEnoughUse = (qid: string): boolean => {
+    const blockMap = agentUsedByQuery.get(qid);
+    if (blockMap) {
+      for (const strength of blockMap.values()) {
+        if (meetsHelpfulThreshold(strength)) return true;
+      }
+    }
+    const factMap = factAgentUsedByQuery.get(qid);
+    if (factMap) {
+      for (const strength of factMap.values()) {
+        if (meetsHelpfulThreshold(strength)) return true;
+      }
+    }
+    return false;
+  };
 
   const helpfulQueries = new Set<string>();
   const verifiedHelpfulQueries = new Set<string>();
@@ -1693,6 +1721,11 @@ export function computeAggregates(
     if (!usedQueries.has(qid)) continue;
     const outcome = outcomeByQuery.get(qid);
     if (!outcome?.resolved) continue;
+    // Weak evidence never promotes a run to helpful at the funnel
+    // level, even if outcome.resolved=true. The per-block path
+    // already drops these into the neutral bucket; the funnel must
+    // agree or memory-health summaries will diverge from per-block.
+    if (!hasStrongEnoughUse(qid)) continue;
     helpfulQueries.add(qid);
     // verifiedHelpfulRuns excludes outcomes the Stop-hook
     // attribution layer wrote heuristically — only explicit MCP /
