@@ -122,6 +122,28 @@ export interface MemoryHealthEvidence {
   helpful: number;
   verifiedHelpful: number;
   counterproductive: number;
+  /**
+   * Injections that received an outcome event (resolved or not).
+   * `helpful + counterproductive + neutral`. The §L6 strict gate is
+   * already applied upstream by `computeAggregates`; neutral here
+   * means "outcome closed the loop but evidence didn't clear the
+   * strength threshold" — still a labeled trial for ROI purposes.
+   */
+  labeledTrials: number;
+  /**
+   * `injected - labeledTrials`. Observability only — runs that
+   * have been injected but no outcome event has landed yet.
+   * NEVER used as bad evidence. Pre-C3.1 the denominator pretended
+   * these were closed-loop labels and demoted blocks for missing
+   * telemetry, which was a category error.
+   */
+  pendingInjected: number;
+  /**
+   * Injections that produced an outcome but no helpful credit and
+   * no counterproductive credit. Surfaced for completeness; folded
+   * into `labeledTrials`.
+   */
+  neutral: number;
   /** Block's creation time, ms epoch. */
   createdAt: number;
   /** Last time the block contributed to a retrieval slate, ms epoch. */
@@ -191,12 +213,30 @@ export interface MemoryHealthConfig {
   genericMinKeywords: number;
   /** Max genericness penalty applied. */
   genericMaxPenalty: number;
-  /** Inject-count threshold before negative-ROI heuristic fires. */
+  /**
+   * Inject-count threshold before negative-ROI heuristic fires.
+   *
+   * C3.1 — interpreted against LABELED trials, not raw injections.
+   * Pre-C3.1 we counted every injection regardless of whether an
+   * outcome had landed, which demoted blocks for missing
+   * telemetry instead of bad ROI. Kept the field name for
+   * backward compat on operator configs; the variable a caller
+   * passes in is now `labeledTrials`.
+   */
   negativeRoiMinInjections: number;
-  /** Helpful-rate floor — below this with enough injections fires the penalty. */
+  /** Helpful-rate floor — below this with enough labeled trials fires the penalty. */
   negativeRoiHelpfulFloor: number;
   /** Max negative-ROI penalty applied. */
   negativeRoiMaxPenalty: number;
+  /**
+   * Cold-start floor — `labeledTrials` must reach this before any
+   * EVIDENCE-based demotion reason fires (`low_wilson_lb`,
+   * `high_counterproductive`, `negative_roi`). Stale / duplicate /
+   * generic are independent of evidence and can still fire below
+   * the floor. Default 5: one or two neutral exposures must not
+   * be enough to demote a fresh block.
+   */
+  demotionMinLabeledTrials: number;
   /** Composite-health threshold for `wouldDemote`. */
   demotionThreshold: number;
 }
@@ -214,6 +254,7 @@ export const DEFAULT_MEMORY_HEALTH_CONFIG: MemoryHealthConfig = {
   negativeRoiHelpfulFloor: 0.1,
   negativeRoiMaxPenalty: 0.2,
   demotionThreshold: 0,
+  demotionMinLabeledTrials: 5,
 };
 
 export interface ComputeMemoryHealthOptions {
@@ -348,21 +389,48 @@ function daysBetween(fromMs: number, toMs: number): number {
  * contributed. We surface ALL reasons that crossed an
  * intermediate threshold, not just the strongest, so the CLI and
  * future C4 demotion path can show why.
+ *
+ * C3.1 — three corrections caught in the post-C3 review:
+ *
+ *   1. Evidence-based reasons (`low_wilson_lb`,
+ *      `high_counterproductive`, `negative_roi`) require
+ *      `labeledTrials >= demotionMinLabeledTrials`. A single
+ *      neutral/failed exposure is cold-start, not bad-ROI.
+ *      Stale / duplicate / generic remain independent of
+ *      evidence and can still fire below the floor.
+ *
+ *   2. `stale` requires `staleMaxPenalty > 0` AND
+ *      `stalePenalty >= staleMaxPenalty * 0.5`. Pre-fix `0 >= 0`
+ *      was true when stalenes was disabled, so the reason fired
+ *      with no actual penalty.
+ *
+ *   3. `low_wilson_lb` looks at `labeledTrials`, not raw
+ *      `injected`. A block with 10 injections and 0 outcomes
+ *      has wilson_lb = 0 by construction; that's missing
+ *      telemetry, not bad evidence.
  */
 export function classifyDemotionReasons(
   health: number,
   components: MemoryHealthComponents,
-  evidence: { injected: number },
+  evidence: { labeledTrials: number },
   config: MemoryHealthConfig,
 ): DemotionReason[] {
   if (health > config.demotionThreshold) return [];
   const reasons: DemotionReason[] = [];
-  if (evidence.injected > 0 && components.wilsonLb < 0.1) reasons.push("low_wilson_lb");
-  if (components.counterproductiveRate >= 0.2) reasons.push("high_counterproductive");
-  if (components.stalePenalty >= config.staleMaxPenalty * 0.5) reasons.push("stale");
+  const enoughLabels = evidence.labeledTrials >= config.demotionMinLabeledTrials;
+  if (enoughLabels && components.wilsonLb < 0.1) reasons.push("low_wilson_lb");
+  if (enoughLabels && components.counterproductiveRate >= 0.2) {
+    reasons.push("high_counterproductive");
+  }
+  if (
+    config.staleMaxPenalty > 0
+    && components.stalePenalty >= config.staleMaxPenalty * 0.5
+  ) {
+    reasons.push("stale");
+  }
   if (components.duplicationPenalty > 0) reasons.push("duplicate");
   if (components.genericnessPenalty > 0) reasons.push("generic");
-  if (components.negativeRoiPenalty > 0) reasons.push("negative_roi");
+  if (enoughLabels && components.negativeRoiPenalty > 0) reasons.push("negative_roi");
   return reasons;
 }
 
@@ -372,12 +440,21 @@ export function classifyDemotionReasons(
 
 export interface ScoreBlockInput {
   block: Pick<ReasoningBlock, "id" | "createdAt" | "trigger" | "stats">;
+  /**
+   * C3.1 — `neutral` is required. `helpful + counterproductive +
+   * neutral` is the LABELED trial count; raw `injected` includes
+   * runs we haven't graded yet and must not be used as the
+   * denominator for Wilson / ROI math. Default 0 lets ad-hoc
+   * callers pass `{...row}` from `computeAggregates(store).perBlock`
+   * — the aggregator always populates `neutral`.
+   */
   perBlock: {
     injected: number;
     agentUsed: number;
     helpful: number;
     verifiedHelpful: number;
     counterproductive: number;
+    neutral: number;
   };
   /**
    * Other active blocks' trigger keywords, used for duplication.
@@ -392,9 +469,17 @@ export interface ScoreBlockInput {
 export function scoreBlock(input: ScoreBlockInput): MemoryHealthScore {
   const { block, perBlock, siblings, nowMs, config } = input;
 
-  const wilsonLb = wilsonLowerBound(perBlock.helpful, perBlock.injected, config.wilsonZ);
+  // C3.1 — Wilson and ROI now use the closed-loop denominator. A
+  // block injected 10x with 0 outcomes has labeledTrials=0 and the
+  // evidence-based gates report "no evidence" rather than "bad
+  // evidence". `pendingInjected` is surfaced for observability so
+  // operators can see the missing-telemetry tail.
+  const labeledTrials = perBlock.helpful + perBlock.counterproductive + perBlock.neutral;
+  const pendingInjected = Math.max(0, perBlock.injected - labeledTrials);
+
+  const wilsonLb = wilsonLowerBound(perBlock.helpful, labeledTrials, config.wilsonZ);
   const counterRate =
-    perBlock.injected > 0 ? perBlock.counterproductive / perBlock.injected : 0;
+    labeledTrials > 0 ? perBlock.counterproductive / labeledTrials : 0;
 
   // Staleness anchor: lastUsedAt if known, else createdAt. Blocks
   // that never recorded a usage event are penalised based on how
@@ -430,8 +515,11 @@ export function scoreBlock(input: ScoreBlockInput): MemoryHealthScore {
     config.genericMaxPenalty,
   );
 
+  // C3.1 — denominator is labeledTrials, not raw injected. The
+  // function signature is unchanged (it's still a pure (n, k,
+  // floor, max) shape); only the caller's choice of n moves.
   const negativeRoi = negativeRoiPenalty(
-    perBlock.injected,
+    labeledTrials,
     perBlock.helpful,
     config.negativeRoiMinInjections,
     config.negativeRoiHelpfulFloor,
@@ -456,6 +544,9 @@ export function scoreBlock(input: ScoreBlockInput): MemoryHealthScore {
     helpful: perBlock.helpful,
     verifiedHelpful: perBlock.verifiedHelpful,
     counterproductive: perBlock.counterproductive,
+    neutral: perBlock.neutral,
+    labeledTrials,
+    pendingInjected,
     createdAt: block.createdAt,
     lastUsedAt: lastUsedAt ?? null,
     ageDays: daysBetween(block.createdAt, nowMs),
@@ -465,7 +556,7 @@ export function scoreBlock(input: ScoreBlockInput): MemoryHealthScore {
   const reasons = classifyDemotionReasons(
     health,
     components,
-    { injected: perBlock.injected },
+    { labeledTrials },
     config,
   );
 
@@ -520,6 +611,7 @@ export function computeMemoryHealth(
         helpful: 0,
         verifiedHelpful: 0,
         counterproductive: 0,
+        neutral: 0,
       },
       siblings,
       nowMs,

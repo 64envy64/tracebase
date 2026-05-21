@@ -203,7 +203,7 @@ describe("scoreBlock — composite", () => {
   it("returns wilsonLb when there are no penalty drivers", () => {
     const result = scoreBlock({
       block: dummyBlock({ lastUsedAt: NOW - DAY_MS }),
-      perBlock: { injected: 100, agentUsed: 50, helpful: 50, verifiedHelpful: 50, counterproductive: 0 },
+      perBlock: { injected: 100, agentUsed: 50, helpful: 50, verifiedHelpful: 50, counterproductive: 0, neutral: 0 },
       siblings: [],
       nowMs: NOW,
       config: DEFAULT_MEMORY_HEALTH_CONFIG,
@@ -220,7 +220,7 @@ describe("scoreBlock — composite", () => {
   it("penalises high counterproductive even when wilsonLb is decent", () => {
     const r = scoreBlock({
       block: dummyBlock({ lastUsedAt: NOW - DAY_MS }),
-      perBlock: { injected: 20, agentUsed: 15, helpful: 5, verifiedHelpful: 5, counterproductive: 10 },
+      perBlock: { injected: 20, agentUsed: 15, helpful: 5, verifiedHelpful: 5, counterproductive: 10, neutral: 5 },
       siblings: [],
       nowMs: NOW,
       config: DEFAULT_MEMORY_HEALTH_CONFIG,
@@ -235,7 +235,7 @@ describe("scoreBlock — composite", () => {
     const dup = ["python", "asyncio", "loop", "deadlock", "lock", "extra"];
     const r = scoreBlock({
       block: dummyBlock({ id: "block-with-dup", keywords: own, lastUsedAt: NOW - DAY_MS }),
-      perBlock: { injected: 10, agentUsed: 5, helpful: 5, verifiedHelpful: 5, counterproductive: 0 },
+      perBlock: { injected: 10, agentUsed: 5, helpful: 5, verifiedHelpful: 5, counterproductive: 0, neutral: 0 },
       siblings: [{ id: "block-other", keywords: dup }],
       nowMs: NOW,
       config: DEFAULT_MEMORY_HEALTH_CONFIG,
@@ -246,7 +246,7 @@ describe("scoreBlock — composite", () => {
   it("flags genericness when trigger has very few keywords", () => {
     const r = scoreBlock({
       block: dummyBlock({ keywords: ["error"], lastUsedAt: NOW - DAY_MS }),
-      perBlock: { injected: 5, agentUsed: 2, helpful: 1, verifiedHelpful: 1, counterproductive: 0 },
+      perBlock: { injected: 5, agentUsed: 2, helpful: 1, verifiedHelpful: 1, counterproductive: 0, neutral: 4 },
       siblings: [],
       nowMs: NOW,
       config: DEFAULT_MEMORY_HEALTH_CONFIG,
@@ -257,7 +257,7 @@ describe("scoreBlock — composite", () => {
   it("flags negative_roi when injections are many but helpful rate is below floor", () => {
     const r = scoreBlock({
       block: dummyBlock({ lastUsedAt: NOW - DAY_MS }),
-      perBlock: { injected: 20, agentUsed: 4, helpful: 0, verifiedHelpful: 0, counterproductive: 4 },
+      perBlock: { injected: 20, agentUsed: 4, helpful: 0, verifiedHelpful: 0, counterproductive: 4, neutral: 16 },
       siblings: [],
       nowMs: NOW,
       config: DEFAULT_MEMORY_HEALTH_CONFIG,
@@ -270,7 +270,7 @@ describe("scoreBlock — composite", () => {
     // No lastUsedAt, block created 100 days ago.
     const r = scoreBlock({
       block: dummyBlock({ createdAt: NOW - 100 * DAY_MS }),
-      perBlock: { injected: 0, agentUsed: 0, helpful: 0, verifiedHelpful: 0, counterproductive: 0 },
+      perBlock: { injected: 0, agentUsed: 0, helpful: 0, verifiedHelpful: 0, counterproductive: 0, neutral: 0 },
       siblings: [],
       nowMs: NOW,
       config: DEFAULT_MEMORY_HEALTH_CONFIG,
@@ -285,7 +285,7 @@ describe("scoreBlock — composite", () => {
   it("never produces a NaN or undefined component", () => {
     const r = scoreBlock({
       block: dummyBlock({}),
-      perBlock: { injected: 0, agentUsed: 0, helpful: 0, verifiedHelpful: 0, counterproductive: 0 },
+      perBlock: { injected: 0, agentUsed: 0, helpful: 0, verifiedHelpful: 0, counterproductive: 0, neutral: 0 },
       siblings: [],
       nowMs: NOW,
       config: DEFAULT_MEMORY_HEALTH_CONFIG,
@@ -306,14 +306,14 @@ describe("classifyDemotionReasons", () => {
         wilsonLb: 0.5, counterproductiveRate: 0, stalePenalty: 0,
         duplicationPenalty: 0, genericnessPenalty: 0, negativeRoiPenalty: 0,
       },
-      { injected: 10 },
+      { labeledTrials: 10 },
       DEFAULT_MEMORY_HEALTH_CONFIG,
     );
     expect(reasons).toEqual([]);
   });
 
-  it("does NOT fire low_wilson_lb when there are no injections", () => {
-    // 0 injections with wilson_lb=0 is "no evidence", not "bad
+  it("does NOT fire low_wilson_lb when labeledTrials is 0 (no evidence)", () => {
+    // 0 labeled trials with wilson_lb=0 is "no evidence", not "bad
     // evidence" — would-be brand-new blocks must not be tagged.
     const reasons = classifyDemotionReasons(
       -0.05,
@@ -321,20 +321,91 @@ describe("classifyDemotionReasons", () => {
         wilsonLb: 0, counterproductiveRate: 0, stalePenalty: 0.05,
         duplicationPenalty: 0, genericnessPenalty: 0, negativeRoiPenalty: 0,
       },
-      { injected: 0 },
+      { labeledTrials: 0 },
       DEFAULT_MEMORY_HEALTH_CONFIG,
     );
     expect(reasons).not.toContain("low_wilson_lb");
   });
 
-  it("fires multiple reasons when multiple components crossed thresholds", () => {
+  it("C3.1 — does NOT fire low_wilson_lb below the cold-start floor even with injections present", () => {
+    // 2 labeled trials, all neutral. Pre-C3.1 the gate checked
+    // `injected > 0`, which would have credited "low_wilson_lb"
+    // on any block with at least one injection. C3.1 requires
+    // labeledTrials >= demotionMinLabeledTrials (default 5).
+    const reasons = classifyDemotionReasons(
+      -0.05,
+      {
+        wilsonLb: 0.0, counterproductiveRate: 0, stalePenalty: 0.05,
+        duplicationPenalty: 0, genericnessPenalty: 0, negativeRoiPenalty: 0,
+      },
+      { labeledTrials: 2 },
+      DEFAULT_MEMORY_HEALTH_CONFIG,
+    );
+    expect(reasons).not.toContain("low_wilson_lb");
+    expect(reasons).not.toContain("high_counterproductive");
+    expect(reasons).not.toContain("negative_roi");
+  });
+
+  it("C3.1 — DOES fire low_wilson_lb at the cold-start floor and above", () => {
+    const reasons = classifyDemotionReasons(
+      -0.05,
+      {
+        wilsonLb: 0.0, counterproductiveRate: 0, stalePenalty: 0,
+        duplicationPenalty: 0, genericnessPenalty: 0, negativeRoiPenalty: 0,
+      },
+      { labeledTrials: DEFAULT_MEMORY_HEALTH_CONFIG.demotionMinLabeledTrials },
+      DEFAULT_MEMORY_HEALTH_CONFIG,
+    );
+    expect(reasons).toContain("low_wilson_lb");
+  });
+
+  it("C3.1 — stale reason does NOT fire when staleMaxPenalty=0 (penalty disabled)", () => {
+    // Pre-C3.1 `0 >= 0` was true so the reason fired even with
+    // staleness off. Guard now requires staleMaxPenalty > 0.
+    const reasons = classifyDemotionReasons(
+      -0.05,
+      {
+        wilsonLb: 0, counterproductiveRate: 0, stalePenalty: 0,
+        duplicationPenalty: 0.1, genericnessPenalty: 0, negativeRoiPenalty: 0,
+      },
+      { labeledTrials: 0 },
+      { ...DEFAULT_MEMORY_HEALTH_CONFIG, staleMaxPenalty: 0 },
+    );
+    expect(reasons).not.toContain("stale");
+    // The block IS still demoted (duplicate fires regardless of
+    // staleness config), confirming the early-return is correct.
+    expect(reasons).toContain("duplicate");
+  });
+
+  it("C3.1 — non-evidence reasons (stale/duplicate/generic) DO fire below the cold-start floor", () => {
+    // A 90-day-old duplicate with no events is genuinely stale +
+    // duplicate, regardless of labeledTrials. Evidence-gated
+    // reasons stay quiet but the structural reasons fire.
+    const reasons = classifyDemotionReasons(
+      -0.4,
+      {
+        wilsonLb: 0, counterproductiveRate: 0, stalePenalty: 0.2,
+        duplicationPenalty: 0.1, genericnessPenalty: 0.1, negativeRoiPenalty: 0,
+      },
+      { labeledTrials: 0 },
+      DEFAULT_MEMORY_HEALTH_CONFIG,
+    );
+    expect(reasons).toContain("stale");
+    expect(reasons).toContain("duplicate");
+    expect(reasons).toContain("generic");
+    expect(reasons).not.toContain("low_wilson_lb");
+    expect(reasons).not.toContain("high_counterproductive");
+    expect(reasons).not.toContain("negative_roi");
+  });
+
+  it("fires multiple reasons when multiple components crossed thresholds (with sufficient labels)", () => {
     const reasons = classifyDemotionReasons(
       -0.5,
       {
         wilsonLb: 0.05, counterproductiveRate: 0.3, stalePenalty: 0.2,
         duplicationPenalty: 0.1, genericnessPenalty: 0.1, negativeRoiPenalty: 0.1,
       },
-      { injected: 50 },
+      { labeledTrials: 50 },
       DEFAULT_MEMORY_HEALTH_CONFIG,
     );
     expect(reasons).toEqual(
@@ -461,6 +532,88 @@ describe("computeMemoryHealth — integration", () => {
     expect(after.id).toBe(b.id);
     expect(after.status).toBe("active");
     expect(after.updatedAt).toBe(beforeUpdatedAt);
+  });
+
+  it("C3.1 — 10 injections with 0 outcomes does NOT demote (missing telemetry ≠ bad ROI)", () => {
+    // Named C3.1 repro: pre-fix this block landed in wouldDemote
+    // with reasons low_wilson_lb + negative_roi because the
+    // denominator (raw `injected`) treated unlabeled runs as
+    // failures. Post-C3.1: labeledTrials=0 puts the block below
+    // the cold-start floor, so evidence-based reasons must NOT
+    // fire — the block was simply never graded.
+    const b = makeActive(store, SAMPLE_INPUT);
+    for (let i = 0; i < 10; i++) {
+      const queryId = `q-pending-${i}`;
+      store.appendEvent({
+        ts: Date.now(),
+        queryId,
+        event: "retrieval",
+        candidates: [{ blockId: b.id, score: 0.5 }],
+        shadow: false,
+      });
+      store.appendEvent({
+        ts: Date.now(),
+        queryId,
+        event: "injection",
+        blockId: b.id,
+        score: 0.5,
+        calibratedProb: 0.5,
+      });
+      // No outcome event → unlabeled / pending.
+    }
+    const report = computeMemoryHealth(store, { nowMs: NOW });
+    const row = report.scored.find((s) => s.blockId === b.id)!;
+    expect(row.evidence.injected).toBe(10);
+    expect(row.evidence.labeledTrials).toBe(0);
+    expect(row.evidence.pendingInjected).toBe(10);
+    expect(row.components.wilsonLb).toBe(0);
+    expect(row.components.negativeRoiPenalty).toBe(0);
+    expect(row.reasons).not.toContain("low_wilson_lb");
+    expect(row.reasons).not.toContain("negative_roi");
+    expect(report.wouldDemote.map((s) => s.blockId)).not.toContain(b.id);
+  });
+
+  it("C3.1 — single failed labeled trial does NOT cross the cold-start floor", () => {
+    // One injection + one resolved=false outcome. labeledTrials=1
+    // is below the demotion floor of 5, so even though
+    // counterproductive_rate = 1.0 and wilson_lb = 0, the
+    // evidence-based reasons stay quiet.
+    const b = makeActive(store, SAMPLE_INPUT);
+    const queryId = "q-cold-start";
+    store.appendEvent({
+      ts: Date.now(),
+      queryId,
+      event: "retrieval",
+      candidates: [{ blockId: b.id, score: 0.5 }],
+      shadow: false,
+    });
+    store.appendEvent({
+      ts: Date.now(),
+      queryId,
+      event: "injection",
+      blockId: b.id,
+      score: 0.5,
+      calibratedProb: 0.5,
+    });
+    emitAgentUsed(store, {
+      queryId,
+      blockId: b.id,
+      matchSignal: "explicit",
+      matchScore: 1,
+      evidenceStrength: "explicit",
+    });
+    emitOutcome(store, { queryId, resolved: false, control: false });
+
+    const report = computeMemoryHealth(store, { nowMs: NOW });
+    const row = report.scored.find((s) => s.blockId === b.id)!;
+    expect(row.evidence.labeledTrials).toBe(1);
+    expect(row.evidence.counterproductive).toBe(1);
+    expect(row.components.counterproductiveRate).toBe(1);
+    // Evidence-based reasons gated by cold-start floor (5).
+    expect(row.reasons).not.toContain("low_wilson_lb");
+    expect(row.reasons).not.toContain("high_counterproductive");
+    expect(row.reasons).not.toContain("negative_roi");
+    expect(report.wouldDemote.map((s) => s.blockId)).not.toContain(b.id);
   });
 
   it("C3 fresh-block safety: a brand-new block with zero events is NOT in wouldDemote", () => {
