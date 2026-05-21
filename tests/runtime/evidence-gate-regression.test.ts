@@ -207,6 +207,106 @@ describe("C2.1 regression — strict gate in computeAggregates", () => {
     expect(agg.funnel.verifiedHelpfulRuns).toBe(0);
   });
 
+  it("C2.3 — orphan strong attribution on a NON-injected block does NOT promote funnel helpful", () => {
+    // The named C2.3 regression. Pre-C2.3 the funnel checked "any
+    // strong agent_used on the queryId" without intersecting with
+    // the injected set. Repro: inject blockA, fire explicit
+    // agent_used on blockB (orphan) → funnel.helpfulRuns=1 even
+    // though both perBlock rows stayed neutral (block A had no
+    // agent_used; block B was never injected so doesn't get
+    // classified at all). For memory-health and pruning the
+    // funnel-vs-per-block divergence would be silent miseducation.
+    seedRetrievalAndInjection("q-orphan", "injected-block");
+    emitAgentUsed(store, {
+      queryId: "q-orphan",
+      blockId: "not-injected-block", // orphan: was NOT injected
+      matchSignal: "explicit",
+      matchScore: 1,
+      evidenceStrength: "explicit",
+      evidenceKind: "record_reasoning_outcome",
+    });
+    emitOutcome(store, { queryId: "q-orphan", resolved: true, control: false });
+
+    const agg = computeAggregates(store);
+    const injectedStats = agg.perBlock.find((b) => b.blockId === "injected-block")!;
+    expect(injectedStats.injected).toBe(1);
+    expect(injectedStats.agentUsed).toBe(0);    // no agent_used on the injected block
+    expect(injectedStats.helpful).toBe(0);
+    expect(injectedStats.verifiedHelpful).toBe(0);
+    // The orphan block is never classified — it was never injected.
+    expect(agg.perBlock.find((b) => b.blockId === "not-injected-block")).toBeUndefined();
+    // Funnel must agree with per-block: no injected→used pair, no helpful.
+    expect(agg.funnel.injectedRuns).toBe(1);
+    expect(agg.funnel.usedRuns).toBe(1);           // observability — orphan still counts as "agent used something"
+    expect(agg.funnel.helpfulRuns).toBe(0);        // C2.3 intersection gate
+    expect(agg.funnel.verifiedHelpfulRuns).toBe(0);
+  });
+
+  it("C2.3 — orphan strong attribution on a NON-injected FACT does not promote funnel helpful", () => {
+    // Symmetric fact-side regression: a `fact_injection` for fact-A
+    // plus a `fact_agent_used` (strong) on fact-B must NOT promote
+    // helpfulRuns. Mirrors the block-side intersection rule.
+    seedRetrievalAndInjection("q-fact-orphan", "blockA");
+    store.appendEvent({
+      ts: Date.now(),
+      queryId: "q-fact-orphan",
+      event: "fact_injection",
+      factId: "injected-fact",
+      score: 0.5,
+      calibratedProb: 0.5,
+    } as never);
+    store.appendEvent({
+      ts: Date.now(),
+      queryId: "q-fact-orphan",
+      event: "fact_agent_used",
+      factId: "not-injected-fact",
+      matchSignal: "explicit",
+      matchScore: 1,
+      evidenceStrength: "explicit",
+      evidenceKind: "record_reasoning_outcome",
+    } as never);
+    emitOutcome(store, { queryId: "q-fact-orphan", resolved: true, control: false });
+
+    const agg = computeAggregates(store);
+    // The injected fact has no agent_used. The orphan agent_used on
+    // a non-injected fact must NOT promote the funnel run.
+    expect(agg.funnel.helpfulRuns).toBe(0);
+    expect(agg.funnel.verifiedHelpfulRuns).toBe(0);
+  });
+
+  it("C2.3 — strong attribution on an INJECTED block AND an orphan strong on a non-injected block → helpful=1 (the injected one carries it)", () => {
+    // Defensive complement: when the same queryId has BOTH a
+    // properly-injected strong pair AND an orphan strong attribution,
+    // the run is helpful (the legitimate pair satisfies §L6). Pins
+    // that the intersection gate is "exists an injected pair", not
+    // "all pairs are injected".
+    seedRetrievalAndInjection("q-mixed-orphan", "real-block");
+    emitAgentUsed(store, {
+      queryId: "q-mixed-orphan",
+      blockId: "real-block",
+      matchSignal: "explicit",
+      matchScore: 1,
+      evidenceStrength: "explicit",
+      evidenceKind: "record_reasoning_outcome",
+    });
+    emitAgentUsed(store, {
+      queryId: "q-mixed-orphan",
+      blockId: "orphan-block", // not in the injected set
+      matchSignal: "explicit",
+      matchScore: 1,
+      evidenceStrength: "explicit",
+      evidenceKind: "record_reasoning_outcome",
+    });
+    emitOutcome(store, { queryId: "q-mixed-orphan", resolved: true, control: false });
+
+    const agg = computeAggregates(store);
+    const realStats = agg.perBlock.find((b) => b.blockId === "real-block")!;
+    expect(realStats.helpful).toBe(1);
+    expect(realStats.verifiedHelpful).toBe(1);
+    expect(agg.funnel.helpfulRuns).toBe(1);
+    expect(agg.funnel.verifiedHelpfulRuns).toBe(1);
+  });
+
   it("C2.2 — mixed cohort: one weak + one moderate same queryId → funnel helpful=1 (any strong-enough use suffices)", () => {
     // The funnel gate is OR across the queryId's evidence — pre-fix
     // it was "ANY agent_used", post-fix it is "ANY agent_used at

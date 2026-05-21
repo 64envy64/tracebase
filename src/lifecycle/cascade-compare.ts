@@ -203,9 +203,21 @@ function computeCascadeComparisonFromEvents(
   // bare `Set<string>` that admitted any agent_used regardless of
   // strength, which inflated cascade-arm helpfulRate on noisy
   // Jaccard hits.
+  //
+  // C2.3 — `injectionsByQuery` is now a `Map<queryId, Set<blockId>>`
+  // (was `Set<queryId>`), so the §L6 helpful gate can intersect the
+  // strong agent_used pair against the actual injected blockIds.
+  // Pre-C2.3 fix: injected=blockA + strong agent_used=blockB on the
+  // same queryId would credit helpful, even though the cascade
+  // didn't put blockB in front of the agent. For memory-health
+  // pruning this would have the cascade arm "learning" on orphan
+  // attribution. `injections.size` (used for the surfaced
+  // `metric.injections` counter) is now `arm.injections.size` of the
+  // Map, which counts queryIds with at least one injection — same
+  // semantics as the pre-C2.3 Set count.
   const arms = {
-    cascade: { retrievals: 0, injections: new Set<string>(), agentUsedPairs: new Map<string, AttributionStrength>(), outcomes: new Map<string, boolean>() },
-    sync: { retrievals: 0, injections: new Set<string>(), agentUsedPairs: new Map<string, AttributionStrength>(), outcomes: new Map<string, boolean>() },
+    cascade: { retrievals: 0, injections: new Map<string, Set<string>>(), agentUsedPairs: new Map<string, AttributionStrength>(), outcomes: new Map<string, boolean>() },
+    sync: { retrievals: 0, injections: new Map<string, Set<string>>(), agentUsedPairs: new Map<string, AttributionStrength>(), outcomes: new Map<string, boolean>() },
   };
 
   for (const ev of events) {
@@ -232,8 +244,16 @@ function computeCascadeComparisonFromEvents(
   // Second pass to attribute injections / agent_used / outcomes to arms.
   for (const ev of events) {
     if (ev.event === "injection") {
-      if (cascadeQueryIds.has(ev.queryId)) arms.cascade.injections.add(ev.queryId);
-      else if (syncQueryIds.has(ev.queryId)) arms.sync.injections.add(ev.queryId);
+      const target = cascadeQueryIds.has(ev.queryId)
+        ? arms.cascade.injections
+        : syncQueryIds.has(ev.queryId)
+          ? arms.sync.injections
+          : null;
+      if (target) {
+        const existing = target.get(ev.queryId);
+        if (existing) existing.add(ev.blockId);
+        else target.set(ev.queryId, new Set([ev.blockId]));
+      }
     } else if (ev.event === "agent_used") {
       const key = `${ev.queryId}|${ev.blockId}`;
       const strength = effectiveAttributionStrength(ev);
@@ -279,7 +299,7 @@ function computeCascadeComparisonFromEvents(
 
 function summarise(arm: {
   retrievals: number;
-  injections: Set<string>;
+  injections: Map<string, Set<string>>;
   agentUsedPairs: Map<string, AttributionStrength>;
   outcomes: Map<string, boolean>;
 }): CascadeArmMetrics {
@@ -287,13 +307,21 @@ function summarise(arm: {
   let totalRuns = 0;
   for (const [queryId, resolved] of arm.outcomes) {
     totalRuns++;
-    if (!arm.injections.has(queryId)) continue;
-    // C2.2: require at least one agent_used pair on this queryId at
-    // moderate-or-stronger evidence strength. Weak Jaccard hits no
-    // longer inflate cascade-arm helpfulRate, so lift comparisons
-    // against the sync arm reflect the real §L6 helpful count.
-    const hasStrongEnoughUse = anyStrongAgentUsedFor(arm.agentUsedPairs, queryId);
-    if (hasStrongEnoughUse && resolved) helpfulRuns++;
+    const injectedItems = arm.injections.get(queryId);
+    if (!injectedItems || injectedItems.size === 0) continue;
+    // C2.3: require at least one agent_used pair on this queryId at
+    // moderate-or-stronger evidence strength AND on an item that
+    // was actually injected for this queryId. Pre-C2.3 we admitted
+    // any strong pair on the same queryId regardless of whether the
+    // cascade had put that item in front of the agent — that let
+    // orphan attribution credit helpful and would have polluted
+    // memory-health pruning learned from cascade-arm lift.
+    const hasStrongEnoughInjectedUse = anyStrongInjectedAgentUsedFor(
+      arm.agentUsedPairs,
+      queryId,
+      injectedItems,
+    );
+    if (hasStrongEnoughInjectedUse && resolved) helpfulRuns++;
   }
   return {
     retrievals: arm.retrievals,
@@ -304,13 +332,14 @@ function summarise(arm: {
   };
 }
 
-function anyStrongAgentUsedFor(
+function anyStrongInjectedAgentUsedFor(
   pairs: Map<string, AttributionStrength>,
   queryId: string,
+  injectedItems: ReadonlySet<string>,
 ): boolean {
-  const prefix = `${queryId}|`;
-  for (const [key, strength] of pairs) {
-    if (key.startsWith(prefix) && meetsHelpfulThreshold(strength)) return true;
+  for (const blockId of injectedItems) {
+    const strength = pairs.get(`${queryId}|${blockId}`);
+    if (strength !== undefined && meetsHelpfulThreshold(strength)) return true;
   }
   return false;
 }

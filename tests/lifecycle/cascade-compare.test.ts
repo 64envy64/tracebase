@@ -356,6 +356,102 @@ describe("computeCascadeComparison — C2.2 strength gate", () => {
     expect(cmp.sync.helpfulRuns).toBe(1);
   });
 
+  it("C2.3 — orphan strong agent_used on a NON-injected block in cascade arm → helpfulRuns=0", () => {
+    // The named C2.3 cascade regression. Pre-C2.3 cascade-compare
+    // counted any strong agent_used on the queryId as helpful,
+    // regardless of whether the cascade had put that block in front
+    // of the agent. Repro: cascade arm injects blockA; explicit
+    // agent_used arrives for blockB (orphan, e.g. from a stale
+    // attribution-inference path). Old code: cascade.helpfulRuns=1.
+    // C2.3 requires the strong pair to intersect with the cascade's
+    // own injection set — otherwise pruning learns on attribution
+    // the cascade didn't actually drive.
+    const ts = Date.now();
+    store.appendEvent({
+      ts,
+      queryId: "c-orphan",
+      event: "retrieval",
+      candidates: [{ blockId: "b-injected", score: 0.5 }],
+      shadow: false,
+      rerankerName: "test-reranker",
+      cascadePolicyId: "linear+rerank+mmr.v1",
+      mmrLambda: 0.7,
+      rerankerFellBack: false,
+    });
+    store.appendEvent({
+      ts: ts + 1,
+      queryId: "c-orphan",
+      event: "injection",
+      blockId: "b-injected",
+      score: 0.5,
+      calibratedProb: 0.5,
+    });
+    store.appendEvent({
+      ts: ts + 2,
+      queryId: "c-orphan",
+      event: "agent_used",
+      blockId: "b-not-injected", // orphan: never in the cascade's slate
+      matchSignal: "explicit",
+      matchScore: 1,
+      evidenceStrength: "explicit",
+    } as never);
+    store.appendEvent({
+      ts: ts + 3,
+      queryId: "c-orphan",
+      event: "outcome",
+      resolved: true,
+      control: false,
+    });
+
+    const cmp = computeCascadeComparison(store);
+    expect(cmp.cascade.retrievals).toBe(1);
+    expect(cmp.cascade.injections).toBe(1);
+    expect(cmp.cascade.totalRuns).toBe(1);
+    expect(cmp.cascade.helpfulRuns).toBe(0);
+    expect(cmp.cascade.helpfulRate).toBe(0);
+  });
+
+  it("C2.3 — both an injected strong pair AND an orphan strong pair → cascade helpfulRuns=1 (legitimate pair carries it)", () => {
+    // Existence rule: at least ONE injected (block, queryId) with
+    // moderate+ strength is enough. The orphan doesn't disqualify
+    // the legitimate pair.
+    const ts = Date.now();
+    store.appendEvent({
+      ts,
+      queryId: "c-mixed",
+      event: "retrieval",
+      candidates: [{ blockId: "b-injected", score: 0.5 }],
+      shadow: false,
+      rerankerName: "test-reranker",
+      cascadePolicyId: "linear+rerank+mmr.v1",
+      mmrLambda: 0.7,
+      rerankerFellBack: false,
+    });
+    store.appendEvent({ ts: ts + 1, queryId: "c-mixed", event: "injection", blockId: "b-injected", score: 0.5, calibratedProb: 0.5 });
+    store.appendEvent({
+      ts: ts + 2,
+      queryId: "c-mixed",
+      event: "agent_used",
+      blockId: "b-injected",
+      matchSignal: "explicit",
+      matchScore: 1,
+      evidenceStrength: "explicit",
+    } as never);
+    store.appendEvent({
+      ts: ts + 3,
+      queryId: "c-mixed",
+      event: "agent_used",
+      blockId: "b-orphan",
+      matchSignal: "explicit",
+      matchScore: 1,
+      evidenceStrength: "explicit",
+    } as never);
+    store.appendEvent({ ts: ts + 4, queryId: "c-mixed", event: "outcome", resolved: true, control: false });
+
+    const cmp = computeCascadeComparison(store);
+    expect(cmp.cascade.helpfulRuns).toBe(1);
+  });
+
   it("legacy event (no evidenceStrength) with matchSignal=explicit still credits — back-compat preserved", () => {
     // Pre-C2.1 events have no evidenceStrength field. The
     // cascade-compare aggregator must reuse the same back-compat

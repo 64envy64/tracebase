@@ -321,12 +321,40 @@ describe("isStrictlyHelpful — strict §L6 gate (C2)", () => {
     expect(isStrictlyHelpful({ evidenceStrength: "explicit" }, { resolved: true, control: false })).toBe(true);
   });
 
-  it("legacy event (no evidenceStrength): defaults to permissive (legacyAsHelpful=true)", () => {
-    // Pre-C2 agent_used rows have no evidenceStrength. The default
-    // keeps them counted to preserve dashboard back-compat. Strict
-    // aggregators can pass legacyAsHelpful=false.
-    expect(isStrictlyHelpful({}, { resolved: true, control: false })).toBe(true);
-    expect(isStrictlyHelpful({}, { resolved: true, control: false }, { legacyAsHelpful: false })).toBe(false);
+  it("C2.3 — legacy event derives strength via matchSignal+matchScore (no permissive footgun)", () => {
+    // Pre-C2.1 agent_used rows have no `evidenceStrength` field but
+    // they DO carry `matchSignal` + `matchScore`. C2.3 routes
+    // through `effectiveAttributionStrength` semantics so the helper
+    // gives the same answer the aggregators do:
+    //
+    //   • explicit signal → "explicit" → helpful
+    //   • jaccard with matchScore below MODERATE_JACCARD_THRESHOLD → "weak" → not helpful
+    //   • jaccard with matchScore at/above MODERATE_JACCARD_THRESHOLD → "moderate" → helpful
+    //
+    // Pre-C2.3 a bare `{}` defaulted to helpful=true via the
+    // `legacyAsHelpful` knob — that footgun is gone. Empty agent_used
+    // (no fields at all) reads as derived "weak" → rejected.
+    expect(
+      isStrictlyHelpful(
+        { matchSignal: "explicit", matchScore: 1 },
+        { resolved: true, control: false },
+      ),
+    ).toBe(true);
+    expect(
+      isStrictlyHelpful(
+        { matchSignal: "jaccard", matchScore: 0.05 },
+        { resolved: true, control: false },
+      ),
+    ).toBe(false);
+    expect(
+      isStrictlyHelpful(
+        { matchSignal: "jaccard", matchScore: 0.25 },
+        { resolved: true, control: false },
+      ),
+    ).toBe(true);
+    // Truly empty event — no strength, no signal. Defaults to "weak"
+    // (the strictest available default), NOT to helpful.
+    expect(isStrictlyHelpful({}, { resolved: true, control: false })).toBe(false);
   });
 });
 

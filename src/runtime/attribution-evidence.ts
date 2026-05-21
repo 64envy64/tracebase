@@ -303,31 +303,42 @@ export function detectTestOrCommandSuccessAfterRedirect(
  * must NOT automatically credit every injected item; weak inferred
  * evidence is logged but does not close the loop.
  *
- *   • Either agent_used has strength ≥ moderate AND outcome is
- *     resolved → credit.
- *   • Strength absent (pre-C2 event) → fall back to legacy permissive
- *     interpretation (back-compat). Aggregators that need strict
- *     accounting MUST pass `legacyAsHelpful: false`.
- *   • Outcome is missing → never helpful.
- *   • Outcome carries `control: true` (shadow) → never helpful.
+ * C2.3 — single source of truth via `effectiveAttributionStrength`.
+ * Pre-C2.3 this function had a `legacyAsHelpful` knob that defaulted
+ * absent `evidenceStrength` to helpful=true, which was a footgun for
+ * C3/C4: a caller could pick the obviously-named helper and silently
+ * regress the strict gate to the old permissive behaviour. Now we
+ * derive strength uniformly:
+ *
+ *   • `evidenceStrength` present → use it directly.
+ *   • Absent → derive from (matchSignal, matchScore) via
+ *     `strengthFromMatchSignal`. A pre-C2.1 explicit signal still
+ *     reads as "explicit"; a noisy Jaccard reads as "weak".
+ *   • Neither field present → derived "weak" (does NOT clear gate).
+ *   • Outcome missing or shadow (control=true) or unresolved →
+ *     never helpful.
+ *
+ * The aggregators in `core/analytics.ts` and `lifecycle/cascade-compare.ts`
+ * implement the SAME semantics inline (they need the strength value
+ * to update per-pair Maps anyway); this helper is the canonical
+ * single-event check for ad-hoc callers and tests.
  */
 export function isStrictlyHelpful(
   agentUsed: {
     evidenceStrength?: AttributionStrength;
     matchSignal?: "jaccard" | "embedding" | "explicit";
+    matchScore?: number;
   } | null,
   outcome: { resolved: boolean; control: boolean } | null,
-  opts: { legacyAsHelpful?: boolean } = {},
 ): boolean {
   if (!agentUsed || !outcome) return false;
   if (outcome.control === true) return false;
   if (!outcome.resolved) return false;
-  if (agentUsed.evidenceStrength === undefined) {
-    // Pre-C2 event. Default to legacy semantics; aggregators with
-    // strict-mode pass false explicitly.
-    return opts.legacyAsHelpful ?? true;
-  }
-  return meetsHelpfulThreshold(agentUsed.evidenceStrength);
+  const strength = agentUsed.evidenceStrength
+    ?? (agentUsed.matchSignal !== undefined
+      ? strengthFromMatchSignal(agentUsed.matchSignal, agentUsed.matchScore ?? 0)
+      : "weak");
+  return meetsHelpfulThreshold(strength);
 }
 
 // ---------------------------------------------------------------------------

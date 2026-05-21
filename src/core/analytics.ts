@@ -1696,20 +1696,38 @@ export function computeAggregates(
   // top-line memory health. usage-metrics.ts (and the dashboard
   // derived from it) read these funnel counts directly, so the bug
   // propagated into resolvedRateWithMemory and the heuristic savings
-  // estimate. We now require at least one (block|fact) attribution
-  // at moderate-or-stronger evidence strength for the queryId to
-  // promote into helpful — matching the per-block gate above.
-  const hasStrongEnoughUse = (qid: string): boolean => {
-    const blockMap = agentUsedByQuery.get(qid);
-    if (blockMap) {
-      for (const strength of blockMap.values()) {
-        if (meetsHelpfulThreshold(strength)) return true;
+  // estimate.
+  //
+  // C2.3 — strict ITEM-LEVEL intersection. The first C2.2 cut still
+  // had a leak: `hasStrongEnoughUse(qid)` checked whether ANY
+  // (block|fact) on the queryId had moderate+ strength, not whether
+  // the strong attribution landed on an INJECTED item. Repro:
+  // injected=blockA, agent_used(strong)=blockB → funnel.helpfulRuns=1
+  // even though per-block kept both neutral. For memory-health and
+  // pruning to learn honestly we need:
+  //     helpful = ∃ itemId. itemId ∈ injected(qid) ∧ strong(agent_used(qid, itemId)) ∧ resolved
+  // Walk the injected itemIds and look up the strength on each — an
+  // orphan strong agent_used (on a non-injected item) no longer
+  // promotes the run.
+  const hasStrongEnoughInjectedUse = (qid: string): boolean => {
+    const injectedBlocks = injectionsByQuery.get(qid);
+    if (injectedBlocks && injectedBlocks.size > 0) {
+      const blockMap = agentUsedByQuery.get(qid);
+      if (blockMap) {
+        for (const blockId of injectedBlocks) {
+          const strength = blockMap.get(blockId);
+          if (strength !== undefined && meetsHelpfulThreshold(strength)) return true;
+        }
       }
     }
-    const factMap = factAgentUsedByQuery.get(qid);
-    if (factMap) {
-      for (const strength of factMap.values()) {
-        if (meetsHelpfulThreshold(strength)) return true;
+    const injectedFacts = factInjectionsByQuery.get(qid);
+    if (injectedFacts && injectedFacts.size > 0) {
+      const factMap = factAgentUsedByQuery.get(qid);
+      if (factMap) {
+        for (const factId of injectedFacts) {
+          const strength = factMap.get(factId);
+          if (strength !== undefined && meetsHelpfulThreshold(strength)) return true;
+        }
       }
     }
     return false;
@@ -1721,11 +1739,12 @@ export function computeAggregates(
     if (!usedQueries.has(qid)) continue;
     const outcome = outcomeByQuery.get(qid);
     if (!outcome?.resolved) continue;
-    // Weak evidence never promotes a run to helpful at the funnel
-    // level, even if outcome.resolved=true. The per-block path
-    // already drops these into the neutral bucket; the funnel must
-    // agree or memory-health summaries will diverge from per-block.
-    if (!hasStrongEnoughUse(qid)) continue;
+    // C2.3: the strong-enough agent_used must land on an item that
+    // was actually injected for this queryId — orphan attribution to
+    // a non-injected block/fact no longer promotes to helpful. This
+    // mirrors the per-block classification, where each injected
+    // (queryId, blockId) pair is checked independently.
+    if (!hasStrongEnoughInjectedUse(qid)) continue;
     helpfulQueries.add(qid);
     // verifiedHelpfulRuns excludes outcomes the Stop-hook
     // attribution layer wrote heuristically — only explicit MCP /
