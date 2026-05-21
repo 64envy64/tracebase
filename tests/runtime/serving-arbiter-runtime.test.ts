@@ -304,7 +304,7 @@ describe("normalizeReasoningHits — RecallV2Result → ServingCandidate[]", () 
 describe("runServingArbiter — decisions + telemetry", () => {
   it("emits one arbitration_decision event per decision (suppressed included)", () => {
     const store = makeStore();
-    const plan = resolveServingPlan("cost-saver");
+    const plan = resolveServingPlan({ profile: "cost-saver" });
     try {
       const raw: RecallV2Result = {
         queryId: "q-decisions",
@@ -336,7 +336,7 @@ describe("runServingArbiter — decisions + telemetry", () => {
 
   it("filtered raw drops suppressed blocks (kept BlockHit instances stay object-identical)", () => {
     const store = makeStore();
-    const plan = resolveServingPlan("cost-saver");
+    const plan = resolveServingPlan({ profile: "cost-saver" });
     try {
       const keepHit = dummyBlockHit({ calibratedProb: 0.9 });
       const dropHit = dummyBlockHit({ calibratedProb: 0.01, situation: "guaranteed drop" });
@@ -364,7 +364,7 @@ describe("runServingArbiter — decisions + telemetry", () => {
     // and a typical block injection cost of ~80–120 tokens,
     // we need calibratedProb >> 0.5 to clear the floor.
     const store = makeStore();
-    const plan = resolveServingPlan("cost-saver");
+    const plan = resolveServingPlan({ profile: "cost-saver" });
     try {
       const raw: RecallV2Result = {
         queryId: "q-cold",
@@ -385,23 +385,81 @@ describe("runServingArbiter — decisions + telemetry", () => {
     }
   });
 
-  it("shadow=true ⇒ every decision is `shadow` with reason='holdout'", () => {
+  it("shadow=true ⇒ every decision is `shadow` with reason='holdout' (production passesGate=false IS expected)", () => {
+    // C4.1-runtime regression. Pre-fix: `normalizeReasoningHits`
+    // dropped every `!passesGate` hit, and production BlockServer
+    // sets `passesGate=false` on EVERY hit when shadow=true (see
+    // `src/core/block-serving.ts:736`). The arbiter therefore saw
+    // zero candidates on every real holdout query and emitted zero
+    // `action=shadow / reason=holdout` events — the holdout
+    // telemetry surface was silently dead. Post-fix: on shadow,
+    // normalisation passes every hit through so the pure arbiter's
+    // shadow gate can mark them all `shadow/holdout`.
     const store = makeStore();
-    const plan = resolveServingPlan("cost-saver");
+    const plan = resolveServingPlan({ profile: "cost-saver" });
     try {
       const raw: RecallV2Result = {
         queryId: "q-shadow",
         shadow: true,
-        blocks: [dummyBlockHit({ calibratedProb: 0.95 })],
-        facts: [],
-        shouldInject: true,
+        blocks: [
+          // The production shape: passesGate=false on every hit
+          // because the BlockServer suppressed gate signal for
+          // the shadow cohort. THIS is the state we must handle.
+          dummyBlockHit({ calibratedProb: 0.95, passesGate: false }),
+        ],
+        facts: [
+          dummyFactHit({ calibratedProb: 0.95, passesGate: false }),
+        ],
+        shouldInject: false,
       };
       const out = runServingArbiter(raw, { plan, store, shadow: true });
-      expect(out.raw.blocks).toHaveLength(0); // shadow never injects
+      expect(out.raw.blocks).toHaveLength(0);
+      expect(out.raw.facts).toHaveLength(0);
       const events = store.readEvents({ queryId: "q-shadow", limit: 10 });
-      const d = events.find((e) => e.event === "arbitration_decision")!;
-      expect((d as { action: string }).action).toBe("shadow");
-      expect((d as { reason: string }).reason).toBe("holdout");
+      const decisions = events.filter((e) => e.event === "arbitration_decision");
+      expect(decisions.length).toBeGreaterThan(0);
+      for (const d of decisions) {
+        expect((d as { action: string }).action).toBe("shadow");
+        expect((d as { reason: string }).reason).toBe("holdout");
+      }
+    } finally {
+      store.close();
+    }
+  });
+
+  it("C4.1 — facts compete with blocks on a COMBINED cap (maxBlocks + maxFacts), not a single maxBlocks slot", () => {
+    // Pre-C4.1 the arbiter saw `plan.maxBlocks` as the cap for the
+    // unified "reasoning_reuse" stream. A block+fact slate that fit
+    // under maxBlocks + maxFacts could nonetheless trip `profile_cap`
+    // because the arbiter only knew about maxBlocks. Repro: 4 strong
+    // blocks + 1 strong fact, plan.maxBlocks=4, plan.maxFacts=4.
+    // Pre-fix: fact gets profile_cap. Post-fix: fact is kept (it's
+    // within the combined cap of 8).
+    const store = makeStore();
+    const plan = resolveServingPlan({ profile: "recall-heavy" }); // floor off so all hits eligible
+    try {
+      const raw: RecallV2Result = {
+        queryId: "q-fact-cap",
+        shadow: false,
+        blocks: [
+          dummyBlockHit({ calibratedProb: 0.95, situation: "block-a high conf" }),
+          dummyBlockHit({ calibratedProb: 0.95, situation: "block-b high conf" }),
+          dummyBlockHit({ calibratedProb: 0.95, situation: "block-c high conf" }),
+          dummyBlockHit({ calibratedProb: 0.95, situation: "block-d high conf" }),
+        ],
+        facts: [
+          dummyFactHit({ calibratedProb: 0.95, statement: "valuable fact-a" }),
+        ],
+        shouldInject: true,
+      };
+      const out = runServingArbiter(raw, { plan, store });
+      // Fact survived alongside the blocks (combined cap respects both).
+      expect(out.raw.facts).toHaveLength(1);
+      // Decisions land for all 5 candidates; none get profile_cap.
+      const events = store.readEvents({ queryId: "q-fact-cap", limit: 100 });
+      const decisions = events.filter((e) => e.event === "arbitration_decision");
+      const reasons = decisions.map((d) => (d as { reason: string }).reason);
+      expect(reasons).not.toContain("profile_cap");
     } finally {
       store.close();
     }
@@ -409,7 +467,7 @@ describe("runServingArbiter — decisions + telemetry", () => {
 
   it("telemetry payload privacy: no raw situation / mechanism / statement fields leak", () => {
     const store = makeStore();
-    const plan = resolveServingPlan("cost-saver");
+    const plan = resolveServingPlan({ profile: "cost-saver" });
     try {
       const raw: RecallV2Result = {
         queryId: "q-privacy",
@@ -455,6 +513,96 @@ describe("recallForPrompt — env-unset byte-identity guarantee", () => {
       // Zero arbitration_decision events emitted on the legacy path.
       const events = store.readEvents({ queryId: result.queryId, limit: 100 });
       expect(events.filter((e) => e.event === "arbitration_decision")).toEqual([]);
+    });
+  });
+
+  it("C4.1 — payload-identity snapshot: env unset vs env=\"0\" produce identical ids + text", async () => {
+    // Stronger byte-identity check the C4 review asked for: pin
+    // the actual `InjectionPayload` (block ids + fact ids + file
+    // ids + additionalContext text) across two runs of the same
+    // recall, one with the env unset and one with the env set
+    // to a non-canonical value ("0"). If the arbiter ever leaks
+    // into the legacy path for any non-"1" value, this test
+    // fails.
+    await withFreshStore(async (store, server, basePath) => {
+      seedActiveBlock(store, PYTEST_BLOCK);
+
+      delete process.env.TRACEBASE_SERVING_ARBITER;
+      const a = await recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "Pytest collects the wrong package — sys.path shadow on a fresh clone",
+        basePath,
+        sessionId: null,
+        tokenBudget: 1200,
+      });
+
+      process.env.TRACEBASE_SERVING_ARBITER = "0";
+      const b = await recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "Pytest collects the wrong package — sys.path shadow on a fresh clone",
+        basePath,
+        sessionId: null,
+        tokenBudget: 1200,
+      });
+      delete process.env.TRACEBASE_SERVING_ARBITER;
+
+      // The payload's queryId is per-call and intentionally
+      // unique, so we compare the *content* fields. Order matters:
+      // the test breaks if env="0" reorders blocks.
+      expect(b.payload.blockIds).toEqual(a.payload.blockIds);
+      expect(b.payload.factIds).toEqual(a.payload.factIds);
+      expect(b.payload.fileIds ?? []).toEqual(a.payload.fileIds ?? []);
+      expect(b.payload.additionalContext).toEqual(a.payload.additionalContext);
+      expect(b.payload.hasContent).toEqual(a.payload.hasContent);
+      // And neither path emitted arbitration_decision events.
+      const aEvents = store.readEvents({ queryId: a.queryId, limit: 100 });
+      const bEvents = store.readEvents({ queryId: b.queryId, limit: 100 });
+      expect(aEvents.filter((e) => e.event === "arbitration_decision")).toEqual([]);
+      expect(bEvents.filter((e) => e.event === "arbitration_decision")).toEqual([]);
+    });
+  });
+
+  it("C4.1 — real holdout cohort with env=\"1\": shadow/holdout events DO land in telemetry", async () => {
+    // The original C4-runtime shadow test used a synthesized
+    // RecallV2Result with `shadow: true` and `passesGate: true`
+    // — a combination production never produces. This test goes
+    // through the real BlockServer cohort gate: a 100% holdout
+    // config forces `shadow=true` and `passesGate=false` on
+    // every hit. Pre-C4.1 normalisation dropped them all and the
+    // arbiter never saw a candidate → no holdout telemetry. The
+    // fix passes hits through on shadow regardless of passesGate
+    // so the dashboard receives at least one `action=shadow /
+    // reason=holdout` decision per holdout query.
+    await withFreshStore(async (store, server, basePath) => {
+      seedActiveBlock(store, PYTEST_BLOCK);
+      // 100% holdout via the loader the BlockServer reads through
+      // `recallForPrompt`. Forces shadow=true on every query;
+      // BlockServer sets passesGate=false on every hit.
+      const FULL_HOLDOUT: HoldoutLoader = () => ({
+        enabled: true,
+        rate: 1,
+        salt: "tb-arb-rt-test-salt",
+        createdAt: new Date().toISOString(),
+      });
+      process.env.TRACEBASE_SERVING_ARBITER = "1";
+      try {
+        const result = await recallForPrompt(server, store, FULL_HOLDOUT, {
+          prompt: "Pytest collects the wrong package — sys.path shadow on a fresh clone",
+          basePath,
+          sessionId: null,
+          tokenBudget: 1200,
+        });
+        // Shadow cohort never injects — payload has no content.
+        expect(result.payload.blockIds).toEqual([]);
+        const events = store.readEvents({ queryId: result.queryId, limit: 100 });
+        const decisions = events.filter((e) => e.event === "arbitration_decision");
+        // At least one decision row, all shadow/holdout.
+        expect(decisions.length).toBeGreaterThan(0);
+        for (const d of decisions) {
+          expect((d as { action: string }).action).toBe("shadow");
+          expect((d as { reason: string }).reason).toBe("holdout");
+        }
+      } finally {
+        delete process.env.TRACEBASE_SERVING_ARBITER;
+      }
     });
   });
 

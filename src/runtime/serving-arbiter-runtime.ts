@@ -178,24 +178,43 @@ export interface NormalizedCandidates {
 }
 
 /**
- * Build the union candidate list from a `RecallV2Result`. Filters
- * to gate-passing hits only so the arbiter doesn't see candidates
- * the gate has already rejected (avoids double-suppression with
- * confusing reason codes).
+ * Build the union candidate list from a `RecallV2Result`.
+ *
+ * Gate-filter semantics differ by cohort:
+ *
+ *   • Non-shadow path (`raw.shadow === false`) — only
+ *     `passesGate=true` hits are normalised. The block-serving
+ *     gate already suppressed the rest with their own reason; we
+ *     don't want to re-suppress them through the arbiter with a
+ *     less informative code.
+ *
+ *   • Shadow path (`raw.shadow === true`) — BlockServer sets
+ *     `passesGate=false` for EVERY hit on a shadow query (see
+ *     `src/core/block-serving.ts:736`). If we kept the filter
+ *     uniform we'd hand the arbiter zero candidates and zero
+ *     `action=shadow / reason=holdout` events would ever land —
+ *     the holdout telemetry surface would be silently dead. So on
+ *     shadow we pass all hits through; the pure arbiter's shadow
+ *     gate marks every decision `shadow/holdout` regardless.
+ *
+ * (The C4 review caught this dead-shadow path with a real-
+ * BlockServer regression test in `serving-arbiter-runtime.test.ts`.)
  */
 export function normalizeReasoningHits(raw: RecallV2Result): NormalizedCandidates {
   const candidates: ServingCandidate[] = [];
   const blockByCandidateId = new Map<string, BlockHit>();
   const factByCandidateId = new Map<string, FactHit>();
 
+  const acceptAll = raw.shadow === true;
+
   raw.blocks.forEach((hit, i) => {
-    if (!hit.passesGate) return;
+    if (!acceptAll && !hit.passesGate) return;
     const c = blockHitToCandidate(hit, i);
     candidates.push(c);
     blockByCandidateId.set(c.id, hit);
   });
   raw.facts.forEach((hit, i) => {
-    if (!hit.passesGate) return;
+    if (!acceptAll && !hit.passesGate) return;
     const c = factHitToCandidate(hit, i);
     candidates.push(c);
     factByCandidateId.set(c.id, hit);
@@ -247,8 +266,21 @@ export function runServingArbiter(
   const { candidates, blockByCandidateId, factByCandidateId } =
     normalizeReasoningHits(raw);
 
+  // Blocks AND facts normalise to capability="reasoning_reuse"
+  // (facts don't have their own slot in the directive's closed
+  // capability enum). The pure arbiter reads `plan.maxBlocks` as
+  // the cap for that bucket — which would unfairly suppress
+  // facts whose own `plan.maxFacts` lane has headroom. We
+  // synthesize a temporary plan with the combined cap so both
+  // lanes survive arbitration; `buildInjectionPayload`
+  // downstream still enforces the per-lane `maxBlocks` /
+  // `maxFacts` separately as a final safety net.
+  const arbiterPlan = {
+    ...opts.plan,
+    maxBlocks: opts.plan.maxBlocks + opts.plan.maxFacts,
+  };
   const arbitration = arbitrateServingCandidates(candidates, {
-    plan: opts.plan,
+    plan: arbiterPlan,
     ...(opts.shadow !== undefined ? { shadow: opts.shadow } : {}),
   });
 
