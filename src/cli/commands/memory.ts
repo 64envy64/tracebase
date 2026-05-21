@@ -50,6 +50,12 @@ import {
 } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
 import { isPatternShapedSituation } from "./capture-turn.js";
+import {
+  computeMemoryHealth,
+  DEFAULT_MEMORY_HEALTH_CONFIG,
+  type MemoryHealthReport,
+  type MemoryHealthScore,
+} from "../../lifecycle/memory-health.js";
 
 interface PruneOptions {
   path?: string;
@@ -95,6 +101,36 @@ export const memoryCommand = new Command("memory")
       .action(async (opts: PruneOptions) => {
         const result = runMemoryPrune(opts);
         renderPruneReport(result);
+        if (result.error) process.exitCode = 1;
+      }),
+  )
+  .addCommand(
+    new Command("health")
+      .description(
+        "Read-only C3 health scoring. Prints the lowest-scoring " +
+          "active blocks with the component breakdown (wilson_lb, " +
+          "counterproductive_rate, stale/duplication/genericness/" +
+          "negative-ROI penalties) and the demotion reason codes. " +
+          "No store mutations — C4 will wire the demotion pass.",
+      )
+      .option("-p, --path <path>", "project root", process.cwd())
+      .option("--json", "emit the full report as JSON to stdout")
+      .option(
+        "--top <n>",
+        "show the lowest-scoring N blocks (default 20). Pass 0 for all.",
+        "20",
+      )
+      .option(
+        "--threshold <value>",
+        `composite-health threshold for wouldDemote classification (default ${DEFAULT_MEMORY_HEALTH_CONFIG.demotionThreshold})`,
+      )
+      .action(async (opts: HealthOptions) => {
+        const result = runMemoryHealth(opts);
+        if (opts.json) {
+          process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+        } else {
+          renderHealthReport(result, opts);
+        }
         if (result.error) process.exitCode = 1;
       }),
   );
@@ -439,4 +475,149 @@ function renderPruneReport(result: MemoryPruneOutcome): void {
     console.log(pc.dim(`  ${result.retired.length} block(s) retired.`));
     console.log();
   }
+}
+
+// ---------------------------------------------------------------------------
+// `tracebase memory health` — read-only C3 health scoring.
+//
+// Surface contract for this commit:
+//   • Reads `BlockStore` + `analytics_events` only.
+//   • Writes nothing. No `updateBlockStatus`, no event emission.
+//   • Commander parses --top / --threshold as strings; coerce here.
+//   • JSON output is the full `MemoryHealthReport` so machine
+//     consumers can diff component breakdowns turn-over-turn.
+// ---------------------------------------------------------------------------
+
+interface HealthOptions {
+  path?: string;
+  json?: boolean;
+  top?: string;
+  threshold?: string;
+}
+
+export interface MemoryHealthOutcome extends MemoryHealthReport {
+  /** Project root that was scanned, for display in the CLI banner. */
+  projectRoot: string | null;
+  /** Set when the command failed before scoring could complete. */
+  error?: string;
+}
+
+export function runMemoryHealth(opts: HealthOptions): MemoryHealthOutcome {
+  const projectRoot = resolveBasePath(opts.path);
+  const empty = (error?: string): MemoryHealthOutcome => ({
+    scanned: 0,
+    scored: [],
+    wouldDemote: [],
+    demotionThreshold: DEFAULT_MEMORY_HEALTH_CONFIG.demotionThreshold,
+    window: {},
+    generatedAt: Date.now(),
+    config: DEFAULT_MEMORY_HEALTH_CONFIG,
+    projectRoot,
+    ...(error ? { error } : {}),
+  });
+
+  if (!projectRoot) return empty("not initialized — run `npx tracebase-ai init` first");
+  if (!isInitialized(projectRoot)) return empty("not initialized — run `npx tracebase-ai init` first");
+  const config = loadConfig(projectRoot);
+  if (!existsSync(config.storagePath)) return empty();
+
+  const threshold = parseOptionalNumber(opts.threshold);
+
+  const db = new Database(config.storagePath);
+  const store = new BlockStore(db);
+  try {
+    const report = computeMemoryHealth(store, {
+      ...(threshold !== null ? { config: { demotionThreshold: threshold } } : {}),
+    });
+    return { ...report, projectRoot };
+  } finally {
+    store.close();
+  }
+}
+
+function parseOptionalNumber(raw: string | undefined): number | null {
+  if (raw === undefined || raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function renderHealthReport(result: MemoryHealthOutcome, opts: HealthOptions): void {
+  console.log();
+  console.log(pc.bold("TraceBase memory health"));
+  if (result.projectRoot) {
+    console.log(pc.dim(`  project   ${result.projectRoot}`));
+  }
+  console.log(pc.dim(`  mode      dry-run (read-only — C4 wires the demotion pass)`));
+  console.log(pc.dim(`  threshold ${result.demotionThreshold.toFixed(3)} (blocks with health ≤ threshold listed below)`));
+  console.log();
+
+  if (result.error) {
+    console.error(pc.red(`  Error: ${result.error}`));
+    console.log();
+    return;
+  }
+
+  if (result.scanned === 0) {
+    console.log(pc.dim("  no active blocks in the store yet — nothing to score"));
+    console.log();
+    return;
+  }
+
+  console.log(pc.dim(`  scanned   ${result.scanned} active block(s)`));
+  console.log(pc.dim(`  wouldDemote ${result.wouldDemote.length} block(s) at threshold ${result.demotionThreshold.toFixed(3)}`));
+  console.log();
+
+  const topRaw = opts.top ?? "20";
+  const topN = Math.max(0, Number.parseInt(topRaw, 10) || 0);
+  const showAll = topN === 0;
+  const slice = showAll ? result.scored : result.scored.slice(0, topN);
+
+  if (slice.length === 0) {
+    console.log(pc.green("  ✓ all active blocks score above the threshold"));
+    console.log();
+    return;
+  }
+
+  console.log(
+    pc.bold(
+      `  Lowest-scoring ${showAll ? "all" : slice.length} block(s) (worst first):`,
+    ),
+  );
+  console.log(
+    pc.dim(
+      `    health  wilson_lb  counter  stale   dup    gen    -ROI   reasons                              id`,
+    ),
+  );
+  for (const s of slice) {
+    console.log(`    ${formatHealthRow(s)}`);
+  }
+  console.log();
+
+  if (!showAll && result.scored.length > slice.length) {
+    console.log(
+      pc.dim(
+        `  ${result.scored.length - slice.length} more block(s) above this slice — pass --top 0 to list all, or --json for machine-readable.`,
+      ),
+    );
+    console.log();
+  }
+}
+
+function formatHealthRow(s: MemoryHealthScore): string {
+  const fmt = (n: number) => n.toFixed(3).padStart(6, " ");
+  const reasons = s.reasons.length > 0 ? s.reasons.join(",") : pc.dim("—");
+  const reasonField = reasons.padEnd(36, " ");
+  const id = pc.dim(s.blockId.slice(0, 12) + "…");
+  const healthColor = s.health <= 0 ? pc.red : s.health <= 0.2 ? pc.yellow : pc.green;
+  return [
+    healthColor(fmt(s.health)),
+    fmt(s.components.wilsonLb),
+    fmt(s.components.counterproductiveRate),
+    fmt(s.components.stalePenalty),
+    fmt(s.components.duplicationPenalty),
+    fmt(s.components.genericnessPenalty),
+    fmt(s.components.negativeRoiPenalty),
+    " " + reasonField,
+    id,
+  ].join("  ");
 }
