@@ -38,6 +38,7 @@ import type {
   TraceAgentUsedEvent,
   TraceFeedbackEvent,
   BlockDemotedEvent,
+  ArbitrationDecisionEvent,
 } from "../types.js";
 import type { BlockStore } from "./block-store.js";
 import {
@@ -182,6 +183,7 @@ function isValidEvent(ev: unknown): ev is AnalyticsEvent {
     case "calibrator_refit": return isValidCalibratorRefit(e);
     case "drift_injection":  return isValidDriftInjection(e);
     case "block_demoted":    return isValidBlockDemoted(e);
+    case "arbitration_decision": return isValidArbitrationDecision(e);
     default:                 return false;
   }
 }
@@ -447,6 +449,45 @@ const VALID_DEMOTION_REASONS = new Set([
   "negative_roi",
 ]);
 
+const VALID_ARBITRATION_CAPABILITIES = new Set([
+  "reasoning_reuse",
+  "file_memory",
+  "loop_redirect",
+  "tool_supervision",
+  "context_fold",
+  "context_pruning",
+]);
+
+const VALID_ARBITRATION_ACTIONS = new Set(["inject", "suppress", "shadow"]);
+
+const VALID_ARBITRATION_REASONS = new Set([
+  "positive_roi",
+  "budget",
+  "low_confidence",
+  "stale",
+  "duplicate",
+  "profile_cap",
+  "holdout",
+]);
+
+function isValidArbitrationDecision(e: Record<string, unknown>): boolean {
+  if (typeof e.capability !== "string" || !VALID_ARBITRATION_CAPABILITIES.has(e.capability as string)) return false;
+  if (typeof e.candidateId !== "string" || e.candidateId.length === 0) return false;
+  if (e.sourceId !== undefined && typeof e.sourceId !== "string") return false;
+  if (typeof e.action !== "string" || !VALID_ARBITRATION_ACTIONS.has(e.action as string)) return false;
+  if (typeof e.reason !== "string" || !VALID_ARBITRATION_REASONS.has(e.reason as string)) return false;
+  const numericFields = [
+    "expectedNetTokens",
+    "calibratedProb",
+    "relevanceScore",
+    "injectionTokens",
+  ];
+  for (const f of numericFields) {
+    if (typeof e[f] !== "number" || !Number.isFinite(e[f] as number)) return false;
+  }
+  return true;
+}
+
 function isValidBlockDemoted(e: Record<string, unknown>): boolean {
   if (typeof e.blockId !== "string" || e.blockId.length === 0) return false;
   if (typeof e.health !== "number" || !Number.isFinite(e.health)) return false;
@@ -709,6 +750,47 @@ export function emitBlockDemoted(
     reasons: args.reasons,
     components: args.components,
     labeledTrials: args.labeledTrials,
+  };
+  toEmitter(target).emit(ev, args.runId !== undefined ? { runId: args.runId } : undefined);
+  return ev;
+}
+
+/**
+ * Emit a `arbitration_decision` event. Called from the C4-runtime
+ * wiring layer ONLY when `TRACEBASE_SERVING_ARBITER=1`. Default
+ * path produces zero of these so the event stream is byte-for-byte
+ * unchanged for environments that haven't opted in.
+ */
+export function emitArbitrationDecision(
+  target: EmitTarget,
+  args: {
+    queryId: string;
+    capability: ArbitrationDecisionEvent["capability"];
+    candidateId: string;
+    sourceId?: string;
+    action: ArbitrationDecisionEvent["action"];
+    reason: ArbitrationDecisionEvent["reason"];
+    expectedNetTokens: number;
+    calibratedProb: number;
+    relevanceScore: number;
+    injectionTokens: number;
+    ts?: number;
+    runId?: string;
+  },
+): ArbitrationDecisionEvent {
+  const ev: ArbitrationDecisionEvent = {
+    ts: args.ts ?? Date.now(),
+    queryId: args.queryId,
+    event: "arbitration_decision",
+    capability: args.capability,
+    candidateId: args.candidateId,
+    ...(args.sourceId !== undefined ? { sourceId: args.sourceId } : {}),
+    action: args.action,
+    reason: args.reason,
+    expectedNetTokens: args.expectedNetTokens,
+    calibratedProb: args.calibratedProb,
+    relevanceScore: args.relevanceScore,
+    injectionTokens: args.injectionTokens,
   };
   toEmitter(target).emit(ev, args.runId !== undefined ? { runId: args.runId } : undefined);
   return ev;

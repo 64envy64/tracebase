@@ -1656,7 +1656,11 @@ export type AnalyticsEvent =
   // via the memory-health gate. Emitted exactly once per
   // demotion; carries the reason codes and component breakdown
   // so the dashboard can show *why* memory shrank.
-  | BlockDemotedEvent;
+  | BlockDemotedEvent
+  // May-2026 C4-runtime — one event per arbiter decision. Emitted
+  // ONLY when TRACEBASE_SERVING_ARBITER=1; default path produces
+  // zero of these (byte-for-byte identity when the env is unset).
+  | ArbitrationDecisionEvent;
 
 interface EventBase {
   ts: number;
@@ -2239,4 +2243,53 @@ export interface BlockDemotedEvent extends EventBase {
   };
   /** Observed labeled-trial count — for at-a-glance sample-size context. */
   labeledTrials: number;
+}
+
+/**
+ * May-2026 C4-runtime — one event per `serving-arbiter` decision
+ * when the arbiter is enabled. Default path (env unset) emits ZERO
+ * of these; the legacy filter / payload-builder runs unchanged.
+ *
+ * Carries enough to reproduce the math without the prompt: which
+ * capability the candidate came from, which closed-vocab `action`
+ * and `reason` fired, the scalar `expectedNetTokens`, calibrated
+ * probability, and the ranker score that fed in. The candidate
+ * `sourceId` is the existing block / fact id (already public in
+ * other analytics rows). NO raw triggers, bodies, prompts,
+ * transcripts, or paths.
+ */
+export interface ArbitrationDecisionEvent extends EventBase {
+  event: "arbitration_decision";
+  capability:
+    | "reasoning_reuse"
+    | "file_memory"
+    | "loop_redirect"
+    | "tool_supervision"
+    | "context_fold"
+    | "context_pruning";
+  /** Stable id within the arbitration pass (caller's choice). */
+  candidateId: string;
+  /**
+   * Existing public id of the underlying artefact — block id or
+   * fact id today. Optional so future capabilities (loop redirect,
+   * tool supervision) can omit it cleanly.
+   */
+  sourceId?: string;
+  action: "inject" | "suppress" | "shadow";
+  reason:
+    | "positive_roi"
+    | "budget"
+    | "low_confidence"
+    | "stale"
+    | "duplicate"
+    | "profile_cap"
+    | "holdout";
+  /** scoreCandidate(c) output at decision time. */
+  expectedNetTokens: number;
+  /** Calibrator output that fed the arbiter, in [0, 1]. */
+  calibratedProb: number;
+  /** Per-capability ranker score, in [0, 1]. */
+  relevanceScore: number;
+  /** Injection cost as estimated by the wiring layer. */
+  injectionTokens: number;
 }

@@ -39,6 +39,17 @@ import { normalizeIntentKey } from "../core/intent-key.js";
 import { resolveLoopRedirect, type LoopRedirectResult } from "../core/loop-redirect.js";
 import { runReasoningPatternsRecall } from "../server/reasoning-patterns-entry.js";
 import { sessionScope } from "./digest.js";
+import {
+  filterChunkHitsForRoi,
+  filterFileHitsForRoi,
+  resolveServingPlan,
+  type ServingPlan,
+  type ServingProfile,
+} from "./serving-policy.js";
+import {
+  isServingArbiterEnabled,
+  runServingArbiter,
+} from "./serving-arbiter-runtime.js";
 import { randomUUID } from "node:crypto";
 
 /**
@@ -68,10 +79,16 @@ export interface RecallForPromptOptions {
    */
   sessionId?: string | null;
   /**
-   * Soft token budget for `additionalContext`. Default 1200, capped
-   * by `buildInjectionPayload` at 2200.
+   * Soft token budget for `additionalContext`. The runtime serving
+   * policy may clamp this lower in cost-saver mode.
    */
   tokenBudget?: number;
+  /**
+   * Runtime serving profile. Defaults to `TRACEBASE_SERVING_PROFILE`
+   * and then to `cost-saver`: compact, high-ROI context by default.
+   * `recall-heavy` preserves the older broad recall shape.
+   */
+  servingProfile?: ServingProfile | string | null;
   /**
    * Number of recent observations the loop detector considers.
    * Default 6 — matches the `inject-context` call site.
@@ -202,6 +219,12 @@ export async function recallForPrompt(
           observations: recentObservations,
         })
       : null;
+  const servingPlan = resolveServingPlan({
+    profile: opts.servingProfile,
+    tokenBudget: opts.tokenBudget,
+    signalKind: signal.kind,
+    hasSession: !!opts.sessionId,
+  });
 
   // May-2026 B1.2 — runReasoningPatternsRecall is async because the
   // cascade rollout decision can route the query through
@@ -234,10 +257,11 @@ export async function recallForPrompt(
   // an empty list and the legacy block + fact path still ships.
   let fileHits: ReturnType<typeof recallFiles> = [];
   try {
-    fileHits = recallFiles(store, {
+    const rawFileHits = recallFiles(store, {
       prompt: opts.prompt,
-      k: opts.fileHitsK ?? FILE_HITS_DEFAULT_K,
+      k: opts.fileHitsK ?? servingPlan.fileHitsK,
     });
+    fileHits = filterFileHitsForRoi(rawFileHits, servingPlan);
   } catch {
     fileHits = [];
   }
@@ -260,15 +284,45 @@ export async function recallForPrompt(
       chunkHits = store.recallSessionChunksForPrompt(
         opts.sessionId,
         opts.prompt,
-        opts.chunkHitsK ?? CHUNK_HITS_DEFAULT_K,
+        opts.chunkHitsK ?? servingPlan.chunkHitsK,
       );
+      chunkHits = filterChunkHitsForRoi(chunkHits, servingPlan);
     } catch {
       chunkHits = [];
     }
   }
 
-  const payload = buildInjectionPayload(raw, {
-    tokenBudget: opts.tokenBudget ?? 1200,
+  // May-2026 C4-runtime — opt-in arbiter pass over blocks + facts.
+  // When `TRACEBASE_SERVING_ARBITER=1`, the arbiter scores each
+  // gate-passing hit on conservative ROI and emits one
+  // `arbitration_decision` event per decision. Suppressed hits
+  // are filtered out of `raw` before the payload is built. When
+  // the env is unset, this entire branch is skipped — `raw`
+  // flows into `buildInjectionPayload` byte-for-byte identical
+  // to the legacy path.
+  //
+  // V1 scope: reasoning_reuse only (blocks + facts). file_memory
+  // and context_fold keep their existing `filterFileHitsForRoi` /
+  // `filterChunkHitsForRoi` gates above; absorbing them into the
+  // arbiter lands in a follow-up so this commit's change surface
+  // stays small.
+  let arbitratedRaw = raw;
+  if (isServingArbiterEnabled()) {
+    const out = runServingArbiter(raw, {
+      plan: servingPlan,
+      store,
+      shadow: raw.shadow,
+      ...(opts.sessionId ? { runId: opts.sessionId } : {}),
+    });
+    arbitratedRaw = out.raw;
+  }
+
+  const payload = buildInjectionPayload(arbitratedRaw, {
+    tokenBudget: servingPlan.tokenBudget,
+    maxBlocks: servingPlan.maxBlocks,
+    maxFacts: servingPlan.maxFacts,
+    maxFiles: servingPlan.maxFiles,
+    maxChunks: servingPlan.maxChunks,
     fileHits,
     chunkHits,
   });
@@ -327,7 +381,7 @@ export async function recallForPrompt(
     }
   }
 
-  recordRecallEvents(store, raw, payload);
+  recordRecallEvents(store, raw, payload, servingPlan);
 
   // 0.7.0-rc.3 §rc.3 — file_memory.recalled emit. Fires once when
   // the rendered payload includes at least one file_memory bullet.
@@ -500,6 +554,7 @@ function recordRecallEvents(
   store: BlockStore,
   result: RecallV2Result,
   payload: InjectionPayload,
+  servingPlan: ServingPlan,
 ): void {
   let ts = Date.now();
   const nextTs = () => ts++;
@@ -520,6 +575,14 @@ function recordRecallEvents(
     // payload actually carried content; 0 captures "gate cleared
     // nothing".
     injectedTokensEstimate: payload.hasContent ? payload.tokensEstimate : 0,
+    injectionProfile: servingPlan.profile,
+    injectedSectionTokensEstimate: payload.sectionTokensEstimate,
+    injectedItemCounts: {
+      blocks: payload.blockIds.length,
+      facts: payload.factIds.length,
+      files: payload.fileIds.length,
+      chunks: payload.contextFoldRanges.length,
+    },
   });
 
   const visibleBlocks = new Set(payload.blockIds);
