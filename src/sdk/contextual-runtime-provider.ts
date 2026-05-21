@@ -294,6 +294,10 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
         blockId,
         matchSignal: "explicit",
         matchScore: 1.0,
+        // C2.1 — SDK runtime equivalent of MCP record_reasoning_outcome.
+        // First-party attestation, same evidence ladder.
+        evidenceStrength: "explicit",
+        evidenceKind: "record_reasoning_outcome",
         ...(input.runId ? { runId: input.runId } : {}),
       });
     }

@@ -48,6 +48,32 @@ function seedBlock(
   return { id: r.blockId, block };
 }
 
+/**
+ * May-2026 C2.1 — seed a matching non-shadow retrieval event before
+ * any injection. Pre-C2.1 the inference module was lenient: an
+ * injection event without a matching retrieval would still credit if
+ * the transcript matched. Tightening the gate (production always
+ * emits retrieval → injection) means the tests must mirror that
+ * causal order. Without this helper, every assertion would fail
+ * because the strict gate drops queryIds with no non-shadow
+ * retrieval.
+ */
+function seedRetrieval(
+  store: BlockStore,
+  queryId: string,
+  opts: { runId?: string; ts?: number; shadow?: boolean } = {},
+): void {
+  const payload: Record<string, unknown> = {
+    ts: opts.ts ?? Date.now() - 60_000,
+    queryId,
+    event: "retrieval",
+    candidates: [],
+    shadow: opts.shadow ?? false,
+  };
+  if (opts.runId !== undefined) payload.runId = opts.runId;
+  store.appendEvent(payload as never);
+}
+
 describe("tokenize", () => {
   it("lowercases and applies the ≥3-char filter", () => {
     const tokens = tokenize("The CORS error in Express API");
@@ -145,6 +171,7 @@ describe("inferAgentUsedFromTranscript — end-to-end against a real BlockStore"
     });
 
     const queryId = "q-cors-001";
+    seedRetrieval(store, queryId); // C2.1 gate: matching non-shadow retrieval required
     store.appendEvent({
       ts: Date.now() - 30_000,
       queryId,
@@ -216,6 +243,7 @@ describe("inferAgentUsedFromTranscript — end-to-end against a real BlockStore"
       verification: "OPTIONS preflight returns 204.",
     });
     const queryId = "q-dup";
+    seedRetrieval(store, queryId);
     for (let i = 0; i < 3; i += 1) {
       store.appendEvent({
         ts: Date.now() - (10_000 - i * 1000),
@@ -254,6 +282,7 @@ describe("inferAgentUsedFromTranscript — end-to-end against a real BlockStore"
       unlock: "Add cors middleware and whitelist origin.",
       verification: "Preflight returns 204.",
     });
+    seedRetrieval(store, "q-thresh");
     store.appendEvent({
       ts: Date.now() - 30_000,
       queryId: "q-thresh",
@@ -286,6 +315,7 @@ describe("inferAgentUsedFromTranscript — end-to-end against a real BlockStore"
       verification: "OPTIONS preflight returns 204.",
     });
     // Inject under runId "session-A".
+    seedRetrieval(store, "q-A", { runId: "session-A" });
     store.appendEvent(
       {
         ts: Date.now() - 30_000,

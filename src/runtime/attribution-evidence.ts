@@ -107,6 +107,30 @@ export function meetsHelpfulThreshold(strength: AttributionStrength): boolean {
 export const STRONG_JACCARD_THRESHOLD = 0.45;
 export const MODERATE_JACCARD_THRESHOLD = 0.18;
 
+/**
+ * Derive the effective strength of an agent_used event.
+ *
+ *   • C2-aware events populate `evidenceStrength` directly — use it.
+ *   • Pre-C2 events only carry matchSignal + matchScore — derive
+ *     strength via `strengthFromMatchSignal` so the helpful gate
+ *     STILL applies (a pre-C2 event with matchScore 0.10 must NOT
+ *     credit even though it was emitted by the legacy path).
+ *
+ * This is the single source of truth that aggregators (analytics,
+ * calibrator) call when deciding whether an agent_used counts toward
+ * §L6 helpful. Pre-C2 review found that `computeAggregates` was just
+ * checking set membership without consulting strength at all —
+ * `effectiveAttributionStrength` is what closes that gap.
+ */
+export function effectiveAttributionStrength(ev: {
+  evidenceStrength?: AttributionStrength;
+  matchSignal: "jaccard" | "embedding" | "explicit";
+  matchScore: number;
+}): AttributionStrength {
+  if (ev.evidenceStrength !== undefined) return ev.evidenceStrength;
+  return strengthFromMatchSignal(ev.matchSignal, ev.matchScore);
+}
+
 export function strengthFromMatchSignal(
   signal: "explicit" | "jaccard" | "embedding",
   score: number,

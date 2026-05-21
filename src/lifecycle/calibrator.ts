@@ -25,6 +25,12 @@ import {
   predictIsotonic,
   type IsotonicModel,
 } from "./isotonic.js";
+import {
+  effectiveAttributionStrength,
+  meetsHelpfulThreshold,
+  STRENGTH_RANK,
+  type AttributionStrength,
+} from "../runtime/attribution-evidence.js";
 
 /** Canonical name for the block-side calibrator in `calibrator_models`. */
 export const BLOCK_CALIBRATOR_NAME = "isotonic.block.v1";
@@ -65,15 +71,31 @@ export function fitCalibratorFromEvents(
     limit: 1_000_000,
   });
 
-  const agentUsedPairs = new Set<string>(); // "queryId|blockId"
+  // May-2026 C2.1 — track effective strength per (queryId, blockId)
+  // so the calibrator's (score, helpful) pairs respect the §L6 gate.
+  // Pre-C2.1 the calibrator counted ANY agent_used as helpful when
+  // outcome resolved — including weak Jaccard matches. Training the
+  // isotonic curve on those polluted pairs biased calibrated_prob
+  // upward and the recall path then over-injected. Strict gate fixes
+  // both the metric AND the downstream learning.
+  const agentStrengthByPair = new Map<string, AttributionStrength>(); // "queryId|blockId" → strength
   const outcomeByQuery = new Map<string, { resolved: boolean }>();
   const injections: InjectionEvent[] = [];
 
   for (const ev of events) {
     switch (ev.event) {
-      case "agent_used":
-        agentUsedPairs.add(pairKey(ev.queryId, ev.blockId));
+      case "agent_used": {
+        const strength = effectiveAttributionStrength(ev);
+        const key = pairKey(ev.queryId, ev.blockId);
+        const prior = agentStrengthByPair.get(key);
+        // Keep the STRONGEST observed strength — if a moderate
+        // Jaccard later gets corroborated by a strong diff_touches
+        // event, the stronger evidence wins.
+        if (prior === undefined || STRENGTH_RANK[strength] > STRENGTH_RANK[prior]) {
+          agentStrengthByPair.set(key, strength);
+        }
         break;
+      }
       case "outcome":
         outcomeByQuery.set(ev.queryId, { resolved: ev.resolved });
         break;
@@ -97,8 +119,11 @@ export function fitCalibratorFromEvents(
   for (const inj of injections) {
     const outcome = outcomeByQuery.get(inj.queryId);
     if (!outcome) continue; // incomplete pair
-    const used = agentUsedPairs.has(pairKey(inj.queryId, inj.blockId));
-    const helpful = used && outcome.resolved;
+    const strength = agentStrengthByPair.get(pairKey(inj.queryId, inj.blockId));
+    const helpful =
+      strength !== undefined &&
+      meetsHelpfulThreshold(strength) &&
+      outcome.resolved;
     training.push({ x: inj.score, y: helpful ? 1 : 0 });
   }
 

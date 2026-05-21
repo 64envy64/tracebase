@@ -44,6 +44,12 @@ import {
   toolFamilyOf,
   type ToolFamily,
 } from "../runtime/tool-family.js";
+import {
+  effectiveAttributionStrength,
+  meetsHelpfulThreshold,
+  STRENGTH_RANK,
+  type AttributionStrength,
+} from "../runtime/attribution-evidence.js";
 
 // ---------------------------------------------------------------------------
 // JSONL sink
@@ -228,7 +234,54 @@ function isValidRetrieval(e: Record<string, unknown>): boolean {
     return false;
   }
   if (e.cascadePolicyId !== undefined && typeof e.cascadePolicyId !== "string") return false;
+  if (
+    e.injectionProfile !== undefined &&
+    e.injectionProfile !== "cost-saver" &&
+    e.injectionProfile !== "balanced" &&
+    e.injectionProfile !== "recall-heavy"
+  ) {
+    return false;
+  }
+  if (
+    e.injectedSectionTokensEstimate !== undefined &&
+    !isValidTokenBreakdown(e.injectedSectionTokensEstimate)
+  ) {
+    return false;
+  }
+  if (e.injectedItemCounts !== undefined && !isValidItemCounts(e.injectedItemCounts)) {
+    return false;
+  }
   return true;
+}
+
+function isValidTokenBreakdown(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    finiteNonNegative(v.priorPatterns) &&
+    finiteNonNegative(v.facts) &&
+    finiteNonNegative(v.fileMemory) &&
+    finiteNonNegative(v.contextFold)
+  );
+}
+
+function isValidItemCounts(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    integerNonNegative(v.blocks) &&
+    integerNonNegative(v.facts) &&
+    integerNonNegative(v.files) &&
+    integerNonNegative(v.chunks)
+  );
+}
+
+function finiteNonNegative(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function integerNonNegative(value: unknown): boolean {
+  return Number.isInteger(value) && (value as number) >= 0;
 }
 
 function isValidInjection(e: Record<string, unknown>): boolean {
@@ -247,6 +300,29 @@ function isValidAgentUsed(e: Record<string, unknown>): boolean {
     return false;
   }
   if (typeof e.matchScore !== "number" || !Number.isFinite(e.matchScore)) return false;
+  // May-2026 C2.1 — evidence fields are optional but typed; reject
+  // malformed values so JSONL imports cannot smuggle in unknown enums.
+  if (e.evidenceStrength !== undefined) {
+    if (
+      e.evidenceStrength !== "explicit" &&
+      e.evidenceStrength !== "strong" &&
+      e.evidenceStrength !== "moderate" &&
+      e.evidenceStrength !== "weak"
+    ) {
+      return false;
+    }
+  }
+  if (e.evidenceKind !== undefined) {
+    const known = [
+      "record_reasoning_outcome",
+      "diff_touches_recalled_file",
+      "tool_path_matches_memory",
+      "answer_mentions_injected_anchor",
+      "loop_redirect_followed",
+      "test_or_command_success_after_redirect",
+    ];
+    if (typeof e.evidenceKind !== "string" || !known.includes(e.evidenceKind)) return false;
+  }
   return true;
 }
 
@@ -428,6 +504,16 @@ export function emitAgentUsed(
     matchScore: number;
     ts?: number;
     runId?: string;
+    /**
+     * May-2026 C2.1 — evidence strength classifier. Optional for
+     * back-compat; emitters that derive from a known source (MCP
+     * record_reasoning_outcome → "explicit"; inference → strength
+     * from matchScore via strengthFromMatchSignal) should populate
+     * it. Aggregators tighten the helpful gate against this field.
+     */
+    evidenceStrength?: AgentUsedEvent["evidenceStrength"];
+    /** Taxonomy of WHICH attribution kind fired — see AttributionKind. */
+    evidenceKind?: AgentUsedEvent["evidenceKind"];
   },
 ): AgentUsedEvent {
   const ev: AgentUsedEvent = {
@@ -437,6 +523,8 @@ export function emitAgentUsed(
     blockId: args.blockId,
     matchSignal: args.matchSignal,
     matchScore: args.matchScore,
+    ...(args.evidenceStrength !== undefined ? { evidenceStrength: args.evidenceStrength } : {}),
+    ...(args.evidenceKind !== undefined ? { evidenceKind: args.evidenceKind } : {}),
   };
   toEmitter(target).emit(ev, args.runId !== undefined ? { runId: args.runId } : undefined);
   return ev;
@@ -1258,14 +1346,19 @@ export function computeAggregates(
   // Indexes.
   const shadowByQuery = new Map<string, boolean>();
   const injectionsByQuery = new Map<string, Set<string>>();  // queryId → blockIds
-  const agentUsedByQuery = new Map<string, Set<string>>();
+  // May-2026 C2.1 — strength-aware index. Each (queryId, blockId)
+  // remembers the STRONGEST strength observed across all agent_used
+  // events for that pair, so we never count a weak event as helpful
+  // when a stronger one is also present, and vice-versa. The strength
+  // gate then decides helpful from this map.
+  const agentUsedByQuery = new Map<string, Map<string, AttributionStrength>>();
   const outcomeByQuery = new Map<string, OutcomeEvent>();
   const injectionEvents: InjectionEvent[] = [];
   const retrievalTreatment = new Set<string>();  // queryIds with non-shadow retrieval
   const retrievalShadow = new Set<string>();
   // Fact-side indexes — parallel to the block-side ones.
   const factInjectionsByQuery = new Map<string, Set<string>>();
-  const factAgentUsedByQuery = new Map<string, Set<string>>();
+  const factAgentUsedByQuery = new Map<string, Map<string, AttributionStrength>>();
   // Funnel bookkeeping. Each Set tracks distinct queryIds at that stage
   // so the final funnel counts are monotonic and dedupe-safe.
   const eligibleQueries = new Set<string>();
@@ -1326,9 +1419,17 @@ export function computeAggregates(
       }
       case "agent_used": {
         counts.agentUsed++;
-        let set = agentUsedByQuery.get(ev.queryId);
-        if (!set) { set = new Set(); agentUsedByQuery.set(ev.queryId, set); }
-        set.add(ev.blockId);
+        // C2.1 — track effective strength per (queryId, blockId).
+        // Multiple agent_used events for the same pair keep the
+        // STRONGEST observed strength so a later corroborating
+        // event (e.g. diff_touches after a moderate Jaccard) wins.
+        let strengthMap = agentUsedByQuery.get(ev.queryId);
+        if (!strengthMap) { strengthMap = new Map(); agentUsedByQuery.set(ev.queryId, strengthMap); }
+        const next = effectiveAttributionStrength(ev);
+        const prior = strengthMap.get(ev.blockId);
+        if (prior === undefined || STRENGTH_RANK[next] > STRENGTH_RANK[prior]) {
+          strengthMap.set(ev.blockId, next);
+        }
         break;
       }
       case "outcome": {
@@ -1345,9 +1446,17 @@ export function computeAggregates(
       }
       case "fact_agent_used": {
         counts.factAgentUsed++;
-        let set = factAgentUsedByQuery.get(ev.queryId);
-        if (!set) { set = new Set(); factAgentUsedByQuery.set(ev.queryId, set); }
-        set.add(ev.factId);
+        // C2.1 — fact side mirrors block side strength tracking.
+        // Fact-agent-used events don't currently carry evidence
+        // strength on the wire; we derive from matchSignal/matchScore
+        // exactly like the block path so the gate is symmetric.
+        let strengthMap = factAgentUsedByQuery.get(ev.queryId);
+        if (!strengthMap) { strengthMap = new Map(); factAgentUsedByQuery.set(ev.queryId, strengthMap); }
+        const next = effectiveAttributionStrength(ev);
+        const prior = strengthMap.get(ev.factId);
+        if (prior === undefined || STRENGTH_RANK[next] > STRENGTH_RANK[prior]) {
+          strengthMap.set(ev.factId, next);
+        }
         break;
       }
       case "calibrator_refit": {
@@ -1397,21 +1506,36 @@ export function computeAggregates(
   }
 
   // For each queryId that has block injection(s), classify against outcome.
+  //
+  // May-2026 C2.1 — strength-aware §L6 gate. Pre-C2.1 ANY agent_used
+  // (including weak Jaccard) credited helpful when outcome resolved.
+  // The directive: outcome.resolved=true must NOT automatically credit
+  // every injected item. Now:
+  //
+  //   • agentUsed counter bumps for any strength (observability is
+  //     "what fraction of injections produced ANY agent_used signal").
+  //   • helpful / counterproductive require strength ≥ moderate AND
+  //     a closing outcome.
+  //   • verifiedHelpful additionally requires the outcome to be
+  //     first-party-attributed (outcome.attribution !== "inferred").
+  //     Pre-C2 events still default to explicit (existing back-compat).
+  //   • Weak evidence with resolved=true falls through to NEUTRAL
+  //     — the agent's downstream action didn't carry observable proof
+  //     even though something matched at low confidence.
   for (const [queryId, blockIds] of injectionsByQuery) {
-    const used = agentUsedByQuery.get(queryId) ?? new Set<string>();
+    const strengthMap = agentUsedByQuery.get(queryId);
     const outcome = outcomeByQuery.get(queryId);
     for (const bId of blockIds) {
       bumpBlock(bId, "injected");
-      if (used.has(bId)) bumpBlock(bId, "agentUsed");
+      const strength = strengthMap?.get(bId);
+      if (strength !== undefined) bumpBlock(bId, "agentUsed");
 
       if (!outcome) continue; // no classification without an outcome
-      if (used.has(bId)) {
+      const meetsHelpful =
+        strength !== undefined && meetsHelpfulThreshold(strength);
+      if (meetsHelpful) {
         if (outcome.resolved) {
           bumpBlock(bId, "helpful");
-          // verifiedHelpful = same unit as helpful, restricted to
-          // outcomes the canonical MCP/SDK path wrote. Absent
-          // attribution counts as explicit for backwards-compat
-          // (pre-attribution events all fall through here).
           if (outcome.attribution !== "inferred") {
             bumpBlock(bId, "verifiedHelpful");
           }
@@ -1419,21 +1543,28 @@ export function computeAggregates(
           bumpBlock(bId, "counterproductive");
         }
       } else {
+        // Either no agent_used at all, or only weak evidence — neutral.
+        // Distinguishing "no agent_used" vs "weak agent_used" is
+        // captured by the agentUsed counter we already bumped above.
         bumpBlock(bId, "neutral");
       }
     }
   }
 
-  // Fact-side classification — symmetric to block side.
+  // Fact-side classification — symmetric to block side with the same
+  // C2.1 strength gate.
   for (const [queryId, factIds] of factInjectionsByQuery) {
-    const used = factAgentUsedByQuery.get(queryId) ?? new Set<string>();
+    const strengthMap = factAgentUsedByQuery.get(queryId);
     const outcome = outcomeByQuery.get(queryId);
     for (const fId of factIds) {
       bumpFact(fId, "injected");
-      if (used.has(fId)) bumpFact(fId, "agentUsed");
+      const strength = strengthMap?.get(fId);
+      if (strength !== undefined) bumpFact(fId, "agentUsed");
 
       if (!outcome) continue;
-      if (used.has(fId)) {
+      const meetsHelpful =
+        strength !== undefined && meetsHelpfulThreshold(strength);
+      if (meetsHelpful) {
         if (outcome.resolved) {
           bumpFact(fId, "helpful");
           if (outcome.attribution !== "inferred") {
@@ -1649,7 +1780,7 @@ export function computeAggregates(
 
 interface CalibrationInput {
   injections: readonly InjectionEvent[];
-  agentUsedByQuery: Map<string, Set<string>>;
+  agentUsedByQuery: Map<string, Map<string, AttributionStrength>>;
   outcomeByQuery: Map<string, OutcomeEvent>;
   candidatesSeen: number;
   candidatesShown: number;
@@ -1666,8 +1797,13 @@ function computeCalibrationAggregates(input: CalibrationInput): CalibrationAggre
   for (const inj of input.injections) {
     const outcome = input.outcomeByQuery.get(inj.queryId);
     if (!outcome) continue;
-    const used = input.agentUsedByQuery.get(inj.queryId)?.has(inj.blockId) ?? false;
-    const label: 0 | 1 = used && outcome.resolved ? 1 : 0;
+    // C2.1 — calibration label uses the same strength gate as the
+    // dashboard helpful counter. Weak Jaccard matches were polluting
+    // Brier / AUC by labelling random transcript noise as positives.
+    const strength = input.agentUsedByQuery.get(inj.queryId)?.get(inj.blockId);
+    const helpful =
+      strength !== undefined && meetsHelpfulThreshold(strength) && outcome.resolved;
+    const label: 0 | 1 = helpful ? 1 : 0;
     const prediction = clampProbability(inj.calibratedProb ?? inj.score);
     points.push({ prediction, label });
     const err = prediction - label;

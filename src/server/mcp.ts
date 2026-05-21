@@ -606,6 +606,11 @@ export async function startMcpServer(
           blockId,
           matchSignal: "explicit",
           matchScore: 1.0,
+          // C2.1 — first-party attestation is the canonical strong
+          // evidence path. Both fields stamped so aggregators don't
+          // have to fall through the matchSignal back-compat ladder.
+          evidenceStrength: "explicit",
+          evidenceKind: "record_reasoning_outcome",
           ...(args.runId ? { runId: args.runId } : {}),
         });
       }

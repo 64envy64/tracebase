@@ -52,6 +52,7 @@ import type { BlockStore } from "../core/block-store.js";
 import type { AnalyticsEvent, ReasoningBlock } from "../types.js";
 import { jaccardSimilarity } from "../core/fingerprint.js";
 import { emitAgentUsed, emitOutcome } from "../core/analytics.js";
+import { strengthFromMatchSignal } from "./attribution-evidence.js";
 
 /**
  * Default lookback window for injection events when inferring uses
@@ -162,9 +163,16 @@ export function inferAgentUsedFromTranscript(
     limit: MAX_INJECTIONS_TO_SCORE,
     ...(opts.runId !== undefined ? { runId: opts.runId } : {}),
   }) as Array<Extract<AnalyticsEvent, { event: "retrieval" }>>;
-  const shadowQueryIds = new Set<string>();
+  // May-2026 C2.1 — tighten shadow gate. Pre-C2.1 we only skipped
+  // queryIds whose retrieval was explicitly shadow; a queryId with
+  // NO matching retrieval (e.g. cross-runId leakage, or a queryId
+  // the inference module fabricated) still passed through. The
+  // strict rule mirrors `retrievalIsShadow` in attribution-evidence:
+  // missing non-shadow retrieval ⇒ NO inference. Better to under-
+  // credit than mis-credit across sessions.
+  const nonShadowQueryIds = new Set<string>();
   for (const r of retrievals) {
-    if (r.shadow) shadowQueryIds.add(r.queryId);
+    if (!r.shadow) nonShadowQueryIds.add(r.queryId);
   }
 
   // Dedupe by (queryId|blockId). The same block can land in multiple
@@ -174,7 +182,9 @@ export function inferAgentUsedFromTranscript(
   const uses: InferredUse[] = [];
 
   for (const inj of injections) {
-    if (shadowQueryIds.has(inj.queryId)) continue;
+    // Strict: require a non-shadow retrieval event for this queryId
+    // (within the same lookback + runId window). Missing → drop.
+    if (!nonShadowQueryIds.has(inj.queryId)) continue;
 
     const key = `${inj.queryId}|${inj.blockId}`;
     if (seen.has(key)) continue;
@@ -311,11 +321,19 @@ export function applyInferenceAndEmit(
   const credited = new Set<string>();
 
   for (const use of uses) {
+    // May-2026 C2.1 — stamp evidence taxonomy on every inferred
+    // agent_used. `evidenceKind` is fixed by the inference channel
+    // (the transcript-Jaccard path); `evidenceStrength` derives from
+    // the same matchScore the legacy gate used, so existing thresholds
+    // map cleanly into the new ladder.
+    const strength = strengthFromMatchSignal("jaccard", use.evidenceScore);
     emitAgentUsed(store, {
       queryId: use.queryId,
       blockId: use.blockId,
       matchSignal: "jaccard",
       matchScore: use.evidenceScore,
+      evidenceStrength: strength,
+      evidenceKind: "answer_mentions_injected_anchor",
       ...(opts.runId !== undefined ? { runId: opts.runId } : {}),
     });
     agentUsedEmitted += 1;
