@@ -1313,6 +1313,8 @@ export type RuntimeSource =
   | "langgraph"
   | "claude-agent-sdk";
 
+export type RuntimeServingProfile = "cost-saver" | "balanced" | "recall-heavy";
+
 export interface CreateRuntimeOptions {
   /** Default session id for runtime methods that don't pass one explicitly. */
   sessionId?: string;
@@ -1332,6 +1334,12 @@ export interface CreateRuntimeOptions {
   enableContext?: boolean;
   enableTool?: boolean;
   enableLoop?: boolean;
+  /**
+   * Prompt-serving profile. Defaults to `cost-saver` through the
+   * runtime policy; `recall-heavy` preserves broad legacy recall for
+   * debugging or explicit deep-recall sessions.
+   */
+  servingProfile?: RuntimeServingProfile;
 
   /**
    * Background aggregate-metrics sync. Defaults to `true` iff
@@ -1353,6 +1361,8 @@ export interface BeforeRunInput {
   sessionId?: string;
   /** Overrides `CreateRuntimeOptions.projectPath` for this call only. */
   projectPath?: string;
+  /** Overrides `CreateRuntimeOptions.servingProfile` for this call only. */
+  servingProfile?: RuntimeServingProfile;
 }
 
 export interface BeforeRunResult {
@@ -1733,6 +1743,26 @@ export interface RetrievalEvent extends EventBase {
    * valid value when nothing matched the gate.
    */
   injectedTokensEstimate?: number;
+  /**
+   * Runtime profile that shaped the final prompt payload. Local-only
+   * diagnostic: lets impact/debug views distinguish compact ROI serving
+   * from broader recall modes without inspecting prompt text.
+   */
+  injectionProfile?: "cost-saver" | "balanced" | "recall-heavy";
+  /** Token estimate split by rendered section. */
+  injectedSectionTokensEstimate?: {
+    priorPatterns: number;
+    facts: number;
+    fileMemory: number;
+    contextFold: number;
+  };
+  /** Count of rendered items by mechanism. */
+  injectedItemCounts?: {
+    blocks: number;
+    facts: number;
+    files: number;
+    chunks: number;
+  };
 }
 
 export interface InjectionEvent extends EventBase {
@@ -1749,6 +1779,38 @@ export interface AgentUsedEvent extends EventBase {
   /** How we detected the agent actually followed the block. */
   matchSignal: "jaccard" | "embedding" | "explicit";
   matchScore: number;
+  /**
+   * May-2026 C2 — evidence strength classifier. Optional for back-
+   * compat with pre-C2 events; present on every new emission.
+   *
+   * "explicit" — record_reasoning_outcome attested directly.
+   * "strong"   — concrete corroboration (diff touched the recalled
+   *              file, tool args matched an anchor, loop redirect
+   *              followed by behavioural shift, post-redirect test
+   *              success).
+   * "moderate" — transcript Jaccard above the inference threshold
+   *              (today's default agent_used surface).
+   * "weak"     — score near the inference floor; logged for
+   *              observability, must NOT count toward §L6 helpful.
+   *
+   * The strict helpful definition (`injection ∧ agent_used ∧
+   * outcome.resolved`) is tightened in C2 to require strength ≥
+   * "moderate" — weak evidence never closes the loop on its own.
+   */
+  evidenceStrength?: "explicit" | "strong" | "moderate" | "weak";
+  /**
+   * Optional taxonomy of WHY this attribution fired. Lets dashboards
+   * split agent_used emissions by mechanism without parsing the
+   * matchSignal heuristically. Mirrors the AttributionKind union in
+   * `src/runtime/attribution-evidence.ts`.
+   */
+  evidenceKind?:
+    | "record_reasoning_outcome"
+    | "diff_touches_recalled_file"
+    | "tool_path_matches_memory"
+    | "answer_mentions_injected_anchor"
+    | "loop_redirect_followed"
+    | "test_or_command_success_after_redirect";
 }
 
 export interface OutcomeEvent extends EventBase {
