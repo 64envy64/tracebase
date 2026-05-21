@@ -182,6 +182,99 @@ describe("exportEventsToJsonl / importEventsFromJsonl", () => {
     const n = importEventsFromJsonl(dst, join(dir, "missing.jsonl"));
     expect(n).toBe(0);
   });
+
+  // -------------------------------------------------------------------------
+  // C4-demote — JSONL import boundary for block_demoted. Closes the
+  // follow-up regression flagged in the C4-demote review: the
+  // `tests/cli/memory-health.test.ts` round-trip exercised
+  // appendEvent + readEvents (which uses SQLite typing for free),
+  // not the JSONL path where `isValidEvent` is the guard. A foreign
+  // producer or an out-of-tree fork could write a malformed
+  // block_demoted row; the validator must reject it before it
+  // pollutes the event log.
+  // -------------------------------------------------------------------------
+  it("block_demoted import: accepts a well-formed event", () => {
+    writeFileSync(path,
+      JSON.stringify({
+        ts: 1, queryId: "lifecycle:memory-health", event: "block_demoted",
+        blockId: "b-good", health: -0.2, demotionThreshold: 0, labeledTrials: 12,
+        reasons: ["low_wilson_lb", "high_counterproductive"],
+        components: {
+          wilsonLb: 0.05, counterproductiveRate: 0.4, stalePenalty: 0,
+          duplicationPenalty: 0, genericnessPenalty: 0, negativeRoiPenalty: 0,
+        },
+      }) + "\n",
+    );
+    const dst = makeStore();
+    const n = importEventsFromJsonl(dst, path);
+    expect(n).toBe(1);
+  });
+
+  it("block_demoted import: rejects empty reasons array", () => {
+    writeFileSync(path,
+      JSON.stringify({
+        ts: 1, queryId: "lifecycle:memory-health", event: "block_demoted",
+        blockId: "b-empty", health: -0.2, demotionThreshold: 0, labeledTrials: 12,
+        reasons: [], // ← invalid
+        components: {
+          wilsonLb: 0, counterproductiveRate: 0, stalePenalty: 0,
+          duplicationPenalty: 0, genericnessPenalty: 0, negativeRoiPenalty: 0,
+        },
+      }) + "\n",
+    );
+    const dst = makeStore();
+    expect(importEventsFromJsonl(dst, path)).toBe(0);
+  });
+
+  it("block_demoted import: rejects unknown reason enum value", () => {
+    writeFileSync(path,
+      JSON.stringify({
+        ts: 1, queryId: "lifecycle:memory-health", event: "block_demoted",
+        blockId: "b-unknown", health: -0.2, demotionThreshold: 0, labeledTrials: 12,
+        reasons: ["low_wilson_lb", "asteroid_impact"], // ← unknown
+        components: {
+          wilsonLb: 0, counterproductiveRate: 0, stalePenalty: 0,
+          duplicationPenalty: 0, genericnessPenalty: 0, negativeRoiPenalty: 0,
+        },
+      }) + "\n",
+    );
+    const dst = makeStore();
+    expect(importEventsFromJsonl(dst, path)).toBe(0);
+  });
+
+  it("block_demoted import: rejects non-finite component value", () => {
+    writeFileSync(path,
+      JSON.stringify({
+        ts: 1, queryId: "lifecycle:memory-health", event: "block_demoted",
+        blockId: "b-nan", health: -0.2, demotionThreshold: 0, labeledTrials: 12,
+        reasons: ["low_wilson_lb"],
+        components: {
+          wilsonLb: null, // ← non-finite / non-number
+          counterproductiveRate: 0, stalePenalty: 0,
+          duplicationPenalty: 0, genericnessPenalty: 0, negativeRoiPenalty: 0,
+        },
+      }) + "\n",
+    );
+    const dst = makeStore();
+    expect(importEventsFromJsonl(dst, path)).toBe(0);
+  });
+
+  it("block_demoted import: rejects missing required scalar fields", () => {
+    writeFileSync(path,
+      JSON.stringify({
+        ts: 1, queryId: "lifecycle:memory-health", event: "block_demoted",
+        blockId: "b-missing", health: -0.2,
+        // demotionThreshold and labeledTrials missing
+        reasons: ["low_wilson_lb"],
+        components: {
+          wilsonLb: 0, counterproductiveRate: 0, stalePenalty: 0,
+          duplicationPenalty: 0, genericnessPenalty: 0, negativeRoiPenalty: 0,
+        },
+      }) + "\n",
+    );
+    const dst = makeStore();
+    expect(importEventsFromJsonl(dst, path)).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
