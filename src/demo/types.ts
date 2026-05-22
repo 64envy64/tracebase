@@ -12,12 +12,15 @@
 export type Variant = "off" | "on";
 
 /**
- * Provenance of a `RunArtifact`. The two are NOT interchangeable in
- * the report — synthetic numbers are illustrative for the harness
- * contract; only `real` numbers are eligible for an external demo
- * overlay or investor-facing claim.
+ * Provenance of a `RunArtifact`. Historically the harness also
+ * accepted `"synthetic"` (authored-by-hand illustrative fixtures);
+ * those were removed from the repo on 2026-05-23 because nothing
+ * external should ever quote synthetic numbers. The taxonomy is
+ * kept as a single-value literal so any future provenance gets
+ * an explicit allowlist add — defensive against a regression that
+ * silently writes a non-real artifact.
  */
-export type RunSource = "synthetic" | "real";
+export type RunSource = "real";
 
 export interface TokenUsage {
   /** Input tokens charged by the provider, or estimated by char/4. */
@@ -80,14 +83,12 @@ export interface RunArtifact {
   task: string;
   variant: Variant;
   /**
-   * Where the agent-side numbers came from. The verifier result is
-   * always real (the runner re-runs the verifier command against a
-   * fresh workspace before writing the JSON), but the wall-clock,
-   * token, and tool-call numbers may be:
-   *   - "synthetic": authored-by-hand fixture (illustrative, NOT for
-   *     external demos);
-   *   - "real": captured from a real-agent recording (Anthropic API
-   *     usage + tool-use trace).
+   * Where the agent-side numbers came from. Only `"real"` is
+   * accepted — captured from a real-agent recording (Anthropic
+   * API usage + tool-use trace). The verifier result is always
+   * real (the runner re-runs the verifier command against a fresh
+   * workspace before writing the JSON), so this field describes
+   * the wall-clock / token / tool-call numbers only.
    */
   source: RunSource;
   /** Epoch ms when the run started. */
@@ -144,7 +145,7 @@ export interface TaskDefinition {
   verifier: string;
   /** Agent model used for the recorded transcripts (informational). */
   model: string;
-  /** Path (relative to the task dir) to the user prompt — required by the real-agent runner; the synthetic runner ignores it. */
+  /** Path (relative to the task dir) to the user prompt — read by the real-agent runner. */
   prompt?: string;
   /** Path (relative to the task dir) to a seeded-patterns JSON file used by the ON variant of the real-agent runner. */
   seededPatterns?: string;

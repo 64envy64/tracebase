@@ -16,7 +16,7 @@ function baseRun(variant: Variant, overrides: Partial<RunArtifact> = {}): RunArt
   return {
     task: "demo-task",
     variant,
-    source: "synthetic",
+    source: "real",
     timestamp: 1735689600000,
     model: "claude-haiku-4-5-20251001",
     wallClockMs: 5000,
@@ -165,32 +165,18 @@ describe("computeComparison — defensive checks against mis-pairing", () => {
     const onShape = baseRun("off");
     expect(() => computeComparison(offShape, onShape)).toThrow(/variant mismatch/);
   });
-  it("throws when off is synthetic and on is real (must never mix)", () => {
-    const off = baseRun("off", { source: "synthetic" });
-    const on = baseRun("on", { source: "real" });
-    expect(() => computeComparison(off, on)).toThrow(/source mismatch/);
-  });
-  it("throws when off is real and on is synthetic", () => {
-    const off = baseRun("off", { source: "real" });
-    const on = baseRun("on", { source: "synthetic" });
-    expect(() => computeComparison(off, on)).toThrow(/source mismatch/);
-  });
 });
 
 describe("renderComparisonMarkdown — source-tagged header", () => {
-  it("labels synthetic runs as illustrative-only", () => {
-    const off = baseRun("off", { source: "synthetic" });
-    const on = baseRun("on", { source: "synthetic" });
-    const md = renderComparisonMarkdown(computeComparison(off, on));
-    expect(md).toContain("Synthetic fixture");
-    expect(md).toContain("illustrative");
-  });
   it("labels real runs as real-agent recording", () => {
-    const off = baseRun("off", { source: "real" });
-    const on = baseRun("on", { source: "real" });
+    const off = baseRun("off");
+    const on = baseRun("on");
     const md = renderComparisonMarkdown(computeComparison(off, on));
     expect(md).toContain("Real-agent recording");
+    // Synthetic fixtures were removed from the repo on 2026-05-23;
+    // the renderer must not surface that label even by accident.
     expect(md).not.toContain("Synthetic fixture");
+    expect(md).not.toContain("illustrative");
   });
 });
 

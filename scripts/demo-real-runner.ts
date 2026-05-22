@@ -28,7 +28,8 @@
  *
  * Output: `demo-runs/real/<task>/<variant>.json` with
  * `source: "real"`. Requires `ANTHROPIC_API_KEY` in env — the runner
- * exits 2 if it's missing rather than fall back to synthetic numbers.
+ * exits 2 if it's missing. There is no synthetic fallback path; the
+ * synthetic fixtures were removed from the repo on 2026-05-23.
  *
  * Recording: this script logs every turn to stdout in a stable
  * one-line format (turn, tool, arg-hash, blocked / exit-status).
@@ -185,9 +186,9 @@ function loadTask(task: string): TaskDefinition {
 
 function resetWorkspaceToBroken(task: string, variant: Variant): string {
   // BOTH variants start from state-off — the broken state. The
-  // agent's job is to fix it. state-on/ exists for the synthetic
-  // harness to demonstrate the verifier-PASS branch deterministically;
-  // the real-agent runner must never start from a pre-fixed workspace.
+  // agent's job is to fix it. state-on/ is kept as a known-good
+  // verifier-PASS reference so check.sh can be smoke-tested; the
+  // real-agent runner must never start from a pre-fixed workspace.
   const stateDir = join(TASKS_DIR, task, "state-off");
   if (!existsSync(stateDir)) {
     console.error(`No state directory at ${stateDir}`);
@@ -625,8 +626,8 @@ async function main(): Promise<void> {
   if (!apiKey || apiKey.length === 0) {
     console.error(
       "ANTHROPIC_API_KEY is required for the real-agent runner. Set it in the\n" +
-        "environment and re-run. The runner will not fall back to synthetic\n" +
-        "numbers — that path is scripts/demo-runner.ts.",
+        "environment and re-run. There is no synthetic fallback — the synthetic\n" +
+        "fixtures and harness were removed on 2026-05-23.",
     );
     process.exit(2);
   }
