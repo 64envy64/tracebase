@@ -292,18 +292,44 @@ export function runServingArbiter(
     ...(opts.shadow !== undefined ? { shadow: opts.shadow } : {}),
   });
 
-  // C4.4 — per-lane finalisation in ROI order. The arbiter's
-  // `decisions` array is in INPUT candidate order
-  // (`serving-arbiter.ts:226`), NOT in greedy-walk / ROI order —
-  // a fact the original C4.3 cap-finaliser missed. Walking input
-  // order produced "keep the lower-ROI earlier block, demote
-  // the higher-ROI later block". Here we re-sort the inject
-  // subset by `expectedNetTokens` DESC (input index tie-break for
-  // determinism) before applying per-lane caps. Underfilled lanes
-  // naturally get the next-best item.
-  const injectInRoiOrder = arbitration.decisions
+  // C4.5 — unified finalisation: walk EVERY positive-ROI
+  // candidate (both arbiter-side inject AND arbiter-side
+  // suppress/budget) in ROI DESC order, applying per-lane caps
+  // AND token budget TOGETHER. This is the only way to rescue
+  // candidates the arbiter budget-rejected when the per-lane cap
+  // later vacates a slot that frees enough budget for them.
+  //
+  // Pre-C4.5 the runtime trusted the arbiter's inject set
+  // verbatim then applied lane caps post-hoc. The named C4.4
+  // review repro: tokenBudget=120, maxBlocks=1/maxFacts=1, two
+  // blocks cost 55/57, one fact costs 37. Arbiter injects both
+  // blocks (55+57=112), budget-suppresses fact (37>8 remaining).
+  // Post-process demotes second block to profile_cap. Final
+  // payload uses 55 tokens — leaves 65 unused. Fact could've
+  // fit, but its arbiter-side `suppress/budget` was never
+  // revisited.
+  //
+  // C4.5: the arbiter's BUDGET decisions are advisory. The
+  // runtime owns the final cap-and-budget walk. Items the
+  // arbiter labelled as ineligible for non-budget reasons
+  // (shadow / duplicate / low_confidence / stale) stay
+  // suppressed — those signals stand. With C4.4's disabled
+  // bucket cap, the arbiter can only emit `inject` or
+  // `suppress/budget` from the greedy pass, so the eligible
+  // set is exactly those two.
+  const eligibleIds = new Set<string>();
+  for (const d of arbitration.decisions) {
+    if (d.action === "inject") eligibleIds.add(d.candidateId);
+    else if (d.action === "suppress" && d.reason === "budget") {
+      eligibleIds.add(d.candidateId);
+    }
+  }
+  const candidateById = new Map<string, ServingCandidate>(
+    candidates.map((c) => [c.id, c]),
+  );
+  const eligibleSorted = arbitration.decisions
     .map((d, idx) => ({ d, idx }))
-    .filter(({ d }) => d.action === "inject")
+    .filter(({ d }) => eligibleIds.has(d.candidateId))
     .sort((a, b) => {
       if (b.d.expectedNetTokens !== a.d.expectedNetTokens) {
         return b.d.expectedNetTokens - a.d.expectedNetTokens;
@@ -311,51 +337,55 @@ export function runServingArbiter(
       return a.idx - b.idx;
     });
 
-  const demoted = new Set<string>();
+  let remainingBudget = opts.plan.tokenBudget;
   let blockKept = 0;
   let factKept = 0;
-  for (const { d } of injectInRoiOrder) {
-    const isBlock = blockByCandidateId.has(d.candidateId);
-    if (isBlock) {
-      if (blockKept < opts.plan.maxBlocks) {
-        blockKept++;
-      } else {
-        demoted.add(d.candidateId);
-      }
-    } else {
-      if (factKept < opts.plan.maxFacts) {
-        factKept++;
-      } else {
-        demoted.add(d.candidateId);
-      }
+  let injectedTokens = 0;
+  // Map candidateId → final (action, reason). Items not in this
+  // map keep their arbiter decision (the shadow / duplicate /
+  // low_confidence / stale crowd).
+  const finalById = new Map<string, { action: "inject" | "suppress"; reason: ServingDecision["reason"] }>();
+  for (const { d } of eligibleSorted) {
+    const candidate = candidateById.get(d.candidateId);
+    if (!candidate) {
+      // Defensive: candidate vanished between arbiter pass and
+      // finalisation. Inherit the arbiter's call.
+      continue;
     }
+    const isBlock = blockByCandidateId.has(d.candidateId);
+    const laneFull = isBlock
+      ? blockKept >= opts.plan.maxBlocks
+      : factKept >= opts.plan.maxFacts;
+    if (laneFull) {
+      finalById.set(d.candidateId, { action: "suppress", reason: "profile_cap" });
+      continue;
+    }
+    if (candidate.injectionTokens > remainingBudget) {
+      finalById.set(d.candidateId, { action: "suppress", reason: "budget" });
+      continue;
+    }
+    finalById.set(d.candidateId, { action: "inject", reason: "positive_roi" });
+    if (isBlock) blockKept++;
+    else factKept++;
+    remainingBudget -= candidate.injectionTokens;
+    injectedTokens += candidate.injectionTokens;
   }
 
-  // Compose final decisions: pre-existing suppress/shadow pass
-  // through, demoted injects flip to suppress/profile_cap.
   const finalDecisions: ServingDecision[] = arbitration.decisions.map((d) => {
-    if (demoted.has(d.candidateId)) {
-      return { ...d, action: "suppress", reason: "profile_cap" };
-    }
-    return d;
+    const override = finalById.get(d.candidateId);
+    if (!override) return d;
+    return { ...d, action: override.action, reason: override.reason };
   });
 
-  // C4.4 — recompute `byCandidateId`, `summary`, and
-  // `injectedTokens` from the FINAL decisions. Pre-fix the
-  // returned `arbitration` carried the pre-finalisation counts
-  // (e.g. summary[reasoning_reuse].inject overstated by the
-  // demoted overflow), which a future C5 dashboard could read as
-  // ground truth. Rebuild explicitly so stale numbers can't leak.
+  // Rebuild ALL summary fields from the final walk. C4.4 already
+  // rebuilt summary / byCandidateId / injectedTokens but kept the
+  // arbiter's `remainingBudget`; C4.5 also rebuilds that so the
+  // returned struct is fully self-consistent for C5.
   const byCandidateId: Record<string, ServingDecision> = {};
   const summary = emptyServingSummary();
-  let injectedTokens = 0;
   for (const d of finalDecisions) {
     byCandidateId[d.candidateId] = d;
     summary[d.capability][d.action]++;
-    if (d.action === "inject") {
-      const candidate = candidates.find((c) => c.id === d.candidateId);
-      if (candidate) injectedTokens += Math.max(0, candidate.injectionTokens);
-    }
   }
 
   const finalArbitration = {
@@ -364,6 +394,7 @@ export function runServingArbiter(
     byCandidateId,
     summary,
     injectedTokens,
+    remainingBudget,
   };
 
   // Emit one event per FINAL decision — one row per candidate so

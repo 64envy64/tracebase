@@ -865,6 +865,168 @@ describe("recallForPrompt — env-unset byte-identity guarantee", () => {
     }
   });
 
+  it("C4.5 — budget rescue: arbiter-suppressed fact gets promoted when lane cap demotes a budget-hogging block", () => {
+    // The named C4.5 repro. tokenBudget=120, maxBlocks=1,
+    // maxFacts=1. Two blocks (cost ~55/57 tokens) + one fact
+    // (cost ~37 tokens), all positive-ROI. Pre-C4.5 the arbiter's
+    // greedy walk injected both blocks (filling budget) and
+    // budget-suppressed the fact. C4.4's finaliser then demoted
+    // the overflow block to profile_cap but never reconsidered the
+    // fact, even though the freed budget would have accommodated
+    // it. C4.5 unifies budget + lane caps in one ROI-ordered walk,
+    // so the fact gets injected.
+    //
+    // Token costs come out of `estimateBlockInjectionTokens` and
+    // `estimateFactInjectionTokens`. We sculpt situation/statement
+    // length so the costs land in the right neighbourhood; the
+    // exact integers don't matter as long as
+    //   (block_a_cost + block_b_cost) > budget > (block_a_cost + fact_cost)
+    // and all three are positive-ROI under cost-saver.
+    // Calibrate budget to the live `estimateBlockInjectionTokens`
+    // output for `dummyBlockHit` (~78 tokens including wrapper)
+    // and `estimateFactInjectionTokens` (~20 tokens). We need:
+    //   • two blocks fit (2 * 78 = 156 ≤ budget)
+    //   • two blocks + fact does NOT fit (156 + 20 > budget)
+    //   • one block + fact fits (78 + 20 = 98 ≤ budget)
+    // Budget = 160 satisfies all three.
+    const store = makeStore();
+    const plan = {
+      ...resolveServingPlan({ profile: "cost-saver" }),
+      tokenBudget: 160,
+      maxBlocks: 1,
+      maxFacts: 1,
+    };
+    try {
+      const raw: RecallV2Result = {
+        queryId: "q-budget-rescue",
+        shadow: false,
+        blocks: [
+          dummyBlockHit({ calibratedProb: 0.95, situation: "block-A high-ROI" }),
+          dummyBlockHit({ calibratedProb: 0.9, situation: "block-B also high-ROI" }),
+        ],
+        facts: [
+          dummyFactHit({ calibratedProb: 0.95, statement: "useful positive-ROI fact" }),
+        ],
+        shouldInject: true,
+      };
+      const out = runServingArbiter(raw, { plan, store });
+
+      // Both lanes filled: highest-ROI block kept, fact kept.
+      expect(out.raw.blocks).toHaveLength(1);
+      expect(out.raw.facts).toHaveLength(1);
+      // The kept block is the higher-ROI one (calibrated 0.95).
+      expect(out.raw.blocks[0]!.calibratedProb).toBe(0.95);
+
+      // injectedTokens reflects the final allocation (block + fact),
+      // not the pre-final arbiter walk.
+      expect(out.arbitration.injectedTokens).toBeLessThanOrEqual(plan.tokenBudget);
+      // remainingBudget = tokenBudget - injectedTokens.
+      expect(out.arbitration.remainingBudget).toBe(
+        plan.tokenBudget - out.arbitration.injectedTokens,
+      );
+      // Summary reflects FINAL: 2 injects total (1 block + 1 fact),
+      // 1 suppress (the demoted block).
+      expect(out.arbitration.summary.reasoning_reuse.inject).toBe(2);
+      expect(out.arbitration.summary.reasoning_reuse.suppress).toBe(1);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("C4.5 — budget genuinely scarce: when even after rescue the fact can't fit, it stays suppress/budget", () => {
+    // Defensive complement: confirm the rescue path doesn't
+    // promote items that would still exceed budget after lane
+    // demotion. With tokenBudget=60, one block costing ~55 and a
+    // fact costing ~37, the kept block leaves 5 tokens — fact
+    // STILL can't fit. It must end up `suppress/budget`, not
+    // silently dropped.
+    // Budget 90: block (~78) fits, fact (~20) cannot fit in the
+    // 12 tokens left over. Confirms the rescue path's budget
+    // gate still applies on the second pass.
+    const store = makeStore();
+    const plan = {
+      ...resolveServingPlan({ profile: "cost-saver" }),
+      tokenBudget: 90,
+      maxBlocks: 1,
+      maxFacts: 1,
+    };
+    try {
+      const raw: RecallV2Result = {
+        queryId: "q-budget-tight",
+        shadow: false,
+        blocks: [
+          dummyBlockHit({ calibratedProb: 0.95, situation: "lone-survivor block" }),
+        ],
+        facts: [
+          dummyFactHit({ calibratedProb: 0.95, statement: "fact too costly for the leftover budget" }),
+        ],
+        shouldInject: true,
+      };
+      const out = runServingArbiter(raw, { plan, store });
+
+      expect(out.raw.blocks).toHaveLength(1);
+      expect(out.raw.facts).toHaveLength(0);
+
+      const events = store.readEvents({ queryId: "q-budget-tight", limit: 50 });
+      const decisions = events.filter((e) => e.event === "arbitration_decision");
+      const factDecision = decisions.find((d) =>
+        typeof (d as { candidateId?: string }).candidateId === "string"
+        && (d as { candidateId: string }).candidateId.startsWith("fact:"),
+      )!;
+      expect((factDecision as { action: string }).action).toBe("suppress");
+      expect((factDecision as { reason: string }).reason).toBe("budget");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("C4.5 — remainingBudget reflects final walk, not arbiter's pre-final pass", () => {
+    // Pre-C4.5 the runtime returned `arbitration.remainingBudget`
+    // straight from the arbiter — which counted blocks the
+    // finaliser later demoted. So even when the FINAL payload used
+    // 55 tokens, `remainingBudget` would report 8 (post-arbiter
+    // greedy state). C4.5 recomputes it from the final walk.
+    // Budget 200, two blocks ~78 each. Arbiter injects both
+    // (156 total). Finaliser demotes block B (maxBlocks=1) →
+    // FINAL injectedTokens = 78, remainingBudget = 122.
+    // Pre-C4.5 the arbiter's pre-final remainingBudget would have
+    // returned 200 − 156 = 44, which is wrong by 78 tokens.
+    const store = makeStore();
+    const plan = {
+      ...resolveServingPlan({ profile: "cost-saver" }),
+      tokenBudget: 200,
+      maxBlocks: 1,
+      maxFacts: 0, // no facts can be injected — block-only setup
+    };
+    try {
+      const raw: RecallV2Result = {
+        queryId: "q-remaining-budget",
+        shadow: false,
+        blocks: [
+          dummyBlockHit({ calibratedProb: 0.95, situation: "block-A" }),
+          dummyBlockHit({ calibratedProb: 0.9, situation: "block-B equally fits but demoted by cap" }),
+        ],
+        facts: [],
+        shouldInject: true,
+      };
+      const out = runServingArbiter(raw, { plan, store });
+
+      // Exactly 1 block kept (maxBlocks=1).
+      expect(out.raw.blocks).toHaveLength(1);
+      // remainingBudget = tokenBudget - injectedTokens. NOT some
+      // pre-finalisation value where both blocks consumed budget.
+      expect(out.arbitration.remainingBudget).toBe(
+        plan.tokenBudget - out.arbitration.injectedTokens,
+      );
+      // Stronger: the remaining budget reflects ONE block, not two.
+      // If pre-final numbers leaked, this would be tokenBudget −
+      // (2 × blockCost) which is much smaller.
+      expect(out.arbitration.remainingBudget).toBeGreaterThan(plan.tokenBudget / 2);
+    } finally {
+      store.close();
+    }
+  });
+
   it("C4.3.B — explicit servingProfile opts into the policy stack even with env unset (no arbitration events)", async () => {
     // The SDK type advertises `servingProfile` as a runtime
     // policy override. Pre-C4.3.B we silently ignored it on the
