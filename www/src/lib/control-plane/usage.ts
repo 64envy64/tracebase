@@ -229,6 +229,14 @@ export function foldImpactWindow(input: {
   let driftInjectionCount = 0;
   let driftPatternsInjected = 0;
 
+  // May-2026 C5.2 — fold the C5 arbitration block across buckets.
+  // `hasArbitration` flips on the first non-empty bucket; we
+  // produce `totals.arbitration` only when at least one bucket
+  // carried the field so pre-arbiter workspaces still render
+  // without a fabricated empty card.
+  let hasArbitration = false;
+  const arbAcc = emptyArbitration();
+
   for (const bucket of buckets) {
     const o = bucket.metrics.observed;
     eligibleRuns += o.eligibleRuns;
@@ -280,6 +288,30 @@ export function foldImpactWindow(input: {
       candidatesFiltered += c.candidatesFiltered;
       driftInjectionCount += c.driftInjectionCount;
       driftPatternsInjected += c.driftPatternsInjected;
+    }
+
+    const arb = bucket.metrics.arbitration;
+    if (arb) {
+      hasArbitration = true;
+      arbAcc.totalDecisions += arb.totalDecisions;
+      arbAcc.injectedTokensSum += arb.injectedTokensSum;
+      arbAcc.suppressedTokensSum += arb.suppressedTokensSum;
+      arbAcc.injectedNetExpectedSum += arb.injectedNetExpectedSum;
+      for (const cap of ARBITRATION_CAPABILITIES) {
+        arbAcc.byCapability[cap].inject += arb.byCapability[cap].inject;
+        arbAcc.byCapability[cap].suppress += arb.byCapability[cap].suppress;
+        arbAcc.byCapability[cap].shadow += arb.byCapability[cap].shadow;
+      }
+      for (const reason of ARBITRATION_REASONS) {
+        arbAcc.byReason[reason] += arb.byReason[reason];
+      }
+      arbAcc.groundTruth.queriesWithDecisions += arb.groundTruth.queriesWithDecisions;
+      arbAcc.groundTruth.injectDecisions += arb.groundTruth.injectDecisions;
+      arbAcc.groundTruth.promptVisibleItems += arb.groundTruth.promptVisibleItems;
+      // divergence is `injectDecisions - promptVisibleItems` per
+      // bucket; the running sum equals the same delta over the
+      // window total, so we can rebuild it instead of double-
+      // accumulating signed values.
     }
   }
 
@@ -341,6 +373,19 @@ export function foldImpactWindow(input: {
       shadowControlMismatches,
       outcomesWithoutRetrieval,
     },
+    ...(hasArbitration
+      ? {
+          arbitration: {
+            ...arbAcc,
+            groundTruth: {
+              ...arbAcc.groundTruth,
+              divergence:
+                arbAcc.groundTruth.injectDecisions
+                - arbAcc.groundTruth.promptVisibleItems,
+            },
+          },
+        }
+      : {}),
   };
   // The weight-averaged arithmetic lives on the Impact page when we
   // want per-run estimates; the summed `value` above is the total
@@ -731,6 +776,33 @@ const ARBITRATION_REASONS: readonly ArbitrationReason[] = [
   "profile_cap",
   "holdout",
 ];
+
+/**
+ * Empty arbitration accumulator — closed-enum buckets zero-filled.
+ * Used by `foldImpactWindow` as the per-window running tally.
+ */
+function emptyArbitration(): UsageArbitration {
+  const byCapability = {} as Record<ArbitrationCapability, ArbitrationCapabilityCounts>;
+  for (const cap of ARBITRATION_CAPABILITIES) {
+    byCapability[cap] = { inject: 0, suppress: 0, shadow: 0 };
+  }
+  const byReason = {} as Record<ArbitrationReason, number>;
+  for (const r of ARBITRATION_REASONS) byReason[r] = 0;
+  return {
+    totalDecisions: 0,
+    byCapability,
+    byReason,
+    injectedTokensSum: 0,
+    suppressedTokensSum: 0,
+    injectedNetExpectedSum: 0,
+    groundTruth: {
+      queriesWithDecisions: 0,
+      injectDecisions: 0,
+      promptVisibleItems: 0,
+      divergence: 0,
+    },
+  };
+}
 
 const ARBITRATION_ACTIONS: readonly ArbitrationAction[] = [
   "inject",

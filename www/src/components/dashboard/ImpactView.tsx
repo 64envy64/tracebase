@@ -7,7 +7,12 @@ import { PageHeader } from "@/components/dashboard/primitives/PageHeader";
 import { ActionPill } from "@/components/dashboard/primitives/Buttons";
 import { IconKey, IconLink, IconRocket } from "@/components/dashboard/primitives/Icons";
 import type { DailyBucket, ImpactWindow } from "@/lib/control-plane/usage";
-import type { UsageCalibration, UsageCausal, UsageCohort } from "@/lib/usage/types";
+import type {
+  UsageArbitration,
+  UsageCalibration,
+  UsageCausal,
+  UsageCohort,
+} from "@/lib/usage/types";
 
 const ACCENT_POSITIVE = "rgba(177, 255, 109, 0.85)";
 const ACCENT_INJECTED = "rgba(125, 211, 252, 0.85)";
@@ -51,11 +56,13 @@ export function ImpactView({
   windowKey,
   projectsCount,
   installationsCount,
+  demo = false,
 }: {
   window: ImpactWindow;
   windowKey: ImpactWindowKey;
   projectsCount: number;
   installationsCount: number;
+  demo?: boolean;
 }) {
   const { totals, buckets } = window;
   const { observed, estimated, integrity } = totals;
@@ -63,6 +70,7 @@ export function ImpactView({
   const hasActivity = observed.eligibleRuns > 0;
   const projectsLabel = projectsCount === 1 ? "project" : "projects";
   const installsLabel = installationsCount === 1 ? "installation" : "installations";
+  const href = (path: string) => (demo ? `${path}?demo=1` : path);
 
   const labels = buckets.map((b) => b.date);
   const helpfulSeries = {
@@ -88,13 +96,13 @@ export function ImpactView({
         subtitle={`${projectsCount} ${projectsLabel} · ${installationsCount} ${installsLabel} in this window`}
         actions={
           <>
-            <ActionPill href="/dashboard" icon={<IconRocket />}>
+            <ActionPill href={href("/dashboard")} icon={<IconRocket />}>
               Overview
             </ActionPill>
-            <ActionPill href="/dashboard/installations" icon={<IconLink />}>
+            <ActionPill href={href("/dashboard/installations")} icon={<IconLink />}>
               Installs
             </ActionPill>
-            <ActionPill href="/dashboard/api-keys" icon={<IconKey />}>
+            <ActionPill href={href("/dashboard/api-keys")} icon={<IconKey />}>
               API keys
             </ActionPill>
           </>
@@ -108,10 +116,13 @@ export function ImpactView({
       >
         {WINDOW_CHOICES.map((w) => {
           const active = w.key === windowKey;
+          const href = demo
+            ? `/dashboard/impact?window=${w.key}&demo=1`
+            : `/dashboard/impact?window=${w.key}`;
           return (
             <Link
               key={w.key}
-              href={`/dashboard/impact?window=${w.key}`}
+              href={href}
               className="px-3 py-1.5 transition-[color,background-color]"
               style={{
                 background: active ? "var(--bg)" : "transparent",
@@ -223,6 +234,8 @@ export function ImpactView({
           </section>
 
           <CalibrationSection calibration={totals.calibration} buckets={buckets} />
+
+          <ArbitrationSection arbitration={totals.arbitration} />
 
           <CausalSection causal={totals.causal} />
 
@@ -435,6 +448,212 @@ function CalibrationSection({
           <Timeseries labels={reliabilityLabels} series={[brierSeries]} />
         </div>
       ) : null}
+    </section>
+  );
+}
+
+/**
+ * May-2026 C5.2 — runtime arbiter decision-stream card.
+ *
+ * Renders strictly from `metrics.arbitration` (the closed-vocab
+ * decision aggregate). Honors the boundary the C4.5 / C5
+ * reviews pinned: this is the DECISION stream — "what the
+ * arbiter chose". For "what reached the prompt" the funnel and
+ * estimated/causal cards already exist; this card never tries
+ * to replace them.
+ *
+ * Three sections:
+ *   1. Token economy — tokens the arbiter spent vs the
+ *      counterfactual tokens it suppressed.
+ *   2. Decisions by capability — closed-enum histogram showing
+ *      where the arbiter is most active.
+ *   3. Why memory was suppressed — closed-enum reason histogram.
+ *
+ * `groundTruth.divergence` is surfaced as an inline health badge
+ * (zero = honest, non-zero = drift between arbiter decision and
+ * payload-builder output). Card hidden when the arbiter never
+ * ran in this window — pre-arbiter workspaces don't see a
+ * fabricated empty card.
+ */
+function ArbitrationSection({ arbitration }: { arbitration?: UsageArbitration }) {
+  if (!arbitration) return null;
+  if (arbitration.totalDecisions === 0) return null;
+
+  const { byCapability, byReason, groundTruth } = arbitration;
+  const totalInject = (Object.values(byCapability) as { inject: number }[]).reduce(
+    (s, c) => s + c.inject,
+    0,
+  );
+  const totalSuppress = (Object.values(byCapability) as { suppress: number }[]).reduce(
+    (s, c) => s + c.suppress,
+    0,
+  );
+  const totalShadow = (Object.values(byCapability) as { shadow: number }[]).reduce(
+    (s, c) => s + c.shadow,
+    0,
+  );
+
+  // Surface the top three reasons by count — anything beyond is
+  // dashboard clutter on a window the operator skims.
+  const reasonRows = (Object.entries(byReason) as Array<[string, number]>)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+
+  const capabilityRows = (Object.entries(byCapability) as Array<
+    [string, { inject: number; suppress: number; shadow: number }]
+  >)
+    .filter(([, c]) => c.inject + c.suppress + c.shadow > 0)
+    .sort(
+      (a, b) =>
+        b[1].inject + b[1].suppress + b[1].shadow
+        - (a[1].inject + a[1].suppress + a[1].shadow),
+    );
+
+  // Health colours for the divergence badge.
+  const divergence = groundTruth.divergence;
+  const divergenceTone =
+    divergence === 0
+      ? "rgba(177, 255, 109, 0.85)"   // green: arbiter and prompt agree
+      : "rgba(242, 197, 114, 0.85)";  // amber: drift in either direction
+  const divergenceLabel =
+    divergence === 0
+      ? "in sync"
+      : divergence > 0
+        ? `+${divergence} (arbiter approved items the payload trimmed)`
+        : `${divergence} (payload rendered items the arbiter suppressed)`;
+
+  return (
+    <section aria-label="Runtime arbiter decisions" className="space-y-3">
+      <header className="flex flex-col gap-1">
+        <p
+          className="text-[10px] font-mono uppercase tracking-[0.22em]"
+          style={{ color: "var(--text-tertiary)" }}
+        >
+          Arbiter
+        </p>
+        <h2 className="text-[0.98rem] font-medium tracking-tight">
+          What the runtime decided to inject
+        </h2>
+        <p
+          className="max-w-[44rem] text-[12px] font-light leading-relaxed"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          Every recall lands at an ROI gate that scores blocks, facts, files, and tool
+          signals on expected-value-vs-tokens. This card shows what the gate accepted,
+          suppressed, or held out in this window.
+        </p>
+      </header>
+
+      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricTile
+          label="Decisions"
+          value={formatInt(arbitration.totalDecisions)}
+          note={`${formatInt(totalInject)} injected · ${formatInt(totalSuppress)} suppressed · ${formatInt(totalShadow)} held out`}
+        />
+        <MetricTile
+          label="Tokens spent"
+          value={formatInt(arbitration.injectedTokensSum)}
+          note="across all injected memory"
+        />
+        <MetricTile
+          label="Tokens saved"
+          value={formatInt(arbitration.suppressedTokensSum)}
+          note="counterfactual cost the gate avoided"
+          tone="positive"
+        />
+        <MetricTile
+          label="Expected ROI banked"
+          value={formatInt(Math.round(arbitration.injectedNetExpectedSum))}
+          note="net expected tokens across kept items"
+          tone="positive"
+        />
+      </div>
+
+      {capabilityRows.length > 0 ? (
+        <div
+          className="rounded-lg border p-5"
+          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+        >
+          <p
+            className="mb-3 text-[10px] font-mono uppercase tracking-[0.22em]"
+            style={{ color: "var(--text-tertiary)" }}
+          >
+            By capability
+          </p>
+          <table className="w-full text-[12px]">
+            <thead>
+              <tr style={{ color: "var(--text-tertiary)" }}>
+                <th className="pb-1 text-left font-light">capability</th>
+                <th className="pb-1 text-right font-light">injected</th>
+                <th className="pb-1 text-right font-light">suppressed</th>
+                <th className="pb-1 text-right font-light">held out</th>
+              </tr>
+            </thead>
+            <tbody>
+              {capabilityRows.map(([cap, counts]) => (
+                <tr key={cap}>
+                  <td className="py-1 font-mono">{cap.replace(/_/g, " ")}</td>
+                  <td className="py-1 text-right font-mono">{formatInt(counts.inject)}</td>
+                  <td className="py-1 text-right font-mono">{formatInt(counts.suppress)}</td>
+                  <td className="py-1 text-right font-mono">{formatInt(counts.shadow)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      {reasonRows.length > 0 ? (
+        <div
+          className="rounded-lg border p-5"
+          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+        >
+          <p
+            className="mb-3 text-[10px] font-mono uppercase tracking-[0.22em]"
+            style={{ color: "var(--text-tertiary)" }}
+          >
+            Top reasons
+          </p>
+          <ul className="space-y-1 text-[12px]">
+            {reasonRows.map(([reason, n]) => (
+              <li key={reason} className="flex items-baseline justify-between gap-3">
+                <span className="font-mono">{reason.replace(/_/g, " ")}</span>
+                <span className="font-mono" style={{ color: "var(--text-secondary)" }}>
+                  {formatInt(n)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div
+        className="flex flex-wrap items-baseline gap-3 rounded-lg border p-4"
+        style={{
+          borderColor: "var(--border)",
+          background: divergence === 0
+            ? "rgba(177, 255, 109, 0.04)"
+            : "rgba(242, 197, 114, 0.04)",
+        }}
+        aria-label="Arbiter vs prompt divergence"
+      >
+        <p
+          className="text-[10px] font-mono uppercase tracking-[0.22em]"
+          style={{ color: divergenceTone }}
+        >
+          Ground truth
+        </p>
+        <p
+          className="text-[12px] font-light"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          Across {formatInt(groundTruth.queriesWithDecisions)} arbiter run(s):
+          {" "}<span className="font-mono">{formatInt(groundTruth.injectDecisions)}</span> injects
+          {" "}vs <span className="font-mono">{formatInt(groundTruth.promptVisibleItems)}</span> visible in prompt —
+          {" "}<span className="font-mono">{divergenceLabel}</span>.
+        </p>
+      </div>
     </section>
   );
 }

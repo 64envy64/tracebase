@@ -20,6 +20,7 @@ import {
   parseUsageMetrics,
   toDailyBuckets,
   validateSamples,
+  type DailyBucket,
   type ValidatedSample,
 } from "../../www/src/lib/control-plane/usage.ts";
 import type {
@@ -368,6 +369,121 @@ describe("parseUsageMetrics arbitration field (C5)", () => {
     );
     expect(parsed).not.toBeNull();
     expect(parsed?.arbitration).toBeUndefined();
+  });
+});
+
+describe("foldImpactWindow — C5.2 arbitration aggregation across buckets", () => {
+  const VALID_ARBITRATION = {
+    totalDecisions: 5,
+    byCapability: {
+      reasoning_reuse: { inject: 1, suppress: 1, shadow: 0 },
+      file_memory: { inject: 1, suppress: 0, shadow: 0 },
+      loop_redirect: { inject: 0, suppress: 0, shadow: 0 },
+      tool_supervision: { inject: 0, suppress: 0, shadow: 0 },
+      context_fold: { inject: 0, suppress: 0, shadow: 0 },
+      context_pruning: { inject: 0, suppress: 1, shadow: 1 },
+    },
+    byReason: {
+      positive_roi: 2, budget: 1, low_confidence: 1, stale: 0,
+      duplicate: 0, profile_cap: 0, holdout: 1,
+    },
+    injectedTokensSum: 80,
+    suppressedTokensSum: 40,
+    injectedNetExpectedSum: 150,
+    groundTruth: {
+      queriesWithDecisions: 3,
+      injectDecisions: 2,
+      promptVisibleItems: 2,
+      divergence: 0,
+    },
+  };
+
+  function bucketWithArbitration(
+    date: string,
+    arb: typeof VALID_ARBITRATION,
+  ): DailyBucket {
+    return {
+      date,
+      metrics: {
+        ...(bucket({ eligibleRuns: 1 }) as unknown as Record<string, unknown>),
+        arbitration: arb,
+      } as unknown as UsageMetrics,
+    };
+  }
+
+  it("sums byCapability / byReason / token columns / groundTruth across days", () => {
+    const window = foldImpactWindow({
+      afterTs: "2026-05-20T00:00:00.000Z",
+      beforeTs: "2026-05-23T00:00:00.000Z",
+      buckets: [
+        bucketWithArbitration("2026-05-20", VALID_ARBITRATION),
+        bucketWithArbitration("2026-05-21", VALID_ARBITRATION),
+      ],
+    });
+    const a = window.totals.arbitration;
+    expect(a).toBeDefined();
+    expect(a!.totalDecisions).toBe(10);
+    expect(a!.injectedTokensSum).toBe(160);
+    expect(a!.suppressedTokensSum).toBe(80);
+    expect(a!.injectedNetExpectedSum).toBe(300);
+    expect(a!.byCapability.reasoning_reuse).toEqual({ inject: 2, suppress: 2, shadow: 0 });
+    expect(a!.byCapability.context_pruning).toEqual({ inject: 0, suppress: 2, shadow: 2 });
+    expect(a!.byReason.positive_roi).toBe(4);
+    expect(a!.byReason.holdout).toBe(2);
+    expect(a!.groundTruth.queriesWithDecisions).toBe(6);
+    expect(a!.groundTruth.injectDecisions).toBe(4);
+    expect(a!.groundTruth.promptVisibleItems).toBe(4);
+    // Divergence rebuilt from the window total (not double-accumulated).
+    expect(a!.groundTruth.divergence).toBe(0);
+  });
+
+  it("rebuilds divergence honestly when buckets disagree (negative drift accumulates)", () => {
+    // One bucket has arbiter ahead of prompt (+1), the next has
+    // prompt ahead of arbiter (-2). Window total: -1.
+    const arbPos = {
+      ...VALID_ARBITRATION,
+      groundTruth: {
+        queriesWithDecisions: 2,
+        injectDecisions: 3,
+        promptVisibleItems: 2,
+        divergence: 1,
+      },
+    };
+    const arbNeg = {
+      ...VALID_ARBITRATION,
+      groundTruth: {
+        queriesWithDecisions: 2,
+        injectDecisions: 1,
+        promptVisibleItems: 3,
+        divergence: -2,
+      },
+    };
+    const window = foldImpactWindow({
+      afterTs: "2026-05-20T00:00:00.000Z",
+      beforeTs: "2026-05-23T00:00:00.000Z",
+      buckets: [
+        bucketWithArbitration("2026-05-20", arbPos),
+        bucketWithArbitration("2026-05-21", arbNeg),
+      ],
+    });
+    const gt = window.totals.arbitration!.groundTruth;
+    expect(gt.injectDecisions).toBe(4);
+    expect(gt.promptVisibleItems).toBe(5);
+    expect(gt.divergence).toBe(-1);
+  });
+
+  it("omits arbitration on the totals when no bucket carried it (back-compat)", () => {
+    const window = foldImpactWindow({
+      afterTs: "2026-05-20T00:00:00.000Z",
+      beforeTs: "2026-05-23T00:00:00.000Z",
+      buckets: [
+        {
+          date: "2026-05-20",
+          metrics: bucket({ eligibleRuns: 1 }) as unknown as UsageMetrics,
+        },
+      ],
+    });
+    expect(window.totals.arbitration).toBeUndefined();
   });
 });
 
