@@ -54,7 +54,11 @@
  * project. Per-project breakdown arrives alongside per-agent in
  * Phase 2.
  */
-import type { EventAggregates, MechanismAggregates } from "../core/analytics.js";
+import type {
+  ArbitrationAggregates,
+  EventAggregates,
+  MechanismAggregates,
+} from "../core/analytics.js";
 
 /**
  * Granularity of the aggregated sample. See the module docstring
@@ -298,6 +302,27 @@ export interface UsageMetrics {
    * computed from a current store.
    */
   mechanisms?: MechanismAggregates;
+  /**
+   * May-2026 C5 — runtime arbiter decision-stream aggregates.
+   * Closed-enum histograms only (capability × action, reason).
+   * NEVER carries candidate ids, source ids, queryIds, or raw
+   * trigger/situation text.
+   *
+   * Boundary contract: `arbitration` is the DECISION stream
+   * (what the arbiter chose). For "what actually reached the
+   * prompt" the dashboard should read existing
+   * `injectedItemCounts` / `injection` / `fact_injection`
+   * surfaces — the payload builder remains the last instance of
+   * visibility. `arbitration.groundTruth.divergence` exposes the
+   * delta between the two as a health check; zero by
+   * construction in C4.5's unified finaliser, non-zero is a
+   * regression signal.
+   *
+   * Optional for back-compat with older payloads;
+   * `computeUsageMetrics` always populates it (zeroed on
+   * workspaces with no arbiter activity).
+   */
+  arbitration?: ArbitrationAggregates;
 }
 
 export interface UsageCohort {
@@ -464,6 +489,10 @@ export function computeUsageMetrics(
     // local aggregate is also constructed against the closed
     // vocabulary in `tallyMechanismEvent`.
     mechanisms: agg.mechanisms,
+    // C5 — arbitration decisions are already in the cloud-allowlist
+    // shape (counts + closed-enum histograms + non-negative
+    // scalars). Threaded through verbatim.
+    arbitration: agg.arbitration,
   };
 }
 

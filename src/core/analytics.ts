@@ -1185,6 +1185,19 @@ export interface EventAggregates {
    */
   mechanisms: MechanismAggregates;
   /**
+   * May-2026 C5 — aggregate view of the runtime arbiter's
+   * decision stream. Honors the boundary the C4.5 review named:
+   * `arbitration_decision` is the DECISION stream (what the
+   * arbiter chose), NOT the final visibility surface. For "what
+   * actually reached the prompt" the dashboard should still
+   * read existing `retrieval.injectedItemCounts` /
+   * `injection` / `fact_injection` events. We expose a
+   * `groundTruth` cross-check inside this block to surface
+   * divergence between the two — zero by construction in
+   * C4.5's unified finaliser, non-zero is a regression signal.
+   */
+  arbitration: ArbitrationAggregates;
+  /**
    * May-2026 every-run-learning diagnostics. Aggregate-only; no ids,
    * prompts, paths, or block bodies.
    */
@@ -1293,6 +1306,128 @@ export interface MechanismAggregates {
     hitCount: number;
     tokensSavedSum: number;
     bySurface: Record<MechanismCacheSurface, number>;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// May-2026 C5 — arbitration_decision aggregates (decision stream).
+// ---------------------------------------------------------------------------
+
+/** Closed enum mirroring `Capability` from the pure arbiter. */
+export type ArbitrationCapability =
+  | "reasoning_reuse"
+  | "file_memory"
+  | "loop_redirect"
+  | "tool_supervision"
+  | "context_fold"
+  | "context_pruning";
+
+export type ArbitrationAction = "inject" | "suppress" | "shadow";
+
+export type ArbitrationReason =
+  | "positive_roi"
+  | "budget"
+  | "low_confidence"
+  | "stale"
+  | "duplicate"
+  | "profile_cap"
+  | "holdout";
+
+export interface ArbitrationCapabilityCounts {
+  inject: number;
+  suppress: number;
+  shadow: number;
+}
+
+export interface ArbitrationGroundTruth {
+  /**
+   * Distinct queryIds that had at least one
+   * `arbitration_decision` event in the window. Denominator for
+   * the cross-check below.
+   */
+  queriesWithDecisions: number;
+  /**
+   * Sum of `inject` decisions for `capability === "reasoning_reuse"`
+   * across those queries. The arbiter's claim of what it sent
+   * downstream.
+   */
+  injectDecisions: number;
+  /**
+   * Sum of `injection` + `fact_injection` events on those same
+   * queries — the payload builder's record of what actually
+   * rendered. The boundary the C4.5 review pinned: the builder
+   * is the last instance of visibility.
+   */
+  promptVisibleItems: number;
+  /**
+   * `injectDecisions - promptVisibleItems`. Zero by construction
+   * in C4.5's unified finaliser; positive means the builder
+   * trimmed items the arbiter approved (a metric-drift signal a
+   * future review should investigate). Surfaced for dashboards
+   * to render as a health check.
+   */
+  divergence: number;
+}
+
+export interface ArbitrationAggregates {
+  /** Total `arbitration_decision` events in the window. */
+  totalDecisions: number;
+  /** Decisions partitioned by capability × action. */
+  byCapability: Record<ArbitrationCapability, ArbitrationCapabilityCounts>;
+  /** Decisions partitioned by reason code (closed enum). */
+  byReason: Record<ArbitrationReason, number>;
+  /** Sum of `injectionTokens` across all `inject` decisions. */
+  injectedTokensSum: number;
+  /**
+   * Sum of `injectionTokens` across all `suppress` decisions
+   * (counterfactual: tokens the arbiter chose NOT to spend).
+   */
+  suppressedTokensSum: number;
+  /** Sum of `expectedNetTokens` across all `inject` decisions. */
+  injectedNetExpectedSum: number;
+  /** Ground-truth cross-check; see `ArbitrationGroundTruth`. */
+  groundTruth: ArbitrationGroundTruth;
+}
+
+const ARBITRATION_CAPABILITIES: readonly ArbitrationCapability[] = [
+  "reasoning_reuse",
+  "file_memory",
+  "loop_redirect",
+  "tool_supervision",
+  "context_fold",
+  "context_pruning",
+] as const;
+
+const ARBITRATION_REASONS_LIST: readonly ArbitrationReason[] = [
+  "positive_roi",
+  "budget",
+  "low_confidence",
+  "stale",
+  "duplicate",
+  "profile_cap",
+  "holdout",
+] as const;
+
+export function emptyArbitrationAggregates(): ArbitrationAggregates {
+  const byCapability = {} as ArbitrationAggregates["byCapability"];
+  for (const cap of ARBITRATION_CAPABILITIES) {
+    byCapability[cap] = { inject: 0, suppress: 0, shadow: 0 };
+  }
+  const byReason = {} as ArbitrationAggregates["byReason"];
+  for (const r of ARBITRATION_REASONS_LIST) byReason[r] = 0;
+  return {
+    totalDecisions: 0,
+    byCapability,
+    byReason,
+    injectedTokensSum: 0,
+    suppressedTokensSum: 0,
+    injectedNetExpectedSum: 0,
+    groundTruth: {
+      queriesWithDecisions: 0,
+      injectDecisions: 0,
+      promptVisibleItems: 0,
+      divergence: 0,
+    },
   };
 }
 
@@ -1558,6 +1693,19 @@ export function computeAggregates(
   // 0.7.0 §6 stable §2 — mechanism aggregates. Tallied in the same
   // event walk so we make exactly one pass over `events`.
   const mechanisms = emptyMechanismAggregates();
+  // C5 — arbitration_decision aggregates. Tallied in the same
+  // event walk. `arbitrationQueries` is the broad set of queryIds
+  // that had ANY arbitration_decision event (any capability, any
+  // action) — the "arbiter ran" denominator. `arbitrationReuseInjects`
+  // is the narrow per-query count of `inject` decisions for
+  // `capability="reasoning_reuse"` only — the numerator the
+  // ground-truth cross-check matches against `injection` /
+  // `fact_injection` events. Other capabilities (file_memory etc.)
+  // have their own visibility surfaces and are intentionally
+  // excluded from the divergence math.
+  const arbitration = emptyArbitrationAggregates();
+  const arbitrationQueries = new Set<string>();
+  const arbitrationReuseInjects = new Map<string, number>();
   let candidatesSeen = 0;
   let refitCount = 0;
   let lastRefitAt: number | null = null;
@@ -1569,6 +1717,29 @@ export function computeAggregates(
     // kind subset and is a no-op on retrieval/injection/etc. The
     // existing switch below handles those.
     tallyMechanismEvent(mechanisms, ev);
+    // C5 — arbitration tally. Same pattern: dispatch on its own
+    // event kind, no-op on everything else.
+    if (ev.event === "arbitration_decision") {
+      arbitration.totalDecisions++;
+      arbitrationQueries.add(ev.queryId);
+      const cap = ev.capability as ArbitrationCapability;
+      if (cap in arbitration.byCapability) {
+        arbitration.byCapability[cap][ev.action as ArbitrationAction]++;
+      }
+      arbitration.byReason[ev.reason as ArbitrationReason]++;
+      if (ev.action === "inject") {
+        arbitration.injectedTokensSum += Math.max(0, ev.injectionTokens);
+        arbitration.injectedNetExpectedSum += ev.expectedNetTokens;
+        if (cap === "reasoning_reuse") {
+          arbitrationReuseInjects.set(
+            ev.queryId,
+            (arbitrationReuseInjects.get(ev.queryId) ?? 0) + 1,
+          );
+        }
+      } else if (ev.action === "suppress") {
+        arbitration.suppressedTokensSum += Math.max(0, ev.injectionTokens);
+      }
+    }
 
     switch (ev.event) {
       case "retrieval": {
@@ -1987,6 +2158,29 @@ export function computeAggregates(
     if (typeof outcome.durationMs === "number") bucket.durations.push(outcome.durationMs);
   }
 
+  // C5 — ground-truth cross-check between arbiter decisions and
+  // the payload builder's `injection` / `fact_injection` events.
+  // `queriesWithDecisions` is the broad "arbiter ran" denominator
+  // (any capability, any action). The divergence math is scoped
+  // strictly to reasoning_reuse, the only capability whose
+  // visibility surface is `injection` + `fact_injection` events.
+  // Other capabilities (file_memory etc.) emit on their own
+  // event channels and are intentionally absent here.
+  let groundTruthInject = 0;
+  let groundTruthPromptVisible = 0;
+  for (const [queryId, injectCount] of arbitrationReuseInjects) {
+    groundTruthInject += injectCount;
+    const blockInj = injectionsByQuery.get(queryId)?.size ?? 0;
+    const factInj = factInjectionsByQuery.get(queryId)?.size ?? 0;
+    groundTruthPromptVisible += blockInj + factInj;
+  }
+  arbitration.groundTruth = {
+    queriesWithDecisions: arbitrationQueries.size,
+    injectDecisions: groundTruthInject,
+    promptVisibleItems: groundTruthPromptVisible,
+    divergence: groundTruthInject - groundTruthPromptVisible,
+  };
+
   return {
     counts,
     retrieval: {
@@ -2006,6 +2200,7 @@ export function computeAggregates(
       outcomesWithoutRetrieval,
     },
     mechanisms,
+    arbitration,
     calibration,
     window: {
       ...(opts.afterTs !== undefined ? { afterTs: opts.afterTs } : {}),
