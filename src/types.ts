@@ -1335,9 +1335,23 @@ export interface CreateRuntimeOptions {
   enableTool?: boolean;
   enableLoop?: boolean;
   /**
-   * Prompt-serving profile. Defaults to `cost-saver` through the
-   * runtime policy; `recall-heavy` preserves broad legacy recall for
-   * debugging or explicit deep-recall sessions.
+   * Prompt-serving profile. Passing ANY explicit profile opts the
+   * runtime into the serving-policy stack (cap clamps + file/chunk
+   * ROI filters) — independently of the `TRACEBASE_SERVING_ARBITER`
+   * env flag, which controls the ROI arbiter and its
+   * `arbitration_decision` event emission.
+   *
+   *   • undefined / null + env unset → policy off, arbiter off
+   *     (pre-serving-policy legacy: 1200/4/4/3/3 builder defaults).
+   *   • explicit profile + env unset → policy ON (caller's profile),
+   *     arbiter off (no `arbitration_decision` events).
+   *   • undefined + env="1" → policy ON (cost-saver default),
+   *     arbiter ON.
+   *   • explicit profile + env="1" → policy ON (caller's profile),
+   *     arbiter ON.
+   *
+   * `recall-heavy` preserves broad legacy-shape recall for debugging
+   * or explicit deep-recall sessions.
    */
   servingProfile?: RuntimeServingProfile;
 

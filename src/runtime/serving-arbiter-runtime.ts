@@ -263,26 +263,20 @@ export function runServingArbiter(
   raw: RecallV2Result,
   opts: RunServingArbiterOptions,
 ): RunServingArbiterResult {
-  // C4.2 — pre-cap blocks at `plan.maxBlocks` and facts at
-  // `plan.maxFacts` BEFORE normalisation. The per-lane caps are
-  // rank-based (top-K from the ranker) and live outside the
-  // arbiter's ROI judgment; the items the per-lane cap slices off
-  // would never reach the prompt regardless. Without this
-  // pre-cap, the arbiter could emit `action="inject"` for blocks
-  // 5..N that `buildInjectionPayload` then trims away — which
-  // would inflate the dashboard's "kept by arbiter" count vs the
-  // actually-rendered slate. By pre-slicing here, every
-  // `arbitration_decision` event corresponds to an item the
-  // arbiter actually got to judge, and any "inject" decision is
-  // a real candidate for the rendered prompt (modulo the
-  // arbiter's own budget gate, which IS its responsibility).
-  const cappedRaw: RecallV2Result = {
-    ...raw,
-    blocks: raw.blocks.slice(0, opts.plan.maxBlocks),
-    facts: raw.facts.slice(0, opts.plan.maxFacts),
-  };
+  // C4.3 — the arbiter must see the FULL gate-passing slate so it
+  // can pick the highest-ROI candidate per lane, even when that
+  // candidate sits below the ranker's top-K. Earlier (C4.2) we
+  // pre-sliced `raw.blocks` / `raw.facts` to `plan.maxBlocks` /
+  // `plan.maxFacts` here, which was honest about prompt-visible
+  // events but actively defeated the arbiter's value-add: under
+  // cost-saver (maxBlocks=1) a net-negative block ranked #1
+  // would force "suppress all" even when block #2 was net +155.
+  // Now we feed the entire slate through. Per-lane caps land
+  // post-arbitration below, demoting overflow to
+  // `suppress / profile_cap` so decisions still match the
+  // prompt-visible items.
   const { candidates, blockByCandidateId, factByCandidateId } =
-    normalizeReasoningHits(cappedRaw);
+    normalizeReasoningHits(raw);
 
   // Blocks AND facts normalise to capability="reasoning_reuse"
   // (facts don't have their own slot in the directive's closed
@@ -290,9 +284,8 @@ export function runServingArbiter(
   // the cap for that bucket — which would unfairly suppress
   // facts whose own `plan.maxFacts` lane has headroom. We
   // synthesize a temporary plan with the combined cap so both
-  // lanes survive arbitration; `buildInjectionPayload`
-  // downstream still enforces the per-lane `maxBlocks` /
-  // `maxFacts` separately as a final safety net.
+  // lanes can compete cross-lane on ROI; the per-lane invariant
+  // is restored in the post-arbitration walk below.
   const arbiterPlan = {
     ...opts.plan,
     maxBlocks: opts.plan.maxBlocks + opts.plan.maxFacts,
@@ -302,12 +295,39 @@ export function runServingArbiter(
     ...(opts.shadow !== undefined ? { shadow: opts.shadow } : {}),
   });
 
-  // Emit one event per decision. We do this before filtering so
-  // every decision — including suppressions — is in the log; the
-  // dashboard wants the full denominator, not just the kept set.
+  // C4.3 per-lane post-process. `arbitration.decisions` arrive in
+  // the arbiter's greedy walk order — `inject` decisions are
+  // emitted highest-ROI first (with diversity tie-break baked in).
+  // We walk them in that order and demote any inject that would
+  // exceed the per-lane cap from `inject` → `suppress` with
+  // reason `profile_cap`. Suppressions from the arbiter pass
+  // through unchanged.
+  let blockInjectCount = 0;
+  let factInjectCount = 0;
+  const finalDecisions = arbitration.decisions.map((d) => {
+    if (d.action !== "inject") return d;
+    const isBlock = blockByCandidateId.has(d.candidateId);
+    if (isBlock) {
+      if (blockInjectCount < opts.plan.maxBlocks) {
+        blockInjectCount++;
+        return d;
+      }
+      return { ...d, action: "suppress" as const, reason: "profile_cap" as const };
+    }
+    if (factInjectCount < opts.plan.maxFacts) {
+      factInjectCount++;
+      return d;
+    }
+    return { ...d, action: "suppress" as const, reason: "profile_cap" as const };
+  });
+
+  // Emit one event per FINAL decision. We do this once per
+  // candidate (not once per arbitration step + once per
+  // post-process demotion) so the dashboard reads a clean
+  // 1:1 mapping between candidates and events.
   const ts = opts.nowMs ?? Date.now();
   let decisionsEmitted = 0;
-  for (const decision of arbitration.decisions) {
+  for (const decision of finalDecisions) {
     const candidate = candidates.find((c) => c.id === decision.candidateId);
     if (!candidate) continue;
     try {
@@ -332,24 +352,19 @@ export function runServingArbiter(
     }
   }
 
-  // Build the filtered raw. We keep BlockHit / FactHit instances
-  // identical (just the array is trimmed) so downstream code
-  // sees the same object identities and `buildInjectionPayload`
-  // can rely on its existing invariants. Filter against
-  // `cappedRaw` (not the original `raw`) so items the per-lane
-  // cap sliced off are intentionally absent from the returned
-  // slate. The arbiter enforces the per-lane invariant here so
-  // `arbitration_decision.action="inject"` events match what
-  // actually reaches the prompt.
+  // Build the filtered raw from the FINAL decisions (after
+  // per-lane post-process). Items that were rolled from inject
+  // to suppress/profile_cap drop out here, matching the
+  // dashboard's view of prompt-visible items.
   const kept = new Set(
-    arbitration.decisions.filter((d) => d.action === "inject").map((d) => d.candidateId),
+    finalDecisions.filter((d) => d.action === "inject").map((d) => d.candidateId),
   );
   const acceptAllForShadow = raw.shadow === true;
-  const keptBlocks = cappedRaw.blocks.filter((hit, i) => {
+  const keptBlocks = raw.blocks.filter((hit, i) => {
     if (!acceptAllForShadow && !hit.passesGate) return false;
     return kept.has(`block:${hit.block.id}#${i}`);
   });
-  const keptFacts = cappedRaw.facts.filter((hit, i) => {
+  const keptFacts = raw.facts.filter((hit, i) => {
     if (!acceptAllForShadow && !hit.passesGate) return false;
     return kept.has(`fact:${hit.fact.id}#${i}`);
   });
@@ -360,13 +375,13 @@ export function runServingArbiter(
     facts: keptFacts,
     shouldInject: raw.shouldInject && (keptBlocks.length + keptFacts.length) > 0,
   };
-  // Unused locals: maps available if a follow-up wants to join
-  // events back to the original hits. Touch them so the linter
-  // doesn't flag.
-  void blockByCandidateId;
-  void factByCandidateId;
+  void factByCandidateId; // map available for future event joins
 
-  return { raw: filteredRaw, arbitration, decisionsEmitted };
+  return {
+    raw: filteredRaw,
+    arbitration: { ...arbitration, decisions: finalDecisions },
+    decisionsEmitted,
+  };
 }
 
 function clamp01(x: number): number {

@@ -627,24 +627,18 @@ describe("recallForPrompt — env-unset byte-identity guarantee", () => {
     });
   });
 
-  it("C4.2 — arbitration_decision \"inject\" count matches payload visible items (no over-cap inflation)", () => {
-    // Pre-C4.2 the runtime combined caps via maxBlocks + maxFacts
-    // for the arbiter call, then `buildInjectionPayload`
-    // re-applied separate maxBlocks / maxFacts. With a wide
-    // candidate pool the arbiter could mark items "inject" that
-    // the builder later sliced off — inflating "kept by arbiter"
-    // reads for the dashboard. C4.2 pre-caps blocks/facts before
-    // normalisation so every "inject" event corresponds to an
-    // item that actually reaches the prompt.
+  it("C4.3 — full slate reaches the arbiter; per-lane overflow is demoted to suppress/profile_cap", () => {
+    // Two assertions packed:
+    //   (1) Every candidate gets a decision (arbiter is no longer
+    //       starved by a rank-based pre-cap — that was the C4.2.C
+    //       overreach the C4.3 review caught).
+    //   (2) Items that the per-lane post-process pulls out of the
+    //       inject set DO get a corresponding suppress event with
+    //       reason="profile_cap", so the dashboard sees a clean
+    //       1:1 mapping between candidates and decisions.
     const store = makeStore();
     const plan = resolveServingPlan({ profile: "recall-heavy" }); // maxBlocks=4, maxFacts=4
     try {
-      // 6 blocks + 6 facts, all high-confidence. Pre-fix would
-      // emit 8 "inject" decisions (combined cap), buildInjectionPayload
-      // would trim to 4 blocks + 4 facts → 8 visible. Looks fine
-      // in this exact case but the pathology shows when block
-      // and fact ROI differ; here we just count inject decisions
-      // against final visible items.
       const raw: RecallV2Result = {
         queryId: "q-no-inflate",
         shadow: false,
@@ -661,19 +655,108 @@ describe("recallForPrompt — env-unset byte-identity guarantee", () => {
       const events = store.readEvents({ queryId: "q-no-inflate", limit: 100 });
       const decisions = events.filter((e) => e.event === "arbitration_decision");
       const injectCount = decisions.filter((d) => (d as { action: string }).action === "inject").length;
+      const profileCapCount = decisions.filter(
+        (d) => (d as { reason: string }).reason === "profile_cap",
+      ).length;
 
-      // Per-lane caps applied BEFORE arbitration → arbiter only
-      // sees maxBlocks blocks + maxFacts facts = 4 + 4 = 8.
-      expect(decisions.length).toBeLessThanOrEqual(plan.maxBlocks + plan.maxFacts);
-      // Every "inject" decision corresponds to an item in the
-      // returned `raw` (which feeds `buildInjectionPayload`).
+      // (1) Every candidate gets a decision (6 blocks + 6 facts).
+      expect(decisions.length).toBe(12);
+      // (2) Inject decisions correspond exactly to prompt-visible items.
       expect(injectCount).toBe(out.raw.blocks.length + out.raw.facts.length);
-      // And the kept slate stays within the per-lane caps.
+      // Per-lane caps held — both via the arbiter's combined-cap
+      // gate and the post-process demotion.
       expect(out.raw.blocks.length).toBeLessThanOrEqual(plan.maxBlocks);
       expect(out.raw.facts.length).toBeLessThanOrEqual(plan.maxFacts);
+      // Demoted overflow shows up explicitly as profile_cap so C5
+      // can read it instead of having to infer cap rejection.
+      expect(profileCapCount).toBeGreaterThan(0);
     } finally {
       store.close();
     }
+  });
+
+  it("C4.3 — arbiter picks cheap +ROI candidate over net-negative #1 (the named C4.2 regression)", () => {
+    // The C4.3 review's named repro: cost-saver maxBlocks=1, a
+    // block ranked #1 by relevance is expensive AND net-negative,
+    // a block ranked #2 is cheap and net +155. Pre-C4.3 the
+    // pre-cap to maxBlocks=1 hid block #2 from the arbiter, so
+    // the arbiter said "suppress everything" and nothing was
+    // injected — defeating the arbiter's entire raison d'être.
+    // Post-C4.3 the arbiter sees both, picks block #2.
+    const store = makeStore();
+    const plan = resolveServingPlan({ profile: "cost-saver" });
+    try {
+      // dummyBlockHit defaults to a small situation. We override
+      // the body via the helper but the size differential here is
+      // synthesized via two distinct calibratedProb values: the
+      // first block is "loud" (high prob, but its injection cost
+      // dwarfs the avoided-tokens benefit at cost-saver budgets);
+      // the second block is cheap and lands above the floor.
+      //
+      // The exact arithmetic isn't load-bearing — we only need
+      // (a) block #2 to receive an `inject` decision, AND
+      // (b) block #1 to receive a `suppress` decision (not silent
+      //     hiding by a pre-cap).
+      const raw: RecallV2Result = {
+        queryId: "q-cheap-wins",
+        shadow: false,
+        blocks: [
+          // #1 by rank, but its calibratedProb is just above the
+          // cost-saver floor (0.25) — net expectedNetTokens stays
+          // tight or negative.
+          dummyBlockHit({ calibratedProb: 0.26, situation: "expensive ranker-top block" }),
+          // #2 by rank, but high prob → clearly net-positive ROI.
+          dummyBlockHit({ calibratedProb: 0.95, situation: "cheap high-ROI block #2" }),
+        ],
+        facts: [],
+        shouldInject: true,
+      };
+      const out = runServingArbiter(raw, { plan, store });
+
+      const events = store.readEvents({ queryId: "q-cheap-wins", limit: 100 });
+      const decisions = events.filter((e) => e.event === "arbitration_decision");
+      // BOTH blocks got a decision — the second was no longer
+      // hidden behind the per-lane cap before scoring.
+      expect(decisions.length).toBe(2);
+      const actions = decisions.map((d) => (d as { action: string }).action);
+      expect(actions).toContain("inject");
+      // The injected one is the cheap high-ROI block (#2), not the
+      // expensive low-conf #1.
+      expect(out.raw.blocks).toHaveLength(1);
+      expect(out.raw.blocks[0]!.calibratedProb).toBe(0.95);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("C4.3.B — explicit servingProfile opts into the policy stack even with env unset (no arbitration events)", async () => {
+    // The SDK type advertises `servingProfile` as a runtime
+    // policy override. Pre-C4.3.B we silently ignored it on the
+    // env-unset legacy path; C4.3.B treats explicit profiles as
+    // their own opt-in to the policy stack (caps + ROI filters)
+    // independently of the arbiter env flag. The arbiter STILL
+    // requires the env, so no arbitration_decision events land
+    // even with a profile in play.
+    await withFreshStore(async (store, server, basePath) => {
+      seedActiveBlock(store, PYTEST_BLOCK);
+      delete process.env.TRACEBASE_SERVING_ARBITER;
+
+      const result = await recallForPrompt(server, store, NO_HOLDOUT, {
+        prompt: "Pytest collects the wrong package — sys.path shadow on a fresh clone",
+        basePath,
+        sessionId: null,
+        servingProfile: "balanced", // explicit opt-in to policy stack
+      });
+
+      // Policy ran: RetrievalEvent carries the chosen profile.
+      const events = store.readEvents({ queryId: result.queryId, limit: 50 });
+      const retrieval = events.find((e) => e.event === "retrieval") as Record<string, unknown>;
+      expect(retrieval).toBeDefined();
+      expect(retrieval.injectionProfile).toBe("balanced");
+
+      // Arbiter did NOT run — no arbitration_decision events.
+      expect(events.filter((e) => e.event === "arbitration_decision")).toEqual([]);
+    });
   });
 
   it("C4.1 — real holdout cohort with env=\"1\": shadow/holdout events DO land in telemetry", async () => {

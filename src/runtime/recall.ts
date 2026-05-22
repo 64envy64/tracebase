@@ -219,17 +219,26 @@ export async function recallForPrompt(
           observations: recentObservations,
         })
       : null;
-  // May-2026 C4.2 — the cost-saver `serving-policy` defaults are
+  // May-2026 C4.2 / C4.3 — the cost-saver `serving-policy` stack
+  // (resolveServingPlan + file/chunk ROI filters + cap clamps) is
   // a behaviour change from the pre-`serving-policy` baseline
   // (1200/4/4/3/3 from `build-injection-payload`'s built-in
-  // defaults). We gate this whole policy stack on the same env
-  // flag as the arbiter so a user who hasn't opted into the new
-  // ROI gating gets exactly the legacy behaviour they had before
-  // any of this landed. Passing `null` downstream skips the
-  // file/chunk ROI filters and lets `buildInjectionPayload` use
-  // its own DEFAULT_TOKEN_BUDGET / DEFAULT_MAX_* constants.
+  // defaults). It runs when EITHER the arbiter env is set OR the
+  // caller passed an explicit `servingProfile` (the SDK type
+  // documents it as a runtime policy override; silently ignoring
+  // it would be a surprise). The arbiter itself remains gated on
+  // the env flag alone — passing a profile without the env still
+  // produces no `arbitration_decision` events.
+  //
+  // Truth table:
+  //   env unset, no profile         → policy off, arbiter off  (legacy 1200/4/4/3/3)
+  //   env unset, explicit profile   → policy ON,  arbiter off  (no arbitration events)
+  //   env="1",   no profile         → policy ON (cost-saver default), arbiter ON
+  //   env="1",   explicit profile   → policy ON (chosen profile),     arbiter ON
   const arbiterOn = isServingArbiterEnabled();
-  const servingPlan = arbiterOn
+  const explicitProfile = opts.servingProfile !== undefined && opts.servingProfile !== null;
+  const policyOn = arbiterOn || explicitProfile;
+  const servingPlan = policyOn
     ? resolveServingPlan({
         profile: opts.servingProfile,
         tokenBudget: opts.tokenBudget,
