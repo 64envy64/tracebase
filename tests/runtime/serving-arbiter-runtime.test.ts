@@ -729,6 +729,142 @@ describe("recallForPrompt — env-unset byte-identity guarantee", () => {
     }
   });
 
+  it("C4.4 — per-lane finalisation picks the HIGHER-ROI block, not the input-order winner", () => {
+    // Named C4.3 review repro: cost-saver maxBlocks=1. Block A
+    // ranks first in input (net ROI +40). Block B ranks second
+    // (net ROI +150). Pre-C4.4 the finaliser walked
+    // `arbitration.decisions` in input order, kept A, demoted B.
+    // Wrong. Post-C4.4 we re-sort by ROI before applying the
+    // per-lane cap, so B is kept and A is demoted to
+    // suppress/profile_cap.
+    //
+    // We calibrate inputs so block B has a higher score than
+    // block A while BOTH stay clearly net-positive (cost-saver's
+    // expectedNetTokens > 0 floor would otherwise suppress A on
+    // the wrong reason). estimatedAvoidedTokens is fixed at 200
+    // inside `blockHitToCandidate`; we drive the differential via
+    // `calibratedProb`:
+    //   A: prob 0.70 → upside 140, body cost ~80, net ~+60
+    //   B: prob 0.95 → upside 190, body cost ~80, net ~+110
+    const store = makeStore();
+    const plan = resolveServingPlan({ profile: "cost-saver" });
+    try {
+      const raw: RecallV2Result = {
+        queryId: "q-roi-order",
+        shadow: false,
+        blocks: [
+          dummyBlockHit({ calibratedProb: 0.7, situation: "ranker-first lower-ROI block A" }),
+          dummyBlockHit({ calibratedProb: 0.95, situation: "ranker-second higher-ROI block B" }),
+        ],
+        facts: [],
+        shouldInject: true,
+      };
+      const out = runServingArbiter(raw, { plan, store });
+
+      // The kept block is B (the higher-ROI one), not A.
+      expect(out.raw.blocks).toHaveLength(1);
+      expect(out.raw.blocks[0]!.calibratedProb).toBe(0.95);
+
+      // A got an explicit suppress/profile_cap event — not a
+      // silent drop and not a misclassification as low_confidence.
+      const events = store.readEvents({ queryId: "q-roi-order", limit: 100 });
+      const decisions = events.filter((e) => e.event === "arbitration_decision");
+      expect(decisions).toHaveLength(2);
+      const aDecision = decisions.find(
+        (d) => (d as { calibratedProb: number }).calibratedProb === 0.7,
+      )!;
+      expect((aDecision as { action: string }).action).toBe("suppress");
+      expect((aDecision as { reason: string }).reason).toBe("profile_cap");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("C4.4 — underfilled lane gets the next-best item (1 block + 1 fact, not 1 block alone)", () => {
+    // Named C4.3 review repro #2: cost-saver maxBlocks=1,
+    // maxFacts=1. Two high-ROI blocks + one positive-ROI fact.
+    // Pre-C4.4 the combined bucket cap (maxBlocks + maxFacts = 2)
+    // consumed both blocks, suppressed the fact as profile_cap,
+    // and the post-process demoted the overflow block but never
+    // promoted the fact — leaving the fact lane empty even
+    // though it had capacity. Post-C4.4 the bucket cap is removed,
+    // all three reach inject, then per-lane allocation keeps
+    // top-1 block + top-1 fact.
+    const store = makeStore();
+    const plan = resolveServingPlan({ profile: "cost-saver" });
+    try {
+      const raw: RecallV2Result = {
+        queryId: "q-underfill",
+        shadow: false,
+        blocks: [
+          dummyBlockHit({ calibratedProb: 0.95, situation: "high-ROI block A" }),
+          dummyBlockHit({ calibratedProb: 0.9, situation: "high-ROI block B" }),
+        ],
+        facts: [
+          dummyFactHit({ calibratedProb: 0.85, statement: "positive ROI fact" }),
+        ],
+        shouldInject: true,
+      };
+      const out = runServingArbiter(raw, { plan, store });
+
+      // Both lanes filled.
+      expect(out.raw.blocks).toHaveLength(1);
+      expect(out.raw.facts).toHaveLength(1);
+      expect(out.raw.blocks[0]!.calibratedProb).toBe(0.95);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("C4.4 — returned arbitration.summary/byCandidateId/injectedTokens reflect FINAL decisions, not pre-finalisation", () => {
+    // The C4.3 review caught that the returned `arbitration`
+    // carried stale pre-finalisation counters (`summary.inject`
+    // would over-report by the demoted overflow count;
+    // `injectedTokens` similarly). Future C5 code reading these
+    // would see inflated numbers. C4.4 rebuilds them.
+    const store = makeStore();
+    const plan = resolveServingPlan({ profile: "cost-saver" }); // maxBlocks=1, maxFacts=1
+    try {
+      const raw: RecallV2Result = {
+        queryId: "q-summary",
+        shadow: false,
+        blocks: [
+          dummyBlockHit({ calibratedProb: 0.95, situation: "block-a" }),
+          dummyBlockHit({ calibratedProb: 0.9, situation: "block-b" }),
+          dummyBlockHit({ calibratedProb: 0.85, situation: "block-c" }),
+        ],
+        facts: [],
+        shouldInject: true,
+      };
+      const out = runServingArbiter(raw, { plan, store });
+
+      // summary.reasoning_reuse.inject must equal 1 (only the
+      // top-ROI block survives the per-lane cap), not 3.
+      expect(out.arbitration.summary.reasoning_reuse.inject).toBe(1);
+      // The other two are suppressed; total suppress count is 2.
+      expect(out.arbitration.summary.reasoning_reuse.suppress).toBe(2);
+
+      // byCandidateId reflects the FINAL action on every candidate.
+      const injectIds = Object.entries(out.arbitration.byCandidateId)
+        .filter(([, d]) => d.action === "inject")
+        .map(([id]) => id);
+      expect(injectIds).toHaveLength(1);
+
+      // injectedTokens equals the kept block's injectionTokens
+      // (NOT the pre-final sum that would include demoted overflow).
+      const keptDecision = out.arbitration.byCandidateId[injectIds[0]!]!;
+      expect(out.arbitration.injectedTokens).toBeGreaterThan(0);
+      // Sanity: equals exactly one candidate's cost.
+      const candidates = out.arbitration.decisions
+        .filter((d) => d.action === "inject")
+        .map((d) => d);
+      expect(candidates).toHaveLength(1);
+      expect(candidates[0]!.candidateId).toBe(keptDecision.candidateId);
+    } finally {
+      store.close();
+    }
+  });
+
   it("C4.3.B — explicit servingProfile opts into the policy stack even with env unset (no arbitration events)", async () => {
     // The SDK type advertises `servingProfile` as a runtime
     // policy override. Pre-C4.3.B we silently ignored it on the

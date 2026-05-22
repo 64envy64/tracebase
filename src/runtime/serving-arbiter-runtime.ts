@@ -40,7 +40,9 @@ import { emitArbitrationDecision } from "../core/analytics.js";
 import {
   arbitrateServingCandidates,
   type ArbitrationResult,
+  type Capability,
   type ServingCandidate,
+  type ServingDecision,
 } from "./serving-arbiter.js";
 import type { ServingPlan } from "./serving-policy.js";
 
@@ -265,66 +267,107 @@ export function runServingArbiter(
 ): RunServingArbiterResult {
   // C4.3 — the arbiter must see the FULL gate-passing slate so it
   // can pick the highest-ROI candidate per lane, even when that
-  // candidate sits below the ranker's top-K. Earlier (C4.2) we
-  // pre-sliced `raw.blocks` / `raw.facts` to `plan.maxBlocks` /
-  // `plan.maxFacts` here, which was honest about prompt-visible
-  // events but actively defeated the arbiter's value-add: under
-  // cost-saver (maxBlocks=1) a net-negative block ranked #1
-  // would force "suppress all" even when block #2 was net +155.
-  // Now we feed the entire slate through. Per-lane caps land
-  // post-arbitration below, demoting overflow to
-  // `suppress / profile_cap` so decisions still match the
-  // prompt-visible items.
+  // candidate sits below the ranker's top-K.
   const { candidates, blockByCandidateId, factByCandidateId } =
     normalizeReasoningHits(raw);
 
-  // Blocks AND facts normalise to capability="reasoning_reuse"
-  // (facts don't have their own slot in the directive's closed
-  // capability enum). The pure arbiter reads `plan.maxBlocks` as
-  // the cap for that bucket — which would unfairly suppress
-  // facts whose own `plan.maxFacts` lane has headroom. We
-  // synthesize a temporary plan with the combined cap so both
-  // lanes can compete cross-lane on ROI; the per-lane invariant
-  // is restored in the post-arbitration walk below.
+  // C4.4 — disable the arbiter's bucket cap entirely. Blocks AND
+  // facts share `capability = "reasoning_reuse"` (facts have no
+  // own slot in the directive's closed enum), so any non-trivial
+  // bucket cap would underfill a lane: a maxBlocks=1 / maxFacts=1
+  // plan with combined cap 2 lets two strong blocks consume the
+  // budget before a strong fact gets considered, then the
+  // post-process demotes the overflow block but the fact lane is
+  // empty because the fact was suppressed as profile_cap at the
+  // bucket level. Set the bucket to `candidates.length` so the
+  // arbiter's only remaining global gate is the token budget
+  // (which IS scarce and IS its job). Per-lane invariants land
+  // in the post-process below.
   const arbiterPlan = {
     ...opts.plan,
-    maxBlocks: opts.plan.maxBlocks + opts.plan.maxFacts,
+    maxBlocks: Math.max(candidates.length, opts.plan.maxBlocks + opts.plan.maxFacts),
   };
   const arbitration = arbitrateServingCandidates(candidates, {
     plan: arbiterPlan,
     ...(opts.shadow !== undefined ? { shadow: opts.shadow } : {}),
   });
 
-  // C4.3 per-lane post-process. `arbitration.decisions` arrive in
-  // the arbiter's greedy walk order — `inject` decisions are
-  // emitted highest-ROI first (with diversity tie-break baked in).
-  // We walk them in that order and demote any inject that would
-  // exceed the per-lane cap from `inject` → `suppress` with
-  // reason `profile_cap`. Suppressions from the arbiter pass
-  // through unchanged.
-  let blockInjectCount = 0;
-  let factInjectCount = 0;
-  const finalDecisions = arbitration.decisions.map((d) => {
-    if (d.action !== "inject") return d;
+  // C4.4 — per-lane finalisation in ROI order. The arbiter's
+  // `decisions` array is in INPUT candidate order
+  // (`serving-arbiter.ts:226`), NOT in greedy-walk / ROI order —
+  // a fact the original C4.3 cap-finaliser missed. Walking input
+  // order produced "keep the lower-ROI earlier block, demote
+  // the higher-ROI later block". Here we re-sort the inject
+  // subset by `expectedNetTokens` DESC (input index tie-break for
+  // determinism) before applying per-lane caps. Underfilled lanes
+  // naturally get the next-best item.
+  const injectInRoiOrder = arbitration.decisions
+    .map((d, idx) => ({ d, idx }))
+    .filter(({ d }) => d.action === "inject")
+    .sort((a, b) => {
+      if (b.d.expectedNetTokens !== a.d.expectedNetTokens) {
+        return b.d.expectedNetTokens - a.d.expectedNetTokens;
+      }
+      return a.idx - b.idx;
+    });
+
+  const demoted = new Set<string>();
+  let blockKept = 0;
+  let factKept = 0;
+  for (const { d } of injectInRoiOrder) {
     const isBlock = blockByCandidateId.has(d.candidateId);
     if (isBlock) {
-      if (blockInjectCount < opts.plan.maxBlocks) {
-        blockInjectCount++;
-        return d;
+      if (blockKept < opts.plan.maxBlocks) {
+        blockKept++;
+      } else {
+        demoted.add(d.candidateId);
       }
-      return { ...d, action: "suppress" as const, reason: "profile_cap" as const };
+    } else {
+      if (factKept < opts.plan.maxFacts) {
+        factKept++;
+      } else {
+        demoted.add(d.candidateId);
+      }
     }
-    if (factInjectCount < opts.plan.maxFacts) {
-      factInjectCount++;
-      return d;
+  }
+
+  // Compose final decisions: pre-existing suppress/shadow pass
+  // through, demoted injects flip to suppress/profile_cap.
+  const finalDecisions: ServingDecision[] = arbitration.decisions.map((d) => {
+    if (demoted.has(d.candidateId)) {
+      return { ...d, action: "suppress", reason: "profile_cap" };
     }
-    return { ...d, action: "suppress" as const, reason: "profile_cap" as const };
+    return d;
   });
 
-  // Emit one event per FINAL decision. We do this once per
-  // candidate (not once per arbitration step + once per
-  // post-process demotion) so the dashboard reads a clean
-  // 1:1 mapping between candidates and events.
+  // C4.4 — recompute `byCandidateId`, `summary`, and
+  // `injectedTokens` from the FINAL decisions. Pre-fix the
+  // returned `arbitration` carried the pre-finalisation counts
+  // (e.g. summary[reasoning_reuse].inject overstated by the
+  // demoted overflow), which a future C5 dashboard could read as
+  // ground truth. Rebuild explicitly so stale numbers can't leak.
+  const byCandidateId: Record<string, ServingDecision> = {};
+  const summary = emptyServingSummary();
+  let injectedTokens = 0;
+  for (const d of finalDecisions) {
+    byCandidateId[d.candidateId] = d;
+    summary[d.capability][d.action]++;
+    if (d.action === "inject") {
+      const candidate = candidates.find((c) => c.id === d.candidateId);
+      if (candidate) injectedTokens += Math.max(0, candidate.injectionTokens);
+    }
+  }
+
+  const finalArbitration = {
+    ...arbitration,
+    decisions: finalDecisions,
+    byCandidateId,
+    summary,
+    injectedTokens,
+  };
+
+  // Emit one event per FINAL decision — one row per candidate so
+  // the dashboard reads a clean 1:1 mapping.
   const ts = opts.nowMs ?? Date.now();
   let decisionsEmitted = 0;
   for (const decision of finalDecisions) {
@@ -347,15 +390,11 @@ export function runServingArbiter(
       });
       decisionsEmitted++;
     } catch {
-      // Never break the recall path on telemetry failure — the
-      // user-visible action is the filtered injection slate.
+      // Never break the recall path on telemetry failure.
     }
   }
 
-  // Build the filtered raw from the FINAL decisions (after
-  // per-lane post-process). Items that were rolled from inject
-  // to suppress/profile_cap drop out here, matching the
-  // dashboard's view of prompt-visible items.
+  // Build the filtered raw from the FINAL inject set.
   const kept = new Set(
     finalDecisions.filter((d) => d.action === "inject").map((d) => d.candidateId),
   );
@@ -375,13 +414,32 @@ export function runServingArbiter(
     facts: keptFacts,
     shouldInject: raw.shouldInject && (keptBlocks.length + keptFacts.length) > 0,
   };
-  void factByCandidateId; // map available for future event joins
+  void factByCandidateId;
 
   return {
     raw: filteredRaw,
-    arbitration: { ...arbitration, decisions: finalDecisions },
+    arbitration: finalArbitration,
     decisionsEmitted,
   };
+}
+
+/**
+ * Mirror of the internal `emptySummary` in `serving-arbiter.ts`.
+ * Local replica keeps this module's `runServingArbiter` self-
+ * contained without forcing a new export from the pure module.
+ */
+function emptyServingSummary(): ArbitrationResult["summary"] {
+  const caps: Capability[] = [
+    "reasoning_reuse",
+    "file_memory",
+    "loop_redirect",
+    "tool_supervision",
+    "context_fold",
+    "context_pruning",
+  ];
+  const out = {} as ArbitrationResult["summary"];
+  for (const cap of caps) out[cap] = { inject: 0, suppress: 0, shadow: 0 };
+  return out;
 }
 
 function clamp01(x: number): number {
