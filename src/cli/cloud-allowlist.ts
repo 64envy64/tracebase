@@ -251,6 +251,67 @@ const USAGE_PROMPT_CACHE_SPEC: AllowlistSpec = {
 };
 
 /**
+ * May-2026 C5 — closed enum for `arbitration_decision.capability`.
+ * Mirrors the six capabilities in `src/runtime/serving-arbiter.ts`.
+ * A future capability requires explicit allowlist edit + regression.
+ */
+const ARBITRATION_CAPABILITY_ACTION_SPEC: AllowlistSpec = {
+  inject: true,
+  suppress: true,
+  shadow: true,
+};
+
+const ARBITRATION_BY_CAPABILITY_SPEC: AllowlistSpec = {
+  reasoning_reuse: ARBITRATION_CAPABILITY_ACTION_SPEC,
+  file_memory: ARBITRATION_CAPABILITY_ACTION_SPEC,
+  loop_redirect: ARBITRATION_CAPABILITY_ACTION_SPEC,
+  tool_supervision: ARBITRATION_CAPABILITY_ACTION_SPEC,
+  context_fold: ARBITRATION_CAPABILITY_ACTION_SPEC,
+  context_pruning: ARBITRATION_CAPABILITY_ACTION_SPEC,
+};
+
+/** Closed enum for `arbitration_decision.reason`. */
+const ARBITRATION_REASON_SPEC: AllowlistSpec = {
+  positive_roi: true,
+  budget: true,
+  low_confidence: true,
+  stale: true,
+  duplicate: true,
+  profile_cap: true,
+  holdout: true,
+};
+
+const USAGE_ARBITRATION_GROUND_TRUTH_SPEC: AllowlistSpec = {
+  queriesWithDecisions: true,
+  injectDecisions: true,
+  promptVisibleItems: true,
+  divergence: true,
+};
+
+/**
+ * May-2026 C5 — `metrics.arbitration` decision-stream aggregates.
+ * Counts and closed-enum histograms only. The pure-math aggregator
+ * is built against the same closed vocabulary; unknown capability /
+ * reason / action keys never reach a bucket on the local side, so
+ * the wire shape mirrors the local shape exactly.
+ *
+ * Boundary contract: `groundTruth.divergence` is the dashboard's
+ * health check between arbiter decisions and the payload-builder's
+ * visibility surface (`injection` + `fact_injection`). It can be
+ * positive (builder trimmed approved items) OR negative (builder
+ * rendered items the arbiter suppressed) — both signal drift.
+ */
+const USAGE_ARBITRATION_SPEC: AllowlistSpec = {
+  totalDecisions: true,
+  byCapability: ARBITRATION_BY_CAPABILITY_SPEC,
+  byReason: ARBITRATION_REASON_SPEC,
+  injectedTokensSum: true,
+  suppressedTokensSum: true,
+  injectedNetExpectedSum: true,
+  groundTruth: USAGE_ARBITRATION_GROUND_TRUTH_SPEC,
+};
+
+/**
  * Composite spec for `metrics.mechanisms.*`. One nested object per
  * event-kind family. Adding a new family means an explicit nested
  * spec here AND a regression case in `tests/cli/cloud-allowlist.test.ts`
@@ -340,6 +401,12 @@ export const USAGE_SAMPLE_ALLOWLIST: AllowlistSpec = {
     // / paths / argKeys / pattern matches never make it past the
     // sanitiser. See USAGE_MECHANISMS_SPEC above for the catalogue.
     mechanisms: USAGE_MECHANISMS_SPEC,
+    // May-2026 C5 — runtime arbiter decision-stream aggregates.
+    // Closed-enum histograms + non-negative scalars only; no
+    // candidate ids, source ids, queryIds, raw situations, or
+    // body text reach a bucket on the local side, so the
+    // sanitiser has nothing free-form to drop here either.
+    arbitration: USAGE_ARBITRATION_SPEC,
   },
 };
 

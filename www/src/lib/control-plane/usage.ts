@@ -24,6 +24,11 @@
 // resolution via tsconfig paths.
 import { DEFAULT_MIN_CAUSAL_COHORT } from "../usage/types";
 import type {
+  ArbitrationAction,
+  ArbitrationCapability,
+  ArbitrationCapabilityCounts,
+  ArbitrationReason,
+  UsageArbitration,
   UsageCalibration,
   UsageCausal,
   UsageCohort,
@@ -542,6 +547,19 @@ function parseUsageMetricsRecord(raw: Record<string, unknown>): UsageMetrics | n
     calibration = parsed;
   }
 
+  // May-2026 C5 — optional arbitration block. Malformed shape
+  // rejects the whole payload (same contract as `causal` /
+  // `calibration` above) so the ingest gate can't be bypassed by
+  // wrapping garbage arbitration data around a good observed
+  // body. Pre-C5 payloads have no `arbitration` field and pass
+  // through unchanged.
+  let arbitration: UsageArbitration | undefined;
+  if (raw.arbitration !== undefined) {
+    const parsed = pickArbitration(raw.arbitration);
+    if (!parsed) return null;
+    arbitration = parsed;
+  }
+
   return {
     scope,
     window: {
@@ -552,6 +570,7 @@ function parseUsageMetricsRecord(raw: Record<string, unknown>): UsageMetrics | n
     estimated: est,
     ...(causal ? { causal } : {}),
     ...(calibration ? { calibration } : {}),
+    ...(arbitration ? { arbitration } : {}),
     integrity: itg,
   };
 }
@@ -692,4 +711,130 @@ function pickCohort(raw: unknown): UsageCohort | null {
   const rate = r.resolvedRate;
   if (!(rate === null || typeof rate === "number")) return null;
   return { n, resolved, resolvedRate: rate };
+}
+
+const ARBITRATION_CAPABILITIES: readonly ArbitrationCapability[] = [
+  "reasoning_reuse",
+  "file_memory",
+  "loop_redirect",
+  "tool_supervision",
+  "context_fold",
+  "context_pruning",
+];
+
+const ARBITRATION_REASONS: readonly ArbitrationReason[] = [
+  "positive_roi",
+  "budget",
+  "low_confidence",
+  "stale",
+  "duplicate",
+  "profile_cap",
+  "holdout",
+];
+
+const ARBITRATION_ACTIONS: readonly ArbitrationAction[] = [
+  "inject",
+  "suppress",
+  "shadow",
+];
+
+/**
+ * May-2026 C5 — parse `metrics.arbitration` against the closed
+ * vocabulary mirrored from the CLI-side `ArbitrationAggregates`.
+ * Unknown capability / reason / action keys are NOT silently
+ * accepted: a sample whose payload contains a key outside the
+ * enum rejects the whole block (mirrors the strictness of the
+ * cloud allowlist; a future schema drift can't sneak through
+ * the dashboard parser before the spec catches up).
+ */
+function pickArbitration(raw: unknown): UsageArbitration | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const total = r.totalDecisions;
+  const injTokens = r.injectedTokensSum;
+  const supTokens = r.suppressedTokensSum;
+  const injNet = r.injectedNetExpectedSum;
+  if (typeof total !== "number") return null;
+  if (typeof injTokens !== "number") return null;
+  if (typeof supTokens !== "number") return null;
+  if (typeof injNet !== "number") return null;
+
+  const byCapability = pickArbitrationByCapability(r.byCapability);
+  if (!byCapability) return null;
+  const byReason = pickArbitrationByReason(r.byReason);
+  if (!byReason) return null;
+  const groundTruth = pickArbitrationGroundTruth(r.groundTruth);
+  if (!groundTruth) return null;
+
+  return {
+    totalDecisions: total,
+    byCapability,
+    byReason,
+    injectedTokensSum: injTokens,
+    suppressedTokensSum: supTokens,
+    injectedNetExpectedSum: injNet,
+    groundTruth,
+  };
+}
+
+function pickArbitrationByCapability(
+  raw: unknown,
+): Record<ArbitrationCapability, ArbitrationCapabilityCounts> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const out = {} as Record<ArbitrationCapability, ArbitrationCapabilityCounts>;
+  for (const cap of ARBITRATION_CAPABILITIES) {
+    const counts = pickArbitrationCapabilityCounts(r[cap]);
+    if (!counts) return null;
+    out[cap] = counts;
+  }
+  return out;
+}
+
+function pickArbitrationCapabilityCounts(
+  raw: unknown,
+): ArbitrationCapabilityCounts | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const out = {} as ArbitrationCapabilityCounts;
+  for (const action of ARBITRATION_ACTIONS) {
+    const v = r[action];
+    if (typeof v !== "number") return null;
+    out[action] = v;
+  }
+  return out;
+}
+
+function pickArbitrationByReason(
+  raw: unknown,
+): Record<ArbitrationReason, number> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const out = {} as Record<ArbitrationReason, number>;
+  for (const reason of ARBITRATION_REASONS) {
+    const v = r[reason];
+    if (typeof v !== "number") return null;
+    out[reason] = v;
+  }
+  return out;
+}
+
+function pickArbitrationGroundTruth(
+  raw: unknown,
+): UsageArbitration["groundTruth"] | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const fields: Array<keyof UsageArbitration["groundTruth"]> = [
+    "queriesWithDecisions",
+    "injectDecisions",
+    "promptVisibleItems",
+    "divergence",
+  ];
+  const out = {} as UsageArbitration["groundTruth"];
+  for (const f of fields) {
+    const v = r[f];
+    if (typeof v !== "number") return null;
+    out[f] = v;
+  }
+  return out;
 }

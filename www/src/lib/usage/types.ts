@@ -70,6 +70,64 @@ export interface UsageMetrics {
   causal?: UsageCausal;
   calibration?: UsageCalibration;
   integrity: UsageIntegrity;
+  /**
+   * May-2026 C5 — runtime arbiter decision-stream aggregates.
+   * Mirror of the CLI-side `ArbitrationAggregates` in
+   * `src/core/analytics.ts`. Counts and closed-enum histograms
+   * only — no candidate ids, source ids, queryIds, or raw
+   * trigger/situation text. Optional for back-compat with
+   * payloads synced before C5 landed.
+   *
+   * Boundary contract (same as CLI side): this is the DECISION
+   * stream. For "what actually reached the prompt" the
+   * dashboard should keep reading existing
+   * `mechanisms.fileMemory.*` and per-block / per-fact surfaces;
+   * `arbitration.groundTruth.divergence` is the health check
+   * between the two.
+   */
+  arbitration?: UsageArbitration;
+}
+
+export type ArbitrationCapability =
+  | "reasoning_reuse"
+  | "file_memory"
+  | "loop_redirect"
+  | "tool_supervision"
+  | "context_fold"
+  | "context_pruning";
+
+export type ArbitrationAction = "inject" | "suppress" | "shadow";
+
+export type ArbitrationReason =
+  | "positive_roi"
+  | "budget"
+  | "low_confidence"
+  | "stale"
+  | "duplicate"
+  | "profile_cap"
+  | "holdout";
+
+export interface ArbitrationCapabilityCounts {
+  inject: number;
+  suppress: number;
+  shadow: number;
+}
+
+export interface ArbitrationGroundTruth {
+  queriesWithDecisions: number;
+  injectDecisions: number;
+  promptVisibleItems: number;
+  divergence: number;
+}
+
+export interface UsageArbitration {
+  totalDecisions: number;
+  byCapability: Record<ArbitrationCapability, ArbitrationCapabilityCounts>;
+  byReason: Record<ArbitrationReason, number>;
+  injectedTokensSum: number;
+  suppressedTokensSum: number;
+  injectedNetExpectedSum: number;
+  groundTruth: ArbitrationGroundTruth;
 }
 
 export interface UsageCohort {

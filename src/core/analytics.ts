@@ -1705,6 +1705,13 @@ export function computeAggregates(
   // excluded from the divergence math.
   const arbitration = emptyArbitrationAggregates();
   const arbitrationQueries = new Set<string>();
+  // C5.1.C — every reasoning_reuse queryId the arbiter touched
+  // (any action). The cross-check iterates THIS set so both
+  // positive (builder dropped approved items) AND negative drift
+  // (builder rendered items the arbiter suppressed/shadowed) are
+  // visible. `arbitrationReuseInjects` is the numerator within
+  // that set — `inject`-only count per queryId.
+  const arbitrationReuseQueries = new Set<string>();
   const arbitrationReuseInjects = new Map<string, number>();
   let candidatesSeen = 0;
   let refitCount = 0;
@@ -1727,6 +1734,15 @@ export function computeAggregates(
         arbitration.byCapability[cap][ev.action as ArbitrationAction]++;
       }
       arbitration.byReason[ev.reason as ArbitrationReason]++;
+      // C5.1.C — track every reasoning_reuse query the arbiter
+      // saw, regardless of action. Pre-fix we only tracked queries
+      // with at least one `inject` decision, which left negative
+      // drift (arbiter says suppress/shadow but builder still
+      // emits injection events) undetectable: `promptVisibleItems`
+      // stayed 0 because the queryId wasn't iterated.
+      if (cap === "reasoning_reuse") {
+        arbitrationReuseQueries.add(ev.queryId);
+      }
       if (ev.action === "inject") {
         arbitration.injectedTokensSum += Math.max(0, ev.injectionTokens);
         arbitration.injectedNetExpectedSum += ev.expectedNetTokens;
@@ -2168,8 +2184,8 @@ export function computeAggregates(
   // event channels and are intentionally absent here.
   let groundTruthInject = 0;
   let groundTruthPromptVisible = 0;
-  for (const [queryId, injectCount] of arbitrationReuseInjects) {
-    groundTruthInject += injectCount;
+  for (const queryId of arbitrationReuseQueries) {
+    groundTruthInject += arbitrationReuseInjects.get(queryId) ?? 0;
     const blockInj = injectionsByQuery.get(queryId)?.size ?? 0;
     const factInj = factInjectionsByQuery.get(queryId)?.size ?? 0;
     groundTruthPromptVisible += blockInj + factInj;

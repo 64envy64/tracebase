@@ -277,6 +277,100 @@ describe("parseUsageMetrics calibration field", () => {
   });
 });
 
+describe("parseUsageMetrics arbitration field (C5)", () => {
+  const VALID_ARBITRATION = {
+    totalDecisions: 7,
+    byCapability: {
+      reasoning_reuse: { inject: 2, suppress: 1, shadow: 0 },
+      file_memory: { inject: 1, suppress: 0, shadow: 0 },
+      loop_redirect: { inject: 0, suppress: 0, shadow: 0 },
+      tool_supervision: { inject: 0, suppress: 0, shadow: 0 },
+      context_fold: { inject: 0, suppress: 0, shadow: 0 },
+      context_pruning: { inject: 0, suppress: 0, shadow: 0 },
+    },
+    byReason: {
+      positive_roi: 3, budget: 1, low_confidence: 0, stale: 0,
+      duplicate: 0, profile_cap: 0, holdout: 0,
+    },
+    injectedTokensSum: 92,
+    suppressedTokensSum: 28,
+    injectedNetExpectedSum: 300,
+    groundTruth: {
+      queriesWithDecisions: 3,
+      injectDecisions: 2,
+      promptVisibleItems: 2,
+      divergence: 0,
+    },
+  };
+
+  it("preserves a valid arbitration block end-to-end", () => {
+    const parsed = parseUsageMetrics({
+      ...(bucket({ eligibleRuns: 1 }) as unknown as Record<string, unknown>),
+      arbitration: VALID_ARBITRATION,
+    });
+    expect(parsed?.arbitration).toEqual(VALID_ARBITRATION);
+  });
+
+  it("preserves a NEGATIVE divergence — builder rendered items the arbiter suppressed", () => {
+    // The C5.1.C surface: divergence < 0 is a legitimate signal,
+    // not garbage. The parser must accept it as-is.
+    const parsed = parseUsageMetrics({
+      ...(bucket({ eligibleRuns: 1 }) as unknown as Record<string, unknown>),
+      arbitration: {
+        ...VALID_ARBITRATION,
+        groundTruth: { ...VALID_ARBITRATION.groundTruth, divergence: -1 },
+      },
+    });
+    expect(parsed?.arbitration?.groundTruth.divergence).toBe(-1);
+  });
+
+  it("rejects an arbitration block missing a required field", () => {
+    const broken = { ...VALID_ARBITRATION } as Record<string, unknown>;
+    delete broken.injectedTokensSum;
+    const parsed = parseUsageMetrics({
+      ...(bucket({ eligibleRuns: 1 }) as unknown as Record<string, unknown>),
+      arbitration: broken,
+    });
+    expect(parsed).toBeNull();
+  });
+
+  it("drops unknown capability keys silently (matches pickCausal/pickEstimated convention)", () => {
+    // Convention across this parser: extras are silently
+    // dropped (the cloud allowlist on the CLI side enforces
+    // strict shape on outbound; the dashboard side just walks
+    // the known keys). Pin this behaviour so the dashboard
+    // doesn't reject a future-compat payload with an
+    // additional capability the CLI gateway happened to allow.
+    const parsed = parseUsageMetrics({
+      ...(bucket({ eligibleRuns: 1 }) as unknown as Record<string, unknown>),
+      arbitration: {
+        ...VALID_ARBITRATION,
+        byCapability: {
+          ...VALID_ARBITRATION.byCapability,
+          mystery_capability: { inject: 1, suppress: 0, shadow: 0 },
+        },
+      },
+    });
+    expect(parsed?.arbitration).toBeDefined();
+    // The mystery key is absent from the parsed shape.
+    expect(
+      (parsed?.arbitration?.byCapability as Record<string, unknown>).mystery_capability,
+    ).toBeUndefined();
+    // Known capabilities still present.
+    expect(parsed?.arbitration?.byCapability.reasoning_reuse).toEqual({
+      inject: 2, suppress: 1, shadow: 0,
+    });
+  });
+
+  it("pre-C5 payloads without arbitration parse cleanly (back-compat)", () => {
+    const parsed = parseUsageMetrics(
+      bucket({ eligibleRuns: 1 }) as unknown as Record<string, unknown>,
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed?.arbitration).toBeUndefined();
+  });
+});
+
 function inst(id: string, localWorkspaceId: string): ControlPlaneInstallation {
   return {
     id,

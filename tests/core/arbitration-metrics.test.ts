@@ -255,6 +255,72 @@ describe("ArbitrationAggregates — ground-truth cross-check", () => {
     expect(agg.arbitration.groundTruth.divergence).toBe(0);
   });
 
+  it("C5.1.C — NEGATIVE divergence: arbiter suppresses but payload-builder still injects", () => {
+    // Pre-C5.1.C the cross-check iterated only queries with at
+    // least one `inject` decision. So this case (arbiter says
+    // suppress, builder still emits an injection event for the
+    // same query) left `promptVisibleItems` at 0 and divergence
+    // at 0 — a silent miss. Post-fix the iteration covers every
+    // reasoning_reuse queryId regardless of action, so we now
+    // see `injectDecisions=0`, `promptVisibleItems=1`,
+    // `divergence=-1`. The signal is "builder rendered an item
+    // the arbiter rejected" — a real drift the dashboard should
+    // flag.
+    const store = makeStore();
+    seedArbiterSuppress(store, {
+      queryId: "q-neg",
+      candidateId: "block:a",
+      reason: "budget",
+    });
+    store.appendEvent({
+      ts: Date.now(),
+      queryId: "q-neg",
+      event: "retrieval",
+      candidates: [{ blockId: "a", score: 0.9 }],
+      shadow: false,
+    });
+    // Builder injected anyway (simulated drift).
+    store.appendEvent({
+      ts: Date.now(),
+      queryId: "q-neg",
+      event: "injection",
+      blockId: "a",
+      score: 0.9,
+    });
+
+    const agg = computeAggregates(store);
+    expect(agg.arbitration.groundTruth.queriesWithDecisions).toBe(1);
+    expect(agg.arbitration.groundTruth.injectDecisions).toBe(0);
+    expect(agg.arbitration.groundTruth.promptVisibleItems).toBe(1);
+    expect(agg.arbitration.groundTruth.divergence).toBe(-1);
+  });
+
+  it("C5.1.C — shadow decisions also count toward the cross-check denominator", () => {
+    // A shadow-arm query never injects, so prompt-visible=0 and
+    // divergence stays 0. But the queryId DOES participate in the
+    // cross-check denominator so the dashboard can show "we ran
+    // the arbiter on N queries, here's the divergence over that
+    // set" honestly.
+    const store = makeStore();
+    emitArbitrationDecision(store, {
+      queryId: "q-shadow",
+      capability: "reasoning_reuse",
+      candidateId: "block:s",
+      action: "shadow",
+      reason: "holdout",
+      expectedNetTokens: 0,
+      calibratedProb: 0.9,
+      relevanceScore: 0.8,
+      injectionTokens: 30,
+    });
+
+    const agg = computeAggregates(store);
+    expect(agg.arbitration.groundTruth.queriesWithDecisions).toBe(1);
+    expect(agg.arbitration.groundTruth.injectDecisions).toBe(0);
+    expect(agg.arbitration.groundTruth.promptVisibleItems).toBe(0);
+    expect(agg.arbitration.groundTruth.divergence).toBe(0);
+  });
+
   it("non-reasoning_reuse capabilities are EXCLUDED from the ground-truth check (file_memory has its own surface)", () => {
     // Boundary check: file_memory inject decisions count toward
     // byCapability.file_memory.inject but NOT toward

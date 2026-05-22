@@ -94,10 +94,149 @@ describe("sanitizeForCloud — real UsageMetrics fields pass through", () => {
           shadowControlMismatches: 0,
           outcomesWithoutRetrieval: 1,
         },
+        arbitration: {
+          totalDecisions: 7,
+          byCapability: {
+            reasoning_reuse: { inject: 2, suppress: 1, shadow: 0 },
+            file_memory: { inject: 1, suppress: 0, shadow: 0 },
+            loop_redirect: { inject: 0, suppress: 0, shadow: 0 },
+            tool_supervision: { inject: 0, suppress: 0, shadow: 0 },
+            context_fold: { inject: 0, suppress: 0, shadow: 0 },
+            context_pruning: { inject: 0, suppress: 0, shadow: 0 },
+          },
+          byReason: {
+            positive_roi: 3,
+            budget: 1,
+            low_confidence: 0,
+            stale: 0,
+            duplicate: 0,
+            profile_cap: 0,
+            holdout: 0,
+          },
+          injectedTokensSum: 92,
+          suppressedTokensSum: 28,
+          injectedNetExpectedSum: 300,
+          groundTruth: {
+            queriesWithDecisions: 3,
+            injectDecisions: 2,
+            promptVisibleItems: 2,
+            divergence: 0,
+          },
+        },
       },
     };
     const out = sanitizeForCloud(sample);
     // Deep-equal — no legit field should drop.
+    expect(out).toEqual(sample);
+  });
+});
+
+describe("sanitizeForCloud — C5 arbitration: forbidden keys dropped, unknowns dropped", () => {
+  it("drops candidate ids / source ids / queryId at arbitration level", () => {
+    const out = sanitizeForCloud({
+      metrics: {
+        arbitration: {
+          totalDecisions: 1,
+          byCapability: {
+            reasoning_reuse: { inject: 1, suppress: 0, shadow: 0 },
+            file_memory: { inject: 0, suppress: 0, shadow: 0 },
+            loop_redirect: { inject: 0, suppress: 0, shadow: 0 },
+            tool_supervision: { inject: 0, suppress: 0, shadow: 0 },
+            context_fold: { inject: 0, suppress: 0, shadow: 0 },
+            context_pruning: { inject: 0, suppress: 0, shadow: 0 },
+          },
+          byReason: {
+            positive_roi: 1, budget: 0, low_confidence: 0, stale: 0,
+            duplicate: 0, profile_cap: 0, holdout: 0,
+          },
+          injectedTokensSum: 30,
+          suppressedTokensSum: 0,
+          injectedNetExpectedSum: 100,
+          groundTruth: {
+            queriesWithDecisions: 1, injectDecisions: 1,
+            promptVisibleItems: 1, divergence: 0,
+          },
+          // Every one of these is forbidden even though it lives
+          // inside an allowlisted container.
+          candidateId: "block:b-1#0",
+          sourceId: "block-internal-id",
+          queryId: "q-secret",
+          situation: "should be dropped",
+          prompt: "should be dropped",
+          path: "/abs/path",
+        },
+      },
+    }) as { metrics?: { arbitration?: Record<string, unknown> } };
+    const a = out.metrics?.arbitration ?? {};
+    expect(a.totalDecisions).toBe(1);
+    for (const k of ["candidateId", "sourceId", "queryId", "situation", "prompt", "path"]) {
+      expect(a[k], `arbitration.${k} must be stripped`).toBeUndefined();
+    }
+  });
+
+  it("drops unknown capability / reason / action keys (closed-enum contract)", () => {
+    const out = sanitizeForCloud({
+      metrics: {
+        arbitration: {
+          totalDecisions: 1,
+          byCapability: {
+            reasoning_reuse: { inject: 1, suppress: 0, shadow: 0, leaked_action: 99 },
+            // A future capability we forgot to allowlist.
+            mystery_capability: { inject: 5, suppress: 0, shadow: 0 },
+          },
+          byReason: {
+            positive_roi: 1,
+            mystery_reason: 42,
+          },
+          injectedTokensSum: 30,
+          suppressedTokensSum: 0,
+          injectedNetExpectedSum: 100,
+          groundTruth: {
+            queriesWithDecisions: 1, injectDecisions: 1,
+            promptVisibleItems: 1, divergence: 0,
+          },
+        },
+      },
+    }) as { metrics?: { arbitration?: { byCapability?: Record<string, Record<string, unknown>>; byReason?: Record<string, unknown> } } };
+    const byCap = out.metrics?.arbitration?.byCapability ?? {};
+    const byReason = out.metrics?.arbitration?.byReason ?? {};
+    expect(byCap.mystery_capability, "unknown capability dropped").toBeUndefined();
+    expect(byReason.mystery_reason, "unknown reason dropped").toBeUndefined();
+    // Known capability survives but its leaked extra-action field is dropped.
+    expect(byCap.reasoning_reuse?.inject).toBe(1);
+    expect(byCap.reasoning_reuse?.leaked_action).toBeUndefined();
+  });
+
+  it("supports an empty / zeroed arbitration block (pre-arbiter workspace)", () => {
+    // Back-compat: an installation that hasn't enabled the
+    // arbiter still emits a zeroed block. Must survive the wire.
+    const sample = {
+      metrics: {
+        arbitration: {
+          totalDecisions: 0,
+          byCapability: {
+            reasoning_reuse: { inject: 0, suppress: 0, shadow: 0 },
+            file_memory: { inject: 0, suppress: 0, shadow: 0 },
+            loop_redirect: { inject: 0, suppress: 0, shadow: 0 },
+            tool_supervision: { inject: 0, suppress: 0, shadow: 0 },
+            context_fold: { inject: 0, suppress: 0, shadow: 0 },
+            context_pruning: { inject: 0, suppress: 0, shadow: 0 },
+          },
+          byReason: {
+            positive_roi: 0, budget: 0, low_confidence: 0, stale: 0,
+            duplicate: 0, profile_cap: 0, holdout: 0,
+          },
+          injectedTokensSum: 0,
+          suppressedTokensSum: 0,
+          injectedNetExpectedSum: 0,
+          groundTruth: {
+            queriesWithDecisions: 0, injectDecisions: 0,
+            promptVisibleItems: 0, divergence: 0,
+          },
+        },
+      },
+    };
+    const out = sanitizeForCloud(sample);
     expect(out).toEqual(sample);
   });
 });
@@ -402,6 +541,11 @@ describe("sanitizeForCloud — edge cases", () => {
     expect(typeof metrics).toBe("object");
     if (typeof metrics !== "object") return;
     expect(Object.keys(metrics).sort()).toEqual([
+      // May-2026 C5 — runtime arbiter decision-stream
+      // aggregates (counts + closed-enum histograms +
+      // groundTruth cross-check). Mirrors `metrics.arbitration`
+      // from `src/analytics/usage-metrics.ts`.
+      "arbitration",
       "calibration",
       "causal",
       "estimated",
