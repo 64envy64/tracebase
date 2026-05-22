@@ -25,8 +25,8 @@ let store: BlockStore;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "tb-cascade-explain-"));
-  initConfig(dir);
-  store = new BlockStore(new Database(":memory:"));
+  const cfg = initConfig(dir);
+  store = new BlockStore(new Database(cfg.storagePath));
 });
 
 afterEach(() => {

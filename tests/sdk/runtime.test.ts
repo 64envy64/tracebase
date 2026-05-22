@@ -154,6 +154,7 @@ describe("createRuntime — beforeRun", () => {
     const events: BadgeEvent[] = [];
     const runtime = createRuntime(dummyLayer(), {
       projectPath: projectDir,
+      servingProfile: "recall-heavy",
       onBadge: (ev) => events.push(ev),
     });
     const out = await runtime.beforeRun({

@@ -214,7 +214,9 @@ export async function runInjectContext(
     // re-run of `npx tracebase-ai init`. Errors are silent unless
     // TRACEBASE_DEBUG is set.
     try {
-      ensureManagedHooksCurrent(basePath, "claude-code");
+      if (process.env.TRACEBASE_SKIP_HOOK_SELF_HEAL !== "1") {
+        ensureManagedHooksCurrent(basePath, "claude-code");
+      }
     } catch {
       // best-effort — never let self-heal failure block the prompt
     }

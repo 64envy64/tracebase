@@ -61,7 +61,9 @@ const AGENT_CARDS: readonly AgentCard[] = [
   },
 ] as const;
 
-export function QuickstartView() {
+export function QuickstartView({ demo = false }: { demo?: boolean } = {}) {
+  const href = (path: string) => (demo ? `${path}?demo=1` : path);
+
   return (
     <section className="space-y-7" aria-label="Quickstart">
       <PageHeader
@@ -69,10 +71,10 @@ export function QuickstartView() {
         subtitle="Pick an adapter. One command per project."
         actions={
           <>
-            <ActionPill href="/dashboard" icon={<IconRocket />}>
+            <ActionPill href={href("/dashboard")} icon={<IconRocket />}>
               Overview
             </ActionPill>
-            <ActionPill href="/dashboard/impact" icon={<IconChart />}>
+            <ActionPill href={href("/dashboard/impact")} icon={<IconChart />}>
               Impact
             </ActionPill>
           </>

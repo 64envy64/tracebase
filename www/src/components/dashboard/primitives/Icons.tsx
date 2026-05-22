@@ -156,6 +156,17 @@ export function IconBook(props: IconProps) {
   );
 }
 
+export function IconPattern(props: IconProps) {
+  return (
+    <Base {...props}>
+      <rect x="2.5" y="2.5" width="4" height="4" />
+      <rect x="9.5" y="2.5" width="4" height="4" />
+      <rect x="2.5" y="9.5" width="4" height="4" />
+      <rect x="9.5" y="9.5" width="4" height="4" />
+    </Base>
+  );
+}
+
 export function IconArrowUpRight(props: IconProps) {
   return (
     <Base {...props}>

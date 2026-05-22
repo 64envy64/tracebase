@@ -9,19 +9,14 @@ import {
   toDailyBuckets,
   validateSamples,
 } from "@/lib/control-plane/usage";
+import { getDataInfraFixture } from "@/lib/demo/data-infra-fixture";
+import { isDemoMode } from "@/lib/demo/demo-mode";
 
 export const metadata: Metadata = {
   title: "Overview — TraceBase",
   description: "Tasks helped, memories used, tokens saved — at a glance.",
 };
 
-/**
- * Resolve the same 30-day window the /dashboard/impact page uses by
- * default, so the Overview's top-row metric tiles and the Impact
- * page's funnel come from the same fold of the same samples. Keeping
- * the lookup local to the page avoids exporting another helper from
- * the impact page when all we need is the range arithmetic.
- */
 function defaultThirtyDayRange(): { afterTs: string; beforeTs: string } {
   const now = Date.now();
   const start = now - 30 * 86_400_000;
@@ -31,7 +26,19 @@ function defaultThirtyDayRange(): { afterTs: string; beforeTs: string } {
   };
 }
 
-export default async function DashboardOverviewPage() {
+export default async function DashboardOverviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const demo = isDemoMode({ searchParams: sp });
+
+  if (demo) {
+    const fixture = getDataInfraFixture();
+    return <OverviewView demo fixture={fixture} />;
+  }
+
   const { userId } = await auth();
   if (!userId) throw new Error("Authentication required");
 
@@ -53,9 +60,6 @@ export default async function DashboardOverviewPage() {
     afterTs: range.afterTs,
     beforeTs: range.beforeTs,
   });
-  // Mirror the impact page's filter→validate→bucket pipeline so the
-  // tiles on Overview can never disagree with the Impact view for the
-  // same window.
   const workspaceSamples = filterSamplesByScope(rawSamples, "workspace");
   const validated = validateSamples(workspaceSamples);
   const buckets = toDailyBuckets(validated);
@@ -65,5 +69,5 @@ export default async function DashboardOverviewPage() {
     buckets,
   });
 
-  return <OverviewView bootstrap={bootstrap} window={window} />;
+  return <OverviewView demo={false} bootstrap={bootstrap} window={window} />;
 }

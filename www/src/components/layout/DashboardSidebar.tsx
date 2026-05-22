@@ -8,32 +8,32 @@ import type { ReactNode } from "react";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import {
   IconActivity,
-  IconAgent,
   IconArrowUpRight,
   IconBook,
   IconChart,
-  IconGraph,
   IconHome,
-  IconInbox,
   IconKey,
   IconLink as IconLinkSvg,
+  IconPattern,
   IconPeople,
-  IconPlug,
   IconRocket,
 } from "@/components/dashboard/primitives/Icons";
 
 /**
- * Dashboard sidebar — three vertical regions, all sharing the same
- * row geometry (icon · label · optional badge):
+ * Dashboard sidebar — two functional groups plus an external row at
+ * the foot.
  *
- *   1. Primary nav         — Overview / Quickstart / Impact / …
- *   2. Engineering Brain   — How work flows / Connections / …
- *   3. External            — Whitepaper / Home / GitHub
+ *   OPERATIONS — the day-to-day surfaces a user opens repeatedly:
+ *     Overview, Quickstart, Runs, Patterns, Memory, Impact.
  *
- * Bottom of the sidebar is the user card: circular avatar (Clerk's
- * imageUrl), display name, secondary email, and the LogoutButton.
- * The card sits inside its own bordered region so the rest of the
- * sidebar feels lighter.
+ *   WORKSPACE  — settings-like surfaces that get touched less often:
+ *     Installations, API keys, Team.
+ *
+ *   EXTERNAL   — links out of the dashboard to product / docs / source.
+ *
+ * Each row has the same geometry (icon · label) so the three groups
+ * read as one consistent column. The user card at the foot of the
+ * sidebar sits inside its own bordered region so the rest feels light.
  */
 
 type NavItem = {
@@ -43,22 +43,19 @@ type NavItem = {
   external?: boolean;
 };
 
-const PRIMARY_NAV: NavItem[] = [
+const OPERATIONS_NAV: NavItem[] = [
   { href: "/dashboard", label: "Overview", icon: <IconHome /> },
   { href: "/dashboard/quickstart", label: "Quickstart", icon: <IconRocket /> },
+  { href: "/dashboard/runs", label: "Runs", icon: <IconActivity /> },
+  { href: "/dashboard/patterns", label: "Patterns", icon: <IconPattern /> },
+  { href: "/dashboard/memory", label: "Memory", icon: <IconBook /> },
   { href: "/dashboard/impact", label: "Impact", icon: <IconChart /> },
-  { href: "/dashboard/installations", label: "Installations", icon: <IconLinkSvg /> },
-  { href: "/dashboard/api-keys", label: "API keys", icon: <IconKey /> },
 ];
 
-const ENGINEERING_BRAIN_NAV: NavItem[] = [
-  { href: "/dashboard/graph", label: "How work flows", icon: <IconGraph /> },
-  { href: "/dashboard/integrations", label: "Connections", icon: <IconPlug /> },
-  { href: "/dashboard/issues", label: "Work coming in", icon: <IconInbox /> },
-  { href: "/dashboard/agents", label: "Agents", icon: <IconAgent /> },
-  { href: "/dashboard/runs", label: "Activity", icon: <IconActivity /> },
-  { href: "/dashboard/team", label: "People", icon: <IconPeople /> },
-  { href: "/dashboard/memory", label: "Lessons learned", icon: <IconBook /> },
+const WORKSPACE_NAV: NavItem[] = [
+  { href: "/dashboard/installations", label: "Installations", icon: <IconLinkSvg /> },
+  { href: "/dashboard/api-keys", label: "API keys", icon: <IconKey /> },
+  { href: "/dashboard/team", label: "Team", icon: <IconPeople /> },
 ];
 
 const EXTERNAL_NAV: NavItem[] = [
@@ -77,8 +74,27 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function DashboardSidebar() {
-  const pathname = usePathname();
+type DashboardSidebarProps = {
+  demoMode?: boolean;
+};
+
+export function DashboardSidebar({ demoMode = false }: DashboardSidebarProps) {
+  if (demoMode) {
+    return (
+      <SidebarFrame
+        demoMode
+        displayName="DataInfra pilot"
+        secondaryLine="agent memory layer"
+        initials="DI"
+        showLogout={false}
+      />
+    );
+  }
+
+  return <AuthenticatedDashboardSidebar />;
+}
+
+function AuthenticatedDashboardSidebar() {
   const { isLoaded, user } = useUser();
 
   const displayName =
@@ -89,6 +105,37 @@ export function DashboardSidebar() {
     "Authenticated user";
   const secondaryLine = user?.primaryEmailAddress?.emailAddress;
   const avatarUrl = user?.imageUrl;
+
+  return (
+    <SidebarFrame
+      demoMode={false}
+      displayName={displayName}
+      secondaryLine={secondaryLine}
+      avatarUrl={avatarUrl}
+      isLoaded={isLoaded}
+      showLogout
+    />
+  );
+}
+
+function SidebarFrame({
+  demoMode,
+  displayName,
+  secondaryLine,
+  avatarUrl,
+  initials,
+  isLoaded = true,
+  showLogout,
+}: {
+  demoMode: boolean;
+  displayName: string;
+  secondaryLine?: string | null;
+  avatarUrl?: string | null;
+  initials?: string;
+  isLoaded?: boolean;
+  showLogout: boolean;
+}) {
+  const pathname = usePathname();
 
   return (
     <aside
@@ -104,19 +151,33 @@ export function DashboardSidebar() {
           </span>
         </Link>
 
-        <NavGroup items={PRIMARY_NAV} pathname={pathname} ariaLabel="Workspace" />
+        <NavGroup
+          items={OPERATIONS_NAV}
+          pathname={pathname}
+          ariaLabel="Operations"
+          eyebrow="Operations"
+          demoMode={demoMode}
+        />
 
         <NavGroup
-          items={ENGINEERING_BRAIN_NAV}
+          items={WORKSPACE_NAV}
           pathname={pathname}
-          ariaLabel="Engineering Brain"
-          eyebrow="Engineering Brain"
+          ariaLabel="Workspace"
+          eyebrow="Workspace"
+          demoMode={demoMode}
           bordered
         />
 
         <div className="min-h-4 flex-1" aria-hidden />
 
-        <NavGroup items={EXTERNAL_NAV} pathname={pathname} ariaLabel="External" bordered muted />
+        <NavGroup
+          items={EXTERNAL_NAV}
+          pathname={pathname}
+          ariaLabel="External"
+          bordered
+          muted
+          demoMode={false}
+        />
       </div>
 
       <div className="border-t px-5 py-4" style={{ borderColor: "var(--border)" }}>
@@ -139,7 +200,7 @@ export function DashboardSidebar() {
               />
             ) : (
               <span className="font-mono text-[11px]" style={{ color: "var(--text-tertiary)" }}>
-                {initialsOf(displayName)}
+                {initials ?? initialsOf(displayName)}
               </span>
             )}
           </span>
@@ -156,7 +217,7 @@ export function DashboardSidebar() {
               </p>
             ) : null}
           </div>
-          <LogoutButton />
+          {showLogout ? <LogoutButton /> : null}
         </div>
       </div>
     </aside>
@@ -170,6 +231,7 @@ function NavGroup({
   eyebrow,
   bordered,
   muted,
+  demoMode,
 }: {
   items: NavItem[];
   pathname: string;
@@ -177,6 +239,7 @@ function NavGroup({
   eyebrow?: string;
   bordered?: boolean;
   muted?: boolean;
+  demoMode: boolean;
 }) {
   return (
     <nav
@@ -197,6 +260,9 @@ function NavGroup({
       ) : null}
       {items.map((item) => {
         const active = isActive(pathname, item.href);
+        const href = demoMode && item.href.startsWith("/dashboard")
+          ? `${item.href}?demo=1`
+          : item.href;
         const rowStyle = {
           background: active ? "var(--surface)" : "transparent",
           color: active ? "var(--text)" : muted ? "var(--text-tertiary)" : "var(--text-secondary)",
@@ -232,7 +298,7 @@ function NavGroup({
         return (
           <Link
             key={item.href}
-            href={item.href}
+            href={href}
             className={classes}
             style={rowStyle}
             aria-current={active ? "page" : undefined}

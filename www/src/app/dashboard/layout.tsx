@@ -1,8 +1,15 @@
 import { auth } from "@clerk/nextjs/server";
+import { headers } from "next/headers";
 import { DashboardShell } from "@/components/layout/DashboardShell";
+import { isDemoModeFromEnv } from "@/lib/demo/demo-mode";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  await auth.protect({ unauthenticatedUrl: "/login" });
+  const requestHeaders = await headers();
+  const demoMode = isDemoModeFromEnv() || requestHeaders.get("x-tracebase-demo") === "1";
 
-  return <DashboardShell>{children}</DashboardShell>;
+  if (!demoMode) {
+    await auth.protect({ unauthenticatedUrl: "/login" });
+  }
+
+  return <DashboardShell demoMode={demoMode}>{children}</DashboardShell>;
 }

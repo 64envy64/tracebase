@@ -112,6 +112,11 @@ export interface InjectionPayload {
   /** Rough token estimate (chars / 4, ceiled). 0 when text is empty. */
   tokensEstimate: number;
   /**
+   * Token spend split by mechanism. The totals are estimates from the
+   * rendered payload, used for ROI accounting and dashboard diagnostics.
+   */
+  sectionTokensEstimate: InjectionSectionTokensEstimate;
+  /**
    * 0.7.0-rc.3 hardening — token cost of the `<file_memory>`
    * section ONLY (tags + lines), separate from the full payload's
    * `tokensEstimate`. The recall path uses this — not the payload
@@ -136,6 +141,13 @@ export interface InjectionPayload {
   contextFoldTokensAfter: number;
 }
 
+export interface InjectionSectionTokensEstimate {
+  priorPatterns: number;
+  facts: number;
+  fileMemory: number;
+  contextFold: number;
+}
+
 const DEFAULT_TOKEN_BUDGET = 1200;
 const DEFAULT_MAX_BLOCKS = 4;
 const DEFAULT_MAX_FACTS = 4;
@@ -149,6 +161,13 @@ const CHARS_PER_TOKEN = 4;
 const FILE_LINE_MAX_CHARS = 220;
 /** Per-chunk-line clamp inside the `<context_fold>` section. */
 const CHUNK_LINE_MAX_CHARS = 280;
+
+const ZERO_SECTION_TOKENS: InjectionSectionTokensEstimate = {
+  priorPatterns: 0,
+  facts: 0,
+  fileMemory: 0,
+  contextFold: 0,
+};
 
 /**
  * Convert a recall result to silent injection text.
@@ -184,6 +203,7 @@ export function buildInjectionPayload(
     fileIds: [],
     bytesAvoided: 0,
     tokensEstimate: 0,
+    sectionTokensEstimate: { ...ZERO_SECTION_TOKENS },
     fileMemoryTokensEstimate: 0,
     contextFoldRanges: [],
     contextFoldTokensBefore: 0,
@@ -386,6 +406,15 @@ export function buildInjectionPayload(
         fileTagClose.length;
   const fileMemoryTokensEstimate =
     fileMemoryChars > 0 ? Math.ceil(fileMemoryChars / CHARS_PER_TOKEN) : 0;
+  const priorPatternTokensEstimate = estimateLinesTokens(
+    keptBlocks.map((k) => k.line),
+  );
+  const factTokensEstimate = estimateFactsTokens(keptFacts.map((k) => k.line));
+  const contextFoldTokensEstimate = estimateTaggedSectionTokens(
+    keptChunks.map((k) => k.line),
+    chunkTagOpen,
+    chunkTagClose,
+  );
   // 0.7.0-rc.6 §rc.6 — chunk-fold accounting. The badge surfaces
   // these numbers verbatim ("folded N turns · Xk→Yk"); they MUST
   // come from the persisted rows, not be invented.
@@ -411,6 +440,12 @@ export function buildInjectionPayload(
     fileIds: keptFiles.map((k) => k.hit.relPath),
     bytesAvoided: keptFiles.reduce((acc, k) => acc + (k.hit.sizeBytes ?? 0), 0),
     tokensEstimate: Math.ceil(text.length / CHARS_PER_TOKEN),
+    sectionTokensEstimate: {
+      priorPatterns: priorPatternTokensEstimate,
+      facts: factTokensEstimate,
+      fileMemory: fileMemoryTokensEstimate,
+      contextFold: contextFoldTokensEstimate,
+    },
     fileMemoryTokensEstimate,
     contextFoldRanges,
     contextFoldTokensBefore,
@@ -491,6 +526,35 @@ function renderBlockSilent(hit: BlockHit): string {
     .join("; ");
   const full = avoid ? `${main} Avoid: ${avoid}.` : main;
   return wrapIfImported(full, imported);
+}
+
+function estimateLinesTokens(lines: readonly string[]): number {
+  if (lines.length === 0) return 0;
+  const chars = lines.reduce((acc, line) => acc + line.length + 1, 0);
+  return Math.ceil(chars / CHARS_PER_TOKEN);
+}
+
+function estimateFactsTokens(lines: readonly string[]): number {
+  if (lines.length === 0) return 0;
+  const chars =
+    "Project facts:".length +
+    1 +
+    lines.reduce((acc, line) => acc + line.length + 1, 0);
+  return Math.ceil(chars / CHARS_PER_TOKEN);
+}
+
+function estimateTaggedSectionTokens(
+  lines: readonly string[],
+  open: string,
+  close: string,
+): number {
+  if (lines.length === 0) return 0;
+  const chars =
+    open.length +
+    1 +
+    lines.reduce((acc, line) => acc + line.length + 1, 0) +
+    close.length;
+  return Math.ceil(chars / CHARS_PER_TOKEN);
 }
 
 function renderFactSilent(hit: FactHit): string {

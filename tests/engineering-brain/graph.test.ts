@@ -1,77 +1,40 @@
 /**
- * Engineering Brain graph builder — pure-data assertions on the
- * (nodes, edges) shape produced from the demo fixture and from
- * synthesized inputs. This tests the *data* contract without
- * standing up React. The DemoView consumes this same builder, so a
- * regression here makes /dashboard/demo render badly.
+ * Demo fixture integrity. The old Engineering Brain graph view was
+ * retired in favour of the unified dashboard demo data, so this test now
+ * pins the data relationships the dashboard pages consume directly.
  */
-import { describe, it, expect } from "vitest";
-import { getDemoFixture } from "@/components/engineering-brain/demo-fixture";
-import { buildGraphFromState } from "@/components/engineering-brain/graph-data";
+import { describe, expect, it } from "vitest";
+import { getDataInfraFixture } from "@/lib/demo/data-infra-fixture";
 
-describe("buildGraphFromState (demo fixture)", () => {
-  const fixture = getDemoFixture();
-  const graph = buildGraphFromState({
-    agents: fixture.brain.agents,
-    runs: fixture.brain.agentRuns,
-    githubItems: fixture.brain.githubItems,
-    memoryStatuses: fixture.brain.memoryStatuses,
-    memoryEvents: fixture.brain.memoryEvents,
-  });
+describe("data-infra demo fixture", () => {
+  const fixture = getDataInfraFixture();
 
-  it("includes one node per github item", () => {
-    const ghIds = fixture.brain.githubItems.map((i) => `gh:${i.id}`);
-    for (const id of ghIds) {
-      expect(graph.nodes.find((n) => n.id === id)).toBeDefined();
+  it("has runs tied to known codebases", () => {
+    const codebases = new Set(fixture.codebases.map((c) => c.name));
+    for (const run of fixture.runs) {
+      expect(codebases.has(run.taskRepo)).toBe(true);
     }
   });
 
-  it("includes one node per active/non-deleted memory", () => {
-    const memoryIds = fixture.brain.memoryStatuses
-      .filter((m) => m.status !== "deleted")
-      .map((m) => `memory:${m.memoryId}`);
-    for (const id of memoryIds) {
-      expect(graph.nodes.find((n) => n.id === id)).toBeDefined();
+  it("keeps pattern sourceRunId references valid", () => {
+    const runIds = new Set(fixture.runs.map((r) => r.id));
+    for (const pattern of fixture.patterns) {
+      if (pattern.sourceRunId) {
+        expect(runIds.has(pattern.sourceRunId)).toBe(true);
+      }
     }
   });
 
-  it("links the resolved run from issue #217 to its memory", () => {
-    const issueRunEdge = graph.edges.find(
-      (e) => e.from === "gh:demo-issue-217" && e.to === "run:demo-run-1",
-    );
-    expect(issueRunEdge?.kind).toBe("task_to_run");
-
-    const runMemEdge = graph.edges.find(
-      (e) => e.from === "run:demo-run-1" && e.to === "memory:demo-mem-jwt-clock-skew-1",
-    );
-    expect(runMemEdge?.kind).toBe("run_to_memory");
+  it("has findings attached to known codebases", () => {
+    const codebases = new Set(fixture.codebases.map((c) => c.name));
+    for (const finding of fixture.findings) {
+      expect(codebases.has(finding.codebase)).toBe(true);
+    }
   });
 
-  it("ties owners to agent runs", () => {
-    const owners = graph.nodes.filter((n) => n.kind === "owner");
-    expect(owners.length).toBeGreaterThan(0);
-    const ownerEdges = graph.edges.filter((e) => e.kind === "owner_to_run");
-    expect(ownerEdges.length).toBeGreaterThan(0);
-  });
-
-  it("excludes deleted memories", () => {
-    const deletedMemories = graph.nodes.filter(
-      (n) => n.kind === "memory" && n.label.toLowerCase().includes("(deleted"),
-    );
-    expect(deletedMemories).toHaveLength(0);
-  });
-});
-
-describe("buildGraphFromState (empty)", () => {
-  it("returns no nodes or edges for an empty workspace", () => {
-    const graph = buildGraphFromState({
-      agents: [],
-      runs: [],
-      githubItems: [],
-      memoryStatuses: [],
-      memoryEvents: [],
-    });
-    expect(graph.nodes).toEqual([]);
-    expect(graph.edges).toEqual([]);
+  it("reports project count separately from installation count", () => {
+    const projectsCount = new Set(fixture.installations.map((i) => i.projectName)).size;
+    expect(projectsCount).toBeGreaterThan(0);
+    expect(fixture.installations.length).toBeGreaterThan(projectsCount);
   });
 });

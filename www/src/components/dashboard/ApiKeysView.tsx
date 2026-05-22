@@ -46,9 +46,16 @@ function formatRelativeTime(iso: string): string {
  * Below the create flow, a single list of issued keys with timestamps
  * — no per-row actions beyond what the API exposes today.
  */
-export function ApiKeysView({ initialData }: { initialData: DashboardBootstrap }) {
+export function ApiKeysView({
+  initialData,
+  demo = false,
+}: {
+  initialData: DashboardBootstrap;
+  demo?: boolean;
+}) {
   const [data, setData] = useState(initialData);
   const [keyState, setKeyState] = useState<KeyCreateState>({ kind: "idle" });
+  const href = (path: string) => (demo ? `${path}?demo=1` : path);
 
   const ciCommand = useMemo(() => {
     const key = keyState.kind === "done" ? keyState.value : "<workspace-api-key>";
@@ -56,6 +63,30 @@ export function ApiKeysView({ initialData }: { initialData: DashboardBootstrap }
   }, [data.apiBaseUrl, keyState]);
 
   async function createApiKey() {
+    if (demo) {
+      // Demo mode never mutates the real workspace. We mock a generated
+      // key locally so the success state is rendererable; the key value
+      // is obviously fake and is shown only inside this tab.
+      setKeyState({
+        kind: "done",
+        value: "tb_live_demo_DO_NOT_USE_only_for_screenshot_aaaaaaaaaaaa",
+      });
+      setData((current) => ({
+        ...current,
+        apiKeys: [
+          {
+            id: `demo-key-fresh-${Date.now()}`,
+            workspaceId: current.workspace.id,
+            label: "CI / manual install",
+            prefix: "tb_live",
+            last4: "demo",
+            createdAt: new Date().toISOString(),
+          },
+          ...current.apiKeys,
+        ],
+      }));
+      return;
+    }
     setKeyState({ kind: "working" });
     try {
       const res = await fetch("/api/control-plane/api-keys", {
@@ -112,13 +143,13 @@ export function ApiKeysView({ initialData }: { initialData: DashboardBootstrap }
         subtitle="For CI pipelines and headless installs."
         actions={
           <>
-            <ActionPill href="/dashboard" icon={<IconRocket />}>
+            <ActionPill href={href("/dashboard")} icon={<IconRocket />}>
               Overview
             </ActionPill>
-            <ActionPill href="/dashboard/impact" icon={<IconChart />}>
+            <ActionPill href={href("/dashboard/impact")} icon={<IconChart />}>
               Impact
             </ActionPill>
-            <ActionPill href="/dashboard/installations" icon={<IconLink />}>
+            <ActionPill href={href("/dashboard/installations")} icon={<IconLink />}>
               Installs
             </ActionPill>
           </>
@@ -148,28 +179,33 @@ export function ApiKeysView({ initialData }: { initialData: DashboardBootstrap }
             />
           ) : (
             <ul className="divide-y" style={{ borderColor: "var(--border)" }}>
-              {data.apiKeys.map((key) => (
-                <li
-                  key={key.id}
-                  className="flex items-start justify-between gap-3 px-1 py-3"
-                >
-                  <CardHeaderRow
-                    icon={<IconKey />}
-                    actor={<span style={{ color: "var(--text)" }}>{key.label}</span>}
-                    meta={
-                      <span className="font-mono normal-case tracking-normal">
-                        · {key.prefix}…{key.last4}
-                      </span>
-                    }
-                  />
-                  <span
-                    className="shrink-0 text-[11px] font-light"
-                    style={{ color: "var(--text-tertiary)" }}
+              {data.apiKeys.map((key) => {
+                const activityLabel = key.lastUsedAt
+                  ? `used ${formatRelativeTime(key.lastUsedAt)}`
+                  : `created ${formatRelativeTime(key.createdAt)}`;
+                return (
+                  <li
+                    key={key.id}
+                    className="flex items-start justify-between gap-3 px-1 py-3"
                   >
-                    {formatRelativeTime(key.createdAt)}
-                  </span>
-                </li>
-              ))}
+                    <CardHeaderRow
+                      icon={<IconKey />}
+                      actor={<span style={{ color: "var(--text)" }}>{key.label}</span>}
+                      meta={
+                        <span className="font-mono normal-case tracking-normal">
+                          · {key.prefix}…{key.last4}
+                        </span>
+                      }
+                    />
+                    <span
+                      className="shrink-0 text-[11px] font-light"
+                      style={{ color: "var(--text-tertiary)" }}
+                    >
+                      {activityLabel}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )
         }

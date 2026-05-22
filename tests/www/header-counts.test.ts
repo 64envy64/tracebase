@@ -74,11 +74,11 @@ describe("InstallationsView header", () => {
   it("reports project count separately from row count in the page header", () => {
     // Subtitle template literal must surface both numbers so a viewer
     // can read e.g. "3 projects · 5 installs". The Set-based dedupe
-    // on localWorkspaceId stays the honest project source.
+    // on projectName stays the honest project source in demo mode.
     expect(installations).toContain("projectsCount");
     expect(installations).toContain("installationsCount");
     expect(installations).toContain("new Set(");
-    expect(installations).toContain("localWorkspaceId");
+    expect(installations).toContain("projectName");
     expect(installations).toMatch(/\$\{projectsCount\}/);
     expect(installations).toMatch(/\$\{installationsCount\}/);
   });

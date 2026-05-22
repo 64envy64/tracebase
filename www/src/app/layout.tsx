@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { ui } from "@clerk/ui";
 import clerkUiPackage from "@clerk/ui/package.json";
+import { headers } from "next/headers";
 import { Geist, Geist_Mono, Newsreader } from "next/font/google";
 import { AppProviders } from "@/components/providers/AppProviders";
 import { InkIntro } from "@/components/landing/brand/InkIntro";
 import { clerkAppearance } from "@/lib/clerk";
+import { isDemoModeFromEnv } from "@/lib/demo/demo-mode";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -36,9 +38,11 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const requestHeaders = await headers();
+  const demoMode = isDemoModeFromEnv() || requestHeaders.get("x-tracebase-demo") === "1";
   const clerkProviderProps = {
     appearance: clerkAppearance,
     signInUrl: "/login",
@@ -55,10 +59,14 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} ${heroSerif.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <InkIntro />
-        <ClerkProvider {...clerkProviderProps}>
+        {demoMode ? null : <InkIntro />}
+        {demoMode ? (
           <AppProviders>{children}</AppProviders>
-        </ClerkProvider>
+        ) : (
+          <ClerkProvider {...clerkProviderProps}>
+            <AppProviders>{children}</AppProviders>
+          </ClerkProvider>
+        )}
       </body>
     </html>
   );

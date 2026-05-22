@@ -431,6 +431,7 @@ export function createRuntime(
         basePath,
         sessionId,
         enableToolDetection: detectorEnabled,
+        servingProfile: input.servingProfile ?? options.servingProfile,
       },
       conn.cascadeLoader,
     );
