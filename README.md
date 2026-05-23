@@ -213,7 +213,7 @@ Full architecture and the SWE-bench whitepaper at [tracebase.ink/whitepaper](htt
 
 ## Status & roadmap
 
-- **Self-hosted is live, MIT, in production today.** v0.8.0 on npm.
+- **Self-hosted is live, MIT, in production today.** v0.9.0 on npm.
 - **Hosted dashboard** at [tracebase.ink](https://tracebase.ink) — read-only view over the same local event log. Optional, never required.
 - **Hobby ($15/mo), Startup ($159/mo), Enterprise** paid tiers — draft packaging, not on checkout yet. Talk to us for early access at [tracebase.ink/#pricing](https://tracebase.ink/#pricing).
 

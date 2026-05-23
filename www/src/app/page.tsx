@@ -117,7 +117,7 @@ function Footer() {
           className="max-w-sm text-[11px] font-light leading-relaxed"
           style={{ color: INK.sand }}
         >
-          MIT-licensed · self-hosted · v0.8 · May 2026
+          MIT-licensed · self-hosted · v0.9 · May 2026
         </p>
       </div>
 

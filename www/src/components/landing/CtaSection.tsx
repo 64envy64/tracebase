@@ -77,7 +77,7 @@ export function CtaSection() {
             className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.22em]"
             style={{ color: INK.sand }}
           >
-            v0.8 · may 2026 · no cloud required
+            v0.9 · may 2026 · no cloud required
           </p>
         </div>
 

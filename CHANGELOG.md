@@ -9,6 +9,8 @@ publish log; entries are coarse summaries rather than per-PR notes.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-05-23
+
 ### Added
 
 - `tracebase distill --from-block <id>` — manual LLM upgrade lane for

@@ -724,7 +724,7 @@ function FooterBlock() {
       style={{ borderColor: "rgba(232,217,184,0.08)", color: INK.sand }}
     >
       <p>
-        <InlineCodeText text="tracebase-ai v0.8 · MIT · self-hosted by default. The hosted workspace is opt-in and reads the same event log." />
+        <InlineCodeText text="tracebase-ai v0.9 · MIT · self-hosted by default. The hosted workspace is opt-in and reads the same event log." />
       </p>
       <p>
         Found a gap?{" "}
