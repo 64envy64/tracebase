@@ -563,10 +563,14 @@ export function createRuntime(
         const userBounded = boundField(input.userText, 8000, "userText").value;
         const assistantBounded = boundField(input.assistantText, 8000, "assistantText").value;
         if (userBounded.length === 0 || assistantBounded.length === 0) return;
-        const result = captureTurnFromTexts(conn.store, {
-          userText: userBounded,
-          assistantText: assistantBounded,
-        });
+        // R1 — thread sessionId as runId so `capture.error` events
+        // emitted from inside `captureTurnFromTexts` correlate with
+        // the matching retrieval/injection events from beforeRun.
+        const result = captureTurnFromTexts(
+          conn.store,
+          { userText: userBounded, assistantText: assistantBounded },
+          input.sessionId ? { runId: input.sessionId } : {},
+        );
         // markDirty so the next coordinator cycle sees the new
         // analytics events even if the user only calls afterRun
         // (no beforeRun / observeToolBatch on this turn).

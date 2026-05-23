@@ -184,8 +184,24 @@ function isValidEvent(ev: unknown): ev is AnalyticsEvent {
     case "drift_injection":  return isValidDriftInjection(e);
     case "block_demoted":    return isValidBlockDemoted(e);
     case "arbitration_decision": return isValidArbitrationDecision(e);
+    case "capture.error":    return isValidCaptureError(e);
     default:                 return false;
   }
+}
+
+function isValidCaptureError(e: Record<string, unknown>): boolean {
+  // R1 — capture-path failure telemetry. Validate the closed
+  // vocabularies on phase + reason so JSONL re-import cannot
+  // smuggle in new enum values that the dashboard aggregator
+  // does not know how to group.
+  if (e.phase !== "fact_extraction"
+      && e.phase !== "pattern_store"
+      && e.phase !== "fact_store"
+      && e.phase !== "attribution_inference") return false;
+  if (e.reason !== "validation" && e.reason !== "unknown") return false;
+  if (typeof e.message !== "string") return false;
+  if (e.message.length > 200) return false;
+  return true;
 }
 
 function isValidRetrieval(e: Record<string, unknown>): boolean {

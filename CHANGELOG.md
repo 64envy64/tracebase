@@ -9,6 +9,21 @@ publish log; entries are coarse summaries rather than per-PR notes.
 
 ## [Unreleased]
 
+### Added
+
+- **R1 — `capture.error` analytics events.** Every swallowed
+  Stop-hook / SDK-runtime capture failure (pattern extraction,
+  pattern store, fact store, attribution inference) now emits a
+  `capture.error` event into the local analytics log instead of
+  going only to stderr. The dashboard funnel can now surface
+  *why* captures fail (validation, store error, leakage rejection)
+  alongside the existing success metrics. `runId` is correlated
+  with the matching retrieval/injection events so failures cluster
+  with the run they came from. Messages bounded to 200 chars;
+  closed-vocab `phase` + `reason` enums for clean aggregation.
+  Shared helper `emitCaptureError` in `src/runtime/capture-errors.ts`
+  used by both the CLI hook and the SDK runtime.
+
 ## [0.9.0] — 2026-05-23
 
 ### Added

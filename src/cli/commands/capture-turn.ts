@@ -61,6 +61,7 @@ import {
 } from "../../server/mcp-v2-helpers.js";
 import type { StoreProjectFactInput } from "../../types.js";
 import { applyInferenceAndEmit } from "../../runtime/attribution-inference.js";
+import { emitCaptureError } from "../../runtime/capture-errors.js";
 
 // ---------------------------------------------------------------------------
 // Hook shape + CLI options
@@ -304,16 +305,24 @@ export function runCaptureTurn(
       return wrapEnvelope("", formatStatus({ kind: "no-pattern", factCount: 0 }, mode));
     }
 
+    // R1 — single correlation id used by every `capture.error`
+    // emitted on this Stop-hook invocation. Same source as
+    // `applyInferenceAndEmit` below, so failure events cluster with
+    // the matching retrieval/injection events on this run.
+    const captureRunId: string | undefined = stdin.session_id ?? stdin.sessionId ?? undefined;
+
     // Fact extraction runs independently of pattern extraction so one
     // path's heuristic miss doesn't starve the other. Errors inside the
     // extractor fall through to 0 facts — the envelope still lands.
+    // R1 — defer emission until the store opens (a few lines down);
+    // cache the error here so we can replay it through
+    // `emitCaptureError` from inside `withBlockStore`.
     let factsExtracted: StoreProjectFactInput[] = [];
+    let pendingFactExtractionError: unknown = null;
     try {
       factsExtracted = extractFacts(transcript.lastUserText, transcript.lastAssistantText);
     } catch (err) {
-      process.stderr.write(
-        `tracebase capture-turn: fact extraction skipped: ${err instanceof Error ? err.message : String(err)}\n`,
-      );
+      pendingFactExtractionError = err;
     }
 
     const extracted = extractPattern(transcript.lastUserText, transcript.lastAssistantText);
@@ -322,15 +331,32 @@ export function runCaptureTurn(
     // A single store handle services both the pattern and the facts so
     // the SQLite file is opened once per hook invocation.
     const { blockResult, factCount, inferredUseCount } = withBlockStore(config.storagePath, (store) => {
+      // R1 — replay any deferred fact-extraction failure now that we
+      // have a live store handle. Done first so the event clusters
+      // with the rest of this turn's capture errors in the log.
+      if (pendingFactExtractionError !== null) {
+        emitCaptureError(store, {
+          phase: "fact_extraction",
+          reason: "unknown",
+          err: pendingFactExtractionError,
+          stderrPrefix: "fact extraction skipped",
+          ...(captureRunId ? { runId: captureRunId } : {}),
+        });
+      }
+
       let blockResult: ReturnType<typeof storeReasoningPattern> | null = null;
       if (extracted) {
         try {
           blockResult = storeReasoningPattern(store, extracted);
         } catch (err) {
           const isValidation = err instanceof StorePatternValidationError;
-          process.stderr.write(
-            `tracebase capture-turn: ${isValidation ? "pattern skipped (validation): " : "pattern error: "}${err instanceof Error ? err.message : String(err)}\n`,
-          );
+          emitCaptureError(store, {
+            phase: "pattern_store",
+            reason: isValidation ? "validation" : "unknown",
+            err,
+            stderrPrefix: isValidation ? "pattern skipped (validation)" : "pattern error",
+            ...(captureRunId ? { runId: captureRunId } : {}),
+          });
           if (!isValidation) throw err; // rethrow non-validation to the outer catch
         }
       }
@@ -340,12 +366,18 @@ export function runCaptureTurn(
           store.storeFact(candidate);
           factCount += 1;
         } catch (err) {
-          // Per-fact failures are swallowed with a stderr line; one bad
-          // row never kills the batch. (§5.1 privacy / leakage scanner
-          // rejections surface here.)
-          process.stderr.write(
-            `tracebase capture-turn: fact dropped: ${err instanceof Error ? err.message : String(err)}\n`,
-          );
+          // Per-fact failures are swallowed; one bad row never kills
+          // the batch. (§5.1 privacy / leakage scanner rejections
+          // surface here.) R1 — emit a `capture.error` event so the
+          // dashboard can show *which fact* (which phase) the batch
+          // lost without forcing the user to grep stderr.
+          emitCaptureError(store, {
+            phase: "fact_store",
+            reason: "unknown",
+            err,
+            stderrPrefix: "fact dropped",
+            ...(captureRunId ? { runId: captureRunId } : {}),
+          });
         }
       }
       // ATTRIBUTION INFERENCE (delegated). The Stop hook owns the
@@ -371,16 +403,23 @@ export function runCaptureTurn(
       // parseable envelope no matter what.
       let inferredUseCount = 0;
       try {
-        const sessionId = stdin.session_id ?? stdin.sessionId;
         const report = applyInferenceAndEmit(store, transcript.lastAssistantText, {
-          ...(sessionId ? { runId: sessionId } : {}),
+          ...(captureRunId ? { runId: captureRunId } : {}),
           allowOutcomeEmission: blockResult !== null,
         });
         inferredUseCount = report.agentUsedEmitted;
       } catch (err) {
-        process.stderr.write(
-          `tracebase capture-turn: attribution inference skipped: ${err instanceof Error ? err.message : String(err)}\n`,
-        );
+        // R1 — surface attribution failures as `capture.error` events
+        // (separate phase) so the dashboard can distinguish "we
+        // captured a pattern but couldn't credit it to a prior
+        // injection" from extractor/store failures.
+        emitCaptureError(store, {
+          phase: "attribution_inference",
+          reason: "unknown",
+          err,
+          stderrPrefix: "attribution inference skipped",
+          ...(captureRunId ? { runId: captureRunId } : {}),
+        });
       }
 
       return { blockResult, factCount, inferredUseCount };

@@ -37,10 +37,22 @@ import {
   StorePatternValidationError,
   storeReasoningPattern,
 } from "../server/mcp-v2-helpers.js";
+import { emitCaptureError } from "./capture-errors.js";
 
 export interface CaptureTurnInput {
   userText: string;
   assistantText: string;
+}
+
+/**
+ * R1 — optional plumbing of a correlation id so capture-error events
+ * land with the same `runId` as the matching retrieval/injection
+ * events. Caller picks the source (session id, run id from inject-
+ * context, etc.); both fields are optional and default to "no
+ * correlation".
+ */
+export interface CaptureTurnOpts {
+  runId?: string;
 }
 
 export interface CaptureTurnOutcome {
@@ -50,6 +62,13 @@ export interface CaptureTurnOutcome {
   isNew: boolean;
   /** Number of facts persisted. */
   factCount: number;
+  /**
+   * R1 — number of `capture.error` events emitted on this call.
+   * Zero on a clean capture; counts pattern + fact failures. Callers
+   * can use this to decide whether to surface a soft warning to the
+   * user without re-walking the event log.
+   */
+  errorCount: number;
 }
 
 /**
@@ -65,12 +84,21 @@ export interface CaptureTurnOutcome {
 export function captureTurnFromTexts(
   store: BlockStore,
   input: CaptureTurnInput,
+  opts: CaptureTurnOpts = {},
 ): CaptureTurnOutcome {
+  let errorCount = 0;
   const factsCandidate = (() => {
     try {
       return extractFacts(input.userText, input.assistantText);
     } catch (err) {
-      logCaptureWarn("fact extraction skipped", err);
+      emitCaptureError(store, {
+        phase: "fact_extraction",
+        reason: "unknown",
+        err,
+        stderrPrefix: "fact extraction skipped",
+        runId: opts.runId,
+      });
+      errorCount += 1;
       return [];
     }
   })();
@@ -86,10 +114,14 @@ export function captureTurnFromTexts(
       isNew = result.isNew;
     } catch (err) {
       const isValidation = err instanceof StorePatternValidationError;
-      logCaptureWarn(
-        isValidation ? "pattern skipped (validation)" : "pattern error",
+      emitCaptureError(store, {
+        phase: "pattern_store",
+        reason: isValidation ? "validation" : "unknown",
         err,
-      );
+        stderrPrefix: isValidation ? "pattern skipped (validation)" : "pattern error",
+        runId: opts.runId,
+      });
+      errorCount += 1;
       // Non-validation errors are still swallowed — the SDK runtime
       // contract requires `afterRun` to never throw into caller code,
       // and the CLI hook has the same contract. The block just doesn't
@@ -103,18 +135,17 @@ export function captureTurnFromTexts(
       store.storeFact(candidate);
       factCount += 1;
     } catch (err) {
-      logCaptureWarn("fact dropped", err);
+      emitCaptureError(store, {
+        phase: "fact_store",
+        reason: "unknown",
+        err,
+        stderrPrefix: "fact dropped",
+        runId: opts.runId,
+      });
+      errorCount += 1;
     }
   }
 
-  return { blockId, isNew, factCount };
+  return { blockId, isNew, factCount, errorCount };
 }
 
-function logCaptureWarn(prefix: string, err: unknown): void {
-  const reason = err instanceof Error ? err.message : String(err);
-  try {
-    process.stderr.write(`tracebase capture-turn: ${prefix}: ${reason}\n`);
-  } catch {
-    // even stderr can fail in some sandboxes — swallow
-  }
-}

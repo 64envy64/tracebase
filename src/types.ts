@@ -1674,7 +1674,14 @@ export type AnalyticsEvent =
   // May-2026 C4-runtime — one event per arbiter decision. Emitted
   // ONLY when TRACEBASE_SERVING_ARBITER=1; default path produces
   // zero of these (byte-for-byte identity when the env is unset).
-  | ArbitrationDecisionEvent;
+  | ArbitrationDecisionEvent
+  // R1 (May-2026) — capture-path failure telemetry. Emitted whenever
+  // the Stop hook or SDK afterRun swallows an error from pattern /
+  // fact extraction or storage. Replaces the previous stderr-only
+  // behaviour so the dashboard can show *why* captures fail
+  // (validation, leakage, store error) instead of pretending nothing
+  // went wrong.
+  | CaptureErrorEvent;
 
 interface EventBase {
   ts: number;
@@ -2306,4 +2313,33 @@ export interface ArbitrationDecisionEvent extends EventBase {
   relevanceScore: number;
   /** Injection cost as estimated by the wiring layer. */
   injectionTokens: number;
+}
+
+/**
+ * R1 (May-2026) — capture-path failure telemetry.
+ *
+ * The Stop hook and SDK `runtime.afterRun()` both run pattern and
+ * fact extraction + storage on a hot, never-throwing path: callers
+ * must NEVER bubble. Before R1 each catch was a `process.stderr.write`
+ * and nothing else, so the dashboard had no way to surface "captures
+ * are failing" — `agent_used` would silently stay at zero with no
+ * trail back to the cause.
+ *
+ * After R1 every swallowed error also emits this event so the
+ * existing `events` CLI, `impact` aggregator, and dashboard funnel
+ * can show capture failures alongside the success metrics. The
+ * stderr line is kept for dev visibility.
+ *
+ * `phase` identifies WHICH stage failed; `reason` is the closed
+ * vocabulary the dashboard groups by. `message` is the bounded
+ * Error.message (max 200 chars) — no transcripts, no candidate
+ * bodies, no paths. Privacy-safe by construction since we never
+ * emit caller-supplied text from the extraction inputs.
+ */
+export interface CaptureErrorEvent extends EventBase {
+  event: "capture.error";
+  phase: "fact_extraction" | "pattern_store" | "fact_store" | "attribution_inference";
+  reason: "validation" | "unknown";
+  /** Bounded to 200 chars to keep payload size predictable. */
+  message: string;
 }
