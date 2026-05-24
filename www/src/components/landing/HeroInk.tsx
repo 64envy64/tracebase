@@ -154,19 +154,19 @@ export function HeroInk() {
               ["--ink-rise-delay" as string]: "220ms",
             }}
           >
-            Make your agents finally learn — same model,{" "}
+            Make your agents finally learn — cut your token bill{" "}
             <span style={{ color: INK.pearl, fontWeight: 500 }}>
-              {SWE_BENCH_SNAPSHOT.costReductionAvgPct}% less spend
+              {SWE_BENCH_SNAPSHOT.costReductionAvgPct}%
             </span>
-            ,{" "}
+            , finish{" "}
             <span style={{ color: INK.pearl, fontWeight: 500 }}>
-              {SWE_BENCH_SNAPSHOT.stepReductionAvgPct}% fewer steps
+              {SWE_BENCH_SNAPSHOT.stepReductionAvgPct}% faster
             </span>
-            ,{" "}
+            , and lift accuracy{" "}
             <span style={{ color: INK.pearl, fontWeight: 500 }}>
-              +{SWE_BENCH_SNAPSHOT.accuracyGainPp} pp solved
-            </span>
-            .
+              +{SWE_BENCH_SNAPSHOT.accuracyGainPp} pp
+            </span>{" "}
+            on the same model.
           </p>
 
           <div className="ink-rise" style={{ ["--ink-rise-delay" as string]: "340ms" }}>
