@@ -55,7 +55,7 @@ const FAQ_ITEMS: readonly FaqItem[] = [
   },
   {
     q: "How is it priced?",
-    a: "Self-hosted is free, MIT-licensed, available today. Hobby, Startup, and Enterprise tiers in the pricing section above are draft packaging — not on checkout yet. Talk to us for early access.",
+    a: "Free while we're in beta. Self-hosted is MIT-licensed and available today; paid tiers (Hobby, Startup, Enterprise) are still in draft and not on checkout yet. Talk to us for early access.",
   },
 ] as const;
 

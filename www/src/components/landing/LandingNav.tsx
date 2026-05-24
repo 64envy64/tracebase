@@ -13,7 +13,6 @@ const NAV_LINKS: NavItem[] = [
   { href: "#capabilities", label: "Runtime" },
   { href: "#runs", label: "Runs" },
   { href: "/docs", label: "Docs" },
-  { href: "#pricing", label: "Pricing" },
   { href: "#faq", label: "FAQ" },
 ];
 
