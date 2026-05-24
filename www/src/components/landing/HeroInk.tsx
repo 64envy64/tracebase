@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
+import { useRouter } from "next/navigation";
 import { CopyCommand } from "@/components/CopyButton";
 import { GetStartedButton } from "@/components/auth/GetStartedButton";
 import { SWE_BENCH_SNAPSHOT } from "@/content/benchmarkStats";
@@ -16,35 +17,43 @@ const HERO_METRICS: readonly HeroMetric[] = [
 ];
 
 function HeroMetricStrip() {
-  const [captionVisible, setCaptionVisible] = useState(false);
+  const router = useRouter();
+  const [hover, setHover] = useState({ visible: false, x: 0, y: 0 });
+
+  const goToBenchmark = () => {
+    router.push("/whitepaper");
+  };
+
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setHover({
+      visible: true,
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    });
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      goToBenchmark();
+    }
+  };
 
   return (
     <div
-      className="hero-metric-strip mx-auto mt-8 w-full max-w-[34rem]"
-      onClick={() => setCaptionVisible(true)}
-      onPointerEnter={() => setCaptionVisible(true)}
-      onPointerLeave={(event) => {
-        if (!event.currentTarget.contains(document.activeElement)) {
-          setCaptionVisible(false);
-        }
-      }}
-      onMouseEnter={() => setCaptionVisible(true)}
-      onMouseLeave={(event) => {
-        if (!event.currentTarget.contains(document.activeElement)) {
-          setCaptionVisible(false);
-        }
-      }}
-      onFocusCapture={() => setCaptionVisible(true)}
-      onBlurCapture={(event) => {
-        const nextFocus = event.relatedTarget;
-        if (!(nextFocus instanceof Node) || !event.currentTarget.contains(nextFocus)) {
-          setCaptionVisible(false);
-        }
-      }}
+      className="hero-metric-strip group relative mx-auto mt-8 w-full max-w-[34rem] cursor-pointer"
+      onClick={goToBenchmark}
+      onPointerMove={onPointerMove}
+      onPointerEnter={onPointerMove}
+      onPointerLeave={() => setHover((prev) => ({ ...prev, visible: false }))}
+      onKeyDown={onKeyDown}
+      role="link"
+      tabIndex={0}
+      aria-label="Read the TraceBase benchmark"
     >
       <div
         className="hero-metric-grid grid grid-cols-3 overflow-hidden rounded-xl border focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--accent)]"
-        tabIndex={0}
         aria-label={`${SWE_BENCH_SNAPSHOT.benchmark}: accuracy up ${SWE_BENCH_SNAPSHOT.accuracyGainPp} percentage points, cost down ${SWE_BENCH_SNAPSHOT.costReductionAvgPct} percent, steps down ${SWE_BENCH_SNAPSHOT.stepReductionAvgPct} percent`}
         style={{
           borderColor: "rgba(232,217,184,0.12)",
@@ -74,16 +83,29 @@ function HeroMetricStrip() {
           </div>
         ))}
       </div>
-      <p
-        className="hero-metric-caption pointer-events-none mt-3 text-center font-mono text-[10px] uppercase tracking-[0.22em]"
+      <div
+        className="pointer-events-none absolute z-20 hidden flex-col gap-0.5 rounded border px-3 py-2 shadow-[0_10px_30px_rgba(0,0,0,0.28)] transition-opacity duration-[220ms] ease-out sm:flex"
         style={{
-          color: INK.sand,
-          opacity: captionVisible ? 1 : 0,
-          transform: `translateY(${captionVisible ? 0 : 4}px)`,
+          left: hover.x,
+          top: hover.y,
+          opacity: hover.visible ? 1 : 0,
+          transform: `translate(-50%, calc(-100% - 14px)) translateY(${hover.visible ? "0" : "4px"})`,
+          transitionProperty: "opacity, transform",
+          color: INK.ink,
+          background: INK.pearl,
+          borderColor: "rgba(245,236,214,0.72)",
         }}
       >
-        {SWE_BENCH_SNAPSHOT.benchmark} / {SWE_BENCH_SNAPSHOT.attempted} tasks / {SWE_BENCH_SNAPSHOT.model}
-      </p>
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em]">
+          Read our benchmark
+        </span>
+        <span
+          className="font-mono text-[9px] uppercase tracking-[0.16em]"
+          style={{ color: "rgba(10,16,20,0.62)" }}
+        >
+          {SWE_BENCH_SNAPSHOT.runName}
+        </span>
+      </div>
     </div>
   );
 }
@@ -92,7 +114,8 @@ export function HeroInk() {
   const [revealed, setRevealed] = useState(false);
 
   useEffect(() => {
-    setRevealed(true);
+    const id = window.requestAnimationFrame(() => setRevealed(true));
+    return () => window.cancelAnimationFrame(id);
   }, []);
 
   return (
@@ -125,14 +148,25 @@ export function HeroInk() {
           </h1>
 
           <p
-            className="ink-rise mx-auto mt-6 max-w-[38rem] text-[14px] font-light leading-relaxed sm:text-[15.5px]"
+            className="ink-rise mx-auto mt-6 max-w-[42rem] text-[14px] font-light leading-relaxed sm:text-[15.5px]"
             style={{
               color: "rgba(232,217,184,0.74)",
               ["--ink-rise-delay" as string]: "220ms",
             }}
           >
-            TraceBase turns solved work into reusable memory, so production agents carry what worked
-            into the next task.
+            Make your agents finally learn — same model,{" "}
+            <span style={{ color: INK.pearl, fontWeight: 500 }}>
+              {SWE_BENCH_SNAPSHOT.costReductionAvgPct}% less spend
+            </span>
+            ,{" "}
+            <span style={{ color: INK.pearl, fontWeight: 500 }}>
+              {SWE_BENCH_SNAPSHOT.stepReductionAvgPct}% fewer steps
+            </span>
+            ,{" "}
+            <span style={{ color: INK.pearl, fontWeight: 500 }}>
+              +{SWE_BENCH_SNAPSHOT.accuracyGainPp} pp solved
+            </span>
+            .
           </p>
 
           <div className="ink-rise" style={{ ["--ink-rise-delay" as string]: "340ms" }}>

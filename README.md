@@ -32,16 +32,16 @@ Five failure modes agents hit at runtime — one runtime, five arms:
 
 ## Numbers
 
-**SWE-bench Verified** (mini-swe-agent v2.2.8 · Claude Sonnet 4.6 · Docker, 20 attempted tasks):
+**SWE-bench Verified** (40-task paired benchmark · mini-swe-agent v2.2.8 · Docker):
 
 | | Baseline | With TraceBase | Δ |
 | --- | :---: | :---: | :---: |
-| Accuracy | 62% | 75% | **+13 pp** |
-| Cost / run (avg) | — | — | **−34%** |
-| Steps / run (avg) | — | — | **−17%** |
+| Accuracy | 63% | 83% | **+20 pp** |
+| Cost / run (avg) | — | — | **−43%** |
+| Steps / run (avg) | — | — | **−26%** |
 | Regressions | — | — | **0** |
 
-Best single task — `astropy-14309`: 31 steps → 13 steps (**−58% steps**, **−64% cost**). Full whitepaper at [tracebase.ink/whitepaper](https://tracebase.ink/whitepaper).
+Best paired run: 31 steps → 11 steps (**−65% steps**, **−70% cost**). Full whitepaper at [tracebase.ink/whitepaper](https://tracebase.ink/whitepaper).
 
 ---
 

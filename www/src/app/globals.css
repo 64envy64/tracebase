@@ -219,6 +219,51 @@ html {
   animation-delay: var(--ink-fill-delay, 0ms);
 }
 
+@keyframes benchmark-bar-fill {
+  from {
+    width: 0;
+  }
+  to {
+    width: var(--bar-target, 0%);
+  }
+}
+
+.benchmark-bar-fill {
+  width: 0;
+  animation: benchmark-bar-fill 1.08s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: var(--bar-delay, 0ms);
+}
+
+@keyframes benchmark-segment-fill {
+  from {
+    width: 0;
+  }
+  to {
+    width: var(--segment-target, 0%);
+  }
+}
+
+.benchmark-segment-fill {
+  width: 0;
+  animation: benchmark-segment-fill 1.18s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: var(--segment-delay, 0ms);
+}
+
+@keyframes benchmark-vertical-fill {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--vertical-target, 0px);
+  }
+}
+
+.benchmark-vertical-fill {
+  height: 0;
+  animation: benchmark-vertical-fill 1.02s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: var(--vertical-delay, 0ms);
+}
+
 /* Drift (subtle vertical motion for ambient decorative shapes) */
 @keyframes ink-drift {
   0%,

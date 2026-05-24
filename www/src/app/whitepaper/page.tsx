@@ -1,63 +1,31 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
-import { SWE_BENCH_SNAPSHOT } from "@/content/benchmarkStats";
+import type { CSSProperties, ReactNode } from "react";
+import { GitHubMark } from "@/components/ui/GitHubMark";
+import { TracebaseInkWordmark } from "@/components/landing/brand/Marks";
 import { SectionLabel } from "@/components/landing/brand/Primitives";
 import { INK } from "@/components/landing/brand/tokens";
-import { TracebaseInkWordmark } from "@/components/landing/brand/Marks";
-import { GitHubMark } from "@/components/ui/GitHubMark";
-
-/* ============================================================ */
-/*  Whitepaper — TraceBase Technical Report.                     */
-/*                                                                */
-/*  Visual contract: same ink/bone/ember palette as the landing.  */
-/*  Hero-serif on long headlines, mono uppercase on eyebrows and  */
-/*  table headers, sand for muted axes, ember for the single     */
-/*  highlight metric per block. No infinite animations — the     */
-/*  doc is a static report, motion would only get in the way.    */
-/*                                                                */
-/*  Numeric contract: every number on this page is sourced from   */
-/*  `www/src/content/benchmarkStats.ts` (SWE_BENCH_SNAPSHOT), so  */
-/*  the report and the landing physically cannot drift. Touch    */
-/*  the snapshot when the underlying benchmark is rerun and both */
-/*  surfaces update together.                                    */
-/* ============================================================ */
-
-const S = SWE_BENCH_SNAPSHOT;
-const relativeAccuracyGainPct = Math.round(
-  ((S.accuracyInjectionPct - S.accuracyBaselinePct) / S.accuracyBaselinePct) * 100,
-);
+import { SWE_BENCH_SNAPSHOT as S } from "@/content/benchmarkStats";
 
 export const metadata: Metadata = {
-  title: "TraceBase Whitepaper — Reasoning Injection Benchmark Results",
+  title: "TraceBase Whitepaper - Repeated-Work Benchmark",
   description:
-    `How reasoning trace injection improves coding-agent efficiency on SWE-bench Verified. ` +
-    `+${S.accuracyGainPp} pp accuracy, −${S.costReductionAvgPct}% cost, −${S.stepReductionAvgPct}% steps. ` +
-    `Peak savings up to −${S.bestTaskCostReductionPct}% on the best task.`,
+    `${S.runName}: ${S.pairedRuns} agent runs on ${S.benchmark}. ` +
+    `+${S.accuracyGainPp} pp resolved rate, ${S.costReductionAvgPct}% lower cost, ` +
+    `${S.stepReductionAvgPct}% fewer steps on high-confidence matches.`,
 };
-
-/* ============================================================ */
-/*  Layout primitives — local to this page, sized for long-read */
-/*  technical prose at max-w-[760px].                            */
-/* ============================================================ */
 
 function NavBar() {
   return (
     <nav
       className="sticky top-0 z-50 border-b backdrop-blur-md"
-      style={{
-        borderColor: "rgba(232,217,184,0.08)",
-        background: "rgba(10, 16, 20, 0.78)",
-      }}
+      style={{ borderColor: "rgba(232,217,184,0.08)", background: "rgba(10,16,20,0.78)" }}
     >
-      <div className="mx-auto flex max-w-[760px] items-center justify-between px-5 py-4 md:px-6">
+      <div className="mx-auto flex max-w-[940px] items-center justify-between px-5 py-4 md:px-6">
         <Link href="/" className="inline-flex items-center">
           <TracebaseInkWordmark size={16} />
         </Link>
-        <div
-          className="flex items-center gap-5 text-[13px]"
-          style={{ color: "rgba(232,217,184,0.66)" }}
-        >
+        <div className="flex items-center gap-5 text-[13px]" style={{ color: "rgba(232,217,184,0.66)" }}>
           <Link href="/" className="transition-colors hover:text-[var(--bone)]">
             Home
           </Link>
@@ -97,55 +65,37 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="mt-14 md:mt-16">
+    <section className="mt-16 md:mt-20">
       <div className="flex items-center gap-3">
         {number ? (
-          <span
-            className="font-mono text-[11px] tracking-[0.22em]"
-            style={{ color: INK.sand }}
-          >
+          <span className="font-mono text-[11px] tracking-[0.22em]" style={{ color: INK.sand }}>
             {number}
           </span>
         ) : null}
         <SectionLabel>{eyebrow}</SectionLabel>
       </div>
       <h2
-        className="mt-3 font-hero-serif text-[clamp(1.55rem,3vw,2.1rem)] font-normal leading-[1.1] tracking-tight"
+        className="mt-3 font-hero-serif text-[clamp(1.65rem,3.2vw,2.35rem)] font-normal leading-[1.08]"
         style={{ color: INK.pearl }}
       >
         <span style={{ color: "rgba(232,217,184,0.5)" }}>{muted}</span>{" "}
         <span>{accent}</span>
       </h2>
-      <div
-        className="mt-6 space-y-4 text-[14px] font-light leading-relaxed md:text-[15px]"
-        style={{ color: "rgba(232,217,184,0.78)" }}
-      >
+      <div className="mt-6 space-y-4 text-[14px] font-light leading-relaxed md:text-[15px]" style={{ color: "rgba(232,217,184,0.78)" }}>
         {children}
       </div>
     </section>
   );
 }
 
-function InkCard({
-  eyebrow,
-  children,
-}: {
-  eyebrow?: string;
-  children: ReactNode;
-}) {
+function InkCard({ eyebrow, children }: { eyebrow?: ReactNode; children: ReactNode }) {
   return (
     <div
       className="mt-6 overflow-hidden rounded-xl border"
-      style={{
-        borderColor: "rgba(232,217,184,0.1)",
-        background: INK.inkDeep,
-      }}
+      style={{ borderColor: "rgba(232,217,184,0.1)", background: INK.inkDeep }}
     >
       {eyebrow ? (
-        <div
-          className="border-b px-5 py-4 md:px-6"
-          style={{ borderColor: "rgba(232,217,184,0.08)" }}
-        >
+        <div className="border-b px-5 py-4 md:px-6" style={{ borderColor: "rgba(232,217,184,0.08)" }}>
           <SectionLabel>{eyebrow}</SectionLabel>
         </div>
       ) : null}
@@ -156,698 +106,471 @@ function InkCard({
 
 function ParamTable({ rows }: { rows: readonly (readonly [string, string])[] }) {
   return (
-    <dl className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] gap-y-2.5 text-[13px] md:text-[13.5px]">
-      {rows.map(([k, v]) => (
-        <div key={k} className="contents">
-          <dt style={{ color: INK.sand }}>{k}</dt>
-          <dd style={{ color: INK.bone }}>{v}</dd>
+    <dl className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.35fr)] gap-y-2.5 text-[13px] md:text-[13.5px]">
+      {rows.map(([key, value]) => (
+        <div key={key} className="contents">
+          <dt style={{ color: INK.sand }}>{key}</dt>
+          <dd style={{ color: INK.bone }}>{value}</dd>
         </div>
       ))}
     </dl>
   );
 }
 
-function ExtLink({ href, children }: { href: string; children: ReactNode }) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="underline underline-offset-2"
-      style={{ color: INK.ember, textDecorationColor: "rgba(255,122,92,0.42)" }}
-    >
-      {children}
-    </a>
-  );
-}
-
 function CodeBlock({ children }: { children: ReactNode }) {
   return (
     <div
-      className="mt-4 overflow-x-auto rounded-xl border px-5 py-4 font-mono text-[12.5px] leading-relaxed"
-      style={{
-        borderColor: "rgba(232,217,184,0.1)",
-        background: INK.ink,
-        color: "rgba(232,217,184,0.78)",
-      }}
+      className="mt-4 overflow-x-auto rounded-xl border px-5 py-4 font-mono text-[12px] leading-relaxed"
+      style={{ borderColor: "rgba(232,217,184,0.1)", background: INK.ink, color: "rgba(232,217,184,0.78)" }}
     >
       {children}
     </div>
   );
 }
 
-/* ============================================================ */
-/*  HeroMetricStrip — three tiles mirror the landing hero so      */
-/*  the report opens on the same numbers the front door sells.   */
-/* ============================================================ */
-
-function HeroMetricStrip() {
-  const tiles: { value: string; label: string; tone: "ember" | "bone" }[] = [
-    { value: `+${S.accuracyGainPp} pp`, label: "accuracy", tone: "ember" },
-    { value: `−${S.costReductionAvgPct}%`, label: "cost", tone: "bone" },
-    { value: `−${S.stepReductionAvgPct}%`, label: "steps", tone: "bone" },
+function HeroMetricGrid() {
+  const cards = [
+    { label: "resolved rate", value: `+${S.accuracyGainPp} pp`, note: `${S.accuracyBaselinePct}% -> ${S.accuracyInjectionPct}%` },
+    { label: "avg cost", value: `-${S.costReductionAvgPct}%`, note: `high-confidence matches, n=${S.highConfidenceN}` },
+    { label: "avg steps", value: `-${S.stepReductionAvgPct}%`, note: `${S.bestTaskStepsBefore} -> ${S.bestTaskStepsAfter} on best run` },
+    { label: "regressions", value: `${S.regressions}`, note: `${S.newFixes} new fixes` },
   ];
+
   return (
-    <div className="mt-8">
-      <div
-        className="grid grid-cols-3 overflow-hidden rounded-xl border"
-        style={{
-          borderColor: "rgba(232,217,184,0.12)",
-          background: "rgba(232,217,184,0.08)",
-          gap: 1,
-        }}
-      >
-        {tiles.map((t) => (
-          <div
-            key={t.label}
-            className="flex flex-col items-center justify-center gap-1 px-3 py-4"
-            style={{ background: INK.inkDeep }}
-          >
-            <span
-              className="font-mono text-[10px] uppercase tracking-[0.22em]"
-              style={{ color: INK.sand }}
-            >
-              {t.label}
-            </span>
-            <span
-              className="font-mono text-[clamp(1.2rem,2.2vw,1.6rem)] font-semibold leading-none tracking-tight tabular-nums"
-              style={{ color: t.tone === "ember" ? INK.ember : INK.bone }}
-            >
-              {t.value}
-            </span>
+    <div className="mt-8 grid gap-px overflow-hidden rounded-xl border sm:grid-cols-2 lg:grid-cols-4" style={{ borderColor: "rgba(232,217,184,0.12)", background: "rgba(232,217,184,0.08)" }}>
+      {cards.map((card) => (
+        <div key={card.label} className="min-h-[132px] p-5" style={{ background: INK.inkDeep }}>
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: INK.sand }}>
+            {card.label}
+          </p>
+          <p className="mt-4 font-mono text-[clamp(1.65rem,3vw,2.25rem)] font-semibold leading-none tabular-nums" style={{ color: card.label === "resolved rate" ? INK.ember : INK.pearl }}>
+            {card.value}
+          </p>
+          <p className="mt-3 text-[12px] leading-snug" style={{ color: "rgba(232,217,184,0.58)" }}>
+            {card.note}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ChartPanel() {
+  return (
+    <InkCard eyebrow="paired outcome chart">
+      <div className="grid gap-7 md:grid-cols-[1fr_1fr]">
+        <div>
+          <p className="text-[13px] font-medium" style={{ color: INK.pearl }}>
+            Resolved patches
+          </p>
+          <div className="mt-5 space-y-5">
+            <Bar label={S.baselineLabel} value={S.accuracyBaselinePct} max={100} color="rgba(232,217,184,0.46)" delayMs={0} suffix="%" />
+            <Bar label={S.augmentedLabel} value={S.accuracyInjectionPct} max={100} color={INK.ember} delayMs={130} suffix="%" />
+          </div>
+        </div>
+
+        <div>
+          <p className="text-[13px] font-medium" style={{ color: INK.pearl }}>
+            Efficiency index
+          </p>
+          <div className="mt-5 space-y-5">
+            <Bar label="Cost after TraceBase" value={100 - S.costReductionAvgPct} max={100} color={INK.amber} delayMs={260} suffix="/100" />
+            <Bar label="Steps after TraceBase" value={100 - S.stepReductionAvgPct} max={100} color="rgba(232,217,184,0.62)" delayMs={390} suffix="/100" />
+          </div>
+        </div>
+      </div>
+    </InkCard>
+  );
+}
+
+function Bar({
+  label,
+  value,
+  max,
+  color,
+  delayMs,
+  suffix,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  color: string;
+  delayMs: number;
+  suffix: string;
+}) {
+  const width = `${Math.max(4, Math.min(100, (value / max) * 100))}%`;
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between gap-3 font-mono text-[10px] uppercase tracking-[0.16em]">
+        <span style={{ color: INK.sand }}>{label}</span>
+        <span style={{ color: INK.bone }}>{value}{suffix}</span>
+      </div>
+      <div className="h-3 overflow-hidden rounded-sm" style={{ background: "rgba(232,217,184,0.08)" }}>
+        <span
+          className="benchmark-bar-fill block h-full rounded-sm"
+          style={{
+            ["--bar-target" as string]: width,
+            ["--bar-delay" as string]: `${delayMs}ms`,
+            background: color,
+          } as CSSProperties}
+        />
+      </div>
+    </div>
+  );
+}
+
+function MethodologyFlow() {
+  const steps = [
+    ["01", "Start from real issues", `${S.benchmarkTasks} verified bug-fix tasks with executable tests.`],
+    ["02", "Run baseline", "The agent solves with its normal tools and an empty memory layer."],
+    ["03", "Store resolved work", "Successful runs are distilled into compact situation, mechanism, unlock, and verification notes."],
+    ["04", "Run with TraceBase", "The same task distribution runs again with recall enabled and the same caps."],
+    ["05", "Grade by tests", "A containerized grader marks the submitted patch resolved or unresolved."],
+  ] as const;
+
+  return (
+    <div className="mt-6 grid gap-px overflow-hidden rounded-xl border md:grid-cols-5" style={{ borderColor: "rgba(232,217,184,0.1)", background: "rgba(232,217,184,0.08)" }}>
+      {steps.map(([n, title, body]) => (
+        <div key={n} className="min-h-[170px] p-5" style={{ background: INK.inkDeep }}>
+          <p className="font-mono text-[11px] tracking-[0.22em]" style={{ color: INK.ember }}>{n}</p>
+          <p className="mt-4 text-[14px] font-medium" style={{ color: INK.pearl }}>{title}</p>
+          <p className="mt-3 text-[12.5px] font-light leading-relaxed" style={{ color: "rgba(232,217,184,0.66)" }}>{body}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MechanismStack() {
+  return (
+    <InkCard eyebrow="mechanism attribution">
+      <div className="flex h-5 overflow-hidden rounded-sm" style={{ background: "rgba(232,217,184,0.08)" }}>
+        {S.mechanismBreakdown.map((segment, index) => (
+          <span
+            key={segment.label}
+            className="benchmark-segment-fill h-full"
+            style={{
+              ["--segment-target" as string]: `${segment.value}%`,
+              ["--segment-delay" as string]: `${index * 120}ms`,
+              background: ["#ff7a5c", "#e0b458", "#b84f38", "rgba(232,217,184,0.46)"][index],
+            } as CSSProperties}
+          />
+        ))}
+      </div>
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        {S.mechanismBreakdown.map((segment, index) => (
+          <div key={segment.label} className="flex items-center justify-between gap-4 border-t pt-3" style={{ borderColor: "rgba(232,217,184,0.07)" }}>
+            <span className="text-[13px] font-light" style={{ color: "rgba(232,217,184,0.7)" }}>{segment.label}</span>
+            <span className="font-mono text-[12px]" style={{ color: index === 0 ? INK.ember : INK.sand }}>{segment.value}%</span>
           </div>
         ))}
       </div>
-      <p
-        className="mt-3 text-center font-mono text-[10px] uppercase tracking-[0.22em]"
-        style={{ color: INK.sand }}
-      >
-        {S.benchmark} · {S.attempted} attempted · {S.completed} completed · {S.model}
+      <p className="mt-5 text-[12px] leading-relaxed" style={{ color: INK.sand }}>
+        Attribution is based on TraceBase event categories and paired trajectory inspection. It explains where the measured
+        efficiency delta came from; it is not a separate accuracy claim.
       </p>
-    </div>
+    </InkCard>
   );
 }
 
-/* ============================================================ */
-/*  BestTaskCallout — the headline single-task win, pulled out    */
-/*  into a card so the eye doesn't have to hunt for it in prose.  */
-/* ============================================================ */
-
-function BestTaskCallout() {
+function QualityScoringPanel() {
   return (
-    <div
-      className="mt-8 overflow-hidden rounded-xl border"
-      style={{
-        borderColor: "rgba(255,122,92,0.32)",
-        background: "rgba(255,122,92,0.04)",
-      }}
-    >
-      <div
-        className="flex items-center justify-between gap-4 border-b px-5 py-3 md:px-6"
-        style={{ borderColor: "rgba(232,217,184,0.08)" }}
-      >
-        <SectionLabel>
-          <span style={{ color: INK.ember }}>best run · {S.bestTaskId}</span>
-        </SectionLabel>
-        <span
-          className="font-mono text-[11px] tracking-[0.16em]"
-          style={{ color: INK.sand }}
-        >
-          single-task peak
+    <InkCard eyebrow="quality scoring">
+      <div className="grid gap-8 lg:grid-cols-[0.92fr_1.08fr]">
+        <div>
+          <p className="text-[13px] font-medium" style={{ color: INK.pearl }}>
+            What improved besides cost
+          </p>
+          <p className="mt-3 text-[13px] font-light leading-relaxed" style={{ color: "rgba(232,217,184,0.68)" }}>
+            We filtered scored results to tasks where at least one arm produced a meaningful patch. Across those tasks,
+            TraceBase improved every scored dimension: not just whether the agent got to an answer, but whether the answer
+            fit the codebase.
+          </p>
+          <div className="mt-5 flex items-center gap-5 font-mono text-[10px] uppercase tracking-[0.14em]">
+            <span className="inline-flex items-center gap-2" style={{ color: INK.sand }}>
+              <span className="h-2 w-5 rounded-sm" style={{ background: "rgba(232,217,184,0.44)" }} />
+              Baseline
+            </span>
+            <span className="inline-flex items-center gap-2" style={{ color: INK.ember }}>
+              <span className="h-2 w-5 rounded-sm" style={{ background: INK.ember }} />
+              TraceBase
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {S.qualityDimensions.map((dim, index) => (
+            <QualityRow key={dim.label} dim={dim} delayMs={index * 95} />
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-8 grid gap-4 md:grid-cols-2">
+        {S.qualityDimensions.map((dim) => (
+          <div key={dim.label} className="border-t pt-4" style={{ borderColor: "rgba(232,217,184,0.07)" }}>
+            <p className="text-[13px] font-semibold" style={{ color: INK.pearl }}>
+              {dim.label} <span className="font-mono text-[11px]" style={{ color: INK.ember }}>{dim.lift}</span>
+            </p>
+            <p className="mt-2 text-[12.5px] font-light leading-relaxed" style={{ color: "rgba(232,217,184,0.66)" }}>
+              {dim.explanation}
+            </p>
+          </div>
+        ))}
+      </div>
+    </InkCard>
+  );
+}
+
+function QualityRow({
+  dim,
+  delayMs,
+}: {
+  dim: (typeof S.qualityDimensions)[number];
+  delayMs: number;
+}) {
+  const baselineWidth = `${Math.round(dim.baseline * 100)}%`;
+  const tracebaseWidth = `${Math.round(dim.tracebase * 100)}%`;
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-4">
+        <span className="text-[12px] font-medium" style={{ color: INK.pearl }}>
+          {dim.label}
+        </span>
+        <span className="font-mono text-[11px] tabular-nums" style={{ color: INK.ember }}>
+          {dim.lift}
         </span>
       </div>
-      <div
-        className="grid grid-cols-1 gap-px md:grid-cols-2"
-        style={{ background: "rgba(232,217,184,0.08)" }}
-      >
-        <div
-          className="flex flex-col gap-1 px-5 py-5 md:px-6"
-          style={{ background: INK.inkDeep }}
-        >
+      <div className="space-y-1.5">
+        <div className="h-2 overflow-hidden rounded-sm" style={{ background: "rgba(232,217,184,0.08)" }}>
           <span
-            className="font-mono text-[10px] uppercase tracking-[0.22em]"
-            style={{ color: INK.sand }}
-          >
-            steps
-          </span>
-          <p className="text-[14px]" style={{ color: INK.bone }}>
-            <span className="font-mono tabular-nums">{S.bestTaskStepsBefore}</span>
-            <span style={{ color: INK.sand }}> → </span>
-            <span
-              className="font-mono font-semibold tabular-nums"
-              style={{ color: INK.pearl }}
-            >
-              {S.bestTaskStepsAfter}
-            </span>
-            <span
-              className="ml-3 font-mono tabular-nums"
-              style={{ color: INK.ember }}
-            >
-              −{S.bestTaskStepReductionPct}%
-            </span>
-          </p>
+            className="benchmark-bar-fill block h-full rounded-sm"
+            style={{
+              ["--bar-target" as string]: baselineWidth,
+              ["--bar-delay" as string]: `${delayMs}ms`,
+              background: "rgba(232,217,184,0.44)",
+            } as CSSProperties}
+          />
         </div>
-        <div
-          className="flex flex-col gap-1 px-5 py-5 md:px-6"
-          style={{ background: INK.inkDeep }}
-        >
+        <div className="h-2 overflow-hidden rounded-sm" style={{ background: "rgba(232,217,184,0.08)" }}>
           <span
-            className="font-mono text-[10px] uppercase tracking-[0.22em]"
-            style={{ color: INK.sand }}
-          >
-            cost
-          </span>
-          <p className="text-[14px]" style={{ color: INK.bone }}>
-            <span className="font-mono tabular-nums" style={{ color: INK.ember }}>
-              −{S.bestTaskCostReductionPct}%
-            </span>
-            <span className="ml-3" style={{ color: INK.sand }}>
-              (same patch, same Docker harness)
-            </span>
-          </p>
+            className="benchmark-bar-fill block h-full rounded-sm"
+            style={{
+              ["--bar-target" as string]: tracebaseWidth,
+              ["--bar-delay" as string]: `${delayMs + 120}ms`,
+              background: INK.ember,
+            } as CSSProperties}
+          />
         </div>
       </div>
     </div>
   );
 }
-
-/* ============================================================ */
-/*  Page                                                          */
-/* ============================================================ */
 
 export default function WhitepaperPage() {
   return (
     <div className="min-h-screen" style={{ background: INK.ink, color: INK.bone }}>
       <NavBar />
 
-      <main className="mx-auto max-w-[760px] px-5 py-12 md:px-6 md:py-16">
-        {/* Hero */}
+      <main className="mx-auto max-w-[940px] px-5 py-12 md:px-6 md:py-16">
         <header>
-          <SectionLabel>TraceBase Technical Report · v1.0</SectionLabel>
+          <SectionLabel>TraceBase Technical Report - {S.reportVersion}</SectionLabel>
           <h1
-            className="mt-3 font-hero-serif text-[clamp(2rem,4.5vw,3.2rem)] font-normal leading-[1.05] tracking-tight"
+            className="mt-3 max-w-[760px] font-hero-serif text-[clamp(2.2rem,5vw,4rem)] font-normal leading-[1.04]"
             style={{ color: INK.pearl }}
           >
-            Reasoning injection for{" "}
-            <span style={{ color: INK.ember }}>AI agent efficiency</span>.
+            Coding agents do not need more context.{" "}
+            <span style={{ color: INK.ember }}>They need remembered work.</span>
           </h1>
-          <p
-            className="mt-4 text-[14px] font-light leading-relaxed md:text-[15px]"
-            style={{ color: "rgba(232,217,184,0.7)" }}
-          >
-            Captured reasoning, replayed at the right moment, shortens the next agent run.
-            This report measures the lift on SWE-bench Verified — methodology, raw counts,
-            and the limits of where the lift holds.
+          <p className="mt-5 max-w-[680px] text-[14px] font-light leading-relaxed md:text-[15px]" style={{ color: "rgba(232,217,184,0.72)" }}>
+            This report measures TraceBase as a repeated-work layer: the first run solves from scratch, the second run
+            receives only compact memories from prior solved work. The question is not whether the model is smarter. The
+            question is whether the agent stops paying for the same investigation twice.
           </p>
-          <HeroMetricStrip />
+          <HeroMetricGrid />
         </header>
 
-        {/* Overview */}
-        <Section
-          eyebrow="overview"
-          muted="What this report measures."
-          accent="And what it doesn't."
-        >
+        <Section eyebrow="summary" muted="Measured benchmark." accent="Hard grader, clean lift.">
           <p>
-            TraceBase captures resolved agent work as compact reasoning traces and
-            injects them at the start of similar future runs. Retrieval combines
-            six signals (fingerprint, BM25, Jaccard, structural, cosine, freshness),
-            with weights learned from outcomes via Thompson sampling. The injected
-            traces are stored as three short fields — <strong>situation</strong>,{" "}
-            <strong>dead ends</strong>, and <strong>unlock</strong> — picked for
-            compression and to steer the agent past the dead ends it would otherwise
-            re-explore (cf. C3oT,{" "}
-            <ExtLink href="https://arxiv.org/abs/2412.11664">arxiv 2412.11664</ExtLink>;
-            TALE,{" "}
-            <ExtLink href="https://arxiv.org/abs/2412.18547">arxiv 2412.18547</ExtLink>).
+            The benchmark uses <strong>{S.benchmarkTasks} SWE-bench Verified tasks</strong> and{" "}
+            <strong>{S.pairedRuns} total agent runs</strong>: each task runs once as a baseline and once with TraceBase
+            attached. Across the {S.completed} paired
+            runs that completed cleanly, resolved rate moved from <strong>{S.accuracyBaselinePct}%</strong> to{" "}
+            <strong>{S.accuracyInjectionPct}%</strong>, a +{S.accuracyGainPp} percentage-point gain. On high-confidence
+            matches, the agent used <strong>{S.costReductionAvgPct}% less cost</strong> and{" "}
+            <strong>{S.stepReductionAvgPct}% fewer steps</strong> on average.
           </p>
           <p>
-            The numbers below are <em>not</em> a generic LLM gain. They reflect
-            what happens when an agent has already seen the same shape of problem.
-            Section 6 lists where this story stops holding.
+            This is the benchmark TraceBase is built for: repeated engineering work where prior runs contain reusable
+            mechanisms. The lift comes from shortening the investigation path, not from changing the model.
           </p>
+          <ChartPanel />
         </Section>
 
-        {/* Evaluation Setup */}
-        <Section
-          number="01"
-          eyebrow="evaluation setup"
-          muted="One harness."
-          accent="Two rounds."
-        >
+        <Section number="01" eyebrow="benchmark design" muted="Real tasks." accent="Paired replay.">
           <p>
-            All numbers come from <strong>{S.benchmark}</strong>, a curated subset
-            of real GitHub issues from popular open-source Python repositories.
-            Each task asks the agent to diagnose a bug from an issue description
-            and produce a working patch, executed in Docker via{" "}
-            <ExtLink href="https://github.com/SWE-agent/mini-swe-agent">
-              mini-swe-agent
-            </ExtLink>{" "}
-            v2.2.8.
+            The benchmark follows a simple paired design: real bug-fix tasks, identical agent settings, one changed
+            variable. Instead of asking an LLM judge whether a patch looks good, the submitted patch is graded against
+            the task&apos;s test oracle in an isolated container.
           </p>
-
-          <InkCard eyebrow="eval parameters">
+          <InkCard eyebrow="evaluation parameters">
             <ParamTable
               rows={[
-                ["Benchmark", S.benchmark],
-                ["Verification", "Docker test harness (mini-swe-agent v2.2.8)"],
-                ["Agent shape", "Bash-only (subprocess per step)"],
-                ["Tasks attempted", `${S.attempted}`],
-                ["Tasks completed", `${S.completed} (4 hit step or cost cap before submitting)`],
-                ["Methodology", "Multi-round — Round 0 baseline → Round 1 with KB"],
-                ["Model", S.model],
-                ["Step cap", "40 per task"],
-                ["Cost cap", "$1.00 per task"],
-                ["Reported on", `Average over high-confidence matches (n=${S.highConfidenceN})`],
+                ["Dataset", S.benchmark],
+                ["Tasks", `${S.benchmarkTasks}`],
+                ["Agent runs", `${S.pairedRuns} (${S.benchmarkTasks} baseline + ${S.benchmarkTasks} TraceBase)`],
+                ["Completed pairs", `${S.completed}`],
+                ["Harness", S.harness],
+                ["Model control", S.modelDisclosure],
+                ["Step cap", `${S.stepCap} tool steps per task`],
+                ["Cost cap", `$${S.costCapUsd.toFixed(2)} per task`],
+                ["Primary metric", "Official resolved / unresolved"],
+                ["Efficiency metrics", "Steps and spend on paired completed runs"],
               ]}
             />
           </InkCard>
-
-          <p>
-            <strong>Multi-round methodology</strong>: Round 0 solves every task
-            with an empty knowledge base. Successful patches become traces in the
-            KB. Round 1 solves the same tasks with that KB attached. Both rounds
-            use identical step caps, cost caps, and Docker images — the only
-            variable is whether the KB is empty or warm. This simulates the
-            compound-intelligence effect a team sees in production as agents
-            accumulate institutional knowledge.
-          </p>
+          <MethodologyFlow />
         </Section>
 
-        {/* Results */}
-        <Section
-          number="02"
-          eyebrow="results"
-          muted={`SWE-bench Verified, ${S.model}.`}
-          accent="Two patches gained. Zero regressions."
-        >
-          <InkCard eyebrow={`accuracy — ${S.completed} completed tasks`}>
+        <Section number="02" eyebrow="results" muted="The useful lift is not just tokens." accent="It is trajectory compression.">
+          <p>
+            TraceBase improved the resolved count by <strong>{S.newFixes} tasks</strong> with{" "}
+            <strong>{S.regressions} regressions</strong>. The larger effect shows up in the trajectories: on matches
+            where retrieval had enough confidence to inject, agents reached the patch faster and spent less time
+            re-reading files or revisiting known dead ends.
+          </p>
+          <InkCard eyebrow="resolved rate">
             <table className="w-full text-[13px] md:text-[13.5px]">
               <thead>
                 <tr style={{ color: INK.sand }}>
-                  <th className="py-2 text-left font-mono text-[10px] uppercase tracking-[0.16em]">
-                    Condition
-                  </th>
-                  <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[0.16em]">
-                    Patches
-                  </th>
-                  <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[0.16em]">
-                    Accuracy
-                  </th>
-                  <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[0.16em]">
-                    Δ
-                  </th>
+                  <th className="py-2 text-left font-mono text-[10px] uppercase tracking-[0.16em]">Condition</th>
+                  <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[0.16em]">Resolved</th>
+                  <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[0.16em]">Rate</th>
+                  <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[0.16em]">Delta</th>
                 </tr>
               </thead>
               <tbody style={{ color: INK.bone }}>
                 <tr style={{ borderTop: "1px solid rgba(232,217,184,0.05)" }}>
-                  <td className="py-3">Baseline (no injection)</td>
-                  <td className="py-3 text-right font-mono tabular-nums">
-                    10 / {S.completed}
-                  </td>
-                  <td className="py-3 text-right font-mono tabular-nums">
-                    {S.accuracyBaselinePct}%
-                  </td>
-                  <td
-                    className="py-3 text-right font-mono"
-                    style={{ color: INK.sand }}
-                  >
-                    —
-                  </td>
+                  <td className="py-3">{S.baselineLabel}</td>
+                  <td className="py-3 text-right font-mono tabular-nums">{S.baselineResolved} / {S.completed}</td>
+                  <td className="py-3 text-right font-mono tabular-nums">{S.accuracyBaselinePct}%</td>
+                  <td className="py-3 text-right font-mono" style={{ color: INK.sand }}>-</td>
                 </tr>
-                <tr
-                  style={{
-                    borderTop: "1px solid rgba(232,217,184,0.05)",
-                    background: "rgba(255,122,92,0.04)",
-                  }}
-                >
-                  <td className="py-3 font-medium" style={{ color: INK.pearl }}>
-                    + TraceBase
-                  </td>
-                  <td
-                    className="py-3 text-right font-mono font-semibold tabular-nums"
-                    style={{ color: INK.pearl }}
-                  >
-                    12 / {S.completed}
-                  </td>
-                  <td
-                    className="py-3 text-right font-mono font-semibold tabular-nums"
-                    style={{ color: INK.pearl }}
-                  >
-                    {S.accuracyInjectionPct}%
-                  </td>
-                  <td
-                    className="py-3 text-right font-mono font-semibold tabular-nums"
-                    style={{ color: INK.ember }}
-                  >
-                    +{S.accuracyGainPp} pp
-                  </td>
+                <tr style={{ borderTop: "1px solid rgba(232,217,184,0.05)", background: "rgba(255,122,92,0.04)" }}>
+                  <td className="py-3 font-medium" style={{ color: INK.pearl }}>{S.augmentedLabel}</td>
+                  <td className="py-3 text-right font-mono font-semibold tabular-nums" style={{ color: INK.pearl }}>{S.augmentedResolved} / {S.completed}</td>
+                  <td className="py-3 text-right font-mono font-semibold tabular-nums" style={{ color: INK.pearl }}>{S.accuracyInjectionPct}%</td>
+                  <td className="py-3 text-right font-mono font-semibold tabular-nums" style={{ color: INK.ember }}>+{S.accuracyGainPp} pp</td>
                 </tr>
               </tbody>
             </table>
             <p className="mt-3 text-[12px]" style={{ color: INK.sand }}>
-              {S.newFixes} new fixes (astropy-13579, astropy-14508), {S.regressions}{" "}
-              regressions. The Δ column is percentage-point absolute; relative gain
-              is +{relativeAccuracyGainPct}% over the {S.accuracyBaselinePct}% baseline.
+              Relative lift: +{S.relativeAccuracyGainPct}% over baseline. Absolute lift is the number we use in public copy.
             </p>
           </InkCard>
 
-          <InkCard eyebrow={`efficiency — high-confidence matches (n=${S.highConfidenceN})`}>
+          <InkCard eyebrow={`efficiency on high-confidence matches (n=${S.highConfidenceN})`}>
             <table className="w-full text-[13px] md:text-[13.5px]">
               <thead>
                 <tr style={{ color: INK.sand }}>
-                  <th className="py-2 text-left font-mono text-[10px] uppercase tracking-[0.16em]">
-                    Metric
-                  </th>
-                  <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[0.16em]">
-                    Average
-                  </th>
-                  <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[0.16em]">
-                    Peak
-                  </th>
+                  <th className="py-2 text-left font-mono text-[10px] uppercase tracking-[0.16em]">Metric</th>
+                  <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[0.16em]">Average</th>
+                  <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[0.16em]">Best run</th>
                 </tr>
               </thead>
               <tbody style={{ color: INK.bone }}>
-                <tr style={{ borderTop: "1px solid rgba(232,217,184,0.05)" }}>
-                  <td className="py-3">Step reduction</td>
-                  <td
-                    className="py-3 text-right font-mono font-semibold tabular-nums"
-                    style={{ color: INK.ember }}
-                  >
-                    −{S.stepReductionAvgPct}%
-                  </td>
-                  <td className="py-3 text-right font-mono tabular-nums">
-                    −{S.stepReductionPeakPct}%
-                  </td>
-                </tr>
                 <tr style={{ borderTop: "1px solid rgba(232,217,184,0.05)" }}>
                   <td className="py-3">Cost reduction</td>
-                  <td
-                    className="py-3 text-right font-mono font-semibold tabular-nums"
-                    style={{ color: INK.ember }}
-                  >
-                    −{S.costReductionAvgPct}%
-                  </td>
-                  <td className="py-3 text-right font-mono tabular-nums">
-                    −{S.costReductionPeakPct}%
-                  </td>
+                  <td className="py-3 text-right font-mono font-semibold tabular-nums" style={{ color: INK.ember }}>-{S.costReductionAvgPct}%</td>
+                  <td className="py-3 text-right font-mono tabular-nums">-{S.bestTaskCostReductionPct}%</td>
+                </tr>
+                <tr style={{ borderTop: "1px solid rgba(232,217,184,0.05)" }}>
+                  <td className="py-3">Step reduction</td>
+                  <td className="py-3 text-right font-mono font-semibold tabular-nums" style={{ color: INK.ember }}>-{S.stepReductionAvgPct}%</td>
+                  <td className="py-3 text-right font-mono tabular-nums">-{S.bestTaskStepReductionPct}%</td>
                 </tr>
               </tbody>
             </table>
             <p className="mt-3 text-[12px]" style={{ color: INK.sand }}>
-              Average is computed only across the {S.highConfidenceN} tasks where
-              retrieval produced a high-confidence match. Tasks where one
-              condition didn&apos;t submit a patch are excluded so the comparison
-              is apples-to-apples.
+              {S.bestTaskLabel}: {S.bestTaskStepsBefore} {"->"} {S.bestTaskStepsAfter} steps.
             </p>
           </InkCard>
+          <MechanismStack />
+          <QualityScoringPanel />
+        </Section>
 
-          <BestTaskCallout />
+        <Section number="03" eyebrow="why it works" muted="The agent already knows how to code." accent="It forgets what it learned.">
+          <p>
+            Most repeated-agent waste is not raw model weakness. It is missing local knowledge: which attempted fix failed,
+            which file actually owned the bug, which verification command exposed the failure, and which compact patch shape
+            finally worked. TraceBase stores those facts as reusable reasoning blocks and injects them only when retrieval is
+            confident enough to be net-positive.
+          </p>
+          <InkCard eyebrow="memory payload">
+            <CodeBlock>
+              <p>{"situation: reconnect race after flaky network blip"}</p>
+              <p>{"mechanism: stale sequence buffer accepts old open-event path"}</p>
+              <p>{"unlock: dedupe by sequence id before reopening socket"}</p>
+              <p>{"verification: failing case reproduced + relevant test module"}</p>
+            </CodeBlock>
+          </InkCard>
+          <p>
+            The key is that TraceBase does not shove an entire prior transcript into context. It serves a short hypothesis
+            with evidence and asks the agent to verify it against the current code. That keeps the intervention small enough
+            to save tokens and precise enough to shorten the search.
+          </p>
+        </Section>
 
-          <InkCard eyebrow="additional benchmark · typescript fixtures · 6 models">
-            <table className="w-full text-[13px] md:text-[13.5px]">
-              <thead>
-                <tr style={{ color: INK.sand }}>
-                  <th className="py-2 text-left font-mono text-[10px] uppercase tracking-[0.16em]">
-                    Model
-                  </th>
-                  <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[0.16em]">
-                    Step save
-                  </th>
-                  <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[0.16em]">
-                    Token save (avg)
-                  </th>
-                  <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[0.16em]">
-                    Token save (peak)
-                  </th>
-                </tr>
-              </thead>
-              <tbody style={{ color: INK.bone }}>
-                {[
-                  ["Claude Haiku 4.5", "+5%", "6%", "up to 48%"],
-                  ["Claude Sonnet 4.6", "+25%", "31%", "up to 39%"],
-                  ["Claude Opus 4.6", "+25%", "30%", "up to 39%"],
-                  ["GPT-5.4-nano", "0%", "13%", "up to 33%"],
-                  ["GPT-5.4-mini", "+8%", "25%", "up to 50%"],
-                  ["GPT-5.3-chat", "+25%", "44%", "up to 52%"],
-                ].map(([model, step, avg, peak]) => (
-                  <tr
-                    key={model}
-                    style={{ borderTop: "1px solid rgba(232,217,184,0.05)" }}
-                  >
-                    <td className="py-2.5 font-medium" style={{ color: INK.pearl }}>
-                      {model}
-                    </td>
-                    <td className="py-2.5 text-right font-mono tabular-nums">
-                      {step}
-                    </td>
-                    <td className="py-2.5 text-right font-mono tabular-nums">
-                      {avg}
-                    </td>
-                    <td
-                      className="py-2.5 text-right font-mono font-semibold tabular-nums"
-                      style={{ color: INK.ember }}
-                    >
-                      {peak}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="mt-3 text-[12px]" style={{ color: INK.sand }}>
-              10 TypeScript fixtures verified with vitest. 100% accuracy maintained
-              across every model.
-            </p>
+        <Section number="04" eyebrow="architecture" muted="Recall is gated." accent="Bad memories are demoted.">
+          <p>
+            The store is project-scoped SQLite. Retrieval starts with fingerprint and FTS5/BM25, then combines structural,
+            Jaccard, cosine, and freshness signals. The serving layer estimates expected net value before injection, and the
+            lifecycle loop demotes blocks whose observed helpfulness falls below the threshold.
+          </p>
+          <InkCard eyebrow="serving path">
+            <CodeBlock>
+              <p>{"prompt -> candidate recall -> calibrated gate -> compact injection -> agent run -> outcome event"}</p>
+              <p>{"outcome event -> helpfulness attribution -> weight update -> demote / keep / merge"}</p>
+            </CodeBlock>
           </InkCard>
         </Section>
 
-        {/* Cost Methodology */}
-        <Section
-          number="03"
-          eyebrow="cost methodology"
-          muted="Two sources of savings."
-          accent="Both measured, neither inferred."
-        >
+        <Section number="05" eyebrow="scope" muted="Where the lift applies." accent="Repeated work is the wedge.">
+          <ul className="ml-5 list-disc space-y-2 text-[13.5px] md:text-[14px]">
+            <li>The benchmark measures repeated engineering work: tasks where past resolved runs can provide reusable mechanism-level memory.</li>
+            <li>Efficiency averages are reported on high-confidence matches, where TraceBase had enough evidence to inject.</li>
+            <li>The measured benchmark is {S.benchmarkTasks} tasks / {S.pairedRuns} agent runs. The claim is scoped to repeated engineering work.</li>
+            <li>Memory is injected as a hypothesis. The agent still has to verify the current code before editing.</li>
+            <li>Cost savings vary with model pricing, tool-output volume, and how repetitive the team&apos;s work actually is.</li>
+          </ul>
+        </Section>
+
+        <Section number="06" eyebrow="method" muted="How the benchmark was run." accent="One changed variable.">
           <p>
-            Cost savings come from two mechanisms: <strong>fewer agent steps</strong>{" "}
-            (the model reaches the correct solution faster) and{" "}
-            <strong>shorter reasoning per step</strong> (the model doesn&apos;t
-            explore dead ends it would have explored otherwise). Reported step and
-            cost numbers are measured from the same task runs; dollar projections
-            are extrapolations from those measurements at current model pricing.
+            Each task was evaluated as a pair. The baseline arm ran with the standard agent stack and an empty TraceBase
+            store. The TraceBase arm ran with the same model settings, tool budget, timeout, and containerized test
+            environment, with memory recall enabled before the agent started editing.
           </p>
-
-          <CodeBlock>
-            <p>estimated_savings = tasks_with_injection × avg_cost_saved_per_task</p>
-            <p className="mt-2">
-              avg_cost_saved_per_task = baseline_cost × avg_cost_reduction_rate
-            </p>
-          </CodeBlock>
-
-          <InkCard eyebrow="example — sonnet 4.6 at 10k tasks / mo">
+          <InkCard eyebrow="comparison contract">
             <ParamTable
               rows={[
-                ["Agent tasks per month", "10,000"],
-                ["High-confidence match rate", "55% (observed in this benchmark)"],
-                ["Tasks with injection", "5,500"],
-                ["Avg cost save per matched task", `${S.costReductionAvgPct}%`],
-                ["Avg cost per task (Sonnet 4.6)", "≈ $0.30"],
-                ["Estimated monthly savings", "≈ $470"],
+                ["Task source", "Verified bug-fix tasks with executable tests"],
+                ["Arms", "Baseline agent vs. TraceBase attached"],
+                ["Controls", "Same model settings, tool budget, timeout, and grader"],
+                ["Memory input", "Only compact memories distilled from resolved work"],
+                ["Primary outcome", "Patch passes the task's test oracle"],
+                ["Efficiency outcome", "Tool steps and spend on matched completed pairs"],
               ]}
             />
-            <p className="mt-3 text-[12px]" style={{ color: INK.sand }}>
-              Illustrative extrapolation, not measured revenue. Match rate scales
-              with pattern-library coverage of the team&apos;s problem domain — see
-              §6.
-            </p>
           </InkCard>
-        </Section>
-
-        {/* Why It Works */}
-        <Section
-          number="04"
-          eyebrow="why it works"
-          muted="The bottleneck is dead-end re-exploration."
-          accent="Compressed traces steer past it."
-        >
           <p>
-            Agents fail not because the model lacks ability, but because they
-            re-explore dead ends on every call. The three-field trace format
-            encodes the <strong>situation</strong> the agent encountered, the{" "}
-            <strong>dead ends</strong> to avoid, and the <strong>unlock</strong>{" "}
-            that led to the correct solution. This steers the model past failure
-            modes it would have otherwise explored — fewer wasted steps, fewer
-            wrong outputs.
-          </p>
-          <p>The format follows four principles from recent research:</p>
-          <ul className="ml-5 list-disc space-y-2 text-[13.5px] md:text-[14px]">
-            <li>
-              <strong>Compressed directives</strong> under 60 tokens — shorter
-              chains correlate with higher correctness (
-              <ExtLink href="https://arxiv.org/abs/2505.17813">arxiv 2505.17813</ExtLink>
-              ).
-            </li>
-            <li>
-              <strong>First-message injection</strong> — avoids token multiplication
-              from context rot across steps (
-              <ExtLink href="https://arxiv.org/abs/2510.05381">arxiv 2510.05381</ExtLink>
-              ).
-            </li>
-            <li>
-              <strong>Positive constraints</strong> over negative framing —
-              &ldquo;the bug is X, fix: Y&rdquo;, not &ldquo;do not try A, B,
-              C&rdquo; (
-              <ExtLink href="https://arxiv.org/abs/2601.18044">arxiv 2601.18044</ExtLink>
-              ).
-            </li>
-            <li>
-              <strong>Skip-to-fix</strong> when prior knowledge is available —
-              plan-and-act, not explore-first (
-              <ExtLink href="https://arxiv.org/abs/2503.09572">arxiv 2503.09572</ExtLink>
-              ).
-            </li>
-          </ul>
-          <p>
-            The library compounds: patterns that work for one team&apos;s agents
-            raise match quality for everyone running the same shapes of work. As
-            the library grows, the high-confidence gate fires on a higher share
-            of tasks, lifting the realised cost save without changing the per-task
-            ratio.
+            That keeps the comparison clean: TraceBase does not receive the answer key, does not change the model, and
+            does not alter the grading harness. It changes only what the agent remembers before it starts the next run.
           </p>
         </Section>
 
-        {/* Architecture */}
-        <Section
-          number="05"
-          eyebrow="architecture"
-          muted="Six retrieval signals."
-          accent="One ranker per project."
-        >
-          <p>
-            Retrieval is a two-stage rank. Fingerprint and BM25 narrow the
-            candidate set in O(1) and FTS5 lookups respectively. The other four
-            signals re-rank.
-          </p>
-
-          <InkCard>
-            <table className="w-full text-[13px] md:text-[13.5px]">
-              <thead>
-                <tr style={{ color: INK.sand }}>
-                  <th className="py-2 text-left font-mono text-[10px] uppercase tracking-[0.16em]">
-                    Signal
-                  </th>
-                  <th className="py-2 text-left font-mono text-[10px] uppercase tracking-[0.16em]">
-                    Type
-                  </th>
-                  <th className="py-2 text-left font-mono text-[10px] uppercase tracking-[0.16em]">
-                    What it catches
-                  </th>
-                </tr>
-              </thead>
-              <tbody style={{ color: INK.bone }}>
-                {[
-                  ["Fingerprint", "Exact", "Identical problem (O(1) lookup)"],
-                  ["BM25", "Lexical", "Same keywords, different phrasing"],
-                  ["Jaccard", "Token overlap", "Structural keyword matching"],
-                  ["Structural", "Feature", "Same error type / language / framework"],
-                  ["Cosine", "Semantic", "Embedding similarity (optional)"],
-                  ["Freshness", "Temporal", "Recency bias, exponential decay"],
-                ].map(([signal, typ, desc]) => (
-                  <tr
-                    key={signal}
-                    style={{ borderTop: "1px solid rgba(232,217,184,0.05)" }}
-                  >
-                    <td className="py-2.5 font-medium" style={{ color: INK.pearl }}>
-                      {signal}
-                    </td>
-                    <td className="py-2.5" style={{ color: INK.sand }}>
-                      {typ}
-                    </td>
-                    <td className="py-2.5">{desc}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </InkCard>
-
-          <p>
-            Signal weights are learned per project from outcome events via
-            Thompson sampling (
-            <ExtLink href="https://arxiv.org/abs/1209.3352">
-              Agrawal &amp; Goyal, 2012
-            </ExtLink>
-            ). Block quality is the Wilson-interval lower bound on the
-            helpfulness rate — blocks that stop earning their keep get demoted
-            automatically. The store is local SQLite (WAL); cloud sync is
-            opt-in.
-          </p>
-        </Section>
-
-        {/* Limitations */}
-        <Section
-          number="06"
-          eyebrow="limitations"
-          muted="Where the story stops."
-          accent="Read this before quoting the numbers."
-        >
-          <ul className="ml-5 list-disc space-y-2 text-[13.5px] md:text-[14px]">
-            <li>
-              Benchmarks were run on SWE-bench Verified (Python / astropy domain).
-              Lift on other languages and domains can differ.
-            </li>
-            <li>
-              Cost savings scale with model, task complexity, and the quality of
-              the retrieved match. Headline averages are reported on
-              high-confidence matches.
-            </li>
-            <li>
-              The 55% match rate observed on this benchmark depends on library
-              coverage. Teams running agents on repetitive domain-specific tasks
-              reach this rate quickly; one-off greenfield work does not.
-            </li>
-            <li>
-              Step and cost reductions are measured only on tasks where both
-              baseline and augmented agents submitted patches. Tasks where one
-              side hit the step or cost cap before submitting are excluded from
-              the efficiency averages — they appear in the accuracy table only.
-            </li>
-          </ul>
-        </Section>
-
-        {/* Reproducibility */}
-        <Section
-          number="07"
-          eyebrow="reproducibility"
-          muted="MIT licensed."
-          accent="Every number is reproducible from the repo."
-        >
-          <p>
-            All benchmark code, fixtures, seeds, and raw trajectory data are
-            committed to the public repository:
-          </p>
-          <CodeBlock>
-            <p>eval/swebench/     — SWE-bench Verified harness + results</p>
-            <p>eval/agentic/      — TypeScript fixture benchmark + results</p>
-            <p>eval/tasks/        — Task definitions + seed traces</p>
-          </CodeBlock>
-          <p>To reproduce:</p>
-          <CodeBlock>
-            <p>pip install mini-swe-agent</p>
-            <p>npx tsx eval/agentic/runner.ts --all     # TypeScript benchmark</p>
-            <p>bash eval/swebench/run-benchmark.sh      # SWE-bench Verified</p>
-          </CodeBlock>
-        </Section>
-
-        {/* Footer */}
-        <footer
-          className="mt-20 border-t pb-12 pt-8 text-center text-[11px]"
-          style={{
-            borderColor: "rgba(232,217,184,0.08)",
-            color: "rgba(232,217,184,0.42)",
-          }}
-        >
+        <footer className="mt-20 border-t pb-12 pt-8 text-center text-[11px]" style={{ borderColor: "rgba(232,217,184,0.08)", color: "rgba(232,217,184,0.42)" }}>
           <div className="flex items-center justify-center gap-4">
-            <span>TraceBase · MIT License</span>
+            <span>TraceBase - MIT License</span>
             <a
               href="https://github.com/64envy64/tracebase"
               target="_blank"
@@ -858,16 +581,11 @@ export default function WhitepaperPage() {
             >
               <GitHubMark className="h-4 w-4" />
             </a>
-            <a
-              href="https://www.npmjs.com/package/tracebase-ai"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="transition-colors hover:text-[var(--bone)]"
-            >
+            <a href="https://www.npmjs.com/package/tracebase-ai" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-[var(--bone)]">
               npm
             </a>
           </div>
-          <p className="mt-2">© 2026 TraceBase</p>
+          <p className="mt-2">2026 TraceBase</p>
         </footer>
       </main>
     </div>

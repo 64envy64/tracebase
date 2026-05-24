@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { INK } from "./tokens";
 
 /* ============================================================ */
@@ -48,6 +48,7 @@ const TENTACLES = [
 export function InkIntro() {
   const [lifted, setLifted] = useState(false);
   const [unmounted, setUnmounted] = useState(false);
+  const restoredRef = useRef(false);
 
   useEffect(() => {
     let reduced = false;
@@ -62,6 +63,14 @@ export function InkIntro() {
     const prevHtmlOverflow = document.documentElement.style.overflow;
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
+    restoredRef.current = false;
+
+    const restoreScroll = () => {
+      if (restoredRef.current) return;
+      restoredRef.current = true;
+      document.body.style.overflow = prevOverflow;
+      document.documentElement.style.overflow = prevHtmlOverflow;
+    };
 
     // Reduced-motion: collapse to a 150ms fade-out so reduced-motion users
     // still get the brand panel briefly without sustained movement.
@@ -69,13 +78,15 @@ export function InkIntro() {
     const unmountAt = reduced ? 320 : UNMOUNT_MS;
 
     const t1 = window.setTimeout(() => setLifted(true), liftAt);
-    const t2 = window.setTimeout(() => setUnmounted(true), unmountAt);
+    const t2 = window.setTimeout(() => {
+      restoreScroll();
+      setUnmounted(true);
+    }, unmountAt);
 
     return () => {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
-      document.body.style.overflow = prevOverflow;
-      document.documentElement.style.overflow = prevHtmlOverflow;
+      restoreScroll();
     };
   }, []);
 

@@ -7,6 +7,7 @@ import { HeroInk } from "@/components/landing/HeroInk";
 import { LandingNav } from "@/components/landing/LandingNav";
 import { PartnersStrip } from "@/components/landing/PartnersStrip";
 import { PricingGrid } from "@/components/landing/PricingGrid";
+import { RunComparisonSection } from "@/components/landing/RunComparisonSection";
 import { RunSplitSection } from "@/components/landing/RunSplitSection";
 import { TentacleSection } from "@/components/landing/TentacleSection";
 import { UseCasesSection } from "@/components/landing/UseCasesSection";
@@ -66,6 +67,10 @@ export default function Home() {
         <ForgettingTax />
 
         <RunSplitSection />
+
+        <div className="mx-auto max-w-[1080px] px-5 sm:px-6">
+          <RunComparisonSection />
+        </div>
 
         <TentacleSection />
 

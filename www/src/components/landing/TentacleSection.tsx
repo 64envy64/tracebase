@@ -53,9 +53,11 @@ export function TentacleSection() {
     if (typeof IntersectionObserver === "undefined") {
       // Older browsers without IO: reveal the full set so the section
       // still reads usefully even without scroll-driven choreography.
-      setActiveIndex(CAPABILITIES.length - 1);
-      setRevealedUpTo(CAPABILITIES.length - 1);
-      return;
+      const id = window.requestAnimationFrame(() => {
+        setActiveIndex(CAPABILITIES.length - 1);
+        setRevealedUpTo(CAPABILITIES.length - 1);
+      });
+      return () => window.cancelAnimationFrame(id);
     }
 
     const observer = new IntersectionObserver(

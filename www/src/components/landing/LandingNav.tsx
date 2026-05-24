@@ -123,8 +123,9 @@ export function LandingNav() {
   }, []);
 
   useEffect(() => {
-    setOpen(false);
+    const id = window.requestAnimationFrame(() => setOpen(false));
     clearLandingScrollLock(true);
+    return () => window.cancelAnimationFrame(id);
   }, [pathname]);
 
   useEffect(() => {
