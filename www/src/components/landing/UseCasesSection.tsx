@@ -4,18 +4,10 @@ import { Reveal } from "./brand/Reveal";
 import { INK } from "./brand/tokens";
 
 /* ============================================================ */
-/*  UseCasesSection — four product-shape domains where the       */
-/*  runtime is architecturally a fit today. Compact icon-tile    */
-/*  grid (icon + short title + one-line body), same scan         */
-/*  rhythm as the Token Company reference but in our ink.        */
-/*                                                                */
-/*  Honesty rule: every domain here is either (a) the validated  */
-/*  primary domain (coding agents), (b) a technical capability   */
-/*  the runtime delivers regardless of vertical (long-horizon),  */
-/*  or (c) an adjacent domain where MCP / SDK middleware         */
-/*  architecturally applies (documents, customer ops). No        */
-/*  "gaming" or "transcription" stretching — YC reviewers spot   */
-/*  it instantly.                                                */
+/*  UseCasesSection — four team shapes where the same runtime    */
+/*  earns its keep today. Engineering is the validated primary,  */
+/*  the other three are adjacent surfaces where MCP / SDK        */
+/*  middleware architecturally applies on the same store.        */
 /* ============================================================ */
 
 type UseCase = {
@@ -27,28 +19,28 @@ type UseCase = {
 
 const USE_CASES: readonly UseCase[] = [
   {
-    id: "coding-agents",
-    title: "Coding agents",
-    body: "Claude Code, Cursor, Codex. Pattern DB compounds across PRs and migrations.",
+    id: "engineering",
+    title: "Engineering",
+    body: "Claude Code, Cursor, Codex. Resolved fixes and migrations compound across PRs — no re-derivation.",
     Icon: IconCode,
   },
   {
-    id: "long-horizon",
-    title: "Long-horizon runs",
-    body: "100+ turn sessions stay coherent. Older turns fold into gists — no window thrashing.",
+    id: "support",
+    title: "Support & customer ops",
+    body: "Same-shape tickets, same playbook. Past resolutions surface for the next agent before re-work.",
+    Icon: IconChat,
+  },
+  {
+    id: "sales",
+    title: "Sales & RevOps",
+    body: "Won-deal motions and CRM workflows reused across reps. The next outreach starts from what closed.",
     Icon: IconTimeline,
   },
   {
-    id: "documents",
-    title: "Document & research",
-    body: "Gist remembers what long PDFs and reports mean. Past extractions surface on revisit.",
+    id: "internal-ops",
+    title: "Internal ops & research",
+    body: "Runbooks, docs, and long PDFs keep their meaning. Past extractions surface on revisit.",
     Icon: IconDocument,
-  },
-  {
-    id: "customer-ops",
-    title: "Customer & support ops",
-    body: "Same-shape tickets, same playbook. Past resolutions surface before re-derivation.",
-    Icon: IconChat,
   },
 ] as const;
 
@@ -94,14 +86,14 @@ function UseCasesHeader() {
         className="mt-3 font-hero-serif text-[clamp(1.9rem,4vw,3.2rem)] font-normal leading-[1.04] tracking-tight"
         style={{ color: INK.pearl }}
       >
-        <span style={{ color: "rgba(232,217,184,0.48)" }}>Built for coding agents.</span>{" "}
-        Earning its keep in four shapes.
+        <span style={{ color: "rgba(232,217,184,0.48)" }}>One memory layer.</span>{" "}
+        Earning its keep across teams.
       </h2>
       <p
         className="mt-5 max-w-[34rem] text-[14px] font-light leading-relaxed md:text-[15px]"
         style={{ color: "rgba(232,217,184,0.68)" }}
       >
-        Memory compounds value run over run. Coding is the validated wedge; the other three are shapes where the same runtime architecturally fits.
+        Engineering is the validated wedge; the other three are surfaces where the same runtime — MCP, SDK middleware, hosted control plane — architecturally fits on the same store.
       </p>
     </div>
   );

@@ -1,11 +1,11 @@
 "use client";
 
-import { CopyCommand } from "@/components/CopyButton";
 import { GetStartedButton } from "@/components/auth/GetStartedButton";
 import { CtaOcto, InkSplatter, InkUnderline } from "./brand/Marks";
 import { SectionLabel } from "./brand/Primitives";
 import { INK } from "./brand/tokens";
 import { useInView } from "./brand/useInView";
+import { WaitlistForm } from "./WaitlistForm";
 
 /* ============================================================ */
 /*  CtaSection — full-bleed closing moment.                      */
@@ -65,12 +65,12 @@ export function CtaSection() {
             className="max-w-[36rem] text-[14px] font-light leading-relaxed md:text-[15px]"
             style={{ color: "rgba(232,217,184,0.72)" }}
           >
-            One install for self-serve teams. Custom reasoning layer for production traffic. Open source today — MIT, self-hosted, ships out of the box.
+            One memory layer for every team and every agent. Self-serve install for individuals; custom runtime for production traffic. Open source today — MIT, self-hosted, ships out of the box.
           </p>
 
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <GetStartedButton size="large" />
-            <CopyCommand command="npx tracebase-ai init" />
+            <WaitlistForm size="large" />
           </div>
 
           <p
