@@ -80,6 +80,12 @@ export const DEFAULT_LOOKBACK_MS = 90 * 1000;
  */
 export const DEFAULT_EVIDENCE_THRESHOLD = 0.18;
 
+const RESOLVED_POSITIVE_RE =
+  /\b(fixed|resolved|verified|confirmed|passed|green|works now|no errors?|tests? pass(?:ed)?|build pass(?:ed)?|lint pass(?:ed)?|pytest\b[^.]{0,80}\bpass(?:ed)?|npm test\b[^.]{0,80}\bpass(?:ed)?)\b/i;
+
+const RESOLVED_NEGATIVE_RE =
+  /\b(still fails?|still failing|not fixed|not resolved|error remains|could(?:n't| not)|can't|cannot|blocked|unable|tests? fail(?:ed|ing)?|build fail(?:ed|ing)?|lint fail(?:ed|ing)?|pytest\b[^.]{0,80}\bfail(?:ed|ing)?|npm test\b[^.]{0,80}\bfail(?:ed|ing)?|does not work|didn't work|regression remains)\b/i;
+
 /** Minimum token length to keep when tokenising. Three filters out
  * single-letter noise and language particles (a, the, и, не) while
  * keeping short symbol-like tokens (CORS, MCP, npx). */
@@ -263,6 +269,20 @@ export function tokenize(s: string): string[] {
     .toLowerCase()
     .split(/[^a-z0-9_-]+/u)
     .filter((t) => t.length >= MIN_TOKEN_LEN);
+}
+
+/**
+ * Conservative Stop-hook outcome classifier. This is deliberately a
+ * narrow completion signal, not a task evaluator: it only allows the
+ * caller to emit a soft `outcome.resolved=true` when attribution has
+ * already credited `agent_used` AND the assistant text claims the work
+ * landed or was verified. Negative/stuck wording wins over positives.
+ */
+export function inferResolvedOutcomeFromTranscript(transcriptTailText: string): boolean {
+  const text = transcriptTailText.replace(/\s+/g, " ").trim();
+  if (text.length < 40) return false;
+  if (RESOLVED_NEGATIVE_RE.test(text)) return false;
+  return RESOLVED_POSITIVE_RE.test(text);
 }
 
 // ---------------------------------------------------------------------------

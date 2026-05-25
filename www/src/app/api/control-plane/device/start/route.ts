@@ -5,7 +5,7 @@ import { checkRateLimit } from "@/lib/server/rate-limit";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  const limit = checkRateLimit({
+  const limit = await checkRateLimit({
     bucket: "device-start",
     key: requestIp(req),
     limit: 20,

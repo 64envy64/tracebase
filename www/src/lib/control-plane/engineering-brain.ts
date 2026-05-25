@@ -275,7 +275,10 @@ let cachedStorePromise: Promise<EngineeringBrainStore> | null = null;
 
 export function getEngineeringBrainStore(): Promise<EngineeringBrainStore> {
   if (!cachedStorePromise) {
-    cachedStorePromise = createStore();
+    cachedStorePromise = createStore().catch((err) => {
+      cachedStorePromise = null;
+      throw err;
+    });
   }
   return cachedStorePromise;
 }
@@ -294,6 +297,9 @@ async function createStore(): Promise<EngineeringBrainStore> {
   const config = resolvePoolConfig();
   if (config) {
     return new PostgresEngineeringBrainStore(config);
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Engineering Brain storage requires Postgres in production.");
   }
   const filePath =
     process.env.TRACEBASE_ENGINEERING_BRAIN_FILE ??

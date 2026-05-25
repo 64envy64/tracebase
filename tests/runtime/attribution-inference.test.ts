@@ -25,6 +25,7 @@ import { describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import {
   inferAgentUsedFromTranscript,
+  inferResolvedOutcomeFromTranscript,
   scoreBlockEvidenceAgainstTranscript,
   tokenize,
   DEFAULT_EVIDENCE_THRESHOLD,
@@ -102,6 +103,48 @@ describe("tokenize", () => {
   it("survives empty / whitespace-only input", () => {
     expect(tokenize("")).toEqual([]);
     expect(tokenize("   \n\t  ")).toEqual([]);
+  });
+});
+
+describe("inferResolvedOutcomeFromTranscript", () => {
+  it("accepts narrow completion / verification language", () => {
+    expect(
+      inferResolvedOutcomeFromTranscript(
+        "I added the cors middleware, verified OPTIONS returns 204, and the tests pass now.",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects plan-only language even when it names the right fix", () => {
+    expect(
+      inferResolvedOutcomeFromTranscript(
+        "The fix is to add cors middleware and verify OPTIONS returns 204 before trying again.",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects generic edit language without verification", () => {
+    expect(
+      inferResolvedOutcomeFromTranscript(
+        "I added some debug logging and updated the plan so we can verify the failing path next.",
+      ),
+    ).toBe(false);
+  });
+
+  it("lets stuck / failing language override positive words", () => {
+    expect(
+      inferResolvedOutcomeFromTranscript(
+        "I added the middleware, but tests still fail and the CORS error remains.",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not let a historical failed noun phrase override a passing verification", () => {
+    expect(
+      inferResolvedOutcomeFromTranscript(
+        "I fixed the failed migration by updating the rollback guard, and npm test passed.",
+      ),
+    ).toBe(true);
   });
 });
 

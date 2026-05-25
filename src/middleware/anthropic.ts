@@ -125,8 +125,9 @@ function makeApplyHandler(
       injection = performRecall(layer, problemText, recallConfig!);
 
       if (injection) {
-        const newSystem = injectIntoAnthropicSystem(params.system, injection.text);
-        const newParams = { ...params, system: newSystem };
+        const currentParams = modifiedArgs[0] as AnthropicParams;
+        const newSystem = injectIntoAnthropicSystem(currentParams.system, injection.text);
+        const newParams = { ...currentParams, system: newSystem };
         modifiedArgs = [newParams, ...argsList.slice(1)];
       }
     }
@@ -168,7 +169,7 @@ function makeApplyHandler(
     if (result && typeof result === "object" && Symbol.asyncIterator in (result as object)) {
       return wrapAnthropicStream(
         result as AsyncIterable<AnthropicStreamEvent>,
-        layer, problemText, params?.model, start, injection,
+        layer, problemText, params?.model, start, injection, runtime, recallConfig,
       );
     }
 
@@ -213,6 +214,19 @@ function makeApplyHandler(
       appendPromptCacheHit(layer, "anthropic", cachedTokens);
     }
 
+    if (runtime) {
+      runtime
+        .afterRun({
+          userText: problemText,
+          assistantText: responseText.slice(0, maxChars),
+          ...(recallConfig?.sessionId ? { sessionId: recallConfig.sessionId } : {}),
+          ...(recallConfig?.projectPath ? { projectPath: recallConfig.projectPath } : {}),
+        })
+        .catch(() => {
+          // never break the wrapped call
+        });
+    }
+
     return result;
   };
 }
@@ -242,6 +256,8 @@ function wrapAnthropicStream(
   model: string | undefined,
   startTime: number,
   injection: InjectionResult | null,
+  runtime?: Runtime | null,
+  recallConfig?: RecallInjectConfig,
 ): unknown {
   let content = "";
   let inputTokens = 0;
@@ -255,7 +271,8 @@ function wrapAnthropicStream(
     stored = true;
     const totalTokens = inputTokens + outputTokens;
     const maxChars = layer.config.maxResponseChars ?? 500;
-    safeStore(layer, problemText, content.slice(0, maxChars),
+    const assistantText = content.slice(0, maxChars);
+    safeStore(layer, problemText, assistantText,
       isError ? "failure" : "success",
       model, Date.now() - startTime, totalTokens || undefined, injection);
     // 0.7.0-rc.7 — provider-reported prompt cache hit (stream).
@@ -263,6 +280,18 @@ function wrapAnthropicStream(
     // `cache_read_input_tokens` on supported models.
     if (cacheReadTokens > 0) {
       appendPromptCacheHit(layer, "anthropic", cacheReadTokens);
+    }
+    if (runtime) {
+      runtime
+        .afterRun({
+          userText: problemText,
+          assistantText,
+          ...(recallConfig?.sessionId ? { sessionId: recallConfig.sessionId } : {}),
+          ...(recallConfig?.projectPath ? { projectPath: recallConfig.projectPath } : {}),
+        })
+        .catch(() => {
+          // never break stream consumption
+        });
     }
   };
 

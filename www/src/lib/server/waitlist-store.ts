@@ -14,7 +14,10 @@ let cachedStore: Promise<Store> | null = null;
 
 export function getWaitlistStore(): Promise<Store> {
   if (!cachedStore) {
-    cachedStore = createStore();
+    cachedStore = createStore().catch((err) => {
+      cachedStore = null;
+      throw err;
+    });
   }
   return cachedStore;
 }
@@ -23,6 +26,9 @@ async function createStore(): Promise<Store> {
   const postgresConfig = resolvePostgresPoolConfig();
   if (postgresConfig) {
     return createPostgresStore(postgresConfig);
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Waitlist storage requires Postgres in production.");
   }
   return createFileStore();
 }
@@ -102,7 +108,7 @@ async function createPostgresStore(config: PoolConfig): Promise<Store> {
 function createFileStore(): Store {
   const filePath =
     process.env.TRACEBASE_WAITLIST_FILE ??
-    join(process.cwd(), ".tracebase", "waitlist.dev.json");
+    join(/*turbopackIgnore: true*/ process.cwd(), ".tracebase", "waitlist.dev.json");
 
   type FileEntry = { email: string; emailNormalized: string; source: string | null; createdAt: string };
   type FileShape = { version: 1; entries: FileEntry[] };

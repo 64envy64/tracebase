@@ -17,9 +17,9 @@
  *      lift signal.
  *
  *   4. no pattern extracted from the turn → inference STILL emits
- *      agent_used (the agent demonstrably used the block) but does
- *      NOT emit a soft outcome. We never write resolved=true
- *      without a stronger resolution signal.
+ *      agent_used (the agent demonstrably used the block). It emits
+ *      a soft outcome only when the assistant text carries a narrow
+ *      completion / verification signal.
  *
  * Together with `tests/runtime/attribution-inference.test.ts` (which
  * pins the scorer) and `tests/cli/capture-turn.test.ts` (which pins
@@ -393,10 +393,10 @@ describe("capture-turn attribution wire-up — run-scoped chain", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4) Negative: no pattern extracted — agent_used yes, NO soft outcome
+// 4) no pattern extracted — completion signal controls soft outcome
 // ---------------------------------------------------------------------------
-describe("capture-turn attribution wire-up — outcome is gated on pattern extraction", () => {
-  it("emits agent_used but not a soft outcome when capture-turn extracts no fresh pattern", () => {
+describe("capture-turn attribution wire-up — outcome can close without a new pattern", () => {
+  it("emits agent_used and a soft outcome when no pattern is extracted but the assistant claims verified completion", () => {
     initConfig(projectDir);
     const { queryId } = seedInjection();
 
@@ -421,9 +421,33 @@ describe("capture-turn attribution wire-up — outcome is gated on pattern extra
     expect(agentUsed).toHaveLength(1);
     expect(agentUsed[0]).toMatchObject({ matchSignal: "jaccard" });
 
-    // The whole point of the gate: no fresh pattern was extracted →
-    // we don't write a soft resolved=true. We never claim resolution
-    // we can't justify.
+    const outcomes = readEvents("outcome").filter((e) => e.queryId === queryId);
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]).toMatchObject({
+      resolved: true,
+      control: false,
+      attribution: "inferred",
+    });
+  });
+
+  it("emits agent_used but not outcome when the transcript only describes the fix as a plan", () => {
+    initConfig(projectDir);
+    const { queryId } = seedInjection();
+
+    writeTranscript(
+      "hi",
+      "The relevant prior memory says to add cors middleware to express, call app.use(cors()) before the auth router, " +
+        "whitelist the auth_token origin, and verify OPTIONS returns 204 before trying again.",
+    );
+    const out = runCaptureTurn(
+      { path: projectDir },
+      { transcript_path: transcriptPath, cwd: projectDir },
+    );
+    expect(out.captured).toBe(false);
+
+    const agentUsed = readEvents("agent_used").filter((e) => e.queryId === queryId);
+    expect(agentUsed).toHaveLength(1);
+
     const outcomes = readEvents("outcome").filter((e) => e.queryId === queryId);
     expect(outcomes).toHaveLength(0);
   });

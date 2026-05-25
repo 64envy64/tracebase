@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { Pool, type PoolConfig } from "pg";
+import { Pool, type PoolClient, type PoolConfig } from "pg";
 import { generateApiKeyMaterial, parseApiKey, verifyApiKeySecret } from "@/lib/control-plane/crypto";
 import type {
   ControlPlaneApiKey,
@@ -98,6 +98,8 @@ type StoredApiKey = ControlPlaneApiKey & {
   secretHash: string;
   salt: string;
 };
+
+type PgQueryable = Pick<Pool | PoolClient, "query">;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS tracebase_workspaces (
@@ -345,7 +347,10 @@ export function getControlPlaneApiBaseUrl(): string {
 
 export function getControlPlaneStore(): Promise<ControlPlaneStore> {
   if (!cachedStorePromise) {
-    cachedStorePromise = createStore();
+    cachedStorePromise = createStore().catch((err) => {
+      cachedStorePromise = null;
+      throw err;
+    });
   }
   return cachedStorePromise;
 }
@@ -356,6 +361,9 @@ async function createStore(): Promise<ControlPlaneStore> {
     const store = new PostgresControlPlaneStore(postgresConfig);
     await store.init();
     return store;
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Control-plane storage requires Postgres in production.");
   }
 
   const filePath =
@@ -384,35 +392,35 @@ class PostgresControlPlaneStore implements ControlPlaneStore {
     email?: string | null;
     name?: string | null;
   }): Promise<ControlPlaneWorkspace> {
-    const existing = await this.pool.query(
-      `
-      SELECT *
-      FROM tracebase_workspaces
-      WHERE scope = 'personal' AND clerk_user_id = $1
-      LIMIT 1
-      `,
-      [input.clerkUserId],
-    );
+    const displayName = personalWorkspaceName(input.name, input.email);
+    const baseSlug = baseWorkspaceSlug(input.name, input.email);
 
-    if (existing.rowCount) {
-      return mapWorkspaceRow(existing.rows[0]);
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const slug = await this.findAvailableSlug(
+        attempt === 0 ? baseSlug : `${baseSlug}-${attempt + 1}`,
+      );
+
+      try {
+        const inserted = await this.pool.query(
+          `
+          INSERT INTO tracebase_workspaces (
+            id, scope, slug, display_name, clerk_user_id
+          ) VALUES ($1, 'personal', $2, $3, $4)
+          ON CONFLICT (clerk_user_id) WHERE scope = 'personal'
+          DO UPDATE SET updated_at = tracebase_workspaces.updated_at
+          RETURNING *
+          `,
+          [randomUUID(), slug, displayName, input.clerkUserId],
+        );
+
+        return mapWorkspaceRow(inserted.rows[0]);
+      } catch (err) {
+        if (isUniqueViolation(err)) continue;
+        throw err;
+      }
     }
 
-    const id = randomUUID();
-    const displayName = personalWorkspaceName(input.name, input.email);
-    const slug = await this.findAvailableSlug(baseWorkspaceSlug(input.name, input.email));
-
-    const inserted = await this.pool.query(
-      `
-      INSERT INTO tracebase_workspaces (
-        id, scope, slug, display_name, clerk_user_id
-      ) VALUES ($1, 'personal', $2, $3, $4)
-      RETURNING *
-      `,
-      [id, slug, displayName, input.clerkUserId],
-    );
-
-    return mapWorkspaceRow(inserted.rows[0]);
+    throw new Error("Unable to allocate a personal workspace slug.");
   }
 
   async listApiKeys(workspaceId: string): Promise<ControlPlaneApiKey[]> {
@@ -776,55 +784,77 @@ class PostgresControlPlaneStore implements ControlPlaneStore {
     | { status: "expired" }
     | { status: "not_found" }
   > {
-    const sessionRes = await this.pool.query(
-      `
-      SELECT *
-      FROM tracebase_device_sessions
-      WHERE device_code = $1
-      LIMIT 1
-      `,
-      [deviceCode],
-    );
-    if (!sessionRes.rowCount) return { status: "not_found" };
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const sessionRes = await client.query(
+        `
+        SELECT *
+        FROM tracebase_device_sessions
+        WHERE device_code = $1
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [deviceCode],
+      );
 
-    const session = sessionRes.rows[0];
-    if (session.status === "pending") {
-      if (isExpired(session.expires_at)) {
-        await this.pool.query(
-          `UPDATE tracebase_device_sessions SET status = 'expired' WHERE device_code = $1`,
-          [deviceCode],
-        );
+      if (!sessionRes.rowCount) {
+        await client.query("COMMIT");
+        return { status: "not_found" };
+      }
+
+      const session = sessionRes.rows[0];
+      if (session.status === "pending") {
+        if (isExpired(session.expires_at)) {
+          await client.query(
+            `UPDATE tracebase_device_sessions SET status = 'expired' WHERE device_code = $1`,
+            [deviceCode],
+          );
+          await client.query("COMMIT");
+          return { status: "expired" };
+        }
+        await client.query("COMMIT");
+        return { status: "pending", expiresAt: toIso(session.expires_at) };
+      }
+
+      if (session.status === "expired") {
+        await client.query("COMMIT");
         return { status: "expired" };
       }
-      return { status: "pending", expiresAt: toIso(session.expires_at) };
+
+      if (session.status === "consumed") {
+        await client.query("COMMIT");
+        return { status: "not_found" };
+      }
+
+      const payload = await this.readApprovedPayload(deviceCode, client);
+      if (!payload) {
+        await client.query("COMMIT");
+        return { status: "not_found" };
+      }
+
+      await client.query(
+        `
+        UPDATE tracebase_device_sessions
+        SET status = 'consumed',
+            issued_api_key_value = NULL,
+            consumed_at = NOW()
+        WHERE device_code = $1 AND status = 'approved'
+        `,
+        [deviceCode],
+      );
+      await client.query("COMMIT");
+
+      return {
+        status: "approved",
+        payload,
+      };
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
     }
-
-    if (session.status === "expired") {
-      return { status: "expired" };
-    }
-
-    if (session.status === "consumed") {
-      return { status: "not_found" };
-    }
-
-    const payload = await this.readApprovedPayload(deviceCode);
-    if (!payload) return { status: "not_found" };
-
-    await this.pool.query(
-      `
-      UPDATE tracebase_device_sessions
-      SET status = 'consumed',
-          issued_api_key_value = NULL,
-          consumed_at = NOW()
-      WHERE device_code = $1
-      `,
-      [deviceCode],
-    );
-
-    return {
-      status: "approved",
-      payload,
-    };
   }
 
   private async findAvailableSlug(base: string): Promise<string> {
@@ -841,8 +871,11 @@ class PostgresControlPlaneStore implements ControlPlaneStore {
     return `${sanitizedBase}-${randomUUID().slice(0, 8)}`;
   }
 
-  private async readApprovedPayload(deviceCode: string): Promise<DevicePollApprovedPayload | null> {
-    const res = await this.pool.query(
+  private async readApprovedPayload(
+    deviceCode: string,
+    db: PgQueryable = this.pool,
+  ): Promise<DevicePollApprovedPayload | null> {
+    const res = await db.query(
       `
       SELECT
         s.issued_api_key_value,
@@ -926,6 +959,10 @@ function resolvePostgresPoolConfig(): PoolConfig | null {
     max,
     application_name: "tracebase-control-plane",
   };
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: unknown }).code === "23505";
 }
 
 class FileControlPlaneStore implements ControlPlaneStore {

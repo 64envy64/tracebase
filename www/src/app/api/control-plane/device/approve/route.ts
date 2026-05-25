@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "deviceCode is required" }, { status: 400 });
   }
 
-  const limit = checkRateLimit({
+  const limit = await checkRateLimit({
     bucket: "device-approve",
     key: userId,
     limit: 30,

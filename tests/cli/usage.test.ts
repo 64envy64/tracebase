@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -28,7 +28,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe("`tracebase usage sync`", () => {
+describe.skipIf(!existsSync(CLI))("`tracebase usage sync`", () => {
   it("fails cleanly when the project has no cloud link", () => {
     initConfig(dir);
     const res = spawnSync("node", [CLI, "usage", "sync", "--path", dir, "--dry-run"], {

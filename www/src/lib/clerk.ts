@@ -1,7 +1,4 @@
-import { dark } from "@clerk/ui/themes";
-
 export const clerkAppearance = {
-  theme: dark,
   options: {
     unsafe_disableDevelopmentModeWarnings: true,
   },

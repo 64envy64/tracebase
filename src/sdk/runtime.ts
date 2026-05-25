@@ -33,6 +33,7 @@
  */
 
 import Database from "better-sqlite3";
+import { randomUUID } from "node:crypto";
 import { BlockStore } from "../core/block-store.js";
 import { BlockServer, resolveProductionGateThreshold } from "../core/block-serving.js";
 import { detectToolPattern, type ToolPatternSignal } from "../core/tool-loop-detect.js";
@@ -73,6 +74,10 @@ import type {
   RecallChunksResult,
 } from "../types.js";
 import { captureTurnFromTexts } from "../runtime/capture-turn.js";
+import {
+  applyInferenceAndEmit,
+  inferResolvedOutcomeFromTranscript,
+} from "../runtime/attribution-inference.js";
 import { extractDigestFromTurns, sessionScope } from "../runtime/digest.js";
 import { createSyncCoordinator, type SyncCoordinator } from "./sync-coordinator.js";
 import type { ReasoningLayer } from "../core/engine.js";
@@ -124,7 +129,7 @@ export function createRuntime(
   // analytics correlation.
   void layer;
 
-  const defaultSessionId = options.sessionId;
+  const defaultSessionId = options.sessionId?.trim() || randomUUID();
   const defaultProjectPath = options.projectPath;
   const onBadge = options.onBadge;
   const source: RuntimeSource | undefined = options.source;
@@ -563,18 +568,30 @@ export function createRuntime(
         const userBounded = boundField(input.userText, 8000, "userText").value;
         const assistantBounded = boundField(input.assistantText, 8000, "assistantText").value;
         if (userBounded.length === 0 || assistantBounded.length === 0) return;
+        const sessionId = input.sessionId ?? defaultSessionId ?? undefined;
         // R1 — thread sessionId as runId so `capture.error` events
         // emitted from inside `captureTurnFromTexts` correlate with
         // the matching retrieval/injection events from beforeRun.
         const result = captureTurnFromTexts(
           conn.store,
           { userText: userBounded, assistantText: assistantBounded },
-          input.sessionId ? { runId: input.sessionId } : {},
+          sessionId ? { runId: sessionId } : {},
         );
+        const attribution = applyInferenceAndEmit(conn.store, assistantBounded, {
+          ...(sessionId ? { runId: sessionId } : {}),
+          allowOutcomeEmission:
+            result.blockId !== null ||
+            inferResolvedOutcomeFromTranscript(assistantBounded),
+        });
         // markDirty so the next coordinator cycle sees the new
         // analytics events even if the user only calls afterRun
         // (no beforeRun / observeToolBatch on this turn).
-        if (result.blockId || result.factCount > 0) {
+        if (
+          result.blockId ||
+          result.factCount > 0 ||
+          attribution.agentUsedEmitted > 0 ||
+          attribution.outcomeEmitted > 0
+        ) {
           markDirty("afterRun");
         }
       } catch (err) {

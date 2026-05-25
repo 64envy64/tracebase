@@ -69,6 +69,24 @@ function makeStore(): BlockStore {
   return new BlockStore(db);
 }
 
+describe("BlockStore — connection configuration", () => {
+  it("applies WAL pragmas to externally provided Database handles", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tb-block-store-"));
+    const dbPath = join(dir, "memory.db");
+    const db = new Database(dbPath);
+    let store: BlockStore | null = null;
+    try {
+      expect(String(db.pragma("journal_mode", { simple: true })).toLowerCase()).toBe("delete");
+      store = new BlockStore(db, { skipMigrate: true });
+      expect(String(db.pragma("journal_mode", { simple: true })).toLowerCase()).toBe("wal");
+    } finally {
+      store?.close();
+      if (!store) db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Block CRUD
 // ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ import {
   injectIntoOpenAIMessages,
   injectIntoAnthropicSystem,
 } from "../src/middleware/recall-inject.js";
+import type { Runtime } from "../src/types.js";
 
 function cleanupDb(path: string): void {
   for (const suffix of ["", "-wal", "-shm"]) {
@@ -398,5 +399,91 @@ describe("Anthropic middleware with recall-inject", () => {
     if (typeof capturedSystem === "string" && capturedSystem.includes("prior_solution")) {
       expect(capturedSystem).toContain("pip install");
     }
+  });
+
+  it("preserves runtime additionalContext when legacy recall also injects", async () => {
+    layer.storeTrace({
+      problem: {
+        description: "Python ImportError: No module named pandas after pip install",
+        language: "python",
+        tags: [],
+      },
+      solution: {
+        summary: "Use python3 -m pip install pandas",
+        steps: [],
+        outcome: "success",
+      },
+    });
+
+    const runtime = {
+      beforeRun: async () => ({
+        additionalContext: "<context_fold>runtime folded context</context_fold>",
+        badgeEvents: [],
+      }),
+      afterRun: async () => {},
+    } as unknown as Runtime;
+
+    let capturedSystem: unknown = undefined;
+    const mockClient = {
+      messages: {
+        create: async (params: { system?: unknown }) => {
+          capturedSystem = params.system;
+          return {
+            content: [{ type: "text", text: "Done" }],
+            usage: { input_tokens: 10, output_tokens: 5 },
+          };
+        },
+      },
+    };
+
+    const wrapped = wrapAnthropic(mockClient, layer, {
+      minScore: 0.2,
+      skipExactMatch: true,
+      runtime,
+    });
+
+    await wrapped.messages.create({
+      model: "claude-sonnet-4-20250514",
+      messages: [{ role: "user", content: "Python pandas ImportError missing module" }],
+    });
+
+    const rendered =
+      typeof capturedSystem === "string"
+        ? capturedSystem
+        : JSON.stringify(capturedSystem);
+    expect(rendered).toContain("runtime folded context");
+    expect(rendered).toContain("prior_fix");
+    expect(rendered).toContain("pip install");
+  });
+
+  it("calls runtime.afterRun after a non-streaming Anthropic response", async () => {
+    const afterRunCalls: Array<{ userText: string; assistantText: string }> = [];
+    const runtime = {
+      beforeRun: async () => ({ additionalContext: "", badgeEvents: [] }),
+      afterRun: async (input: { userText: string; assistantText: string }) => {
+        afterRunCalls.push(input);
+      },
+    } as unknown as Runtime;
+
+    const mockClient = {
+      messages: {
+        create: async () => ({
+          content: [{ type: "text", text: "I fixed the issue and tests pass." }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        }),
+      },
+    };
+
+    const wrapped = wrapAnthropic(mockClient, layer, { runtime });
+    await wrapped.messages.create({
+      model: "claude-sonnet-4-20250514",
+      messages: [{ role: "user", content: "Fix the auth bug" }],
+    });
+
+    expect(afterRunCalls).toHaveLength(1);
+    expect(afterRunCalls[0]).toMatchObject({
+      userText: "Fix the auth bug",
+      assistantText: "I fixed the issue and tests pass.",
+    });
   });
 });

@@ -180,7 +180,8 @@ jobs:
           DATABASE_URL: "${TRACEBASE_DATABASE_URL}"
           EOF
           else
-            echo "::warning::No database runtime configuration is set. Control-plane state will fall back to ephemeral file storage on Cloud Run."
+            echo "Production deploy requires TRACEBASE_DATABASE_URL or Cloud SQL TRACEBASE_DB_* configuration." >&2
+            exit 1
           fi
 
       - name: Deploy Cloud Run production service

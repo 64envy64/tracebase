@@ -1116,10 +1116,10 @@ export class BlockStore {
   constructor(dbOrPath: Database.Database | string, opts: BlockStoreOptions = {}) {
     if (typeof dbOrPath === "string") {
       this.db = new Database(dbOrPath);
-      this.configure();
     } else {
       this.db = dbOrPath;
     }
+    this.configure();
     this.now = opts.now ?? Date.now;
     if (!opts.skipMigrate) this.migrate();
   }

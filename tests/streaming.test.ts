@@ -101,6 +101,60 @@ describe("OpenAI streaming middleware", () => {
     expect(layer.count()).toBe(1);
     expect(layer.listTraces()[0]!.solution.summary).toBe("Partial response");
   });
+
+  it("calls runtime.afterRun after a streaming completion is consumed", async () => {
+    const chunks = [
+      { choices: [{ delta: { content: "Fixed " }, finish_reason: null }] },
+      { choices: [{ delta: { content: "the stream" }, finish_reason: null }] },
+      { choices: [{ delta: {}, finish_reason: "stop" }] },
+    ];
+    const afterRunCalls: Array<{
+      userText: string;
+      assistantText: string;
+      sessionId?: string;
+      projectPath?: string;
+    }> = [];
+    const runtime = {
+      beforeRun: async () => ({ additionalContext: "" }),
+      afterRun: async (input: {
+        userText: string;
+        assistantText: string;
+        sessionId?: string;
+        projectPath?: string;
+      }) => {
+        afterRunCalls.push(input);
+      },
+    };
+
+    const mockClient = {
+      chat: {
+        completions: {
+          create: async () => asyncChunks(chunks),
+        },
+      },
+    };
+
+    const wrapped = wrapOpenAI(mockClient, layer, {
+      runtime: runtime as never,
+      sessionId: "S-openai-stream",
+      projectPath: "/tmp/project",
+    });
+    const stream = await wrapped.chat.completions.create({
+      model: "gpt-4",
+      messages: [{ role: "user", content: "Fix the OpenAI streaming attribution path" }],
+      stream: true,
+    }) as AsyncIterable<unknown>;
+
+    for await (const _chunk of stream) { /* consume */ }
+
+    expect(afterRunCalls).toHaveLength(1);
+    expect(afterRunCalls[0]).toMatchObject({
+      userText: "Fix the OpenAI streaming attribution path",
+      assistantText: "Fixed the stream",
+      sessionId: "S-openai-stream",
+      projectPath: "/tmp/project",
+    });
+  });
 });
 
 describe("Anthropic streaming middleware", () => {

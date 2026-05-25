@@ -106,7 +106,9 @@ export interface WorkerInit {
  * any CWD shift.
  */
 const defaultWorkerFactory: WorkerFactory = (init) => {
-  const here = dirname(fileURLToPath(import.meta.url));
+  const here = typeof __dirname === "string"
+    ? __dirname
+    : dirname(fileURLToPath(import.meta.url));
   const entry = join(here, "minilm-worker.js");
   return new Worker(entry, { workerData: init }) as unknown as WorkerLike;
 };

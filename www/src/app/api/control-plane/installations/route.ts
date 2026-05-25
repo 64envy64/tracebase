@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "missing bearer token" }, { status: 401 });
   }
 
-  const limit = checkRateLimit({
+  const limit = await checkRateLimit({
     bucket: "install-upsert",
     key: requestKey(req, apiKey),
     limit: 60,

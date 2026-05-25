@@ -11,7 +11,7 @@ export async function GET() {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const limit = checkRateLimit({
+  const limit = await checkRateLimit({
     bucket: "dashboard-bootstrap",
     key: userId,
     limit: 60,

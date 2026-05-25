@@ -60,7 +60,10 @@ import {
   type StoreReasoningPatternArgs,
 } from "../../server/mcp-v2-helpers.js";
 import type { StoreProjectFactInput } from "../../types.js";
-import { applyInferenceAndEmit } from "../../runtime/attribution-inference.js";
+import {
+  applyInferenceAndEmit,
+  inferResolvedOutcomeFromTranscript,
+} from "../../runtime/attribution-inference.js";
 import { emitCaptureError } from "../../runtime/capture-errors.js";
 
 // ---------------------------------------------------------------------------
@@ -390,13 +393,11 @@ export function runCaptureTurn(
       //     isolation when inject-context has plumbed the session
       //     through (no leakage between parallel terminals).
       //
-      //   - allowOutcomeEmission = (blockResult !== null) → only
-      //     write a soft `outcome.resolved=true` when this same
-      //     turn also produced a reusable pattern. That is the
-      //     strongest non-MCP signal we have that the run
-      //     delivered value; without it we emit `agent_used`
-      //     (which is observable from the transcript) and leave
-      //     `outcome` to whatever explicit MCP signal arrives next.
+      //   - allowOutcomeEmission = true when this same turn produced
+      //     a reusable pattern OR the assistant text carries a narrow
+      //     completion/verification signal. In both cases outcome is
+      //     still gated by inferred `agent_used`, so overlap alone
+      //     never becomes "helpful".
       //
       // Wrapped in try/catch so an inference failure never blocks the
       // existing capture path: capture-turn must keep emitting a
@@ -405,7 +406,9 @@ export function runCaptureTurn(
       try {
         const report = applyInferenceAndEmit(store, transcript.lastAssistantText, {
           ...(captureRunId ? { runId: captureRunId } : {}),
-          allowOutcomeEmission: blockResult !== null,
+          allowOutcomeEmission:
+            blockResult !== null ||
+            inferResolvedOutcomeFromTranscript(transcript.lastAssistantText),
         });
         inferredUseCount = report.agentUsedEmitted;
       } catch (err) {

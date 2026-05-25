@@ -40,4 +40,12 @@ export default defineConfig([
     banner: { js: "#!/usr/bin/env node" },
     external: EXTERNALS,
   },
+  // MiniLM reranker worker. The bundled runtime resolves this as a
+  // sibling of index/mcp/cli in dist, so keep the filename stable.
+  {
+    entry: { "minilm-worker": "src/core/rerankers/minilm-worker.ts" },
+    format: ["cjs"],
+    target: "node18",
+    external: [...EXTERNALS, "@xenova/transformers"],
+  },
 ]);

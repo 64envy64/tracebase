@@ -515,6 +515,100 @@ describe("createRuntime — afterRun lifecycle", () => {
     await runtime.close();
   });
 
+  it("closes the value loop from beforeRun + afterRun without explicit record_reasoning_outcome", async () => {
+    seedBlock(PYTEST_BLOCK);
+    const runtime = createRuntime(dummyLayer(), {
+      projectPath: projectDir,
+      sessionId: "S-value-loop",
+    });
+    try {
+
+      const before = await runtime.beforeRun({
+        prompt: "Pytest collects the wrong package because sys.path has a shadowing helper",
+      });
+      expect(before.additionalContext).toContain("tracebase");
+
+      await runtime.afterRun({
+        userText: "Pytest collects the wrong package because sys.path has a shadowing helper",
+        assistantText:
+          "I renamed the shadowing module, removed its directory from sys.path, " +
+          "and verified pytest --collect-only shows the intended package. Tests pass.",
+        sessionId: "S-value-loop",
+      });
+      await runtime.flush();
+
+      const cfg = loadConfig(projectDir);
+      const db = new Database(cfg.storagePath, { readonly: true });
+      const store = new BlockStore(db, { skipMigrate: true });
+      try {
+        const agentUsed = store.readEvents({
+          eventType: "agent_used",
+          runId: "S-value-loop",
+          limit: 10,
+        });
+        expect(agentUsed).toHaveLength(1);
+        expect(agentUsed[0]).toMatchObject({
+          matchSignal: "jaccard",
+          evidenceKind: "answer_mentions_injected_anchor",
+        });
+
+        const outcomes = store.readEvents({
+          eventType: "outcome",
+          runId: "S-value-loop",
+          limit: 10,
+        });
+        expect(outcomes).toHaveLength(1);
+        expect(outcomes[0]).toMatchObject({
+          resolved: true,
+          control: false,
+          attribution: "inferred",
+        });
+      } finally {
+        store.close();
+      }
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it("uses an auto-generated runtime session id when callers omit one", async () => {
+    seedBlock(PYTEST_BLOCK);
+    const runtime = createRuntime(dummyLayer(), { projectPath: projectDir });
+    try {
+      await runtime.beforeRun({
+        prompt: "Pytest collects the wrong package because sys.path has a shadowing helper",
+      });
+      await runtime.afterRun({
+        userText: "Pytest collects the wrong package because sys.path has a shadowing helper",
+        assistantText:
+          "I fixed the sys.path shadowing helper and verified pytest --collect-only passes.",
+      });
+      await runtime.flush();
+
+      const cfg = loadConfig(projectDir);
+      const db = new Database(cfg.storagePath, { readonly: true });
+      const store = new BlockStore(db, { skipMigrate: true });
+      try {
+        const retrievals = store.readEvents({ eventType: "retrieval", limit: 10 });
+        expect(retrievals).toHaveLength(1);
+        const runId = retrievals[0]?.runId;
+        expect(typeof runId).toBe("string");
+        expect(runId).not.toBe("");
+
+        const agentUsed = store.readEvents({
+          eventType: "agent_used",
+          runId,
+          limit: 10,
+        });
+        expect(agentUsed).toHaveLength(1);
+      } finally {
+        store.close();
+      }
+    } finally {
+      await runtime.close();
+    }
+  });
+
   it("close() is idempotent; subsequent runtime calls reject", async () => {
     const runtime = createRuntime(dummyLayer(), { projectPath: projectDir });
     await runtime.close();

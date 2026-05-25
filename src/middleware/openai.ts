@@ -114,7 +114,7 @@ export function wrapOpenAI<T extends object>(
       if (params?.stream && result && typeof result === "object" && Symbol.asyncIterator in (result as object)) {
         return wrapStream(
           result as AsyncIterable<StreamChunk>,
-          layer, problemText, params?.model, start, injection,
+          layer, problemText, params?.model, start, injection, runtime, recallConfig,
         );
       }
 
@@ -222,6 +222,8 @@ function wrapStream(
   model: string | undefined,
   startTime: number,
   injection: InjectionResult | null,
+  runtime?: Runtime | null,
+  recallConfig?: RecallInjectConfig,
 ): unknown {
   let content = "";
   let finishReason: string | null = null;
@@ -234,7 +236,8 @@ function wrapStream(
     stored = true;
     const outcome = finishReason === "error" ? "failure" as const : "success" as const;
     const maxChars = layer.config.maxResponseChars ?? 500;
-    safeStore(layer, problemText, content.slice(0, maxChars), outcome,
+    const assistantText = content.slice(0, maxChars);
+    safeStore(layer, problemText, assistantText, outcome,
       model, Date.now() - startTime, totalTokens, injection);
     // 0.7.0-rc.7 — provider-reported cache hit. The OpenAI streaming
     // SDK delivers `usage` in the trailing chunk when
@@ -242,6 +245,18 @@ function wrapStream(
     // `cachedTokens` stays 0 and no event fires.
     if (cachedTokens > 0) {
       appendPromptCacheHit(layer, "openai", cachedTokens);
+    }
+    if (runtime) {
+      runtime
+        .afterRun({
+          userText: problemText,
+          assistantText,
+          ...(recallConfig?.sessionId ? { sessionId: recallConfig.sessionId } : {}),
+          ...(recallConfig?.projectPath ? { projectPath: recallConfig.projectPath } : {}),
+        })
+        .catch(() => {
+          // never break stream consumption
+        });
     }
   };
 

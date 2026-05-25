@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const limit = checkRateLimit({
+  const limit = await checkRateLimit({
     bucket: "api-key-create",
     key: userId,
     limit: 12,

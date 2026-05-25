@@ -9,9 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@clerk/nextjs": "^7.2.3",
-    "@clerk/ui": "^1.6.3",
-    "next": "16.2.2",
+    "@clerk/nextjs": "^7.4.1",
+    "next": "^16.2.6",
     "pg": "^8.16.3",
     "react": "19.2.4",
     "react-dom": "19.2.4"
@@ -23,8 +22,11 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.2",
+    "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "overrides": {
+    "postcss": "^8.5.10"
   }
 }

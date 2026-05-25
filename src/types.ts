@@ -1316,7 +1316,7 @@ export type RuntimeSource =
 export type RuntimeServingProfile = "cost-saver" | "balanced" | "recall-heavy";
 
 export interface CreateRuntimeOptions {
-  /** Default session id for runtime methods that don't pass one explicitly. */
+  /** Default session id for runtime methods that don't pass one explicitly. Auto-generated per runtime when omitted. */
   sessionId?: string;
   /** Default project root for runtime methods that don't pass one explicitly. */
   projectPath?: string;

@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     req.headers.get("x-real-ip") ??
     "unknown";
 
-  const limit = checkRateLimit({
+  const limit = await checkRateLimit({
     bucket: "waitlist",
     key: ip,
     limit: 10,

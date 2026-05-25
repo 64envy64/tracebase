@@ -20,12 +20,31 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
+      - run: npm audit --omit=dev
       - run: npm run lint
       - run: npm run build
       - run: npm test
 
+  www:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: www/package-lock.json
+      - run: npm ci
+        working-directory: www
+      - run: npm audit --omit=dev
+        working-directory: www
+      - run: npm run lint
+        working-directory: www
+      - run: npm run build
+        working-directory: www
+
   publish:
-    needs: test
+    needs: [test, www]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:

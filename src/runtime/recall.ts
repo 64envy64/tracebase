@@ -418,7 +418,7 @@ export async function recallForPrompt(
     }
   }
 
-  recordRecallEvents(store, raw, payload, servingPlan);
+  recordRecallEvents(store, raw, payload, servingPlan, opts.sessionId ?? undefined);
 
   // 0.7.0-rc.3 §rc.3 — file_memory.recalled emit. Fires once when
   // the rendered payload includes at least one file_memory bullet.
@@ -592,64 +592,74 @@ function recordRecallEvents(
   result: RecallV2Result,
   payload: InjectionPayload,
   servingPlan: ServingPlan | null,
+  runId?: string,
 ): void {
   let ts = Date.now();
   const nextTs = () => ts++;
 
-  store.appendEvent({
-    ts: nextTs(),
-    queryId: result.queryId,
-    event: "retrieval",
-    candidates: result.blocks.map((h) => ({ blockId: h.block.id, score: h.score })),
-    shadow: result.shadow,
-    ...(result.controlReason ? { controlReason: result.controlReason } : {}),
-    ...(result.facts.length > 0
-      ? { factCandidates: result.facts.map((h) => ({ factId: h.fact.id, score: h.score })) }
-      : {}),
-    // 0.5.7 §C — record the injection-side token cost so the
-    // analytics window can compute netTokenImpact = tokensLift -
-    // sum(injectedTokensEstimate). Only meaningful when the
-    // payload actually carried content; 0 captures "gate cleared
-    // nothing".
-    injectedTokensEstimate: payload.hasContent ? payload.tokensEstimate : 0,
-    // `injectionProfile` is optional on RetrievalEvent — omit when
-    // the cost-saver policy stack wasn't applied (arbiter off,
-    // legacy path) so the dashboard can distinguish "policy ran"
-    // from "no policy". Pre-C4.2 we stamped a profile here
-    // unconditionally because `servingPlan` was non-null.
-    ...(servingPlan ? { injectionProfile: servingPlan.profile } : {}),
-    injectedSectionTokensEstimate: payload.sectionTokensEstimate,
-    injectedItemCounts: {
-      blocks: payload.blockIds.length,
-      facts: payload.factIds.length,
-      files: payload.fileIds.length,
-      chunks: payload.contextFoldRanges.length,
+  store.appendEvent(
+    {
+      ts: nextTs(),
+      queryId: result.queryId,
+      event: "retrieval",
+      candidates: result.blocks.map((h) => ({ blockId: h.block.id, score: h.score })),
+      shadow: result.shadow,
+      ...(result.controlReason ? { controlReason: result.controlReason } : {}),
+      ...(result.facts.length > 0
+        ? { factCandidates: result.facts.map((h) => ({ factId: h.fact.id, score: h.score })) }
+        : {}),
+      // 0.5.7 §C — record the injection-side token cost so the
+      // analytics window can compute netTokenImpact = tokensLift -
+      // sum(injectedTokensEstimate). Only meaningful when the
+      // payload actually carried content; 0 captures "gate cleared
+      // nothing".
+      injectedTokensEstimate: payload.hasContent ? payload.tokensEstimate : 0,
+      // `injectionProfile` is optional on RetrievalEvent — omit when
+      // the cost-saver policy stack wasn't applied (arbiter off,
+      // legacy path) so the dashboard can distinguish "policy ran"
+      // from "no policy". Pre-C4.2 we stamped a profile here
+      // unconditionally because `servingPlan` was non-null.
+      ...(servingPlan ? { injectionProfile: servingPlan.profile } : {}),
+      injectedSectionTokensEstimate: payload.sectionTokensEstimate,
+      injectedItemCounts: {
+        blocks: payload.blockIds.length,
+        facts: payload.factIds.length,
+        files: payload.fileIds.length,
+        chunks: payload.contextFoldRanges.length,
+      },
     },
-  });
+    runId !== undefined ? { runId } : undefined,
+  );
 
   const visibleBlocks = new Set(payload.blockIds);
   for (const hit of result.blocks) {
     if (!visibleBlocks.has(hit.block.id)) continue;
-    store.appendEvent({
-      ts: nextTs(),
-      queryId: result.queryId,
-      event: "injection",
-      blockId: hit.block.id,
-      score: hit.score,
-      calibratedProb: hit.calibratedProb,
-    });
+    store.appendEvent(
+      {
+        ts: nextTs(),
+        queryId: result.queryId,
+        event: "injection",
+        blockId: hit.block.id,
+        score: hit.score,
+        calibratedProb: hit.calibratedProb,
+      },
+      runId !== undefined ? { runId } : undefined,
+    );
   }
 
   const visibleFacts = new Set(payload.factIds);
   for (const hit of result.facts) {
     if (!visibleFacts.has(hit.fact.id)) continue;
-    store.appendEvent({
-      ts: nextTs(),
-      queryId: result.queryId,
-      event: "fact_injection",
-      factId: hit.fact.id,
-      score: hit.score,
-      calibratedProb: hit.calibratedProb,
-    });
+    store.appendEvent(
+      {
+        ts: nextTs(),
+        queryId: result.queryId,
+        event: "fact_injection",
+        factId: hit.fact.id,
+        score: hit.score,
+        calibratedProb: hit.calibratedProb,
+      },
+      runId !== undefined ? { runId } : undefined,
+    );
   }
 }
