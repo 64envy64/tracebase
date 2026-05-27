@@ -1,0 +1,135 @@
+{
+  "version": "tracebase 0.9.x",
+  "pre_registration": "bench-runs/file-memory/PRE-REGISTRATION-REAL-REPOS.md",
+  "selected_at": "2026-05-27",
+  "validation_status": "PROPOSED — pending implementation checklist box 4 (reproducibility-only baseline check per candidate). The exact source-file counts, test runtimes, and bug-fix PR labels listed below are best-effort estimates from the proposing agent's knowledge cutoff; the dry-run is the source of truth and MUST validate every per-repo entry before this pool is locked. Repos that fail dry-run get excluded with the failed-check name recorded; remaining ≥4 carry into the bench.",
+  "selection_criteria_summary": "Public GitHub; permissive license (MIT / Apache-2.0 / BSD-3 / ISC); ≥30 bug-fix PRs in last 24 months; reproducible test command ≤5 min on warm cache; 50-2000 source files (excluding tests/vendor/node_modules); last commit ≤6 months old; primary language TypeScript / JavaScript / Python.",
+  "selection_principle": "Span ≥2 of {TS, JS, Py} and ≥2 size buckets; favor fast deterministic local tests; avoid huge / slow / infra-heavy repos.",
+  "target_n_per_repo": "3-5 tasks",
+  "target_n_total": "15-25 task pairs (per pre-reg)",
+  "language_distribution": { "TypeScript": 2, "JavaScript": 2, "Python": 2 },
+  "size_bucket_distribution": { "small (50-200)": 5, "medium (200-800)": 1, "large (800-2000)": 0 },
+  "diversity_note": "Two repos per language; one repo in the 'medium' bucket (mathjs) and five in 'small'. No 'large' bucket pick — keeping all repos fast and deterministic is the higher-value criterion at this N. The undici → sinon swap (operator decision) traded the JS-medium slot for a smaller, faster, more deterministic JS mocking library; this concentrates 'medium' to a single repo (mathjs) but reduces test-runtime risk across the pool. If a later iteration needs more medium / large coverage, candidates like python-poetry/poetry or pytest-dev/pytest could be evaluated separately.",
+  "repos": [
+    {
+      "repo": "mathjs/mathjs",
+      "language": "TypeScript",
+      "license": "Apache-2.0",
+      "approx_source_files": "~400-500 source files (excluding tests/, dist/, examples/, docs/)",
+      "size_bucket": "medium (200-800)",
+      "test_command": "npm ci && npm test",
+      "test_framework_guess": "mocha",
+      "test_runtime_estimate": "2-4 min full suite on warm cache",
+      "recent_activity": "Believed active through training cutoff — math + parser library with steady release cadence.",
+      "bug_fix_pr_history": "Believed heavy — math precision bugs, parser/symbolic-evaluation edge cases, regular `bug` label use.",
+      "setup_risk": "low",
+      "risks_to_validate": [
+        "exact source file count after excluding bench/, docs/, examples/, dist/",
+        "full test suite runtime under the 5-min cap (could exceed on slow CI; OK locally)",
+        "any platform-specific floating-point precision flakes on Windows"
+      ],
+      "selection_rationale": "Pure-TypeScript medium-sized library with deterministic, fast unit tests and a real bug-fix PR cadence (parser + arithmetic edge cases are a continuous source of fixes). Anchors the 'TS medium' bucket without taking on framework complexity.",
+      "validation_status": "PROPOSED"
+    },
+    {
+      "repo": "sindresorhus/got",
+      "language": "TypeScript",
+      "license": "MIT",
+      "approx_source_files": "~50-80 source files (source/ directory)",
+      "size_bucket": "small (50-200)",
+      "test_command": "npm install && npm test",
+      "test_framework_guess": "AVA",
+      "test_runtime_estimate": "<2 min full suite",
+      "recent_activity": "Active through training cutoff — sindresorhus actively maintains this and his other HTTP utilities.",
+      "bug_fix_pr_history": "Moderate — HTTP edge cases (retries, redirects, agent reuse), regular bug PRs.",
+      "setup_risk": "low",
+      "risks_to_validate": [
+        "ESM-only constraint — verify the bench's Node version is modern enough",
+        "AVA configuration: confirm `npm test` runs the local AVA without external network deps",
+        "exact source file count (small repos can dip below 50 — borderline check)"
+      ],
+      "selection_rationale": "Small, sharply-scoped TS HTTP client with very fast tests. Complements mathjs by covering the 'TS small' end of the distribution. Real bug-fix PRs land on concrete edge cases (concrete enough that the failing test points clearly at a small subset of files — good for file_memory's pitch).",
+      "validation_status": "PROPOSED"
+    },
+    {
+      "repo": "axios/axios",
+      "language": "JavaScript",
+      "license": "MIT",
+      "approx_source_files": "~70-100 source files (lib/ directory)",
+      "size_bucket": "small (50-200)",
+      "test_command": "npm install && npm test",
+      "test_framework_guess": "mocha (legacy) or jest (recent) — verify in dry-run",
+      "test_runtime_estimate": "1-3 min full suite",
+      "recent_activity": "Active — widely-used HTTP client with ongoing maintenance.",
+      "bug_fix_pr_history": "Heavy — adapter, interceptor, header handling, concurrency edge cases.",
+      "setup_risk": "low-medium",
+      "risks_to_validate": [
+        "test runner — axios history has migrated frameworks; confirm `npm test` works on parent commit of selected PRs",
+        "exact source file count after excluding test fixtures",
+        "any test that depends on a live HTTP endpoint (mock vs real) — must be 100% mock for bench reproducibility"
+      ],
+      "selection_rationale": "Most popular JS HTTP client; high real-world bug volume; layered architecture (core / adapters / interceptors) makes 'find the buggy module' a non-trivial navigation task that file_memory's structural map should help with.",
+      "validation_status": "PROPOSED"
+    },
+    {
+      "repo": "sinonjs/sinon",
+      "language": "JavaScript",
+      "license": "BSD-3-Clause",
+      "approx_source_files": "~50-100 source files (lib/)",
+      "size_bucket": "small (50-200)",
+      "test_command": "npm install && npm test",
+      "test_framework_guess": "mocha",
+      "test_runtime_estimate": "<2 min full suite",
+      "recent_activity": "Believed active through training cutoff — sinonjs maintainers ship regular releases.",
+      "bug_fix_pr_history": "Moderate to heavy — spy / stub / fake-timer edge cases, prototype assertion fixes, mocked-promise bugs.",
+      "setup_risk": "low",
+      "risks_to_validate": [
+        "exact source file count (lib/ should be solidly in 50-200; need confirmation)",
+        "BSD-3-Clause license confirmation in LICENSE file",
+        "any tests using real timers / system clock that could be flaky on Windows",
+        "any tests depending on jsdom / browser env (unlikely but possible)"
+      ],
+      "selection_rationale": "Replaces nodejs/undici (operator decision after pool review). Mature, focused JS mocking library with very fast deterministic tests. Bug-fix PRs land on small, scoped files (spy.js, stub.js, fakes/timers.js, etc.) — clear file ownership is exactly the navigation pattern file_memory should help with. Trade-off: gives up the JS-medium slot (undici was ~200 files), keeping mathjs as the sole 'medium' bucket repo; in return, gains substantially lower setup-risk and faster per-trajectory wall-time.",
+      "validation_status": "PROPOSED"
+    },
+    {
+      "repo": "pallets/click",
+      "language": "Python",
+      "license": "BSD-3-Clause",
+      "approx_source_files": "~60-90 source files (src/click/)",
+      "size_bucket": "small (50-200)",
+      "test_command": "pip install -e .[dev] && pytest -q",
+      "test_framework_guess": "pytest",
+      "test_runtime_estimate": "<1 min full suite",
+      "recent_activity": "Active — Pallets maintainers ship regular bug-fix releases.",
+      "bug_fix_pr_history": "Moderate — option parsing, completion, decorator edge cases.",
+      "setup_risk": "very low",
+      "risks_to_validate": [
+        "exact source file count (could be borderline small)",
+        "any test that depends on user $TERM / OS-specific stdin behaviour (Windows shell quoting)"
+      ],
+      "selection_rationale": "Canonical Python CLI library with very fast, very deterministic tests. Trivial install. Real bug-fix PR cadence on a small file set — a clean test of whether file_memory's structural map adds value when the file count is already small (null-hypothesis-friendly within the bench, not as a separate experiment).",
+      "validation_status": "PROPOSED"
+    },
+    {
+      "repo": "psf/black",
+      "language": "Python",
+      "license": "MIT",
+      "approx_source_files": "~80-150 source files (src/black/, src/blib2to3/)",
+      "size_bucket": "small (50-200)",
+      "test_command": "pip install -e .[d] && pytest -q",
+      "test_framework_guess": "pytest",
+      "test_runtime_estimate": "1-3 min full suite",
+      "recent_activity": "Active — formatter with continuous edge-case fix PRs.",
+      "bug_fix_pr_history": "Heavy — formatter edge cases are a constant source of bug-label PRs.",
+      "setup_risk": "low",
+      "risks_to_validate": [
+        "exact source file count (src/blib2to3/ adds to the count; could push into medium)",
+        "test fixture data size (black has many .py reference fixtures — these are test data not source files)",
+        "extras-required (.[d] includes mypy + blackd)"
+      ],
+      "selection_rationale": "Heavy real-world bug-fix volume on a self-contained codebase. Formatter edge-cases produce unambiguously-failing tests with clear file ownership (parser, formatter, brackets, etc.). Strong example task source for the bench's 'real failing test from real PR' selection criterion.",
+      "validation_status": "PROPOSED"
+    }
+  ]
+}
