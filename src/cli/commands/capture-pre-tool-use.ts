@@ -333,7 +333,86 @@ export function runCapturePreToolUse(
   const intentBlock =
     intentKey !== undefined && priorIntentCount + 1 > INTENT_LOOP_BLOCK_AT;
 
-  // 0.7.1 — preventive supervision policy.
+  // 0.9.x — hardened supervision branch.
+  //
+  // When `toolSupervision.mode` is explicitly set in config or via env
+  // (TRACEBASE_TOOL_MODE), the new tier ladder (warn → soft-redirect →
+  // hard block) and mtime bypass kick in. Otherwise we fall through
+  // to the legacy 0.7.1 policy below to preserve backward compatibility.
+  const supervisionMode = resolveSupervisionMode(basePath);
+  if (supervisionMode !== null && isSafeRead) {
+    // Compute prior matching observations for the same argKey, excluding
+    // the synthetic call we're about to greenlight. cache.recent already
+    // excludes synthetic (only persisted obs); filter to same argKey.
+    const priorMatching = cache
+      .recent(sessionId, 6)
+      .filter((o) => o.argKey === argKey);
+    // mtime check is only meaningful for `read` family on a real path.
+    const readPath = (() => {
+      const ti = parsed.tool_input ?? parsed.toolInput;
+      if (ti && typeof ti === "object" && "file_path" in ti) {
+        return (ti as { file_path?: unknown }).file_path;
+      }
+      return undefined;
+    })();
+    const mtimeMs = family === "read" ? fileMtimeMs(readPath) : null;
+    const tier = applyHardenedTier(
+      supervisionMode,
+      toolName,
+      family,
+      priorMatching,
+      mtimeMs,
+      signal.count,
+      isSafeRead
+        ? `▣ TB TOOL  reused: ${toolName} already returned this in the last ${signal.count} turn(s) — use the prior output instead`
+        : `▣ TB TOOL  repeated ${toolName} · already ran with same args in the last ${signal.count} turn(s) — verify before re-running`,
+    );
+    // Persist analytics for the new event taxonomy.
+    if (tier.allowedAfterEdit) {
+      appendAnalyticsEvent(config.storagePath, {
+        event: "tool_supervision.allowed_after_edit",
+        argKey,
+        toolName,
+        mode: supervisionMode,
+      });
+    }
+    if (tier.cacheHit) {
+      appendAnalyticsEvent(config.storagePath, {
+        event: "tool_supervision.cache_hit",
+        argKey,
+        toolName,
+        mode: supervisionMode,
+        priorDupCount: priorMatching.length,
+      });
+    }
+    if (tier.wouldBlock && !tier.blocked) {
+      appendAnalyticsEvent(config.storagePath, {
+        event: "tool_supervision.would_block",
+        argKey,
+        toolName,
+        mode: supervisionMode,
+      });
+    }
+    if (tier.tier !== "free") {
+      // Reuse existing canonical warned event so legacy aggregators still work.
+      appendAnalyticsEvent(config.storagePath, {
+        event: "tool_supervision.warned",
+        argKey,
+        toolName,
+        mode: tier.blocked ? "block" : tier.tier,
+      });
+    }
+    return {
+      envelope: JSON.stringify(tier.envelope),
+      warned: tier.tier !== "free",
+      blocked: tier.blocked,
+      signalKind: signal.kind,
+      dumped: false,
+      dumpPath: null,
+    };
+  }
+
+  // 0.7.1 — preventive supervision policy (legacy code path).
   //
   // Pre-0.7.1 default mode warned indefinitely; only the explicit
   // strict opt-in actually changed agent trajectory. Result: most
@@ -579,6 +658,182 @@ function readStrictConfig(basePath: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// 0.9.x — hardened supervision: explicit mode + tier ladder + mtime bypass.
+//
+// New `toolSupervision.mode` field opts in to the hardened semantics WITHOUT
+// disturbing the legacy strict/default behavior. Existing installs continue
+// to see the 0.7.1 escalation policy (warn 1st → block 2nd; strict blocks
+// 1st). New installs that set `toolSupervision.mode = "soft"` (recommended
+// for benching) get the 3-tier ladder plus file-mtime bypass.
+//
+// Resolution precedence: env TRACEBASE_TOOL_MODE > config toolSupervision.mode
+// > null (legacy code path).
+// ---------------------------------------------------------------------------
+
+export type SupervisionMode = "warn" | "soft" | "strict";
+
+export function resolveSupervisionMode(basePath: string): SupervisionMode | null {
+  const envRaw = (process.env.TRACEBASE_TOOL_MODE ?? "").trim().toLowerCase();
+  if (envRaw === "warn" || envRaw === "soft" || envRaw === "strict") return envRaw;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require("node:fs") as typeof import("node:fs");
+    const raw = fs.readFileSync(
+      join(basePath, ".tracebase", "config.json"),
+      "utf-8",
+    );
+    const parsed = JSON.parse(raw) as { toolSupervision?: { mode?: unknown } };
+    const m = parsed.toolSupervision?.mode;
+    if (m === "warn" || m === "soft" || m === "strict") return m;
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
+
+/**
+ * Fetch file mtime in milliseconds. Returns null if the file does not exist
+ * or the path is not a string we can stat. Used by the mtime-bypass branch
+ * to detect a post-edit re-read (legitimate) vs a redundant re-read (waste).
+ */
+function fileMtimeMs(filePath: unknown): number | null {
+  if (typeof filePath !== "string" || filePath.length === 0) return null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require("node:fs") as typeof import("node:fs");
+    const stat = fs.statSync(filePath);
+    return stat.mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+interface HardenedTierResult {
+  envelope: Record<string, unknown>;
+  blocked: boolean;
+  /** True iff we'd block on this call under strict-tier policy (counterfactual). */
+  wouldBlock: boolean;
+  /** True iff the mtime check fired and we bypassed supervision. */
+  allowedAfterEdit: boolean;
+  /** True iff the soft-redirect tier served a prior-output reference. */
+  cacheHit: boolean;
+  tier: "free" | "warn" | "soft" | "block";
+}
+
+/**
+ * Tier ladder when `toolSupervision.mode` is explicitly set. Returns the
+ * envelope payload + event flags. Legacy code path is unchanged.
+ *
+ * Tier policy (by priorDupCount of matching argKey in session window):
+ *   0          → free (first call)
+ *   1          → warn  (reuse hint via systemMessage)
+ *   2 or 3     → soft-redirect (block with prior-output reference reason)
+ *   4 or more  → hard block
+ *
+ * Mode dispatch:
+ *   warn   → all hits degraded to warn; never block, never soft-redirect.
+ *   soft   → warn + soft-redirect; the 4+ tier is also degraded to soft.
+ *   strict → full ladder (warn → soft → block).
+ *
+ * mtime bypass: when current file mtime is newer than every prior matching
+ * observation's ts, the file was modified between calls. The Read is a
+ * legitimate post-edit re-read; supervision steps aside, `allowedAfterEdit`
+ * is emitted.
+ *
+ * Only applies to safe-read families (Read / Glob / Grep). Non-safe-read
+ * is handled by the legacy code path.
+ */
+function applyHardenedTier(
+  mode: SupervisionMode,
+  toolName: string,
+  family: ReturnType<typeof toolFamily>,
+  priorMatchingObs: ReadonlyArray<{ ts: number }>,
+  fileMtimeMillis: number | null,
+  signalCount: number,
+  reuseHintCopy: string,
+): HardenedTierResult {
+  const free: HardenedTierResult = {
+    envelope: {},
+    blocked: false,
+    wouldBlock: false,
+    allowedAfterEdit: false,
+    cacheHit: false,
+    tier: "free",
+  };
+
+  const isSafeRead = family === "read" || family === "search";
+  if (!isSafeRead) return free; // legacy handles non-safe-read
+
+  const priorDupCount = priorMatchingObs.length;
+  if (priorDupCount === 0) return free; // first call
+
+  // mtime bypass: only meaningful for `read` family (Glob/Grep don't bind to
+  // a single file). When the current file is newer than the most recent
+  // prior matching observation, the Read is a legitimate post-edit re-read.
+  if (family === "read" && fileMtimeMillis !== null) {
+    const newestPriorTs = Math.max(...priorMatchingObs.map((o) => o.ts));
+    if (fileMtimeMillis > newestPriorTs) {
+      return { ...free, allowedAfterEdit: true };
+    }
+  }
+
+  // Counterfactual: would strict mode block?
+  const wouldBlock = priorDupCount >= 4;
+
+  if (mode === "warn") {
+    return {
+      envelope: { systemMessage: reuseHintCopy },
+      blocked: false,
+      wouldBlock,
+      allowedAfterEdit: false,
+      cacheHit: false,
+      tier: "warn",
+    };
+  }
+
+  if (priorDupCount === 1) {
+    // warn tier in all explicit modes
+    return {
+      envelope: { systemMessage: reuseHintCopy },
+      blocked: false,
+      wouldBlock: false,
+      allowedAfterEdit: false,
+      cacheHit: false,
+      tier: "warn",
+    };
+  }
+
+  if (mode === "soft" || (mode === "strict" && priorDupCount <= 3)) {
+    // soft-redirect tier: block with a prior-output-reference reason so the
+    // agent treats it as "use what you already have", not as an error.
+    const softReason =
+      `▣ TB TOOL  ${toolName} already returned this in the last ${signalCount} turn(s) and the file hasn't changed since. ` +
+      `Refer to that prior output instead of re-running. (soft-redirect tier — agent should change strategy.)`;
+    return {
+      envelope: { decision: "block", reason: softReason },
+      blocked: true,
+      wouldBlock: priorDupCount >= 4,
+      allowedAfterEdit: false,
+      cacheHit: true,
+      tier: "soft",
+    };
+  }
+
+  // mode === "strict" && priorDupCount >= 4 — hard block tier
+  const hardReason =
+    `▣ TB TOOL  blocked ${toolName} (strict tier) — same args have been used ${priorDupCount + 1} times this session and the file has not changed. ` +
+    `Stop re-running; the prior output is the source of truth.`;
+  return {
+    envelope: { decision: "block", reason: hardReason },
+    blocked: true,
+    wouldBlock: true,
+    allowedAfterEdit: false,
+    cacheHit: false,
+    tier: "block",
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Warn-once dedupe
 //
 // Stored in a tiny SQLite table created on first use so we can
@@ -652,8 +907,11 @@ function writeWarnDedupe(storagePath: string, set: Set<string>): void {
 function appendAnalyticsEvent(
   storagePath: string,
   payload:
-    | { event: "tool_supervision.warned"; argKey: string; toolName: string; mode: "warn" | "block" }
-    | { event: "tool_supervision.suppressed"; argKey: string; toolName: string; blocked: boolean },
+    | { event: "tool_supervision.warned"; argKey: string; toolName: string; mode: "warn" | "block" | "soft" }
+    | { event: "tool_supervision.suppressed"; argKey: string; toolName: string; blocked: boolean }
+    | { event: "tool_supervision.allowed_after_edit"; argKey: string; toolName: string; mode: SupervisionMode }
+    | { event: "tool_supervision.cache_hit"; argKey: string; toolName: string; mode: SupervisionMode; priorDupCount: number }
+    | { event: "tool_supervision.would_block"; argKey: string; toolName: string; mode: SupervisionMode },
 ): void {
   try {
     const db = new Database(storagePath);
