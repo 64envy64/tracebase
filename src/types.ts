@@ -1658,6 +1658,9 @@ export type AnalyticsEvent =
   | FileMemoryRecalledEvent
   | ToolSupervisionWarnedEvent
   | ToolSupervisionSuppressedEvent
+  | ToolSupervisionAllowedAfterEditEvent
+  | ToolSupervisionCacheHitEvent
+  | ToolSupervisionWouldBlockEvent
   | LoopRedirectedEvent
   | LoopFallbackEvent
   | ContextFoldedEvent
@@ -2137,6 +2140,48 @@ export interface ToolSupervisionSuppressedEvent extends EventBase {
    * as `false` (warn-mode dedupe = zero token savings).
    */
   blocked?: boolean;
+}
+
+/**
+ * 0.9.x hardened supervision — emitted when the mtime-bypass branch
+ * fires (Read-family safe-read whose target file's mtime is newer than
+ * every prior matching observation in the session window). The tool is
+ * allowed through as a legitimate post-edit re-read; no badge, no block.
+ */
+export interface ToolSupervisionAllowedAfterEditEvent extends EventBase {
+  event: "tool_supervision.allowed_after_edit";
+  argKey: string;
+  toolName: string;
+  mode: "warn" | "soft" | "strict";
+}
+
+/**
+ * 0.9.x hardened supervision — emitted when the soft-redirect tier
+ * serves a prior-output reference (`decision:"block"` with reason text
+ * directing the agent to the prior output). Fires alongside `warned`
+ * (mode: "block") on the same call; both events count as one
+ * tier-ladder firing in aggregators.
+ */
+export interface ToolSupervisionCacheHitEvent extends EventBase {
+  event: "tool_supervision.cache_hit";
+  argKey: string;
+  toolName: string;
+  mode: "warn" | "soft" | "strict";
+  /** Number of prior matching observations (>=2 by construction). */
+  priorDupCount: number;
+}
+
+/**
+ * 0.9.x hardened supervision — counterfactual telemetry: emitted when
+ * the current mode did NOT block but `mode=strict` would have (i.e.
+ * `priorDupCount >= 4`). Lets the dashboard show "strict would have
+ * gated N more calls here" without changing the agent's trajectory.
+ */
+export interface ToolSupervisionWouldBlockEvent extends EventBase {
+  event: "tool_supervision.would_block";
+  argKey: string;
+  toolName: string;
+  mode: "warn" | "soft" | "strict";
 }
 
 /**

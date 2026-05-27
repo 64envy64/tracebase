@@ -395,11 +395,15 @@ export function runCapturePreToolUse(
     }
     if (tier.tier !== "free") {
       // Reuse existing canonical warned event so legacy aggregators still work.
+      // Per the tier ladder, when `tier.blocked` is false the tier is always
+      // "warn" (never "soft" or "block"), so this explicit "warn" cast is
+      // sound and matches the canonical `ToolSupervisionWarnedEvent.mode`
+      // union ("warn" | "block") in src/types.ts.
       appendAnalyticsEvent(config.storagePath, {
         event: "tool_supervision.warned",
         argKey,
         toolName,
-        mode: tier.blocked ? "block" : tier.tier,
+        mode: tier.blocked ? "block" : "warn",
       });
     }
     return {
@@ -907,7 +911,7 @@ function writeWarnDedupe(storagePath: string, set: Set<string>): void {
 function appendAnalyticsEvent(
   storagePath: string,
   payload:
-    | { event: "tool_supervision.warned"; argKey: string; toolName: string; mode: "warn" | "block" | "soft" }
+    | { event: "tool_supervision.warned"; argKey: string; toolName: string; mode: "warn" | "block" }
     | { event: "tool_supervision.suppressed"; argKey: string; toolName: string; blocked: boolean }
     | { event: "tool_supervision.allowed_after_edit"; argKey: string; toolName: string; mode: SupervisionMode }
     | { event: "tool_supervision.cache_hit"; argKey: string; toolName: string; mode: SupervisionMode; priorDupCount: number }
