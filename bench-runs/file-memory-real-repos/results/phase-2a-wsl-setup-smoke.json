@@ -1,0 +1,116 @@
+{
+  "version": "tracebase 0.9.x",
+  "pre_registration": "bench-runs/file-memory/PRE-REGISTRATION-REAL-REPOS.md",
+  "phase": "4c.2A WSL \u2014 install + base-test smoke per repo (Linux/Ubuntu 24.04, Node 24, uv-managed Python venvs)",
+  "ran_at_wall_clock_ish": "2026-05-27T19:23:53+05:00",
+  "results": [
+    {
+      "repo": "Textualize/rich",
+      "dir": "Textualize-rich",
+      "install": {
+        "exit": 0,
+        "elapsed_sec": 7,
+        "command_tried": "uv venv .venv --seed --quiet && .venv/bin/pip install --quiet -e . pytest pytest-cov attrs attr hypothesis pytest-mock"
+      },
+      "base_test": {
+        "exit": 0,
+        "elapsed_sec": 5,
+        "command_tried": ".venv/bin/python -m pytest -q --no-header -x --maxfail=3",
+        "stderr_tail": ""
+      },
+      "ok": true,
+      "notes": []
+    },
+    {
+      "repo": "axios/axios",
+      "dir": "axios-axios",
+      "install": {
+        "exit": 0,
+        "elapsed_sec": 6,
+        "command_tried": "npm install --no-audit --no-fund"
+      },
+      "base_test": {
+        "exit": 1,
+        "elapsed_sec": 69,
+        "command_tried": "npm run test:vitest",
+        "stderr_tail": "      file: '/home/summrlove/file-memory-real-repos/repos/axios-axios/node_modules/vitest/dist/chunks/cli-api.C6CiCDM3.js',\n      line: 13601,\n      column: 11\n    },\n    {\n      method: '',\n      file: '/home/summrlove/file-memory-real-repos/repos/axios-axios/node_modules/vitest/dist/chunks/cli-api.C6CiCDM3.js',\n      line: 13463,\n      column: 19\n    },\n    {\n      method: 'startVitest',\n      file: '/home/summrlove/file-memory-real-repos/repos/axios-axios/node_modules/vitest/dist/chunks/cli-api.C6CiCDM3.js',\n      line: 14538,\n      column: 8\n    },\n    {\n      method: 'start',\n      file: '/home/summrlove/file-memory-real-repos/repos/axios-axios/node_modules/vitest/dist/chunks/cac.BuBILSID.js',\n      line: 2340,\n      column: 15\n    },\n    {\n      method: 'CAC.run',\n      file: '/home/summrlove/file-memory-real-repos/repos/axios-axios/node_modules/vitest/dist/chunks/cac.BuBILSID.js',\n      line: 2318,\n      column: 2\n    }\n  ]\n}\n"
+      },
+      "ok": false,
+      "notes": []
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "dir": "josdejong-mathjs",
+      "install": {
+        "exit": 0,
+        "elapsed_sec": 6,
+        "command_tried": "npm install --no-audit --no-fund"
+      },
+      "base_test": {
+        "exit": 0,
+        "elapsed_sec": 6,
+        "command_tried": "npm run test:src",
+        "stderr_tail": ""
+      },
+      "ok": true,
+      "notes": []
+    },
+    {
+      "repo": "prettier/prettier",
+      "dir": "prettier-prettier",
+      "install": {
+        "exit": 0,
+        "elapsed_sec": 19,
+        "command_tried": "yarn install"
+      },
+      "base_test": {
+        "exit": 124,
+        "elapsed_sec": 307,
+        "command_tried": "yarn test",
+        "stderr_tail": "PASS tests/format/css/loose/format.test.js\nPASS tests/format/css/selector-list/format.test.js\nPASS tests/format/vue/ts-expression/format.test.js\nPASS tests/format/css/long-rule/format.test.js\nPASS tests/format/css/modules/format.test.js\nPASS tests/format/css/indent/format.test.js\nPASS tests/format/css/important/format.test.js\nPASS tests/format/css/pseudo-call/format.test.js\nPASS tests/format/css/yaml/format.test.js\nPASS tests/format/vue/html-vue/format.test.js\nPASS tests/format/css/escaped-attribute/format.test.js\nPASS tests/format/css/fill-value/format.test.js\nPASS tests/format/css/postcss-plugins/format.test.js\nPASS tests/format/css/grid/format.test.js\nPASS tests/format/css/colon/format.test.js\nPASS tests/format/css/cursor/format.test.js\nPASS tests/format/css/combinator/format.test.js\nPASS tests/format/css/bom/format.test.js\nPASS tests/format/css/empty/format.test.js\nPASS tests/format/css/atword/format.test.js\nPASS tests/format/css/inline-url/format.test.js\nPASS tests/format/css/composes/format.test.js\nPASS tests/format/css/_errors_/format.test.js\nPASS tests/format/css/character-escaping/format.test.js\nPASS tests/format/css/parens/format.test.js\nPASS tests/format/css/case/format.test.js\nPASS tests/format/vue/event-binding/format.test.js\nPASS tests/format/css/color/format.test.js\nPASS tests/format/css/comments/format.test.js\nPASS tests/format/css/atrule/format.test.js\n"
+      },
+      "ok": false,
+      "notes": []
+    },
+    {
+      "repo": "psf/black",
+      "dir": "psf-black",
+      "install": {
+        "exit": 0,
+        "elapsed_sec": 19,
+        "command_tried": "uv venv .venv --seed --quiet && .venv/bin/pip install --quiet -e '.[d]' 'pytest>=8' pytest-mock pytest-cov 'click>=8.2'"
+      },
+      "base_test": {
+        "exit": 0,
+        "elapsed_sec": 39,
+        "command_tried": ".venv/bin/python -m pytest -q --no-header -x --maxfail=3",
+        "stderr_tail": ""
+      },
+      "ok": true,
+      "notes": []
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "dir": "pytest-dev-pytest",
+      "install": {
+        "exit": 1,
+        "elapsed_sec": 28,
+        "command_tried": "uv venv .venv --seed --quiet && .venv/bin/pip install --quiet -e '.[testing]' attrs attr hypothesis pytest-mock pytest-xdist pygments",
+        "stderr_tail": "WARNING: pytest 0.1.dev17385+g8927e3516 does not provide the extra 'testing'\nWARNING: pytest 0.1.dev17385+g8927e3516 does not provide the extra 'testing'\nWARNING: pytest 0.1.dev17385+g8927e3516 does not provide the extra 'testing'\nERROR: Cannot install pytest 0.1.dev17385+g8927e3516 (from editable /home/summrlove/file-memory-real-repos/repos/pytest-dev-pytest), pytest-mock==0.1.0, pytest-mock==0.10.0, pytest-mock==0.10.1, pytest-mock==0.11.0, pytest-mock==0.2.0, pytest-mock==0.3.0, pytest-mock==0.4.0, pytest-mock==0.4.1, pytest-mock==0.4.2, pytest-mock==0.4.3, pytest-mock==0.5.0, pytest-mock==0.6.0, pytest-mock==0.7.0, pytest-mock==0.8.1, pytest-mock==0.9.0, pytest-mock==1.0, pytest-mock==1.1, pytest-mock==1.10.0, pytest-mock==1.10.1, pytest-mock==1.10.2, pytest-mock==1.10.3, pytest-mock==1.10.4, pytest-mock==1.11.0, pytest-mock==1.11.1, pytest-mock==1.11.2, pytest-mock==1.12.0, pytest-mock==1.12.1, pytest-mock==1.13.0, pytest-mock==1.2, pytest-mock==1.3.0, pytest-mock==1.4.0, pytest-mock==1.5.0, pytest-mock==1.6.0, pytest-mock==1.6.1, pytest-mock==1.6.2, pytest-mock==1.6.3, pytest-mock==1.7.0, pytest-mock==1.7.1, pytest-mock==1.8.0, pytest-mock==1.9.0, pytest-mock==2.0.0, pytest-mock==3.0.0, pytest-mock==3.1.0, pytest-mock==3.1.1, pytest-mock==3.10.0, pytest-mock==3.11.0, pytest-mock==3.11.1, pytest-mock==3.12.0, pytest-mock==3.13.0, pytest-mock==3.14.0, pytest-mock==3.14.1, pytest-mock==3.15.0, pytest-mock==3.15.1, pytest-mock==3.2.0, pytest-mock==3.3.0, pytest-mock==3.3.1, pytest-mock==3.4.0, pytest-mock==3.5.0, pytest-mock==3.5.1, pytest-mock==3.6.0, pytest-mock==3.6.1, pytest-mock==3.7.0, pytest-mock==3.8.0, pytest-mock==3.8.1, pytest-mock==3.8.2, pytest-mock==3.9.0 and pytest[testing]==0.1.dev17385+g8927e3516 because these package versions have conflicting dependencies.\nERROR: ResolutionImpossible: for help visit https://pip.pypa.io/en/latest/topics/dependency-resolution/#dealing-with-dependency-conflicts\n"
+      },
+      "base_test": {
+        "exit": null,
+        "elapsed_sec": 0,
+        "stderr_tail": "(skipped \u2014 install failed)"
+      },
+      "ok": false,
+      "notes": [
+        "install_failed"
+      ]
+    }
+  ],
+  "total_ok": 3,
+  "total_failed": 3,
+  "total_repos": 6,
+  "passes_pre_reg_4_repo_floor": false
+}

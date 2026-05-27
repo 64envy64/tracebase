@@ -1,0 +1,18 @@
+{
+  "repo": "pallets/werkzeug",
+  "dir": "pallets-werkzeug",
+  "install": {
+    "exit": 0,
+    "elapsed_sec": 0,
+    "command_tried": "uv venv .venv --seed --quiet && pip install -e '.[dev]' pytest pytest-mock pytest-cov pytest-xprocess"
+  },
+  "base_test": {
+    "exit": 4,
+    "elapsed_sec": 0,
+    "command_tried": ".venv/bin/python -m pytest -q --no-header -x --maxfail=3"
+  },
+  "ok": false,
+  "notes": [
+    "pytest forced as separate install dep \u2014 werkzeug's [dev] extra does not include test runner"
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "version": "tracebase 0.9.x",
+  "pre_registration": "bench-runs/file-memory/PRE-REGISTRATION-REAL-REPOS.md",
+  "phase": "4c.2A WSL replacements final",
+  "results": [
+    {
+      "repo": "pallets/werkzeug",
+      "dir": "pallets-werkzeug",
+      "install": {
+        "exit": 0,
+        "elapsed_sec": 0,
+        "command_tried": "uv venv .venv --seed --quiet && pip install -e '.[dev]' pytest pytest-mock pytest-cov pytest-xprocess"
+      },
+      "base_test": {
+        "exit": 4,
+        "elapsed_sec": 0,
+        "command_tried": ".venv/bin/python -m pytest -q --no-header -x --maxfail=3"
+      },
+      "ok": false,
+      "notes": [
+        "pytest forced as separate install dep \u2014 werkzeug's [dev] extra does not include test runner"
+      ]
+    },
+    {
+      "repo": "colinhacks/zod",
+      "dir": "colinhacks-zod",
+      "install": {
+        "exit": 0,
+        "elapsed_sec": 18,
+        "command_tried": "pnpm install --frozen-lockfile=false"
+      },
+      "base_test": {
+        "exit": 0,
+        "elapsed_sec": 14,
+        "command_tried": "pnpm test"
+      },
+      "ok": true,
+      "notes": [
+        "pnpm 10.12.1 via corepack, vitest base run"
+      ]
+    }
+  ],
+  "total_ok": 1,
+  "total_failed": 1
+}
