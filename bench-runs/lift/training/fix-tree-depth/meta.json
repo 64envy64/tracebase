@@ -1,0 +1,11 @@
+{
+  "id": "fix-tree-depth",
+  "language": "typescript",
+  "difficulty": "medium",
+  "bugType": "off-by-one",
+  "description": "maxDepth() returns 0 for leaf nodes and single-node trees because base case is wrong",
+  "tags": [
+    "algorithm",
+    "tree"
+  ]
+}

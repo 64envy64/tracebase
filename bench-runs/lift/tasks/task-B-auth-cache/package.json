@@ -1,0 +1,6 @@
+{
+  "name": "task-B-auth-cache",
+  "type": "module",
+  "private": true,
+  "scripts": { "test": "vitest run" }
+}

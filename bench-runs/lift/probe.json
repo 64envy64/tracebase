@@ -1,0 +1,74 @@
+[
+  {
+    "task_id": "task-A-etl-pipeline",
+    "scores": [
+      0.8222805585391555,
+      0.4985687264225733,
+      0.18138765392472683,
+      0.3833078033773441,
+      0.44393855463468834
+    ],
+    "median": 0.44393855463468834,
+    "min": 0.18138765392472683,
+    "max": 0.8222805585391555,
+    "tierAtMedian": "hint",
+    "tierAtMax": "full",
+    "topPickSituationSnippets": [
+      "An async function uses Array.prototype.f",
+      "An async function uses Array.prototype.f",
+      "An async function uses Array.prototype.f",
+      "An async function uses Array.prototype.f",
+      "An async function uses Array.prototype.f"
+    ],
+    "injection_text": "<hint confidence=\"44%\">Replace `forEach(async ...)` with `await Promise.all(arr.map(async ...))` (or a sequential `for...of` with `await` inside if ordering by side-effects matters), so the outer async function actually waits on every item's promise before returning.</hint>\nConsider this approach. Read source first, then decide.",
+    "injection_chars": 330
+  },
+  {
+    "task_id": "task-B-auth-cache",
+    "scores": [
+      0.44239880728575454,
+      0.20832559219605898,
+      0.4286068002066775,
+      0.28931421062587637,
+      0.4244713543017018
+    ],
+    "median": 0.4244713543017018,
+    "min": 0.20832559219605898,
+    "max": 0.44239880728575454,
+    "tierAtMedian": "hint",
+    "tierAtMax": "hint",
+    "topPickSituationSnippets": [
+      "A subscribe/register helper wraps the ca",
+      "A subscribe/register helper wraps the ca",
+      "A read-style accessor on a recency-track",
+      "A read-style accessor on a recency-track",
+      "A read-style accessor on a recency-track"
+    ],
+    "injection_text": "<hint confidence=\"42%\">Capture the exact wrapped function in a local variable at registration time and pass that same reference to both the register and unregister calls, so identity-based removal matches.</hint>\nConsider this approach. Read source first, then decide.",
+    "injection_chars": 268
+  },
+  {
+    "task_id": "task-C-build-graph",
+    "scores": [
+      0.4761147573720407,
+      0.6096510709993131,
+      0.2118294127914248,
+      0.37659484215956696,
+      0.5388461749801114
+    ],
+    "median": 0.4761147573720407,
+    "min": 0.2118294127914248,
+    "max": 0.6096510709993131,
+    "tierAtMedian": "hint",
+    "tierAtMax": "full",
+    "topPickSituationSnippets": [
+      "A recursive structural traversal handles",
+      "A recursive structural traversal handles",
+      "A recursive structural traversal handles",
+      "A recursive structural traversal handles",
+      "A recursive structural traversal handles"
+    ],
+    "injection_text": "<hint confidence=\"48%\">Add an early-return branch for each non-plain reference type that reconstructs it via its own constructor/state-accessor before the generic object branch, AND thread a WeakMap<original, clone> through the recursion that is populated with the freshly-allocated container BEFORE descending into its children, so revisits return the in-progress clone instead of recursing.</hint>\nConsider this approach. Read source first, then decide.",
+    "injection_chars": 455
+  }
+]

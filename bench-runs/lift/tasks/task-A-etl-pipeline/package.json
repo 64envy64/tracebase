@@ -1,0 +1,6 @@
+{
+  "name": "task-A-etl-pipeline",
+  "type": "module",
+  "private": true,
+  "scripts": { "test": "vitest run" }
+}

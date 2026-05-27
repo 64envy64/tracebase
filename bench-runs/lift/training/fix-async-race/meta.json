@@ -1,0 +1,11 @@
+{
+  "id": "fix-async-race",
+  "language": "typescript",
+  "difficulty": "hard",
+  "bugType": "race-condition",
+  "description": "processItems() returns before async operations complete because forEach with async callback does not await",
+  "tags": [
+    "async",
+    "concurrency"
+  ]
+}

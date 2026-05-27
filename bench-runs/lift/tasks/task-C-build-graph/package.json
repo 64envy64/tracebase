@@ -1,0 +1,6 @@
+{
+  "name": "task-C-build-graph",
+  "type": "module",
+  "private": true,
+  "scripts": { "test": "vitest run" }
+}

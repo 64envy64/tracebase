@@ -1,0 +1,104 @@
+[
+  {
+    "task_id": "task-A-etl-pipeline",
+    "n_probes": 5,
+    "modal_pick_id": "fix-async-race",
+    "modal_pick_count": "5/5",
+    "modal_median_score": 0.47098855299314046,
+    "modal_tier": "hint",
+    "per_probe_picks": [
+      {
+        "id": "fix-async-race",
+        "score": 0.471
+      },
+      {
+        "id": "fix-async-race",
+        "score": 0.56
+      },
+      {
+        "id": "fix-async-race",
+        "score": 0.46
+      },
+      {
+        "id": "fix-async-race",
+        "score": 0.432
+      },
+      {
+        "id": "fix-async-race",
+        "score": 0.846
+      }
+    ],
+    "tracebase_injection": "<hint confidence=\"47%\">Replace `forEach(async ...)` with `await Promise.all(arr.map(async ...))` (or a sequential `for...of` with `await` inside if ordering by side-effects matters), so the outer async function actually waits on every item's promise before returning.</hint>\nConsider this approach. Read source first, then decide.",
+    "oracle_correct_id": "fix-async-race",
+    "oracle_correct_pick_count": "5/5",
+    "gate_picked_correct": true
+  },
+  {
+    "task_id": "task-B-auth-cache",
+    "n_probes": 5,
+    "modal_pick_id": "fix-cache-invalidation",
+    "modal_pick_count": "5/5",
+    "modal_median_score": 0.5038233279807696,
+    "modal_tier": "hint",
+    "per_probe_picks": [
+      {
+        "id": "fix-cache-invalidation",
+        "score": 0.378
+      },
+      {
+        "id": "fix-cache-invalidation",
+        "score": 0.456
+      },
+      {
+        "id": "fix-cache-invalidation",
+        "score": 0.504
+      },
+      {
+        "id": "fix-cache-invalidation",
+        "score": 0.631
+      },
+      {
+        "id": "fix-cache-invalidation",
+        "score": 0.542
+      }
+    ],
+    "tracebase_injection": "<hint confidence=\"50%\">On every successful read path, invoke the same recency-update helper that the write path uses before returning the value — both reads and writes must register as 'touches' for an access-ordered policy to be correct.</hint>\nConsider this approach. Read source first, then decide.",
+    "oracle_correct_id": "fix-cache-invalidation",
+    "oracle_correct_pick_count": "5/5",
+    "gate_picked_correct": true
+  },
+  {
+    "task_id": "task-C-build-graph",
+    "n_probes": 5,
+    "modal_pick_id": "fix-deep-clone",
+    "modal_pick_count": "5/5",
+    "modal_median_score": 0.3459887830217089,
+    "modal_tier": "refused",
+    "per_probe_picks": [
+      {
+        "id": "fix-deep-clone",
+        "score": 0.334
+      },
+      {
+        "id": "fix-deep-clone",
+        "score": 0.328
+      },
+      {
+        "id": "fix-deep-clone",
+        "score": 0.346
+      },
+      {
+        "id": "fix-deep-clone",
+        "score": 0.748
+      },
+      {
+        "id": "fix-deep-clone",
+        "score": 0.46
+      }
+    ],
+    "tracebase_injection": null,
+    "oracle_correct_id": "fix-deep-clone",
+    "oracle_correct_pick_count": "5/5",
+    "gate_picked_correct": true
+  }
+]

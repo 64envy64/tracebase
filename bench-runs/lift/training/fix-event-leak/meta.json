@@ -1,0 +1,11 @@
+{
+  "id": "fix-event-leak",
+  "language": "typescript",
+  "difficulty": "medium",
+  "bugType": "memory-leak",
+  "description": "Event emitter listener accumulates because unsubscribe() cannot match the anonymous wrapper created in subscribe()",
+  "tags": [
+    "events",
+    "cleanup"
+  ]
+}

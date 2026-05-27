@@ -1,0 +1,89 @@
+{
+  "version": "tracebase 0.9.0",
+  "bench": "lift (captured-trace memory → future-agent lift)",
+  "methodology": "training agents solve 10 fixtures → distillates captured into ReasoningLayer → 3 hard multi-step test tasks run OFF/ON via sub-agents → tested by vitest post-hoc",
+  "n_training": 10,
+  "n_test_tasks": 3,
+  "n_trajectories": 6,
+  "gate_thresholds": {
+    "production": { "hint": 0.72, "full": 0.85 },
+    "applied": { "hint": 0.40, "full": 0.60, "reason": "FTS5 IDF degeneracy on N=10 corpus; codebase notes per-corpus calibration is expected (src/core/block-serving.ts comments)" }
+  },
+  "captured_memory": [
+    { "fixture_id": "fix-async-race", "kind": "success" },
+    { "fixture_id": "fix-cache-invalidation", "kind": "success" },
+    { "fixture_id": "fix-debounce", "kind": "success" },
+    { "fixture_id": "fix-deep-clone", "kind": "success" },
+    { "fixture_id": "fix-event-leak", "kind": "success" },
+    { "fixture_id": "fix-merge-sort", "kind": "success" },
+    { "fixture_id": "fix-null-coalesce", "kind": "success" },
+    { "fixture_id": "fix-off-by-one", "kind": "success" },
+    { "fixture_id": "fix-rate-limiter", "kind": "success" },
+    { "fixture_id": "fix-tree-depth", "kind": "success" }
+  ],
+  "trajectories": [
+    {
+      "task_id": "task-A-etl-pipeline", "bug_class": "async-iteration", "variant": "OFF",
+      "harness_tool_uses": 16, "harness_duration_ms": 182794, "harness_total_tokens": 25780,
+      "final_test_status": "pass", "edit_paths": ["src/loader/batchWriter.ts"],
+      "edit_summary": "Replaced records.forEach(async ...) with for...of awaiting db.write"
+    },
+    {
+      "task_id": "task-A-etl-pipeline", "bug_class": "async-iteration", "variant": "ON",
+      "harness_tool_uses": 13, "harness_duration_ms": 255938, "harness_total_tokens": 24799,
+      "final_test_status": "pass", "edit_paths": ["src/loader/batchWriter.ts"],
+      "edit_summary": "Replaced forEach(async) with await Promise.all(records.map(async))",
+      "gate_pick_correct": true, "gate_pick": "fix-async-race", "gate_pick_modal": "5/5", "gate_score_median": 0.444, "gate_tier_at_median": "hint"
+    },
+    {
+      "task_id": "task-B-auth-cache", "bug_class": "LRU recency", "variant": "OFF",
+      "harness_tool_uses": 9, "harness_duration_ms": 201969, "harness_total_tokens": 23966,
+      "final_test_status": "pass", "edit_paths": ["src/cache/lruCache.ts"],
+      "edit_summary": "LRUCache.get now calls touch(n) on hit"
+    },
+    {
+      "task_id": "task-B-auth-cache", "bug_class": "LRU recency", "variant": "ON",
+      "harness_tool_uses": 17, "harness_duration_ms": 319617, "harness_total_tokens": 28473,
+      "final_test_status": "pass", "edit_paths": ["src/cache/lruCache.ts"],
+      "edit_summary": "LRUCache.get touch(n) on hit; agent noted the injected wrapper-identity hint did not apply",
+      "gate_pick_correct": false, "gate_pick": "fix-event-leak", "gate_pick_modal": "4/5", "gate_score_median": 0.424, "gate_tier_at_median": "hint"
+    },
+    {
+      "task_id": "task-C-build-graph", "bug_class": "cyclic-visited", "variant": "OFF",
+      "harness_tool_uses": 14, "harness_duration_ms": 313133, "harness_total_tokens": 28502,
+      "final_test_status": "pass", "edit_paths": ["src/build/resolver.ts", "src/build/compiler.ts"],
+      "edit_summary": "Added visiting/done sets to Resolver.visit; fixed Compiler slice"
+    },
+    {
+      "task_id": "task-C-build-graph", "bug_class": "cyclic-visited", "variant": "ON",
+      "harness_tool_uses": 15, "harness_duration_ms": 300601, "harness_total_tokens": 27658,
+      "final_test_status": "pass", "edit_paths": ["src/build/resolver.ts", "src/build/compiler.ts"],
+      "edit_summary": "visiting/visited sets + Compiler slice; agent dismissed WeakMap-clone hint as surface-mismatched",
+      "gate_pick_correct": true, "gate_pick": "fix-deep-clone", "gate_pick_modal": "5/5", "gate_score_median": 0.476, "gate_tier_at_median": "hint",
+      "agent_note_on_hint": "abstract pattern matched (cyclic-visited) but hint's clone-reconstruction surface didn't translate to graph traversal — agent ignored it"
+    }
+  ],
+  "stratified_results": {
+    "correct_recall": {
+      "n": 2,
+      "tasks": ["task-A-etl-pipeline", "task-C-build-graph"],
+      "tool_uses": { "off_sum": 30, "on_sum": 28, "delta_pct": -6.7 },
+      "duration_ms": { "off_sum": 495927, "on_sum": 556539, "delta_pct": 12.2 },
+      "total_tokens": { "off_sum": 54282, "on_sum": 52457, "delta_pct": -3.4 }
+    },
+    "wrong_recall": {
+      "n": 1,
+      "tasks": ["task-B-auth-cache"],
+      "tool_uses": { "off": 9, "on": 17, "delta_pct": 88.9 },
+      "duration_ms": { "off": 201969, "on": 319617, "delta_pct": 58.3 },
+      "total_tokens": { "off": 23966, "on": 28473, "delta_pct": 18.8 }
+    },
+    "aggregate": {
+      "n": 3,
+      "pass_rate": { "off": "3/3", "on": "3/3" },
+      "tool_uses": { "off_sum": 39, "on_sum": 45, "delta_pct": 15.4 },
+      "duration_ms": { "off_sum": 697896, "on_sum": 876156, "delta_pct": 25.5 },
+      "total_tokens": { "off_sum": 78248, "on_sum": 80930, "delta_pct": 3.4 }
+    }
+  }
+}

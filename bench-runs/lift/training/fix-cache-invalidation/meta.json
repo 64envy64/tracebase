@@ -1,0 +1,11 @@
+{
+  "id": "fix-cache-invalidation",
+  "language": "typescript",
+  "difficulty": "hard",
+  "bugType": "logic-error",
+  "description": "LRU cache evicts most recently used item instead of least recently used because get() does not refresh recency",
+  "tags": [
+    "data-structure",
+    "cache"
+  ]
+}
