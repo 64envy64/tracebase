@@ -9,6 +9,7 @@ Reports whose headline is defensible to investors / external users **as written*
 |---|---|---|
 | [`file-memory.md`](publishable/file-memory.md) | 02 Semantic file memory | Glob 3→0, wall-time −16 %, tokens flat, pass-rate unchanged on 3 isolated multi-file tasks. Real agent measurement. |
 | [`tool-supervision.md`](publishable/tool-supervision.md) | 03 Tool supervision | **Mechanism-correctness only** (synthetic scripted trajectories, 8/8 scenarios pass). Does **not** claim agent-level cost reduction — that requires Path A child-CLI harness, queued. |
+| [`context-fold.md`](publishable/context-fold.md) | 05 Context fold | **Mechanism-correctness only** (synthetic synthesised-transcript scenarios, 6/6 pass first-run, 0 privacy regressions). Verifies fold → persist → recall → render flow + same-session isolation + leakage/injection skip rules. Does **not** claim agent savings, coherence, or compaction performance in real Claude sessions. |
 
 Anything published in marketing / pitch decks should source numbers from this directory.
 

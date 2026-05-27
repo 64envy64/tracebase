@@ -1,0 +1,179 @@
+{
+  "version": "tracebase 0.9.x",
+  "bench": "05 context-fold (Path B synthetic integration)",
+  "pre_registration": "bench-runs/tool-supervision/PRE-REGISTRATION-05-CONTEXT-FOLD.md",
+  "n_scenarios": 6,
+  "n_pass": 6,
+  "n_fail": 0,
+  "all_pass": true,
+  "context_folded_event_total": 9,
+  "context_folded_event_observed": true,
+  "privacy_regressions": 0,
+  "open_known_gap_status": "DISCOVERED — context.folded events DID fire; survey missed an emit site (worth a follow-up to locate it)",
+  "results": [
+    {
+      "id": "happy-fold",
+      "description": "16 alternating turns, each ≥180 chars → 2 chunks land cleanly",
+      "captureExitCode": 0,
+      "injectExitCode": null,
+      "observed": {
+        "session_chunks_rows": 2,
+        "fold_skipped_by_reason": {},
+        "folded_event_count": 2,
+        "additional_context_chars": 0,
+        "additional_context_includes_context_fold": null,
+        "privacy": null
+      },
+      "expected": {
+        "session_chunks_rows": {
+          "op": ">=",
+          "value": 1
+        },
+        "fold_skipped_min": {},
+        "fold_skipped_disallowed": [
+          "leakage",
+          "injection",
+          "below-threshold",
+          "hash-collision"
+        ]
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "below-threshold-tail",
+      "description": "8 full-size turns + 1 tiny tail residual",
+      "captureExitCode": 0,
+      "injectExitCode": null,
+      "observed": {
+        "session_chunks_rows": 1,
+        "fold_skipped_by_reason": {
+          "below-threshold": 1
+        },
+        "folded_event_count": 1,
+        "additional_context_chars": 0,
+        "additional_context_includes_context_fold": null,
+        "privacy": null
+      },
+      "expected": {
+        "session_chunks_rows": {
+          "op": "==",
+          "value": 1
+        },
+        "fold_skipped_min": {
+          "below-threshold": 1
+        }
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "same-session-recall",
+      "description": "After happy-fold capture, inject-context with same session renders <context_fold>",
+      "captureExitCode": 0,
+      "injectExitCode": 0,
+      "observed": {
+        "session_chunks_rows": 2,
+        "fold_skipped_by_reason": {},
+        "folded_event_count": 2,
+        "additional_context_chars": 696,
+        "additional_context_includes_context_fold": true,
+        "privacy": null
+      },
+      "expected": {
+        "session_chunks_rows": {
+          "op": ">=",
+          "value": 1
+        },
+        "fold_skipped_min": {},
+        "additional_context_includes_context_fold": true,
+        "recall_session_id": "session-recall"
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "different-session-no-recall",
+      "description": "Capture under session-A; inject-context with session-B renders no <context_fold>",
+      "captureExitCode": 0,
+      "injectExitCode": 0,
+      "observed": {
+        "session_chunks_rows": 2,
+        "fold_skipped_by_reason": {},
+        "folded_event_count": 2,
+        "additional_context_chars": 0,
+        "additional_context_includes_context_fold": false,
+        "privacy": null
+      },
+      "expected": {
+        "session_chunks_rows": {
+          "op": ">=",
+          "value": 1
+        },
+        "fold_skipped_min": {},
+        "additional_context_includes_context_fold": false,
+        "recall_session_id": "session-B"
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "privacy-leakage-skip",
+      "description": "Turn 7 contains an API-key shape → chunk 1 skipped (leakage); chunk 2 lands",
+      "captureExitCode": 0,
+      "injectExitCode": null,
+      "observed": {
+        "session_chunks_rows": 1,
+        "fold_skipped_by_reason": {
+          "leakage": 1
+        },
+        "folded_event_count": 1,
+        "additional_context_chars": 0,
+        "additional_context_includes_context_fold": null,
+        "privacy": {
+          "tokenFoundInDb": false,
+          "locations": []
+        }
+      },
+      "expected": {
+        "session_chunks_rows": {
+          "op": ">=",
+          "value": 1
+        },
+        "fold_skipped_min": {
+          "leakage": 1
+        },
+        "privacy_check_token": "sk-ant-CONTRIVED-LEAKAGE-TOKEN-FOR-TEST-2026-PathB"
+      },
+      "failures": [],
+      "pass": true
+    },
+    {
+      "id": "privacy-injection-skip",
+      "description": "Turn 0 contains a role-override prompt → chunk 1 skipped (injection); chunk 2 lands",
+      "captureExitCode": 0,
+      "injectExitCode": null,
+      "observed": {
+        "session_chunks_rows": 1,
+        "fold_skipped_by_reason": {
+          "injection": 1
+        },
+        "folded_event_count": 1,
+        "additional_context_chars": 0,
+        "additional_context_includes_context_fold": null,
+        "privacy": null
+      },
+      "expected": {
+        "session_chunks_rows": {
+          "op": ">=",
+          "value": 1
+        },
+        "fold_skipped_min": {
+          "injection": 1
+        }
+      },
+      "failures": [],
+      "pass": true
+    }
+  ]
+}
