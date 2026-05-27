@@ -1,0 +1,45 @@
+{
+  "version": "tracebase 0.9.0",
+  "bench": "02 file-memory (isolated)",
+  "isolation_method": "minimal hook config: ONLY UserPromptSubmit→inject-context. NO PreToolUse / PostToolUse / PreCompact / Stop. Reasoning-reuse disabled by keeping reasoning_blocks empty. Only indexed_files table populated.",
+  "n_tasks": 3,
+  "n_trajectories": 6,
+  "verification": "post-hoc vitest in each workspace",
+  "tasks": [
+    {
+      "task_id": "alpha-http-retry",
+      "files": ["src/http/types.ts", "src/http/retry.ts", "src/http/client.ts", "src/http/retry.test.ts", "vitest.config.mjs"],
+      "bug_class": "computeBackoff returns base delay flat — Math.pow(factor, attempt) missing",
+      "indexed_bytes": 4246,
+      "indexed_count": 5,
+      "off": { "pass": true, "tool_uses": 8, "duration_ms": 159104, "total_tokens": 23345, "Read": 3, "Glob": 1, "Grep": 0, "Edit": 1, "Bash": 2 },
+      "on":  { "pass": true, "tool_uses": 9, "duration_ms": 174915, "total_tokens": 23388, "Read": 3, "Glob": 0, "Grep": 0, "Edit": 1, "Bash": 4 }
+    },
+    {
+      "task_id": "beta-slug",
+      "files": ["src/strings/case.ts", "src/strings/slug.ts", "src/strings/slug.test.ts", "vitest.config.mjs"],
+      "bug_class": "slug() strips non-ASCII instead of folding; asciiFold imported but unused",
+      "indexed_bytes": 2176,
+      "indexed_count": 4,
+      "off": { "pass": true, "tool_uses": 7, "duration_ms": 147093, "total_tokens": 22606, "Read": 3, "Glob": 1, "Grep": 0, "Edit": 1, "Bash": 1 },
+      "on":  { "pass": true, "tool_uses": 6, "duration_ms": 99434,  "total_tokens": 22407, "Read": 3, "Glob": 0, "Grep": 0, "Edit": 1, "Bash": 1 }
+    },
+    {
+      "task_id": "gamma-ttl-cache",
+      "files": ["src/cache/lru.ts", "src/cache/ttl.ts", "src/cache/ttl.test.ts", "vitest.config.mjs"],
+      "bug_class": "TtlCache.set never reaps expired entries — leak under write-only load",
+      "indexed_bytes": 3860,
+      "indexed_count": 4,
+      "off": { "pass": true, "tool_uses": 7, "duration_ms": 142675, "total_tokens": 23440, "Read": 4, "Glob": 1, "Grep": 0, "Edit": 1, "Bash": 1 },
+      "on":  { "pass": true, "tool_uses": 6, "duration_ms": 102307, "total_tokens": 23353, "Read": 4, "Glob": 0, "Grep": 0, "Edit": 1, "Bash": 1 }
+    }
+  ],
+  "aggregate": {
+    "pass_rate": { "off": "3/3", "on": "3/3" },
+    "filesystem_exploration_tools_glob_grep": { "off_sum": 3, "on_sum": 0, "delta_pct": -100.0 },
+    "tool_uses": { "off_sum": 22, "on_sum": 21, "delta_pct": -4.5 },
+    "duration_ms": { "off_sum": 448872, "on_sum": 376656, "delta_pct": -16.1 },
+    "total_tokens": { "off_sum": 69391, "on_sum": 69148, "delta_pct": -0.4 },
+    "Read_calls": { "off_sum": 10, "on_sum": 10, "delta_pct": 0.0 }
+  }
+}
