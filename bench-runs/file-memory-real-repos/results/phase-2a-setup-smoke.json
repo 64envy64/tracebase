@@ -1,0 +1,160 @@
+{
+  "version": "tracebase 0.9.x",
+  "pre_registration": "bench-runs/file-memory/PRE-REGISTRATION-REAL-REPOS.md",
+  "phase": "4c.2A — install + base-test smoke per repo",
+  "ran_at": "2026-05-27T13:38",
+  "results": [
+    {
+      "repo": "axios/axios",
+      "dir": "axios-axios",
+      "kind": "node",
+      "install": {
+        "exitCode": 0,
+        "stdoutTail": "\nup to date in 997ms\n",
+        "stderrTail": "npm warn using --force Recommended protections disabled.\n",
+        "elapsedSec": 1.2,
+        "timedOut": false,
+        "commandTried": "npm install --include=optional --no-audit --no-fund --force"
+      },
+      "baseTest": {
+        "exitCode": 1,
+        "stdoutTail": "\n> axios@1.16.1 test:vitest\n> vitest run\n\n",
+        "stderrTail": "\n⎯⎯⎯⎯⎯⎯⎯ Startup Error ⎯⎯⎯⎯⎯⎯⎯⎯\nError: Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Please try `npm i` again after removing both package-lock.json and node_modules directory.\n    at file:///C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/repos/axios-axios/node_modules/rolldown/dist/shared/binding-C9S351wt.mjs:507:36\n    at file:///C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/repos/axios-axios/node_modules/rolldown/dist/shared/binding-C9S351wt.mjs:9:49\n    ... 2 lines matching cause stack trace ...\n    at async ModuleLoader.import (node:internal/modules/esm/loader:473:24)\n    at async start (file:///C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/repos/axios-axios/node_modules/vitest/dist/chunks/cac.BuBILSID.js:2339:27)\n    at async CAC.run (file:///C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/repos/axios-axios/node_modules/vitest/dist/chunks/cac.BuBILSID.js:2318:2) {\n  [cause]: Error: Cannot find module '@rolldown/binding-win32-x64-msvc'\n  Require stack:\n  - C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\repos\\axios-axios\\node_modules\\rolldown\\dist\\shared\\binding-C9S351wt.mjs\n      at Module._resolveFilename (node:internal/modules/cjs/loader:1225:15)\n      ... 2 lines matching cause stack trace ...\n      at require (node:internal/modules/helpers:179:18)\n      at requireNative (file:///C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/repos/axios-axios/node_modules/rolldown/dist/shared/binding-C9S351wt.mjs:147:21)\n      at file:///C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/repos/axios-axios/node_modules/rolldown/dist/shared/binding-C9S351wt.mjs:475:18\n      at file:///C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/repos/axios-axios/node_modules/rolldown/dist/shared/binding-C9S351wt.mjs:9:49\n      at file:///C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/repos/axios-axios/node_modules/rolldown/dist/shared/parse-Ch28GO2f.mjs:3:46\n      at ModuleJob.run (node:internal/modules/esm/module_job:234:25)\n      at async ModuleLoader.import (node:internal/modules/esm/loader:473:24) {\n    code: 'MODULE_NOT_FOUND',\n    requireStack: [\n      'C:\\\\Users\\\\Wave\\\\Desktop\\\\tracebase\\\\.claude\\\\worktrees\\\\interesting-mcclintock-a69a77\\\\bench-runs\\\\file-memory-real-repos\\\\repos\\\\axios-axios\\\\node_modules\\\\rolldown\\\\dist\\\\shared\\\\binding-C9S351wt.mjs'\n    ],\n    cause: Error: Cannot find module './rolldown-binding.win32-x64-msvc.node'\n    Require stack:\n    - C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\repos\\axios-axios\\node_modules\\rolldown\\dist\\shared\\binding-C9S351wt.mjs\n        at Module._resolveFilename (node:internal/modules/cjs/loader:1225:15)\n        at Module._load (node:internal/modules/cjs/loader:1051:27)\n        at Module.require (node:internal/modules/cjs/loader:1311:19)\n        at require (node:internal/modules/helpers:179:18)\n        at requireNative (file:///C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/repos/axios-axios/node_modules/rolldown/dist/shared/binding-C9S351wt.mjs:142:12)\n        at file:///C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/repos/axios-axios/node_modules/rolldown/dist/shared/binding-C9S351wt.mjs:475:18\n        at file:///C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/repos/axios-axios/node_modules/rolldown/dist/shared/binding-C9S351wt.mjs:9:49\n        at file:///C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/repos/axios-axios/node_modules/rolldown/dist/shared/parse-Ch28GO2f.mjs:3:46\n        at ModuleJob.run (node:internal/modules/esm/module_job:234:25)\n        at async ModuleLoader.import (node:internal/modules/esm/loader:473:24) {\n      code: 'MODULE_NOT_FOUND',\n      requireStack: [Array]\n    }\n  }\n}\n\n\n\n",
+        "elapsedSec": 0.5,
+        "timedOut": false,
+        "commandTried": "npm run test:vitest"
+      },
+      "ok": false,
+      "notes": []
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "dir": "josdejong-mathjs",
+      "kind": "node",
+      "install": {
+        "exitCode": 0,
+        "stdoutTail": "\nup to date in 1s\n",
+        "stderrTail": "",
+        "elapsedSec": 1.4,
+        "timedOut": false,
+        "commandTried": "npm install --no-audit --no-fund --prefer-offline"
+      },
+      "baseTest": {
+        "exitCode": 0,
+        "stdoutTail": "  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ....................................................,,..\n  ...............,........................................\n  ..,,....................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  ............,,..........................................\n  ........................................................\n  ......................................................,.\n  ........................................................\n  ........................................................\n  ........................................................\n  ........................................................\n  .,......................................................\n  ........................................................\n  .............................................,.,........\n  ........................................................\n  ........................................................\n  ..........\n\n  6652 passing (6s)\n  22 pending\n\n",
+        "stderrTail": "",
+        "elapsedSec": 7.5,
+        "timedOut": false,
+        "commandTried": "npm run test:src"
+      },
+      "ok": true,
+      "notes": []
+    },
+    {
+      "repo": "psf/black",
+      "dir": "psf-black",
+      "kind": "python",
+      "venvPath": "C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black",
+      "install": {
+        "exitCode": 0,
+        "stdoutTail": "Obtaining file:///C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/repos/psf-black\r\n  Installing build dependencies: started\r\n  Installing build dependencies: finished with status 'done'\r\n  Checking if build backend supports build_editable: started\r\n  Checking if build backend supports build_editable: finished with status 'done'\r\n  Getting requirements to build editable: started\r\n  Getting requirements to build editable: finished with status 'done'\r\n  Installing backend dependencies: started\r\n  Installing backend dependencies: finished with status 'done'\r\n  Preparing editable metadata (pyproject.toml): started\r\n  Preparing editable metadata (pyproject.toml): finished with status 'done'\r\nRequirement already satisfied: click>=8.0.0 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from black==0.1.dev2223+g650983f7b) (8.4.1)\r\nRequirement already satisfied: mypy-extensions>=0.4.3 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from black==0.1.dev2223+g650983f7b) (1.1.0)\r\nRequirement already satisfied: packaging>=22.0 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from black==0.1.dev2223+g650983f7b) (26.2)\r\nRequirement already satisfied: pathspec>=1.0.0 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from black==0.1.dev2223+g650983f7b) (1.1.1)\r\nRequirement already satisfied: platformdirs>=2 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from black==0.1.dev2223+g650983f7b) (4.9.6)\r\nRequirement already satisfied: pytokens~=0.4.0 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from black==0.1.dev2223+g650983f7b) (0.4.1)\r\nRequirement already satisfied: aiohttp>=3.10 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from black==0.1.dev2223+g650983f7b) (3.13.5)\r\nRequirement already satisfied: aiohappyeyeballs>=2.5.0 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from aiohttp>=3.10->black==0.1.dev2223+g650983f7b) (2.6.2)\r\nRequirement already satisfied: aiosignal>=1.4.0 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from aiohttp>=3.10->black==0.1.dev2223+g650983f7b) (1.4.0)\r\nRequirement already satisfied: attrs>=17.3.0 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from aiohttp>=3.10->black==0.1.dev2223+g650983f7b) (26.1.0)\r\nRequirement already satisfied: frozenlist>=1.1.1 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from aiohttp>=3.10->black==0.1.dev2223+g650983f7b) (1.8.0)\r\nRequirement already satisfied: multidict<7.0,>=4.5 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from aiohttp>=3.10->black==0.1.dev2223+g650983f7b) (6.7.1)\r\nRequirement already satisfied: propcache>=0.2.0 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from aiohttp>=3.10->black==0.1.dev2223+g650983f7b) (0.5.2)\r\nRequirement already satisfied: yarl<2.0,>=1.17.0 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from aiohttp>=3.10->black==0.1.dev2223+g650983f7b) (1.24.2)\r\nRequirement already satisfied: colorama in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from click>=8.0.0->black==0.1.dev2223+g650983f7b) (0.4.6)\r\nRequirement already satisfied: typing-extensions>=4.2 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from aiosignal>=1.4.0->aiohttp>=3.10->black==0.1.dev2223+g650983f7b) (4.15.0)\r\nRequirement already satisfied: idna>=2.0 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\lib\\site-packages (from yarl<2.0,>=1.17.0->aiohttp>=3.10->black==0.1.dev2223+g650983f7b) (3.16)\r\nBuilding wheels for collected packages: black\r\n  Building editable for black (pyproject.toml): started\r\n  Building editable for black (pyproject.toml): finished with status 'done'\r\n  Created wheel for black: filename=black-0.1.dev2223+g650983f7b-py3-none-any.whl size=34517 sha256=9ad8544b3984fd4a800a28dd08c3578bce9379a77684badd6a7934cff56bd4d8\r\n  Stored in directory: C:\\Users\\Wave\\AppData\\Local\\Temp\\pip-ephem-wheel-cache-__gt1iuh\\wheels\\fc\\8a\\70\\6c4505c886e469f4b9b04b1ab1aa3c71402b39d5465154f001\r\nSuccessfully built black\r\nInstalling collected packages: black\r\n  Attempting uninstall: black\r\n    Found existing installation: black 0.1.dev2223+g650983f7b\r\n    Uninstalling black-0.1.dev2223+g650983f7b:\r\n      Successfully uninstalled black-0.1.dev2223+g650983f7b\r\nSuccessfully installed black-0.1.dev2223+g650983f7b\r\n",
+        "stderrTail": "\r\n[notice] A new release of pip is available: 24.2 -> 26.1.1\r\n[notice] To update, run: C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\Scripts\\python.exe -m pip install --upgrade pip\r\n",
+        "elapsedSec": 6.3,
+        "timedOut": false,
+        "commandTried": "C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\Scripts\\pip.exe install -e C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\repos\\psf-black[d]"
+      },
+      "baseTest": {
+        "exitCode": 0,
+        "stdoutTail": ".................................................................... [ 15%]\r\n........................................................................ [ 30%]\r\n........................................................................ [ 46%]\r\n........................................................................ [ 62%]\r\n........................................................................ [ 78%]\r\n...........................................................ss........... [ 94%]\r\n........................                                                 [100%]\r\n450 passed, 3 skipped, 4 subtests passed in 44.11s\r\n",
+        "stderrTail": "",
+        "elapsedSec": 44.6,
+        "timedOut": false,
+        "commandTried": "C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\black\\Scripts\\python.exe -m pytest -q --no-header -x --maxfail=3"
+      },
+      "ok": true,
+      "notes": [
+        "venv already existed; reusing"
+      ]
+    },
+    {
+      "repo": "Textualize/rich",
+      "dir": "Textualize-rich",
+      "kind": "python",
+      "venvPath": "C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\rich",
+      "install": {
+        "exitCode": 0,
+        "stdoutTail": "Obtaining file:///C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/repos/Textualize-rich\r\n  Installing build dependencies: started\r\n  Installing build dependencies: finished with status 'done'\r\n  Checking if build backend supports build_editable: started\r\n  Checking if build backend supports build_editable: finished with status 'done'\r\n  Getting requirements to build editable: started\r\n  Getting requirements to build editable: finished with status 'done'\r\n  Preparing editable metadata (pyproject.toml): started\r\n  Preparing editable metadata (pyproject.toml): finished with status 'done'\r\nRequirement already satisfied: markdown-it-py>=2.2.0 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\rich\\lib\\site-packages (from rich==15.0.0) (4.2.0)\r\nRequirement already satisfied: pygments<3.0.0,>=2.13.0 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\rich\\lib\\site-packages (from rich==15.0.0) (2.20.0)\r\nRequirement already satisfied: mdurl~=0.1 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\rich\\lib\\site-packages (from markdown-it-py>=2.2.0->rich==15.0.0) (0.1.2)\r\nBuilding wheels for collected packages: rich\r\n  Building editable for rich (pyproject.toml): started\r\n  Building editable for rich (pyproject.toml): finished with status 'done'\r\n  Created wheel for rich: filename=rich-15.0.0-py3-none-any.whl size=7921 sha256=92e285927141e8bbeb4043c1f9474343a6e844ef83b7ec0ceaba90e6ef31bba6\r\n  Stored in directory: C:\\Users\\Wave\\AppData\\Local\\Temp\\pip-ephem-wheel-cache-ivhmfh52\\wheels\\b2\\62\\a1\\dc89ee90abbd8dd4667acb2825662db2e2407c9becc0738f4d\r\nSuccessfully built rich\r\nInstalling collected packages: rich\r\n  Attempting uninstall: rich\r\n    Found existing installation: rich 15.0.0\r\n    Uninstalling rich-15.0.0:\r\n      Successfully uninstalled rich-15.0.0\r\nSuccessfully installed rich-15.0.0\r\n",
+        "stderrTail": "\r\n[notice] A new release of pip is available: 24.2 -> 26.1.1\r\n[notice] To update, run: C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\rich\\Scripts\\python.exe -m pip install --upgrade pip\r\n",
+        "elapsedSec": 3.3,
+        "timedOut": false,
+        "commandTried": "C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\rich\\Scripts\\pip.exe install -e C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\repos\\Textualize-rich"
+      },
+      "baseTest": {
+        "exitCode": 0,
+        "stdoutTail": "........................................................................ [  7%]\r\n........................................................................ [ 14%]\r\n.........sss............................................................ [ 21%]\r\n........ss.............s.......s........................................ [ 28%]\r\n........................................................................ [ 35%]\r\n....s....sss..........................................s.s............... [ 42%]\r\n...s.................................................................... [ 50%]\r\n..................................s..................................... [ 57%]\r\n........................................................................ [ 64%]\r\n........................................................................ [ 71%]\r\n...................................ssss................................. [ 78%]\r\n........................................................................ [ 85%]\r\n......................................................s.......s.......s. [ 92%]\r\ns......................................................................  [100%]\r\n984 passed, 23 skipped in 5.49s\r\n",
+        "stderrTail": "",
+        "elapsedSec": 6.1,
+        "timedOut": false,
+        "commandTried": "C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\rich\\Scripts\\python.exe -m pytest -q --no-header -x --maxfail=3"
+      },
+      "ok": true,
+      "notes": [
+        "venv already existed; reusing"
+      ]
+    },
+    {
+      "repo": "prettier/prettier",
+      "dir": "prettier-prettier",
+      "kind": "node",
+      "install": {
+        "exitCode": 1,
+        "stdoutTail": "",
+        "stderrTail": "'yarn' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+        "elapsedSec": 0,
+        "timedOut": false,
+        "commandTried": "yarn install"
+      },
+      "baseTest": {
+        "exitCode": null,
+        "stdoutTail": "",
+        "stderrTail": "(skipped — install failed)",
+        "elapsedSec": 0,
+        "timedOut": false,
+        "commandTried": ""
+      },
+      "ok": false,
+      "notes": [
+        "pre-install failed: npm error notarget a package version that doesn't exist. | npm error A complete log of this run can be found in: C:\\Users\\Wave\\AppData\\Local\\npm-cache\\_logs\\2026-05-27T13_37_54_108Z-debug-0.log | ",
+        "install_failed"
+      ]
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "dir": "pytest-dev-pytest",
+      "kind": "python",
+      "venvPath": "C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\pytest",
+      "install": {
+        "exitCode": 0,
+        "stdoutTail": "Obtaining file:///C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/repos/pytest-dev-pytest\r\n  Installing build dependencies: started\r\n  Installing build dependencies: finished with status 'done'\r\n  Checking if build backend supports build_editable: started\r\n  Checking if build backend supports build_editable: finished with status 'done'\r\n  Getting requirements to build editable: started\r\n  Getting requirements to build editable: finished with status 'done'\r\n  Preparing editable metadata (pyproject.toml): started\r\n  Preparing editable metadata (pyproject.toml): finished with status 'done'\r\nRequirement already satisfied: colorama>=0.4 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\pytest\\lib\\site-packages (from pytest==0.1.dev17385+g8927e3516) (0.4.6)\r\nRequirement already satisfied: iniconfig>=1.0.1 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\pytest\\lib\\site-packages (from pytest==0.1.dev17385+g8927e3516) (2.3.0)\r\nRequirement already satisfied: packaging>=22 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\pytest\\lib\\site-packages (from pytest==0.1.dev17385+g8927e3516) (26.2)\r\nRequirement already satisfied: pluggy<2,>=1.5 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\pytest\\lib\\site-packages (from pytest==0.1.dev17385+g8927e3516) (1.6.0)\r\nRequirement already satisfied: pygments>=2.7.2 in c:\\users\\wave\\desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\pytest\\lib\\site-packages (from pytest==0.1.dev17385+g8927e3516) (2.20.0)\r\nBuilding wheels for collected packages: pytest\r\n  Building editable for pytest (pyproject.toml): started\r\n  Building editable for pytest (pyproject.toml): finished with status 'done'\r\n  Created wheel for pytest: filename=pytest-0.1.dev17385+g8927e3516-0.editable-py3-none-any.whl size=5345 sha256=a0a8ac88518cbcc70e3b1537246f21f1350664943f6014f03350cf64090ddb5c\r\n  Stored in directory: C:\\Users\\Wave\\AppData\\Local\\Temp\\pip-ephem-wheel-cache-bgvx09eh\\wheels\\96\\4e\\62\\55ef3cf4e8e37bbee158f3aaf086eb5dbe1faed72290c5b859\r\nSuccessfully built pytest\r\nInstalling collected packages: pytest\r\n  Attempting uninstall: pytest\r\n    Found existing installation: pytest 0.1.dev17385+g8927e3516\r\n    Uninstalling pytest-0.1.dev17385+g8927e3516:\r\n      Successfully uninstalled pytest-0.1.dev17385+g8927e3516\r\nSuccessfully installed pytest-0.1.dev17385+g8927e3516\r\n",
+        "stderrTail": "WARNING: pytest 0.1.dev17385+g8927e3516 does not provide the extra 'testing'\r\n\r\n[notice] A new release of pip is available: 24.2 -> 26.1.1\r\n[notice] To update, run: C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\pytest\\Scripts\\python.exe -m pip install --upgrade pip\r\n",
+        "elapsedSec": 6.8,
+        "timedOut": false,
+        "commandTried": "C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\pytest\\Scripts\\pip.exe install -e C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\repos\\pytest-dev-pytest[testing]"
+      },
+      "baseTest": {
+        "exitCode": 1,
+        "stdoutTail": "\r\n=================================== ERRORS ====================================\r\n_________________ ERROR collecting testing/acceptance_test.py _________________\r\nImportError while importing test module 'C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\repos\\pytest-dev-pytest\\testing\\acceptance_test.py'.\r\nHint: make sure your test modules/packages have valid Python names.\r\nTraceback:\r\nC:\\Users\\Wave\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\__init__.py:90: in import_module\r\n    return _bootstrap._gcd_import(name[level:], package, level)\r\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\ntesting\\acceptance_test.py:13: in <module>\r\n    import setuptools\r\nE   ModuleNotFoundError: No module named 'setuptools'\r\n_________________ ERROR collecting testing/test_assertion.py __________________\r\nImportError while importing test module 'C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\repos\\pytest-dev-pytest\\testing\\test_assertion.py'.\r\nHint: make sure your test modules/packages have valid Python names.\r\nTraceback:\r\nC:\\Users\\Wave\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\__init__.py:90: in import_module\r\n    return _bootstrap._gcd_import(name[level:], package, level)\r\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\ntesting\\test_assertion.py:19: in <module>\r\n    from _pytest.assertion._compare_any import _compare_eq_cls\r\nE   ModuleNotFoundError: No module named '_pytest.assertion._compare_any'\r\n___________________ ERROR collecting testing/test_compat.py ___________________\r\nImportError while importing test module 'C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\repos\\pytest-dev-pytest\\testing\\test_compat.py'.\r\nHint: make sure your test modules/packages have valid Python names.\r\nTraceback:\r\nC:\\Users\\Wave\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\importlib\\__init__.py:90: in import_module\r\n    return _bootstrap._gcd_import(name[level:], package, level)\r\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\ntesting\\test_compat.py:12: in <module>\r\n    from _pytest.compat import deprecated\r\nE   ImportError: cannot import name 'deprecated' from '_pytest.compat' (C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\pytest\\Lib\\site-packages\\_pytest\\compat.py)\r\n=========================== short test summary info ===========================\r\nERROR testing/acceptance_test.py\r\nERROR testing/test_assertion.py\r\nERROR testing/test_compat.py\r\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 3 failures !!!!!!!!!!!!!!!!!!!!!!!!!!\r\n3 errors in 2.17s\r\n",
+        "stderrTail": "",
+        "elapsedSec": 2.7,
+        "timedOut": false,
+        "commandTried": "C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\file-memory-real-repos\\venvs\\pytest\\Scripts\\python.exe -m pytest -q --override-ini=minversion=0.0 --no-header -x --maxfail=3"
+      },
+      "ok": false,
+      "notes": [
+        "venv already existed; reusing"
+      ]
+    }
+  ],
+  "total_ok": 3,
+  "total_failed": 3
+}
