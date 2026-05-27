@@ -1,0 +1,1 @@
+src/calc.test.ts is failing because src/calc.ts has a bug in one of its exported functions. Fix the bug. After making your edit, re-read src/calc.ts to confirm the change is in place, then run the tests with vitest to verify all pass. End your response with the literal text 'DONE'.

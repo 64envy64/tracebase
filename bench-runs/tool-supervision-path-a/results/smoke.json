@@ -1,0 +1,121 @@
+{
+  "pre_registration": "bench-runs/tool-supervision/PRE-REGISTRATION-PATH-A.md",
+  "task": "read-then-test-then-reread",
+  "variant": "ON",
+  "sessionId": "87dd2d60-6743-44b9-adc9-7a5da4c7d951",
+  "workspace": "C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/tool-supervision-path-a/workspaces/read-then-test-then-reread.ON",
+  "transcriptCopiedTo": "C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\tool-supervision-path-a\\transcripts\\read-then-test-then-reread.ON.jsonl",
+  "trajectory": {
+    "exitCode": 0,
+    "elapsedSec": 198.7,
+    "parsedTopKeys": [
+      "type",
+      "subtype",
+      "is_error",
+      "api_error_status",
+      "duration_ms",
+      "duration_api_ms",
+      "ttft_ms",
+      "num_turns",
+      "result",
+      "stop_reason",
+      "session_id",
+      "total_cost_usd",
+      "usage",
+      "modelUsage",
+      "permission_denials",
+      "terminal_reason",
+      "fast_mode_state",
+      "uuid"
+    ],
+    "usage": {
+      "input_tokens": 51,
+      "cache_creation_input_tokens": 10769,
+      "cache_read_input_tokens": 271875,
+      "output_tokens": 1541,
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 10769,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "",
+      "iterations": [
+        {
+          "input_tokens": 7,
+          "output_tokens": 207,
+          "cache_read_input_tokens": 41645,
+          "cache_creation_input_tokens": 610,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 610
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "totalCostUsd": 0.04898975,
+    "durationMs": 195147,
+    "numTurns": 7,
+    "terminalReason": "completed"
+  },
+  "events": {
+    "toolObservationsByTool": {
+      "Bash": 4,
+      "Edit": 2,
+      "Read": 1,
+      "TaskOutput": 2,
+      "TaskStop": 2
+    },
+    "toolObservationsTotal": 11,
+    "toolSupervisionEvents": {
+      "warned": 4,
+      "suppressed": 4
+    },
+    "toolUseCountsByTool": {
+      "Read": 1,
+      "Bash": 2,
+      "TaskOutput": 1,
+      "Edit": 1,
+      "TaskStop": 1
+    },
+    "parallelBatchesByTool": {},
+    "hookAttachments": {
+      "preCount": 15,
+      "postCount": 6,
+      "nonZeroExit": 0
+    },
+    "sequentialReadAfterBash": 0,
+    "transcriptCopiedTo": "C:\\Users\\Wave\\Desktop\\tracebase\\.claude\\worktrees\\interesting-mcclintock-a69a77\\bench-runs\\tool-supervision-path-a\\transcripts\\read-then-test-then-reread.ON.jsonl"
+  },
+  "vitest": {
+    "pass": true,
+    "summary": "Tests  3 passed (3)",
+    "exitCode": 0
+  },
+  "gate": {
+    "gate1_hooks_fired_clean": {
+      "preCount": 15,
+      "postCount": 6,
+      "nonZeroExit": 0,
+      "pass": true
+    },
+    "gate2_tool_observations_present": {
+      "rows": 11,
+      "pass": true
+    },
+    "gate3_supervision_event_fired": {
+      "warnedPlusCacheHit": 4,
+      "pass": true
+    },
+    "gate4_sequencing_read_after_bash": {
+      "occurrences": 0,
+      "pass": false
+    }
+  },
+  "allPass": false
+}

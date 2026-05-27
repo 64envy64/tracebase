@@ -1,7 +1,8 @@
 # Path A harness spike
 
-**Status: spike complete (2026-05-27). Path A is feasible. Full harness build pending.**
-**Driver:** [`scripts/path-a-spike/spike.ts`](../../scripts/path-a-spike/spike.ts).
+**Status: spike complete (2026-05-27). Path A infrastructure validated AND exercised end-to-end via smoke gate.**
+**Outcome: harness works; the 03 real-agent bench is paused indefinitely because the workload class does not produce the redundant patterns the supervisor gates.** See [`bench-runs/tool-supervision/PRE-REGISTRATION-PATH-A.md`](../tool-supervision/PRE-REGISTRATION-PATH-A.md) Amendment 1 and [`bench-results/internal-diagnostics/tool-supervision-real-agent-smoke.md`](../../bench-results/internal-diagnostics/tool-supervision-real-agent-smoke.md).
+**Driver:** [`scripts/path-a-spike/spike.ts`](../../scripts/path-a-spike/spike.ts) (feasibility); [`scripts/path-a-harness/`](../../scripts/path-a-harness/) (full harness, smoke runner).
 
 ## Why this exists
 

@@ -1,0 +1,1 @@
+src/pipeline.test.ts is failing. The pipeline has 4 stages (src/stage1.ts through src/stage4.ts), and the bug is in exactly one of them. Read each stage file once to map them out, find the buggy stage, fix it, and run the tests with vitest. Each file is small — you should not need to read any file more than once. End your response with the literal text 'DONE'.

@@ -1,0 +1,1 @@
+First, read src/parser.ts to see how it parses numbers. Then run the test suite with vitest to see which test fails. Based on the test output, look at src/parser.ts again to identify which regex pattern is wrong. Then fix the regex and run the tests once more to confirm all pass. End your response with the literal text 'DONE'.
