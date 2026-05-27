@@ -1,0 +1,31 @@
+{
+  "version": "0.9.0",
+  "ts": "2026-05-25T19:33:58.190Z",
+  "passed": true,
+  "stages": [
+    {
+      "script": "bench:hooks",
+      "label": "Hook latency (inject/capture-turn/capture-context/capture-tool-use)",
+      "exitCode": 0,
+      "durationMs": 55429
+    },
+    {
+      "script": "bench:sdk",
+      "label": "SDK warm latency (beforeRun/observeToolBatch/saveContext)",
+      "exitCode": 0,
+      "durationMs": 1507
+    },
+    {
+      "script": "bench:mechanisms",
+      "label": "Mechanism micro-benches (prompt-cache.attach + savings.compute)",
+      "exitCode": 0,
+      "durationMs": 3173
+    },
+    {
+      "script": "eval:retrieval",
+      "label": "Retrieval eval (prior_fix + file_memory + context_fold goldens)",
+      "exitCode": 0,
+      "durationMs": 1333
+    }
+  ]
+}

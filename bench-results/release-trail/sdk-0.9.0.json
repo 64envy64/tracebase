@@ -1,0 +1,54 @@
+{
+  "version": "0.9.0",
+  "timestamp": "2026-05-25T19:33:53.655Z",
+  "runs": 100,
+  "warmup": 5,
+  "results": [
+    {
+      "hook": "runtime.beforeRun",
+      "target_ms": 50,
+      "ceiling_ms": 150,
+      "release_gate": true,
+      "runs": 100,
+      "p50_ms": 2.63,
+      "p95_ms": 6.28,
+      "p99_ms": 8.52,
+      "max_ms": 8.52,
+      "exceedsTarget": false,
+      "exceedsCeiling": false,
+      "fetchCallsDuringRun": 0
+    },
+    {
+      "hook": "runtime.observeToolBatch",
+      "target_ms": 30,
+      "ceiling_ms": 200,
+      "release_gate": true,
+      "runs": 100,
+      "p50_ms": 0.85,
+      "p95_ms": 1.28,
+      "p99_ms": 6.64,
+      "max_ms": 6.64,
+      "exceedsTarget": false,
+      "exceedsCeiling": false,
+      "fetchCallsDuringRun": 0
+    },
+    {
+      "hook": "runtime.saveContext",
+      "target_ms": 200,
+      "ceiling_ms": 2000,
+      "release_gate": true,
+      "runs": 100,
+      "p50_ms": 0.57,
+      "p95_ms": 0.89,
+      "p99_ms": 6.49,
+      "max_ms": 6.49,
+      "exceedsTarget": false,
+      "exceedsCeiling": false,
+      "fetchCallsDuringRun": 0
+    }
+  ],
+  "hotPathNoFetch": {
+    "ok": true,
+    "fetchCallsDuringRun": 0
+  }
+}

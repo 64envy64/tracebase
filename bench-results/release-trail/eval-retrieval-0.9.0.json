@@ -1,0 +1,48 @@
+{
+  "version": "0.9.0",
+  "ts": "2026-05-25T19:33:58.141Z",
+  "reports": [
+    {
+      "kind": "prior_fix",
+      "cases": 13,
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "mrr": 1,
+      "thresholds": {
+        "recall_at_5": 0.85,
+        "ndcg_at_5": 0.7,
+        "mrr": 0.65
+      },
+      "passed": true,
+      "failures": []
+    },
+    {
+      "kind": "file_memory",
+      "cases": 12,
+      "recall_at_5": 1,
+      "ndcg_at_5": 1,
+      "mrr": 1,
+      "thresholds": {
+        "recall_at_5": 0.85,
+        "ndcg_at_5": 0.7,
+        "mrr": 0.65
+      },
+      "passed": true,
+      "failures": []
+    },
+    {
+      "kind": "context_fold",
+      "cases": 10,
+      "recall_at_5": 1,
+      "ndcg_at_5": 0.8892789260714373,
+      "mrr": 0.85,
+      "thresholds": {
+        "recall_at_5": 0.85,
+        "ndcg_at_5": 0.7,
+        "mrr": 0.65
+      },
+      "passed": true,
+      "failures": []
+    }
+  ]
+}

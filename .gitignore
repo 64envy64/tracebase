@@ -41,3 +41,22 @@ www/out/
 # demo-tasks/<id>/state-<variant>/ before each verifier run. The
 # JSON outputs and summary.md under demo-runs/ stay tracked.
 demo-runs/**/*-workspace/
+
+# Bench raw artifacts — regenerable from scripts/<bench>-bench/ and
+# bench-runs/<bench>/tasks/. Reports stay in bench-results/, fixtures
+# and PRE-REGISTRATION live in bench-runs/<bench>/ root.
+bench-runs/**/workspaces/
+bench-runs/**/ablation-workspaces/
+bench-runs/**/prompts/
+bench-runs/**/ablation-prompts/
+bench-runs/**/training-prompts/
+bench-runs/**/test-prompts/
+bench-runs/**/probe-injections/
+# lift store DB is seeded from distillates via scripts/lift-bench/seed-captured-store.ts —
+# the distillates JSONL is the source-of-truth, the DB is derived.
+bench-runs/lift/store/
+
+# SWE-bench per-instance trajectory dumps — tens of MB of step-by-step
+# agent state per run. Findings (.md), preds.json, predictions.jsonl,
+# tracebase.*.json summaries and exit_statuses_*.yaml stay versioned.
+eval/swebench/results*/**/*.traj.json
