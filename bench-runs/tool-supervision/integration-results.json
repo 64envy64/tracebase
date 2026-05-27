@@ -1,0 +1,180 @@
+{
+  "version": "tracebase 0.9.0",
+  "bench": "03 tool-supervision (Path B synthetic integration)",
+  "pre_registration": "bench-runs/tool-supervision/PRE-REGISTRATION.md",
+  "mode": "soft",
+  "n_scenarios": 8,
+  "n_pass": 8,
+  "n_fail": 0,
+  "all_pass": true,
+  "results": [
+    {
+      "id": "single-read",
+      "description": "1 Read of file a — no duplicate, no events.",
+      "expectedDecisions": [
+        "free"
+      ],
+      "actualDecisions": [
+        "free"
+      ],
+      "expectedEvents": {},
+      "actualEvents": {},
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "read-read-warn",
+      "description": "2 identical Reads — second hits warn tier, systemMessage only.",
+      "expectedDecisions": [
+        "free",
+        "warn"
+      ],
+      "actualDecisions": [
+        "free",
+        "warn"
+      ],
+      "expectedEvents": {
+        "warned": 1
+      },
+      "actualEvents": {
+        "warned": 1
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "read-read-read-soft",
+      "description": "3 identical Reads — third hits soft-redirect (decision:block).",
+      "expectedDecisions": [
+        "free",
+        "warn",
+        "soft-redirect"
+      ],
+      "actualDecisions": [
+        "free",
+        "warn",
+        "soft-redirect"
+      ],
+      "expectedEvents": {
+        "warned": 2,
+        "cache_hit": 1
+      },
+      "actualEvents": {
+        "warned": 2,
+        "cache_hit": 1
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "edit-bypass",
+      "description": "Read → fs-edit (mtime bump) → Read. Second Read bypasses via allowed_after_edit.",
+      "expectedDecisions": [
+        "free",
+        "free"
+      ],
+      "actualDecisions": [
+        "free",
+        "free"
+      ],
+      "expectedEvents": {
+        "allowed_after_edit": 1
+      },
+      "actualEvents": {
+        "allowed_after_edit": 1
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "dup-then-edit-then-read",
+      "description": "Read → Read (warn) → fs-edit → Read. Post-edit Read uses bypass.",
+      "expectedDecisions": [
+        "free",
+        "warn",
+        "free"
+      ],
+      "actualDecisions": [
+        "free",
+        "warn",
+        "free"
+      ],
+      "expectedEvents": {
+        "warned": 1,
+        "allowed_after_edit": 1
+      },
+      "actualEvents": {
+        "warned": 1,
+        "allowed_after_edit": 1
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "bash-not-supervised",
+      "description": "3 identical Bash calls — never blocked. 2nd attaches legacy reuse-hint systemMessage (warn tag, NOT block). 3rd is suppressed.",
+      "expectedDecisions": [
+        "free",
+        "warn",
+        "free"
+      ],
+      "actualDecisions": [
+        "free",
+        "warn",
+        "free"
+      ],
+      "expectedEvents": {
+        "warned": 1,
+        "suppressed": 1
+      },
+      "actualEvents": {
+        "warned": 1,
+        "suppressed": 1
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "distinct-reads-null",
+      "description": "Read a, Read b, Read c — all distinct argKeys; no duplicates detected.",
+      "expectedDecisions": [
+        "free",
+        "free",
+        "free"
+      ],
+      "actualDecisions": [
+        "free",
+        "free",
+        "free"
+      ],
+      "expectedEvents": {},
+      "actualEvents": {},
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "grep-grep-grep-soft",
+      "description": "3 identical Greps — search family, same tier ladder as Read but no mtime bypass.",
+      "expectedDecisions": [
+        "free",
+        "warn",
+        "soft-redirect"
+      ],
+      "actualDecisions": [
+        "free",
+        "warn",
+        "soft-redirect"
+      ],
+      "expectedEvents": {
+        "warned": 2,
+        "cache_hit": 1
+      },
+      "actualEvents": {
+        "warned": 2,
+        "cache_hit": 1
+      },
+      "pass": true,
+      "failures": []
+    }
+  ]
+}
