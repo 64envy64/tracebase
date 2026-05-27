@@ -70,3 +70,12 @@ eval/swebench/results*/**/*.traj.json
 bench-runs/tool-supervision-path-a*/transcripts/**/*.jsonl
 # Internal Phase A pass-flag file used by smoke-04.ts to gate Phase B.
 bench-runs/tool-supervision-path-a-04/results/.phase-a-passed
+
+# File-memory real-repos bench (PRE-REGISTRATION-REAL-REPOS.md). Cloned
+# repos + per-task workspaces + raw transcripts are all heavy and
+# regenerable from repo-pool.json + candidate-pool.json + selected-tasks.json
+# + harness scripts. Per-trajectory JSON summaries under results/ are
+# committed; raw artifacts are not.
+bench-runs/file-memory-real-repos/repos/
+bench-runs/file-memory-real-repos/workspaces/
+bench-runs/file-memory-real-repos/transcripts/**/*.jsonl
