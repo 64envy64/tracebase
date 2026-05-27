@@ -3,12 +3,12 @@
   "pre_registration": "bench-runs/file-memory/PRE-REGISTRATION-REAL-REPOS.md",
   "source_pool": "bench-runs/file-memory-real-repos/repo-pool.json (v3 amendment, eb48ec5)",
   "discovered_at": "2026-05-27",
-  "validation_status": "DISCOVERY ONLY — candidates were filtered by deterministic git-metadata criteria (title fix/bug-shape; touches test files; source-LOC > 0 and ≤ 20). NONE has been reproducibility-checked yet (box 4c). Per pre-reg §'Selection process' steps 2 + 4, box 4c MUST run the three-part reproducibility-only baseline check (parent + test-diff fails as expected; source fix passes; install + test command exits cleanly — NO agent run) per candidate before any can become a selected task.",
-  "discovery_method": "git log --first-parent --since='<date>' --grep='fix' --grep='bug' -i on each VERIFIED repo's mainline; per-commit `git diff --numstat <parent> <commit>`; deterministic file classification (test vs source vs other) by per-repo path patterns; filter to has_test_file_changes AND 0 < source_loc_net ≤ 20.",
+  "validation_status": "DISCOVERY ONLY \u2014 candidates were filtered by deterministic git-metadata criteria (title fix/bug-shape; touches test files; source-LOC > 0 and \u2264 20). NONE has been reproducibility-checked yet (box 4c). Per pre-reg \u00a7'Selection process' steps 2 + 4, box 4c MUST run the three-part reproducibility-only baseline check (parent + test-diff fails as expected; source fix passes; install + test command exits cleanly \u2014 NO agent run) per candidate before any can become a selected task.",
+  "discovery_method": "git log --first-parent --since='<date>' --grep='fix' --grep='bug' -i on each VERIFIED repo's mainline; per-commit `git diff --numstat <parent> <commit>`; deterministic file classification (test vs source vs other) by per-repo path patterns; filter to has_test_file_changes AND 0 < source_loc_net \u2264 20.",
   "filter_criteria_applied": {
     "real_merged_bug_fix_pr": "title matches /fix|bug/ (case-insensitive) via --grep",
-    "has_test_file_changes": "≥1 changed file matches per-repo test patterns",
-    "source_diff_le_20_lines": "Σ(added + removed) over source-classified files in (0, 20]"
+    "has_test_file_changes": "\u22651 changed file matches per-repo test patterns",
+    "source_diff_le_20_lines": "\u03a3(added + removed) over source-classified files in (0, 20]"
   },
   "pre_reg_criteria_NOT_yet_checked": {
     "no_external_infra": "deferred to box 4c (test execution inspects for Docker / network / DB needs)",
@@ -34,7 +34,7 @@
       },
       "selectable_after_v3_amendment": false,
       "excluded_in_v3_reason": "EXCLUDED_SETUP_FAILED on WSL Phase 2A (vitest 4 internal failure during run)",
-      "repo_pool_amendment": "v3 — commit eb48ec5"
+      "repo_pool_amendment": "v3 \u2014 commit eb48ec5"
     },
     "josdejong/mathjs": {
       "raw_bug_fix_titles_in_24mo": 71,
@@ -52,7 +52,9 @@
         "source_loc_gt_20": 17,
         "no_source_files_touched": 7
       },
-      "selectable_after_v3_amendment": true
+      "selectable_after_v3_amendment": true,
+      "pre_excluded_before_4c_count": 0,
+      "selectable_after_pre_excludes": 11
     },
     "psf/black": {
       "raw_bug_fix_titles_in_24mo": 124,
@@ -70,7 +72,9 @@
         "source_loc_gt_20": 18,
         "no_source_files_touched": 1
       },
-      "selectable_after_v3_amendment": true
+      "selectable_after_v3_amendment": true,
+      "pre_excluded_before_4c_count": 1,
+      "selectable_after_pre_excludes": 13
     },
     "Textualize/rich": {
       "raw_bug_fix_titles_in_24mo": 46,
@@ -88,7 +92,9 @@
         "source_loc_gt_20": 5,
         "no_source_files_touched": 2
       },
-      "selectable_after_v3_amendment": true
+      "selectable_after_v3_amendment": true,
+      "pre_excluded_before_4c_count": 0,
+      "selectable_after_pre_excludes": 17
     },
     "prettier/prettier": {
       "raw_bug_fix_titles_in_24mo": 176,
@@ -107,8 +113,8 @@
         "source_loc_gt_20": 11
       },
       "selectable_after_v3_amendment": false,
-      "excluded_in_v3_reason": "EXCLUDED_TEST_TIMEOUT on WSL Phase 2A (jest suite exceeded ≤5min pre-reg cap at 307s)",
-      "repo_pool_amendment": "v3 — commit eb48ec5"
+      "excluded_in_v3_reason": "EXCLUDED_TEST_TIMEOUT on WSL Phase 2A (jest suite exceeded \u22645min pre-reg cap at 307s)",
+      "repo_pool_amendment": "v3 \u2014 commit eb48ec5"
     },
     "pytest-dev/pytest": {
       "raw_bug_fix_titles_in_24mo": 228,
@@ -128,7 +134,7 @@
       },
       "selectable_after_v3_amendment": false,
       "excluded_in_v3_reason": "EXCLUDED_SETUP_FAILED on WSL Phase 2A (pip ResolutionImpossible: editable dev pytest 0.1.dev label doesn't satisfy pytest-mock pins)",
-      "repo_pool_amendment": "v3 — commit eb48ec5"
+      "repo_pool_amendment": "v3 \u2014 commit eb48ec5"
     },
     "colinhacks/zod": {
       "raw_bug_fix_titles_in_24mo": 311,
@@ -148,7 +154,9 @@
         "empty_or_no_diff": 1
       },
       "selectable_after_v3_amendment": true,
-      "added_in_amendment": "v3 — commit eb48ec5"
+      "added_in_amendment": "v3 \u2014 commit eb48ec5",
+      "pre_excluded_before_4c_count": 3,
+      "selectable_after_pre_excludes": 25
     }
   },
   "totals": {
@@ -176,7 +184,10 @@
       "psf/black": true,
       "Textualize/rich": true,
       "colinhacks/zod": true
-    }
+    },
+    "total_pre_excluded_before_4c": 4,
+    "total_candidates_surviving_to_4c": 66,
+    "pool_meets_2x_target_after_pre_excludes": true
   },
   "candidates": [
     {
@@ -208,10 +219,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 16 source LOC (≤20); 6 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 16 source LOC (\u226420); 6 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -238,10 +249,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 8 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 8 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -267,10 +278,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -301,10 +312,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 8 source LOC (≤20); 4 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 8 source LOC (\u226420); 4 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -328,10 +339,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 3 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 3 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -360,10 +371,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 18 source LOC (≤20); 2 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 18 source LOC (\u226420); 2 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -387,10 +398,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 15 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 15 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -414,10 +425,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -441,10 +452,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 18 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 18 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -468,10 +479,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 15 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 15 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -495,10 +506,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 20 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 20 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -524,10 +535,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 13 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 13 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -551,10 +562,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 5 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 5 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -579,10 +590,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 11 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 11 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -616,10 +627,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 5 test file(s); 16 source LOC (≤20); 2 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 5 test file(s); 16 source LOC (\u226420); 2 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -645,10 +656,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -675,10 +686,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -702,10 +713,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -739,10 +750,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 5 test file(s); 16 source LOC (≤20); 2 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 5 test file(s); 16 source LOC (\u226420); 2 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -766,10 +777,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -793,10 +804,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -820,10 +831,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 18 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 18 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -847,10 +858,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 15 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 15 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -877,10 +888,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 5 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 5 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -906,10 +917,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 13 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 13 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -933,10 +944,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 8 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 8 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -960,10 +971,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 12 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 12 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -987,10 +998,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1014,10 +1025,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1041,10 +1052,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 3 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 3 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1068,10 +1079,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 11 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 11 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1095,10 +1106,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1124,10 +1135,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 1 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 1 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1152,10 +1163,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 18 source LOC (≤20); 2 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 18 source LOC (\u226420); 2 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1183,10 +1194,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 3 test file(s); 8 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 3 test file(s); 8 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1212,10 +1223,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 10 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 10 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1241,10 +1252,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1272,10 +1283,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 16 source LOC (≤20); 3 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 16 source LOC (\u226420); 3 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1301,10 +1312,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 11 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 11 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1330,10 +1341,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 18 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 18 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1362,10 +1373,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 14 source LOC (≤20); 2 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 14 source LOC (\u226420); 2 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1391,10 +1402,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1420,10 +1431,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 1 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 1 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1450,10 +1461,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 14 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 14 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1479,10 +1490,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 11 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 11 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1508,10 +1519,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 3 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 3 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1538,11 +1549,15 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
-      "discovered_status": "DISCOVERED"
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
+      "discovered_status": "DISCOVERED",
+      "pre_excluded_before_4c": true,
+      "pre_exclusion_reason": "not_bug_fix_feature_flag_move",
+      "pre_exclusion_decided_at": "2026-05-27",
+      "pre_exclusion_approved_by": "operator review of candidate-pool.json (turn after bdaa8bd)"
     },
     {
       "repo": "psf/black",
@@ -1570,10 +1585,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 6 source LOC (≤20); 2 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 6 source LOC (\u226420); 2 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1600,10 +1615,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1627,10 +1642,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1657,10 +1672,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 16 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 16 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1686,10 +1701,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 7 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 7 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1713,10 +1728,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1742,10 +1757,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1772,10 +1787,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1801,10 +1816,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 17 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 17 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1830,10 +1845,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1859,10 +1874,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1886,10 +1901,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1915,10 +1930,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 1 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 1 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1944,10 +1959,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -1973,10 +1988,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2003,10 +2018,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2032,10 +2047,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 9 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 9 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2062,10 +2077,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 10 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 10 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2093,10 +2108,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 3 test file(s); 5 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 3 test file(s); 5 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2126,10 +2141,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 5 test file(s); 8 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 5 test file(s); 8 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2192,10 +2207,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 39 test file(s); 13 source LOC (≤20); 2 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 39 test file(s); 13 source LOC (\u226420); 2 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2225,10 +2240,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 4 test file(s); 6 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 4 test file(s); 6 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2256,10 +2271,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 4 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 4 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2285,10 +2300,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 6 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 6 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2315,10 +2330,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 18 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 18 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2345,10 +2360,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 14 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 14 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2378,10 +2393,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 3 test file(s); 10 source LOC (≤20); 3 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 3 test file(s); 10 source LOC (\u226420); 3 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2409,10 +2424,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 5 source LOC (≤20); 2 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 5 source LOC (\u226420); 2 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2444,10 +2459,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 6 test file(s); 20 source LOC (≤20); 2 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 6 test file(s); 20 source LOC (\u226420); 2 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2758,10 +2773,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 286 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 286 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2789,10 +2804,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 5 source LOC (≤20); 2 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 5 source LOC (\u226420); 2 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2819,10 +2834,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 17 source LOC (≤20); 3 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 17 source LOC (\u226420); 3 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2854,10 +2869,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 6 test file(s); 13 source LOC (≤20); 2 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 6 test file(s); 13 source LOC (\u226420); 2 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2883,10 +2898,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2914,10 +2929,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 3 test file(s); 11 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 3 test file(s); 11 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2944,10 +2959,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 14 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 14 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -2987,10 +3002,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 15 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 15 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3018,10 +3033,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 3 test file(s); 9 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 3 test file(s); 9 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3052,10 +3067,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 5 test file(s); 3 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 5 test file(s); 3 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3082,10 +3097,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 7 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 7 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3111,10 +3126,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 12 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 12 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3140,10 +3155,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 9 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 9 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3169,10 +3184,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 14 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 14 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3198,10 +3213,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3227,10 +3242,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 18 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 18 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3256,10 +3271,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 13 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 13 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3287,10 +3302,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 19 source LOC (≤20); 2 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 19 source LOC (\u226420); 2 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3316,10 +3331,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3347,10 +3362,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 7 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 7 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3376,10 +3391,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 5 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 5 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3406,10 +3421,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 9 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 9 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3435,10 +3450,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 9 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 9 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3464,10 +3479,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 7 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 7 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3494,10 +3509,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 9 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 9 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3525,10 +3540,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 7 source LOC (≤20); 2 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 7 source LOC (\u226420); 2 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3554,10 +3569,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3584,10 +3599,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 15 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 15 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3614,10 +3629,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 6 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 6 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3643,10 +3658,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 6 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 6 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3672,10 +3687,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 7 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 7 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3709,10 +3724,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 5 test file(s); 8 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 5 test file(s); 8 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3739,10 +3754,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 6 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 6 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3768,10 +3783,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 9 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 9 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3797,10 +3812,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 18 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 18 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3824,10 +3839,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3854,10 +3869,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 11 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 11 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3881,10 +3896,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 5 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 5 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3910,10 +3925,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 3 test file(s); 13 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 3 test file(s); 13 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3941,10 +3956,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 16 source LOC (≤20); 2 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 16 source LOC (\u226420); 2 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3968,10 +3983,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 14 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 14 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -3995,10 +4010,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4022,10 +4037,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4049,10 +4064,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4076,10 +4091,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 20 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 20 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4103,11 +4118,15 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 17 source LOC (≤20); 1 source file(s) touched",
-      "discovered_status": "DISCOVERED"
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 17 source LOC (\u226420); 1 source file(s) touched",
+      "discovered_status": "DISCOVERED",
+      "pre_excluded_before_4c": true,
+      "pre_exclusion_reason": "not_bug_fix_feat_core",
+      "pre_exclusion_decided_at": "2026-05-27",
+      "pre_exclusion_approved_by": "operator review of candidate-pool.json (turn after bdaa8bd)"
     },
     {
       "repo": "colinhacks/zod",
@@ -4131,10 +4150,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 10 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 10 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4158,10 +4177,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 7 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 7 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4186,11 +4205,15 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
-      "discovered_status": "DISCOVERED"
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
+      "discovered_status": "DISCOVERED",
+      "pre_excluded_before_4c": true,
+      "pre_exclusion_reason": "duplicate_pre_revert_fix",
+      "pre_exclusion_decided_at": "2026-05-27",
+      "pre_exclusion_approved_by": "operator review of candidate-pool.json (turn after bdaa8bd)"
     },
     {
       "repo": "colinhacks/zod",
@@ -4213,10 +4236,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 5 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 5 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4241,11 +4264,15 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
-      "discovered_status": "DISCOVERED"
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
+      "discovered_status": "DISCOVERED",
+      "pre_excluded_before_4c": true,
+      "pre_exclusion_reason": "not_bug_fix_revert",
+      "pre_exclusion_decided_at": "2026-05-27",
+      "pre_exclusion_approved_by": "operator review of candidate-pool.json (turn after bdaa8bd)"
     },
     {
       "repo": "colinhacks/zod",
@@ -4269,10 +4296,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4296,10 +4323,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4325,10 +4352,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 18 source LOC (≤20); 2 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 2 test file(s); 18 source LOC (\u226420); 2 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4352,10 +4379,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 19 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 19 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4379,10 +4406,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 6 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 6 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4406,10 +4433,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 8 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 8 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4433,10 +4460,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 16 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 16 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4460,10 +4487,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4489,10 +4516,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 7 source LOC (≤20); 3 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 7 source LOC (\u226420); 3 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4516,10 +4543,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 11 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 11 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4543,10 +4570,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 2 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     },
     {
@@ -4570,10 +4597,10 @@
         "real_merged_bug_fix_pr": true,
         "has_test_file_changes": true,
         "source_diff_le_20_lines": true,
-        "no_external_infra": "unknown — deferred to box 4c",
-        "parent_passes_with_test_diff": "unknown — deferred to box 4c"
+        "no_external_infra": "unknown \u2014 deferred to box 4c",
+        "parent_passes_with_test_diff": "unknown \u2014 deferred to box 4c"
       },
-      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (≤20); 1 source file(s) touched",
+      "candidate_reason": "fix/bug-shape title; touches 1 test file(s); 4 source LOC (\u226420); 1 source file(s) touched",
       "discovered_status": "DISCOVERED"
     }
   ],
@@ -8313,5 +8340,7 @@
     }
   ],
   "zod_discovered_at": "2026-05-27",
-  "v3_transition_note": "Original discovery on 2026-05-27 covered the v2 VERIFIED set (axios, mathjs, black, rich, prettier, pytest). After WSL Phase 2A (commit eb48ec5), axios/prettier/pytest are EXCLUDED from the v3 VERIFIED set — their candidates remain in this file for audit but are marked `selectable_after_v3_amendment: false` and MUST be skipped by box 5 task selection. zod was added in v3 and discovered incrementally (see scripts/file-memory-real-repos/discover-candidates-zod-incremental.ts)."
+  "v3_transition_note": "Original discovery on 2026-05-27 covered the v2 VERIFIED set (axios, mathjs, black, rich, prettier, pytest). After WSL Phase 2A (commit eb48ec5), axios/prettier/pytest are EXCLUDED from the v3 VERIFIED set \u2014 their candidates remain in this file for audit but are marked `selectable_after_v3_amendment: false` and MUST be skipped by box 5 task selection. zod was added in v3 and discovered incrementally (see scripts/file-memory-real-repos/discover-candidates-zod-incremental.ts).",
+  "box_4c_pre_exclusions_note": "Per operator review after bdaa8bd, 4 candidates were pre-excluded before box 4c reproducibility baseline. Reasons: 1 feature-flag move (black 517aac59), 1 feat() commit (zod 285bde7f), 1 revert (zod 23edf484), 1 duplicate of the pre-revert fix (zod 584b1089; the canonical re-fix 91a7d0d1 is kept). Pre-excluded rows are kept in candidates[] with pre_excluded_before_4c=true; per-repo and total tallies are updated. Box 4c runs on 66 candidates.",
+  "box_4c_pre_exclusions_decided_at": "2026-05-27"
 }
