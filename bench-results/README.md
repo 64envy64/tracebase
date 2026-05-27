@@ -19,6 +19,7 @@ Reports that exist for the team's understanding of mechanism state. Useful for e
 |---|---|
 | [`lift.md`](internal-diagnostics/lift.md) | 01 Reasoning reuse — oracle-ceiling ablation. Lift insufficient for net-positive expected value at current captured-corpus scale. Decision input only. |
 | [`tool-supervision-real-agent-smoke.md`](internal-diagnostics/tool-supervision-real-agent-smoke.md) | 03 Path A real-agent smoke (1 trajectory at haiku). Harness works end-to-end; task design exposed that small bug-fix workloads do not produce sequential safe-read duplicates often enough to measure. Pilot NOT dispatched; agent-level savings claim NOT supported by evidence. Read before designing any future hook-based real-agent bench. |
+| [`loop-detection-real-agent-smoke.md`](internal-diagnostics/loop-detection-real-agent-smoke.md) | 04 Path A real-agent Phase A smoke (1 OFF trajectory at haiku). Harness works; unit tests 26/26 pass; OFF arm produced no loop pattern → bench paused. **Cross-bench finding** with 03: on small haiku bug-fix tasks, redundant tool patterns are too rare to measure. Loop detection ships mechanism-tested at unit level only. |
 | [`swebench-ablation.md`](internal-diagnostics/swebench-ablation.md) | SWE-bench reasoning-reuse ablation findings (A/B/C arms). Copy of `eval/swebench/results-ablation/ABLATION_FINDINGS.md`. |
 | [`swebench-pilot.md`](internal-diagnostics/swebench-pilot.md) | SWE-bench pilot findings (40-task baseline). Copy of `eval/swebench/results-pilot/PILOT_FINDINGS.md`. |
 

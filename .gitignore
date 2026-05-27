@@ -64,5 +64,9 @@ eval/swebench/results*/**/*.traj.json
 # Path A real-agent harness: raw per-instance Claude Code transcripts
 # (50-200KB jsonl each, agent-state and tool I/O). Per PRE-REGISTRATION-PATH-A.md
 # §"Resolved at lock", raw transcripts stay local-only; per-trajectory
-# JSON summaries under results/ are committed.
-bench-runs/tool-supervision-path-a/transcripts/**/*.jsonl
+# JSON summaries under results/ are committed. The `*` glob captures
+# 03 (`tool-supervision-path-a/`) and 04 (`tool-supervision-path-a-04/`)
+# variants under one rule.
+bench-runs/tool-supervision-path-a*/transcripts/**/*.jsonl
+# Internal Phase A pass-flag file used by smoke-04.ts to gate Phase B.
+bench-runs/tool-supervision-path-a-04/results/.phase-a-passed

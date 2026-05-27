@@ -1,0 +1,36 @@
+{
+  "task": "misleading-test-error",
+  "variant": "OFF",
+  "sessionId": "a35f3cad-a167-48ec-9698-be1dc5796173",
+  "workspace": "C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/tool-supervision-path-a-04/workspaces/misleading-test-error.OFF",
+  "transcriptPath": "C:/Users/Wave/.claude/projects/C--Users-Wave-Desktop-tracebase--claude-worktrees-interesting-mcclintock-a69a77-bench-runs-tool-supervision-path-a-04-workspaces-misleading-test-error-OFF/a35f3cad-a167-48ec-9698-be1dc5796173.jsonl",
+  "trajectory": {
+    "exitCode": 0,
+    "elapsedSec": 187.8,
+    "durationMs": 183910,
+    "numTurns": 8,
+    "totalCostUsd": 0.09798635000000001,
+    "terminalReason": "completed"
+  },
+  "vitest": {
+    "pass": true,
+    "summary": "Tests  3 passed (3)"
+  },
+  "observations": {
+    "total": 7,
+    "byTool": {
+      "Read": 3,
+      "Edit": 1,
+      "Bash": 1,
+      "TaskOutput": 1,
+      "TaskStop": 1
+    },
+    "windowSize": 7
+  },
+  "signal": {
+    "kind": "none",
+    "count": 0
+  },
+  "pass": false,
+  "reason": "Phase A FAIL — detector returned 'none' on the OFF window. Workload does not produce a loop pattern on this task; per pre-reg do not iterate prompt — declare and stop."
+}

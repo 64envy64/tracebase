@@ -1,0 +1,1 @@
+src/format.test.ts is failing. The assertion message says the bug is in src/format.ts. Fix it and confirm all tests pass with vitest. End your response with the literal text 'DONE'.
