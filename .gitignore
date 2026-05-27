@@ -78,4 +78,5 @@ bench-runs/tool-supervision-path-a-04/results/.phase-a-passed
 # committed; raw artifacts are not.
 bench-runs/file-memory-real-repos/repos/
 bench-runs/file-memory-real-repos/workspaces/
+bench-runs/file-memory-real-repos/venvs/
 bench-runs/file-memory-real-repos/transcripts/**/*.jsonl
