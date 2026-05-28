@@ -353,3 +353,37 @@ recorded in `bench-runs/file-memory-real-repos/selected-tasks.json`:
 This amendment changes no thresholds other than granting the explicit,
 scoped black floor=3 waiver above; all other pre-registered criteria
 remain as locked.
+
+---
+
+## Amendment 2 (2026-05-28) — prompt query-hygiene + box-6 smoke finding
+
+**Context.** The box-6 smoke (ONE task, OFF/ON, real spend) verified the
+harness works end-to-end but exposed a treatment-quality problem: file_memory
+recalled the repo's README/docs/package.json, not the bug's source files.
+
+**Prompt change (locked).** The repo `CLAUDE.md`/`README.md` 800-char prefix
+defined in §"Trajectory shape" is **REMOVED** from the prompt for **both** OFF
+and ON. Rationale: inject-context uses the full prompt text as the file_memory
+FTS query; the README prefix biased recall toward docs/metadata. A bug-fix task
+does not need the README, and removing it keeps OFF/ON symmetric (the only
+remaining difference stays the inject-context mechanism). The prompt now begins
+at "Working directory (operate strictly inside): …". This is a strict
+improvement independent of the recall finding below.
+
+**Recall-quality finding (blocks pilot).** After the prompt fix, $0 dry probes
+show recall is still wrong, and the root cause is mechanism-level — see
+`bench-results/internal-diagnostics/file-memory-real-repo-recall-quality.md`:
+
+- The bug's source files ARE indexed (296 rows; derivative.js + typed.js present).
+- Heuristic summaries are thin (filename + first import + exports), so natural
+  bug queries ("special characters in identifiers") have ~no lexical overlap.
+- The lexical serving gate suppresses thin-overlap matches → concise/source
+  queries recall nothing; verbose prompts spuriously match prose docs.
+- Product default summarizer is `heuristic` (file-indexer.ts:98, init.ts:420),
+  so the bench faithfully tests file_memory as shipped.
+
+**Pilot status:** ON HOLD pending operator decision among (A) report
+null/negative honestly, (B) switch summarizer to `embedding` (changes config
+under test; disclose as such), (C) investigate the gate default — **without**
+lowering it to fit data. No threshold was changed; no pilot was run.

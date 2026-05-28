@@ -1,0 +1,63 @@
+{
+  "phase": "box 6 smoke",
+  "variant": "OFF",
+  "task_id": "josdejong-mathjs-d1ecf44e",
+  "repo": "josdejong/mathjs",
+  "pr_commit": "d1ecf44e2f4dba4966d602851329643eb8a788c7",
+  "parent_commit": "4c64018a79cc14a86c62cfb53498fde209b69630",
+  "title": "fix: #3253 cannot use identifiers containing special characters in function `derivative`",
+  "workspace": "C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/workspaces/josdejong-mathjs-d1ecf44e.OFF",
+  "session_id": "449f20f2-1a19-477c-8094-4957d3ab9c81",
+  "budget_cap_usd": 0.5,
+  "indexer": null,
+  "prompt_chars": 1492,
+  "trajectory": {
+    "exit_code": 0,
+    "wall_sec": 121.7,
+    "duration_ms": 118035,
+    "total_cost_usd": 0.2512173,
+    "num_turns": 13,
+    "terminal_reason": "success",
+    "total_tokens": 755432,
+    "tool_counts": {
+      "Read": 3,
+      "Bash": 5,
+      "Glob": 1,
+      "Edit": 3
+    },
+    "glob": 1,
+    "grep": 0,
+    "read": 3,
+    "edit": 3,
+    "bash": 5,
+    "bytes_read": 51285,
+    "transcript_path": "C:/Users/Wave/.claude/projects/C--Users-Wave-Desktop-tracebase--claude-worktrees-interesting-mcclintock-a69a77-bench-runs-file-memory-real-repos-workspaces-josdejong-mathjs-d1ecf44e-OFF/449f20f2-1a19-477c-8094-4957d3ab9c81.jsonl"
+  },
+  "file_memory_rendered": null,
+  "verify": {
+    "test_exit": 0,
+    "pass": true,
+    "elapsed_sec": 1.6,
+    "tail": "\n\n  ......................\n\n  22 passing (62ms)\n\n"
+  },
+  "raw_envelope_keys": [
+    "type",
+    "subtype",
+    "is_error",
+    "api_error_status",
+    "duration_ms",
+    "duration_api_ms",
+    "ttft_ms",
+    "num_turns",
+    "result",
+    "stop_reason",
+    "session_id",
+    "total_cost_usd",
+    "usage",
+    "modelUsage",
+    "permission_denials",
+    "terminal_reason",
+    "fast_mode_state",
+    "uuid"
+  ]
+}
