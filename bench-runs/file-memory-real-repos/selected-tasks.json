@@ -21,7 +21,7 @@
   "black_floor_3_waiver": {
     "original_per_repo_target": ">=4 reproducible",
     "black_actual_reproducible": 3,
-    "reason": "fixture-only candidates (tests/data/cases/*.py) are not autonomously reproducible under the locked harness; parametrize discovery requires helper changes that the source_files_touched filter does not capture. The 3 reproducible black tasks all touch tests/test_black.py directly.",
+    "reason": "black produced only 3 reproducible of 13 candidates. Corrected root cause (see correction_note): the 3 reproducible are 01c29bd5 + 13e97b44 (both fixture-based, tests/data/cases/* driven by tests/test_format.py) and 650983f7 (touches tests/test_black.py directly). The low yield is driven by black's data-driven cases: 8 of 10 fixture candidates stay FAIL after the source-fix checkout (post_fix_exit=1) because the case's expected output depends on preview-mode / feature-flag context not captured by source_files_touched; and 2 of 3 test_black.py candidates also fail (9fd9ea2 pre-fix collection error exit 2; ebe6018e test-diff passes without the fix). The 3 that reproduce are cases where the source fix alone flips FAIL->PASS under the locked harness.",
     "decision": "black remains INCLUDED with a documented floor=3 waiver because repo-level setup is valid and the 3 reproducible tasks are legitimate bug-fix pairs.",
     "approved_by": "operator (turn after 357f2c3)"
   },
@@ -702,5 +702,6 @@
       "box_4c_post_fix_elapsed_sec": 4.0,
       "reproducibility_status": "reproducible"
     }
-  ]
+  ],
+  "correction_note": "CORRECTION (2026-05-28): commit 357f2c3's message and the first draft of PRE-REGISTRATION Amendment 1 misidentified black's reproducible set as ebe6018e/9fd9ea2/650983f and claimed 'all 3 touch tests/test_black.py directly'. That was carried over from the FIRST (broken) box-4c run, before the git-clean / vitest-invocation fixes. The authoritative source box-4c-repro.json (status=reproducible) lists 01c29bd5/13e97b44/650983f7 \u2014 two of which are fixture-based, not test_black.py. The task SELECTION in this file was always computed from box-4c-repro.json status and is correct; only the explanatory prose was wrong and is fixed here + in the pre-reg."
 }

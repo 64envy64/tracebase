@@ -311,15 +311,24 @@ Source of truth: `bench-runs/file-memory-real-repos/results/box-4c-repro.json`.
 **black floor=3 waiver (locked).**
 
 - The original per-repo target was **>= 4 reproducible** candidates.
-- **black produced only 3 reproducible.** Root cause: black's fixture-only
-  candidates (`tests/data/cases/*.py`) are not autonomously reproducible
-  under the locked harness — `tests/test_format.py` resolves its
-  parametrize set at collection time, and a new case fixture needs helper
-  changes that the `source_files_touched` filter does not capture, so the
-  source-fix checkout alone does not flip the test from FAIL to PASS. The
-  3 black candidates that DO reproduce all touch `tests/test_black.py`
-  directly (ebe6018e CI hotfix, 9fd9ea2 blackd error, 650983f docstring
-  tabs).
+- **black produced only 3 reproducible** (of 13): `01c29bd5` and
+  `13e97b44` (both fixture-based, `tests/data/cases/*` driven by
+  `tests/test_format.py`) and `650983f7` (touches `tests/test_black.py`
+  directly). Root cause of the low yield: black's data-driven cases
+  mostly fail under the locked harness — **8 of 10** fixture candidates
+  stay FAIL after the source-fix checkout (`post_fix_exit=1`) because the
+  case's expected output depends on preview-mode / feature-flag context
+  not captured by `source_files_touched`; and **2 of 3** `test_black.py`
+  candidates also fail (`9fd9ea2` pre-fix collection error exit 2;
+  `ebe6018e` test-diff passes without the fix). The 3 that reproduce are
+  cases where the source fix alone flips FAIL→PASS.
+- **Correction (2026-05-28):** an earlier draft of this amendment (and
+  commit `357f2c3`'s message) misidentified the reproducible set as
+  `ebe6018e`/`9fd9ea2`/`650983f` and claimed all 3 touch `test_black.py`.
+  That was inherited from the **first (broken) box-4c run** before the
+  git-clean / vitest-invocation fixes. The authoritative source is
+  `box-4c-repro.json` (status=reproducible). Task selection was always
+  computed from that file and is correct; only this prose was wrong.
 - **Decision:** black remains **INCLUDED** with a documented floor=3
   waiver. The repo-level setup is valid and the 3 reproducible tasks are
   legitimate bug-fix pairs. This keeps the language span at 3 (JS + TS +
