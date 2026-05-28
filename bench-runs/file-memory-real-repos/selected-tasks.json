@@ -1,0 +1,706 @@
+{
+  "version": "tracebase 0.9.x",
+  "pre_registration": "bench-runs/file-memory/PRE-REGISTRATION-REAL-REPOS.md",
+  "source_pool": "bench-runs/file-memory-real-repos/candidate-pool.json",
+  "reproducibility_baseline": "bench-runs/file-memory-real-repos/results/box-4c-repro.json",
+  "phase": "box 5 \u2014 final task-pair selection (N=25) from box 4c reproducible set",
+  "selected_at": "2026-05-28",
+  "selection_rule": {
+    "target_n": 25,
+    "ordering": "deterministic oldest-first by commit author date (ascending); ties broken by pr_commit SHA ascending",
+    "per_repo_targets": {
+      "josdejong/mathjs": 7,
+      "Textualize/rich": 6,
+      "colinhacks/zod": 9,
+      "psf/black": 3
+    },
+    "include_all_black_reproducible": true,
+    "no_extra_candidate_mining": true,
+    "no_relaxing_reproducibility_semantics": true
+  },
+  "black_floor_3_waiver": {
+    "original_per_repo_target": ">=4 reproducible",
+    "black_actual_reproducible": 3,
+    "reason": "fixture-only candidates (tests/data/cases/*.py) are not autonomously reproducible under the locked harness; parametrize discovery requires helper changes that the source_files_touched filter does not capture. The 3 reproducible black tasks all touch tests/test_black.py directly.",
+    "decision": "black remains INCLUDED with a documented floor=3 waiver because repo-level setup is valid and the 3 reproducible tasks are legitimate bug-fix pairs.",
+    "approved_by": "operator (turn after 357f2c3)"
+  },
+  "selection_log": {
+    "josdejong/mathjs": {
+      "reproducible_available": 11,
+      "target": 7,
+      "selected": 7,
+      "shortfall": 0,
+      "selected_oldest_first": [
+        "d1ecf44e2f",
+        "fb76ac419d",
+        "837769c748",
+        "b5d635e5b8",
+        "1fc742aaf1",
+        "e5bb6465a9",
+        "b5773df3c0"
+      ],
+      "not_selected": [
+        "338dfe9ae3",
+        "b15904ff0b",
+        "7db791298c",
+        "153fe77502"
+      ]
+    },
+    "Textualize/rich": {
+      "reproducible_available": 9,
+      "target": 6,
+      "selected": 6,
+      "shortfall": 0,
+      "selected_oldest_first": [
+        "e2a982d5ea",
+        "1b2dada1c9",
+        "b6f2f7aa5b",
+        "dc7a195acd",
+        "d5dcc74d02",
+        "66074922ed"
+      ],
+      "not_selected": [
+        "21b3800894",
+        "9e18b96652",
+        "abd5a2afc4"
+      ]
+    },
+    "colinhacks/zod": {
+      "reproducible_available": 22,
+      "target": 9,
+      "selected": 9,
+      "shortfall": 0,
+      "selected_oldest_first": [
+        "3a818de145",
+        "2f8414bc90",
+        "60ff398771",
+        "2e5b23dcd4",
+        "7f789defd7",
+        "411f6c64e9",
+        "b6a3b3369a",
+        "87cf0f93cd",
+        "0e960108f0"
+      ],
+      "not_selected": [
+        "34f6015903",
+        "91a7d0d1e0",
+        "15cafa1394",
+        "b9b62c6535",
+        "fffe99bdd7",
+        "61d7bedb87",
+        "757f0b0f52",
+        "ebc8287ca2",
+        "76e8f706bb",
+        "f19860f1f1",
+        "1cab69383f",
+        "fbe8ad1b70",
+        "f29f2a6db4"
+      ]
+    },
+    "psf/black": {
+      "reproducible_available": 3,
+      "target": 3,
+      "selected": 3,
+      "shortfall": 0,
+      "selected_oldest_first": [
+        "01c29bd5fd",
+        "13e97b4499",
+        "650983f7b3"
+      ],
+      "not_selected": []
+    }
+  },
+  "total_selected": 25,
+  "language_distribution": {
+    "JavaScript": 7,
+    "TypeScript": 9,
+    "Python": 9
+  },
+  "tasks": [
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "d1ecf44e2f4dba4966d602851329643eb8a788c7",
+      "parent_commit": "4c64018a79cc14a86c62cfb53498fde209b69630",
+      "commit_date": "2024-09-04T12:19:46+02:00",
+      "title": "fix: #3253 cannot use identifiers containing special characters in function `derivative`",
+      "test_files_touched": [
+        "test/unit-tests/function/algebra/derivative.test.js"
+      ],
+      "source_files_touched": [
+        "src/core/function/typed.js",
+        "src/function/algebra/derivative.js"
+      ],
+      "source_loc_added": 12,
+      "source_loc_removed": 6,
+      "box_4c_test_targets": [
+        "test/unit-tests/function/algebra/derivative.test.js"
+      ],
+      "box_4c_pre_fix_exit": 3,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 0.6,
+      "box_4c_post_fix_elapsed_sec": 0.6,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "fb76ac419d680543d2ecff70a594e177f3e41b5b",
+      "parent_commit": "2a4faaa03cebaa77b9012145c03b07db0673bd94",
+      "commit_date": "2024-09-18T11:08:29+02:00",
+      "title": "fix: #3267 implicit multiplication with a negative number and unit `in`",
+      "test_files_touched": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "source_files_touched": [
+        "src/expression/parse.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 0,
+      "box_4c_test_targets": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 0.7,
+      "box_4c_post_fix_elapsed_sec": 0.7,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "837769c74886c771986100e3036a92e7a0338616",
+      "parent_commit": "66775ee8b5d59dc89a9101c51ee1310fa23d8a04",
+      "commit_date": "2024-11-06T17:05:35+01:00",
+      "title": "fix: #3222 prevent `math.import` from overriding units (#3225)",
+      "test_files_touched": [
+        "test/unit-tests/core/import.test.js"
+      ],
+      "source_files_touched": [
+        "src/core/function/import.js"
+      ],
+      "source_loc_added": 3,
+      "source_loc_removed": 1,
+      "box_4c_test_targets": [
+        "test/unit-tests/core/import.test.js"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 0.6,
+      "box_4c_post_fix_elapsed_sec": 0.8,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "b5d635e5b83cdf2d0d0971a20b0c69758d583fb5",
+      "parent_commit": "29abd1701b354e215cdeb8ef9dda57dfa16c78ee",
+      "commit_date": "2025-01-24T10:40:01+01:00",
+      "title": "fix: #3342 hexadecimal input not turned into a bigint (#3348)",
+      "test_files_touched": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "source_files_touched": [
+        "src/utils/number.js"
+      ],
+      "source_loc_added": 7,
+      "source_loc_removed": 4,
+      "box_4c_test_targets": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 1.0,
+      "box_4c_post_fix_elapsed_sec": 0.8,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "1fc742aaf13eb5f2a8de5f507d0d34dcf7c48fef",
+      "parent_commit": "17f295cd4feea2908b50891a830e2f9241811389",
+      "commit_date": "2025-02-28T16:28:04+01:00",
+      "title": "fix: #3350 cannot import a constant that is a complex number",
+      "test_files_touched": [
+        "test/unit-tests/core/import.test.js"
+      ],
+      "source_files_touched": [
+        "src/core/function/import.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 1,
+      "box_4c_test_targets": [
+        "test/unit-tests/core/import.test.js"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 0.7,
+      "box_4c_post_fix_elapsed_sec": 0.8,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "e5bb6465a922c17defd7481a7e5d8997d3b6566b",
+      "parent_commit": "17a27fa70d205baae96279873d15b8e0af759a32",
+      "commit_date": "2025-03-19T09:23:09-07:00",
+      "title": "fix: #3422 parse dot operators after an implicit multiplication with symbol E (#3425)",
+      "test_files_touched": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "source_files_touched": [
+        "src/expression/parse.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "box_4c_test_targets": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 0.7,
+      "box_4c_post_fix_elapsed_sec": 0.7,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "b5773df3c0444000d8de57c60faa0933bf3e9585",
+      "parent_commit": "8d8ea987eb4365cfc12cb90bccb62f658df49cb7",
+      "commit_date": "2025-03-26T19:00:52+01:00",
+      "title": "fix: `nthRoots` latexFunctions template string (#3427)",
+      "test_files_touched": [
+        "test/unit-tests/expression/node/FunctionNode.test.js"
+      ],
+      "source_files_touched": [
+        "src/utils/latex.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "box_4c_test_targets": [
+        "test/unit-tests/expression/node/FunctionNode.test.js"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 0.7,
+      "box_4c_post_fix_elapsed_sec": 0.8,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "e2a982d5ea747f0deb7f78e8eaa5b4be7d9194cf",
+      "parent_commit": "0ba607dc080c9f102b5ae5346bcdb70d6e9c969d",
+      "commit_date": "2024-08-26T15:56:49+01:00",
+      "title": "Merge pull request #3470 from Textualize/fix-record-and-capture",
+      "test_files_touched": [
+        "tests/test_console.py"
+      ],
+      "source_files_touched": [
+        "rich/console.py"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "box_4c_test_targets": [
+        "tests/test_console.py"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 0.9,
+      "box_4c_post_fix_elapsed_sec": 0.6,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "1b2dada1c9fa6f16ec319a8d370458c8bde203f7",
+      "parent_commit": "e2a982d5ea747f0deb7f78e8eaa5b4be7d9194cf",
+      "commit_date": "2024-08-26T16:14:23+01:00",
+      "title": "Merge pull request #3471 from Textualize/fix-append-tokens",
+      "test_files_touched": [
+        "tests/test_text.py"
+      ],
+      "source_files_touched": [
+        "rich/text.py"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 0,
+      "box_4c_test_targets": [
+        "tests/test_text.py"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 0.7,
+      "box_4c_post_fix_elapsed_sec": 0.5,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "b6f2f7aa5b27f612f391cd28212aff51ad0d42d1",
+      "parent_commit": "b1397be1e79fc3ac6d7fd4f66474fbe6d5e820bf",
+      "commit_date": "2024-08-26T16:48:31+01:00",
+      "title": "Merge pull request #3454 from subrat-lima/master",
+      "test_files_touched": [
+        "tests/test_highlighter.py"
+      ],
+      "source_files_touched": [
+        "rich/highlighter.py"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "box_4c_test_targets": [
+        "tests/test_highlighter.py"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 0.4,
+      "box_4c_post_fix_elapsed_sec": 0.4,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "dc7a195acd480326c2449ec0829726ecd91e0c68",
+      "parent_commit": "b6f2f7aa5b27f612f391cd28212aff51ad0d42d1",
+      "commit_date": "2024-08-26T17:01:30+01:00",
+      "title": "Merge pull request #3472 from Textualize/fix-bad-dataclass",
+      "test_files_touched": [
+        "tests/test_pretty.py"
+      ],
+      "source_files_touched": [
+        "rich/pretty.py"
+      ],
+      "source_loc_added": 3,
+      "source_loc_removed": 1,
+      "box_4c_test_targets": [
+        "tests/test_pretty.py"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 0.6,
+      "box_4c_post_fix_elapsed_sec": 0.4,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "d5dcc74d0255d3dbcbb9f0bba208bdde2e40ec54",
+      "parent_commit": "4101991898ee7a09fe1706daca24af5e1e054862",
+      "commit_date": "2024-09-28T20:39:32+01:00",
+      "title": "Merge pull request #3506 from Textualize/fix-split-cells",
+      "test_files_touched": [
+        "tests/test_segment.py"
+      ],
+      "source_files_touched": [
+        "rich/segment.py"
+      ],
+      "source_loc_added": 15,
+      "source_loc_removed": 2,
+      "box_4c_test_targets": [
+        "tests/test_segment.py"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 0.5,
+      "box_4c_post_fix_elapsed_sec": 0.4,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "66074922edabeac684434b4d87ee994fb97b0627",
+      "parent_commit": "e732952eb53e62bfe936192dd84fb5c1d4d5d4ee",
+      "commit_date": "2024-10-04T10:40:50+01:00",
+      "title": "Merge pull request #3518 from TomJGooding/fix-table-highlight-columns-added-by-add-row",
+      "test_files_touched": [
+        "tests/test_table.py"
+      ],
+      "source_files_touched": [
+        "rich/table.py"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "box_4c_test_targets": [
+        "tests/test_table.py"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 0.5,
+      "box_4c_post_fix_elapsed_sec": 0.5,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "3a818de145dc2fa9b5753bc8bf97b0b8484cfbaf",
+      "parent_commit": "55747b3cd05cd8b60b4f3d6a6348e2c508069c12",
+      "commit_date": "2026-02-08T10:21:13-08:00",
+      "title": "fix(v4): handle multi-digit exponents in floatSafeRemainder (#5687)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/number.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/util.ts"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 2,
+      "box_4c_test_targets": [
+        "packages/zod/src/v4/classic/tests/number.test.ts"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 17.0,
+      "box_4c_post_fix_elapsed_sec": 10.9,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "2f8414bc90cebc76be87c3640617e300a5d9b060",
+      "parent_commit": "bee2dc8d4971a5142d6197a01426837e2a57f69d",
+      "commit_date": "2026-04-27T09:07:06-07:00",
+      "title": "fix: add missing addIssue to transform context (#5699)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/transform.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/classic/schemas.ts"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "box_4c_test_targets": [
+        "packages/zod/src/v4/classic/tests/transform.test.ts"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 15.7,
+      "box_4c_post_fix_elapsed_sec": 15.2,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "60ff398771bb4b6df04d96f00b9a10ee561ee7af",
+      "parent_commit": "f533671752ae7247bc25dca8f2dbfda80fa2fccc",
+      "commit_date": "2026-04-27T15:49:23-07:00",
+      "title": "fix(v4): preserve parent path when treeifying nested union/key/element issues",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/error-utils.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/errors.ts"
+      ],
+      "source_loc_added": 7,
+      "source_loc_removed": 4,
+      "box_4c_test_targets": [
+        "packages/zod/src/v4/classic/tests/error-utils.test.ts"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 16.7,
+      "box_4c_post_fix_elapsed_sec": 9.6,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "2e5b23dcd41eb257bda434b9997fd60a19cdf38f",
+      "parent_commit": "518f15ddada3b5d959f4ff32b094789e2d85349a",
+      "commit_date": "2026-04-27T16:54:25-07:00",
+      "title": "fix: add options to invalid discriminator errors (#5723)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/discriminated-unions.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/errors.ts",
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v4/locales/en.ts"
+      ],
+      "source_loc_added": 6,
+      "source_loc_removed": 1,
+      "box_4c_test_targets": [
+        "packages/zod/src/v4/classic/tests/discriminated-unions.test.ts"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 17.9,
+      "box_4c_post_fix_elapsed_sec": 15.9,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "7f789defd73ee35f3099ab5c2091cb19bd2b3578",
+      "parent_commit": "2e5b23dcd41eb257bda434b9997fd60a19cdf38f",
+      "commit_date": "2026-04-27T17:00:01-07:00",
+      "title": "fix: skip non-enumerable properties in record validation (#5719)",
+      "test_files_touched": [
+        "packages/zod/src/v4/core/tests/record-constructor.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 0,
+      "box_4c_test_targets": [
+        "packages/zod/src/v4/core/tests/record-constructor.test.ts"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 18.7,
+      "box_4c_post_fix_elapsed_sec": 10.3,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "411f6c64e910c5e18799d0a7a09bcd7a4e40f23e",
+      "parent_commit": "f457edf1e504787eadfe2dffe51a77c64e3f0e17",
+      "commit_date": "2026-04-27T18:27:37-07:00",
+      "title": "fix(v4): resolve stack overflow in toJSONSchema for recursive lazy with describe (#5797)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "source_loc_added": 8,
+      "source_loc_removed": 8,
+      "box_4c_test_targets": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 15.9,
+      "box_4c_post_fix_elapsed_sec": 10.7,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "b6a3b3369a5b9fdde9adde8203b96b71c0634ad5",
+      "parent_commit": "a1cf8a9312582591d9cdccdd677ba1d90e706cc0",
+      "commit_date": "2026-04-27T18:56:07-07:00",
+      "title": "fix: strip redundant id from $defs entries in toJSONSchema (#5759)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/to-json-schema.ts"
+      ],
+      "source_loc_added": 8,
+      "source_loc_removed": 0,
+      "box_4c_test_targets": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 13.8,
+      "box_4c_post_fix_elapsed_sec": 10.5,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "87cf0f93cd0f34bdc69f11c9377568e6812841c4",
+      "parent_commit": "c7a8ccc0d0fb4f2bd1c938b8d79873a8ebd6573e",
+      "commit_date": "2026-04-27T19:25:02-07:00",
+      "title": "fix(fromJSONSchema): normalize input via JSON round-trip",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/from-json-schema.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/classic/from-json-schema.ts"
+      ],
+      "source_loc_added": 15,
+      "source_loc_removed": 4,
+      "box_4c_test_targets": [
+        "packages/zod/src/v4/classic/tests/from-json-schema.test.ts"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 12.7,
+      "box_4c_post_fix_elapsed_sec": 11.5,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "0e960108f0d98dbea7844a8ff914f0980352f636",
+      "parent_commit": "cc9139d209001bfdeb23dfe2d5b0262c02c950cf",
+      "commit_date": "2026-04-27T20:18:18-07:00",
+      "title": "fix(v4): support v3-style single-arg z.record(valueType)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/record.test.ts",
+        "packages/zod/src/v4/mini/tests/index.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/mini/schemas.ts"
+      ],
+      "source_loc_added": 18,
+      "source_loc_removed": 0,
+      "box_4c_test_targets": [
+        "packages/zod/src/v4/classic/tests/record.test.ts",
+        "packages/zod/src/v4/mini/tests/index.test.ts"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 23.3,
+      "box_4c_post_fix_elapsed_sec": 11.4,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "psf/black",
+      "pr_commit": "01c29bd5fded1d6f17ebd4e6f2b7e3999c153bf8",
+      "parent_commit": "88e78334afa2ff046e8689dc8a8e848dd87792b6",
+      "commit_date": "2026-03-01T18:40:59-06:00",
+      "title": "Fix #4653 If guard explosion in case statement (#4884)",
+      "test_files_touched": [
+        "tests/data/cases/if_guard_inside_case.py"
+      ],
+      "source_files_touched": [
+        "src/black/linegen.py",
+        "src/black/mode.py"
+      ],
+      "source_loc_added": 13,
+      "source_loc_removed": 1,
+      "box_4c_test_targets": [
+        "tests/test_format.py"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 0.7,
+      "box_4c_post_fix_elapsed_sec": 29.6,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "psf/black",
+      "pr_commit": "13e97b44997539a16a2454d9483a746b586253e0",
+      "parent_commit": "7613840124a7d6fdf7ce95157f9fc40360c2db88",
+      "commit_date": "2026-05-22T09:33:10-05:00",
+      "title": "Fix case guard splitting at small line lengths (#5147)",
+      "test_files_touched": [
+        "tests/data/cases/pattern_matching_case_case_small_line_length.py"
+      ],
+      "source_files_touched": [
+        "src/black/linegen.py"
+      ],
+      "source_loc_added": 10,
+      "source_loc_removed": 0,
+      "box_4c_test_targets": [
+        "tests/test_format.py"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 27.8,
+      "box_4c_post_fix_elapsed_sec": 40.5,
+      "reproducibility_status": "reproducible"
+    },
+    {
+      "repo": "psf/black",
+      "pr_commit": "650983f7b32b15feeb0fa30c0ed1a8b6e2a9b28f",
+      "parent_commit": "13e97b44997539a16a2454d9483a746b586253e0",
+      "commit_date": "2026-05-22T10:13:46-05:00",
+      "title": "Fix docstring indentation with leading tabs (#5148)",
+      "test_files_touched": [
+        "tests/data/cases/docstring.py",
+        "tests/data/cases/docstring_tabs.py",
+        "tests/test_black.py"
+      ],
+      "source_files_touched": [
+        "src/black/strings.py"
+      ],
+      "source_loc_added": 5,
+      "source_loc_removed": 3,
+      "box_4c_test_targets": [
+        "tests/test_black.py"
+      ],
+      "box_4c_pre_fix_exit": 1,
+      "box_4c_post_fix_exit": 0,
+      "box_4c_pre_fix_elapsed_sec": 2.0,
+      "box_4c_post_fix_elapsed_sec": 4.0,
+      "reproducibility_status": "reproducible"
+    }
+  ]
+}
