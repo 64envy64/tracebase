@@ -1,6 +1,9 @@
 # File-memory real-repo smoke — recall-quality finding (internal)
 
 **Status:** harness-PASS / treatment-quality-FAIL, root-caused. NOT pilot-ready.
+Operator decision **A + C** taken: shipped-default match verified (C), result
+recorded as internal negative + real-repo expansion shelved (A). Not published
+positive; N=25 pilot not run.
 **Date:** 2026-05-28
 **Task:** `josdejong-mathjs-d1ecf44e` (fix #3253 — special chars in `derivative`).
 **Scope:** file_memory mechanism only, `claude-haiku-4-5`, N=1 smoke.
@@ -79,6 +82,50 @@ Concise / source-focused queries recall **nothing**:
    used the same config the product ships with, so the finding represents
    file_memory as installed, not a mis-set knob.
 
+## Shipped-default verification (operator step C)
+
+Goal: confirm the bench used the exact gate + summarizer the product ships
+with — i.e. the negative is real, not a mis-set bench knob. **Result: the
+bench matches shipped defaults exactly; no mismatch.** Therefore no paid
+post-fix OFF/ON re-run was warranted (operator rule: re-run only on mismatch).
+
+| setting | shipped default | what the bench used | match |
+|---|---|---|---|
+| summarizer | `heuristic` (`file-indexer.ts:98` `?? "heuristic"`; `init.ts:420`) | `heuristic` (indexWorkspace called with no `summarizer` arg) | ✅ |
+| serving gate | `DEFAULT_GATE_THRESHOLD = 0.4` (`block-serving.ts:239`) via `resolveProductionGateThreshold()` | same — `inject-context.ts:594` calls `resolveProductionGateThreshold()` | ✅ |
+| gate env override | `TRACEBASE_GATE_THRESHOLD` (unset → 0.4; `block-serving.ts:252`) | **unset** in the bench shell (verified `env | grep -i tracebase` → none) | ✅ |
+| calibrator | fresh install = none fitted → raw 0.4 gate (`calibrator.ts:174`) | fresh per-task workspace, 0 outcomes → no calibrator | ✅ |
+| injection path | production MCP/SDK use `resolveProductionGateThreshold()` (`mcp.ts:130`, `runtime.ts:202`, `contextual-runtime-provider.ts:259`) | inject-context uses the identical resolver | ✅ |
+
+Note: `vitest.config.mts:31` sets `TRACEBASE_GATE_THRESHOLD="0"` for the unit
+suite (serve-everything, for deterministic tests). The smoke ran via `tsx`,
+not vitest, and the env var was unset — so the smoke used the **production**
+0.4 gate, not the test 0 gate. (Independently corroborated by behaviour: a
+gate of 0 would have served derivative.js for the bare query "derivative";
+recall returned nothing, which is only consistent with a non-zero gate.)
+
+## Negative/null conclusion
+
+- **Harness works** end-to-end on a real repo (materialize → run → verify;
+  OFF bare, ON indexed_files-only).
+- **file_memory rendered** (inject-context fired, `<file_memory>` block injected).
+- **Glob/Grep reduced on N=1** (OFF 1 → ON 0).
+- **But recall selected docs/README**, not source/test-adjacent files
+  (README.md, docs/index.md, package.json — then CONTRIBUTING.md +
+  benchmark/example READMEs after the prompt fix).
+- **README removal did not fix it** — prompt boilerplate still matched docs.
+- **Concise source-focused queries recall nothing** — the heuristic file
+  summaries are too thin (filename + first import + exports) and the lexical
+  serving gate (0.4) suppresses the weak-overlap source matches.
+- **Verdict:** under the **shipped** heuristic summarizer + lexical gate,
+  real-repo file_memory is **not pilot-ready**. The N=1 ON arm was also
+  net-negative (+27% tokens, +62% duration) from injecting irrelevant docs.
+  This is a faithful negative on the product as installed — NOT a harness or
+  prompt artifact.
+
+**This is recorded as an internal negative/null result. The bench is NOT
+published as positive, and the N=25 pilot is NOT run under this configuration.**
+
 ## What this means for the pilot
 
 A pilot at N=25 under this configuration would most likely show file_memory
@@ -87,20 +134,27 @@ context inflating tokens/turns, as the N=1 ON arm already showed:
 +27% tokens, +62% duration). Publishing a "file_memory reduces
 file-navigation by ≥20%" headline is not supportable on this evidence.
 
-## Options (require operator decision — NOT taken unilaterally)
+## Decision taken (operator): A + C
 
-- **A — Report null/negative honestly.** Run the pilot anyway and report
-  whatever it shows (likely null/negative), or shelve the real-repo
-  expansion with this diagnostic as the reason. Faithful to shipped product.
-- **B — Switch summarizer to `embedding`.** Semantic recall instead of
-  lexical FTS may surface `derivative.js` for behavioural queries. But
-  this CHANGES the configuration under test (product default is heuristic),
-  may need embedding infra/keys/cost, and must be disclosed as "file_memory
-  (embedding mode)" not "file_memory (as shipped)".
-- **C — Investigate the gate default.** Confirm what real Claude Code
-  installs use for the serving gate; if the product default differs from
-  the bench, match it. Do **not** lower the gate purely to make the bench
-  look better (operator guardrail: "don't lower thresholds to fit data").
+- **C (done):** verified the bench used shipped defaults (table above) — no
+  mismatch, so no paid post-fix re-run.
+- **A (done):** this document is the internal negative/null result; the
+  real-repo file_memory expansion is **shelved as not-pilot-ready under the
+  shipped heuristic-summarizer + 0.4-lexical-gate configuration**, with this
+  diagnostic as the recorded reason.
+- **B explicitly rejected:** do NOT switch the summarizer to `embedding`
+  (would test a non-default config). If embedding-mode recall is ever
+  benched, it must be pre-registered and disclosed separately as
+  "file_memory (embedding mode)", not as the shipped product.
+
+### If/when this is revisited (not now, requires fresh pre-reg)
+
+The blocker is recall quality on code, not the harness. A future iteration
+would need a mechanism change (not a bench knob): richer code summaries
+(symbol/behaviour text, not just imports+exports) and/or a recall path that
+matches behavioural queries against code — then re-pre-register. Lowering the
+0.4 gate is explicitly off the table (re-introduces the single-hit-1.0
+pathology the gate exists to prevent).
 
 ## Guardrails honored
 

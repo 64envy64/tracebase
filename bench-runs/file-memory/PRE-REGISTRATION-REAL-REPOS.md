@@ -383,7 +383,20 @@ show recall is still wrong, and the root cause is mechanism-level — see
 - Product default summarizer is `heuristic` (file-indexer.ts:98, init.ts:420),
   so the bench faithfully tests file_memory as shipped.
 
-**Pilot status:** ON HOLD pending operator decision among (A) report
-null/negative honestly, (B) switch summarizer to `embedding` (changes config
-under test; disclose as such), (C) investigate the gate default — **without**
-lowering it to fit data. No threshold was changed; no pilot was run.
+**Pilot status: SHELVED (not pilot-ready).** Operator decision **A + C**:
+
+- **C verified** the bench used shipped defaults exactly — summarizer
+  `heuristic` (file-indexer.ts:98, init.ts:420), serving gate
+  `DEFAULT_GATE_THRESHOLD = 0.4` via `resolveProductionGateThreshold()`
+  (inject-context.ts:594, identical to MCP/SDK), `TRACEBASE_GATE_THRESHOLD`
+  unset, no calibrator fitted. No config mismatch → no paid post-fix re-run.
+- **A recorded** the smoke as an internal negative/null result
+  (`bench-results/internal-diagnostics/file-memory-real-repo-recall-quality.md`).
+  The real-repo file_memory expansion is shelved as not-pilot-ready under the
+  shipped configuration. Not published as positive; N=25 pilot not run.
+- **B rejected:** the summarizer is NOT switched to `embedding` (would test a
+  non-default config). The 0.4 gate is NOT lowered (operator guardrail).
+
+No threshold was changed; no pilot was run. A future revisit requires a
+mechanism-level recall-quality fix (richer code summaries) and a fresh
+pre-registration — not a bench-knob change.
