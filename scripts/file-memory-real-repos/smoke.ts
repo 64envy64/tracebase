@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { initConfig } from "../../src/core/config.js";
 import { BlockStore } from "../../src/core/block-store.js";
-import { indexWorkspace } from "../../src/core/file-indexer.js";
+import { indexWorkspace, recallFiles } from "../../src/core/file-indexer.js";
 import { runTrajectory } from "../path-a-harness/run-trajectory.js";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -64,6 +64,50 @@ function knownSourceDir(sourceFiles: string[]): string {
 }
 
 const toPosix = (p: string) => p.replace(/\\/g, "/");
+
+// Generic words that carry no retrieval signal as a feature name.
+const GENERIC_FEATURE_WORDS = new Set([
+  "index", "main", "test", "tests", "spec", "util", "utils", "helper", "helpers",
+  "common", "core", "lib", "src", "mod", "init", "base", "types", "type",
+]);
+
+/**
+ * Task#3 — build a focused file_memory retrieval query from the task's
+ * FIELDS, not the boilerplate agent prompt. Evidence (box-6 probes) shows
+ * the single strongest, most reliable signal is the FEATURE NAME taken
+ * from the failing test file's basename: a query of just "derivative"
+ * recalls src/function/algebra/derivative.js in the top-K, whereas adding
+ * the symptom vocabulary from the bug description ("special characters",
+ * "SymbolNode") DEGRADES recall — those terms match symptom files
+ * (parser / SymbolNode), not the fix location. So we derive the query
+ * from the test basename(s), split camelCase / snake_case into words, and
+ * drop generic tokens. This is the honest "concise retrievalQuery from
+ * test path" the spec calls for; symptom nouns are intentionally excluded
+ * because they hurt (documented finding, not an oversight).
+ */
+function buildRetrievalQuery(task: any): string {
+  const feats: string[] = [];
+  for (const tf of task.test_files_touched as string[]) {
+    const base = (tf.split("/").pop() ?? tf)
+      .replace(/\.(test|spec)\.[a-z0-9]+$/i, "")
+      .replace(/\.[a-z0-9]+$/i, "");
+    for (const w of base.split(/[._\-]|(?=[A-Z])/)) {
+      const lw = w.toLowerCase();
+      if (lw.length > 2 && !GENERIC_FEATURE_WORDS.has(lw)) feats.push(lw);
+    }
+  }
+  const seen = new Set<string>();
+  const uniq = feats.filter((w) => (seen.has(w) ? false : (seen.add(w), true)));
+  // Fallback: if the test basename was entirely generic, fall back to the
+  // source file basenames so the query is never empty.
+  if (uniq.length === 0) {
+    for (const sf of task.source_files_touched as string[]) {
+      const b = (sf.split("/").pop() ?? sf).replace(/\.[a-z0-9]+$/i, "").toLowerCase();
+      if (b.length > 2 && !GENERIC_FEATURE_WORDS.has(b)) uniq.push(b);
+    }
+  }
+  return uniq.join(" ");
+}
 
 // Junction-aware workspace removal. On Windows, node_modules is a directory
 // junction to the canonical clone — it must be unlinked via rmdirSync (which
@@ -145,11 +189,17 @@ function materializeWorkspace(
     const db = new Database(cfg.storagePath);
     const store = new BlockStore(db);
     try {
-      indexer = indexWorkspace(store, {
-        root: ws,
-        maxBytes: 262144,
-        budget: { maxFiles: 256, maxDirs: 64, maxBytes: 1024 * 1024 },
-      });
+      // No budget override → walker DEFAULT_BUDGET (maxFiles 5000,
+      // maxBytesScan 64 MiB, timeMs 30s) — exactly what the shipped
+      // `tracebase init` path uses when fileMemory.initBudget is
+      // unconfigured (src/cli/commands/init.ts:418-422). The earlier
+      // {maxFiles:256, maxDirs:64, maxBytes:1MB} was copied from the
+      // synthetic bench-02 and did NOT match shipped: maxDirs is ignored
+      // by the walker, maxBytes is the wrong key (walker reads
+      // maxBytesScan), so the only effective cap was maxFiles:256 — which
+      // BFS exhausted on root/docs/examples/test before ever descending
+      // into src/function/, leaving the bug's own source file unindexed.
+      indexer = indexWorkspace(store, { root: ws });
       // Confirm reasoning_blocks + session_chunks are empty (no contamination).
       const rb = db.prepare("SELECT COUNT(*) n FROM reasoning_blocks").get() as { n: number };
       const sc = (() => {
@@ -291,6 +341,7 @@ async function main() {
   const budgetIdx = process.argv.indexOf("--budget");
   const budget = budgetIdx >= 0 ? parseFloat(process.argv[budgetIdx + 1]) : 0.5;
   const dry = process.argv.includes("--dry");
+  const probe = process.argv.includes("--probe");
 
   mkdirSync(RESULTS, { recursive: true });
   const sel = JSON.parse(readFileSync(join(BENCH, "selected-tasks.json"), "utf-8"));
@@ -304,6 +355,37 @@ async function main() {
   const { ws, indexer } = materializeWorkspace(task, variant);
   console.log(`workspace: ${ws}`);
   if (indexer) console.log(`indexer: indexed=${indexer.indexedCount} files, bytes=${indexer.bytesSummarized}, indexed_files_rows=${indexer.indexed_files_rows}, reasoning_blocks=${indexer.reasoning_blocks_rows}, session_chunks=${indexer.session_chunks_rows}, skipped=${JSON.stringify(indexer.skipped)}`);
+
+  if (probe) {
+    // Task#4 — FREE recall probe ($0, no child claude). Asserts the
+    // retrieval improvement actually surfaces the bug's source files for a
+    // field-derived natural query, and never a README/doc.
+    if (variant !== "ON") { console.error("probe requires ON"); process.exit(2); }
+    const query = buildRetrievalQuery(task);
+    const db = new Database(join(ws, ".tracebase", "memory.db"), { readonly: true });
+    const store = new BlockStore(db);
+    const hits = recallFiles(store, { prompt: query, k: 5 });
+    db.close();
+    const recalled = hits.map((h) => h.relPath);
+    const sourceSet = new Set(task.source_files_touched as string[]);
+    const sourceRecalled = recalled.filter((p) => sourceSet.has(p));
+    const isDoc = (p: string) =>
+      /\.(md|mdx|markdown|rst|adoc|txt)$/i.test(p) ||
+      /(^|\/)(readme|license|licence|contributing|changelog|authors|notice|code_of_conduct|security)/i.test(p) ||
+      p.endsWith("package.json");
+    const docsRecalled = recalled.filter(isDoc);
+    console.log(`\n=== BOX-6 RECALL PROBE ($0) ===`);
+    console.log(`field-derived query: "${query}"`);
+    console.log(`recalled (k=5):`);
+    for (const h of hits) console.log(`   bm25=${h.score.toFixed(3)}  ${h.relPath}${sourceSet.has(h.relPath) ? "  <-- BUG SOURCE" : ""}`);
+    const pass = sourceRecalled.length >= 1 && docsRecalled.length === 0;
+    console.log(`\nsource files recalled: ${sourceRecalled.length ? sourceRecalled.join(", ") : "(none)"}`);
+    console.log(`doc/README files recalled: ${docsRecalled.length ? docsRecalled.join(", ") : "(none)"}`);
+    console.log(`PROBE: ${pass ? "PASS" : "FAIL"} — at least one bug-source file recalled AND zero docs`);
+    // Persist the curated query for the future live-bench hook (#5).
+    writeFileSync(join(ws, ".tracebase", "retrieval-query.txt"), query + "\n");
+    process.exit(pass ? 0 : 1);
+  }
 
   const prompt = buildPrompt(task, ws);
 

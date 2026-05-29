@@ -400,3 +400,76 @@ show recall is still wrong, and the root cause is mechanism-level — see
 No threshold was changed; no pilot was run. A future revisit requires a
 mechanism-level recall-quality fix (richer code summaries) and a fresh
 pre-registration — not a bench-knob change.
+
+---
+
+## Amendment 3 (2026-05-29) — mechanism-level recall fix + free probe PASS
+
+Per operator directive ("improve semantic file-memory retrieval before
+rerunning"), the recall path was improved at the **product** level (not a
+bench knob), the changes are unit-tested, and a **free $0 probe now passes**.
+Root-cause investigation (logged inline in the box-6 work) found FOUR
+compounding causes — the Amendment-2 diagnostic under-counted; the dominant
+one was index coverage:
+
+1. **Index coverage (dominant).** The bench called `indexWorkspace` with
+   `budget:{maxFiles:256,maxDirs:64,maxBytes:1MB}` — copied from synthetic
+   bench-02. The walker ignores `maxDirs` and reads `maxBytesScan` (not
+   `maxBytes`), so the only effective cap was **maxFiles:256**, which BFS
+   exhausted on root/docs/examples/test before descending into
+   `src/function/` — the bug's own source file was **never indexed**
+   (`src/function/ indexed: 0`). The shipped `tracebase init` path uses the
+   walker DEFAULT (maxFiles 5000) — so the 256 cap did **not** match shipped.
+   **Fix:** bench now uses the shipped default budget → 1139 files indexed,
+   `src/function/` 249, derivative.js present. (Corrects Amendment 2's claim
+   that the files were indexed — they were on the *first* run but not after a
+   rebuild; coverage was always marginal and budget-order-dependent.)
+2. **Thin summaries.** `composeSummary` led with a noisy `First line: import …`
+   and surfaced only the top-4 exports. **Fix:** summaries now lead with a
+   `defines:` list of exported AND local symbol names; bare import/module
+   first-lines are dropped. (`src/core/file-summarizer.ts`)
+3. **Docs out-rank source.** Prose docs (README/CONTRIBUTING/*.md/package.json)
+   spuriously out-ranked source under bm25 + porter stemming. **Fix:**
+   `recallFiles` now drops doc-class hits by default unless the query has
+   explicit doc-intent. (`src/core/file-indexer.ts`)
+4. **AND-join + no stop-words.** File recall AND-joined ≤3-word queries (so
+   "derivative typed" excluded each single-responsibility source file) and
+   kept stop-words/tool-names. **Fix:** OR-join always + shared
+   `FTS_STOP_WORDS` strip, matching block recall.
+
+**Retrieval query (Task #3).** The live query is built from task FIELDS, not
+the boilerplate prompt: `buildRetrievalQuery()` derives it from the failing
+**test basename** (the feature under test). Evidence: the feature name alone
+("derivative") recalls the source; adding the bug's symptom vocabulary
+("special characters", "SymbolNode") *degrades* recall because those terms
+match symptom files (parser/SymbolNode), not the fix location. This is the
+honest lexical ceiling — documented, not hidden.
+
+**Free probe result (gate for any rerun):**
+```
+field-derived query: "derivative"   (k=5, ON workspace)
+  1  test/unit-tests/function/algebra/derivative.test.js
+  2  src/expression/embeddedDocs/function/algebra/derivative.js
+  3  src/function/algebra/derivative.js        <-- BUG SOURCE
+  4  src/utils/lruQueue.js
+  5  examples/algebra.js
+PROBE: PASS — bug-source file recalled, ZERO docs/README.
+```
+Reproduce: `tsx scripts/file-memory-real-repos/smoke.ts ON --probe` ($0).
+
+**Honest caveats (carry into any rerun report):**
+- Recall surfaces the bug source only for a **feature-name** query; symptom-only
+  queries still fail (lexical can't bridge symptom→implementation — that gap is
+  what embeddings would close, and embeddings remain out of scope / non-default).
+- The bug source ranks #3 here (behind its own test + embedded-doc, both
+  derivative-related); a stemmed-collision file (`lruQueue.js` "Derived from")
+  still appears. Not perfect ranking — but the right file is in the top-K with
+  no README, a real improvement over Amendment-2 (recalled README/docs).
+- The live OFF/ON bench needs the hook to feed the curated query (a wrapper);
+  that wiring + the paid rerun are part of the gated step below.
+
+**Pilot status: STILL GATED — paid rerun NOT run.** Tasks #1-4 of the roadmap
+are done (product fix + unit tests + free probe PASS). Task #5 — fresh paid
+OFF/ON smoke + (if it clears) the N=25 pilot — requires explicit operator
+spend approval. The product changes ship with passing unit tests (176 green
+across the touched suites) regardless of the bench rerun decision.
