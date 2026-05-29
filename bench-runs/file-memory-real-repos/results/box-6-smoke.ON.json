@@ -7,48 +7,54 @@
   "parent_commit": "4c64018a79cc14a86c62cfb53498fde209b69630",
   "title": "fix: #3253 cannot use identifiers containing special characters in function `derivative`",
   "workspace": "C:/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77/bench-runs/file-memory-real-repos/workspaces/josdejong-mathjs-d1ecf44e.ON",
-  "session_id": "c2d28740-5ebe-44d9-98c7-65aed076f57a",
+  "session_id": "0651b264-9b4a-4038-a22c-52d35bbee3ba",
   "budget_cap_usd": 0.5,
   "indexer": {
-    "indexedCount": 256,
-    "bytesSummarized": 1755562,
+    "indexedCount": 1139,
+    "bytesSummarized": 5311485,
     "skipped": {
       "excluded-dir": 2,
       "too-large": 1,
       "excluded-suffix": 13
     },
-    "indexed_files_rows": 256,
+    "indexed_files_rows": 1139,
     "reasoning_blocks_rows": 0,
     "session_chunks_rows": 0
   },
-  "prompt_chars": 1491,
+  "prompt_chars": 689,
   "trajectory": {
     "exit_code": 0,
-    "wall_sec": 197.2,
-    "duration_ms": 193507,
-    "total_cost_usd": 0.22082524999999997,
-    "num_turns": 16,
+    "wall_sec": 142.4,
+    "duration_ms": 139537,
+    "total_cost_usd": 0.20422295000000004,
+    "num_turns": 14,
     "terminal_reason": "success",
-    "total_tokens": 957635,
+    "total_tokens": 817687,
     "tool_counts": {
-      "Read": 4,
-      "Bash": 8,
+      "Bash": 1,
+      "PowerShell": 6,
+      "Read": 3,
       "Edit": 3
     },
     "glob": 0,
     "grep": 0,
-    "read": 4,
+    "read": 3,
     "edit": 3,
-    "bash": 8,
-    "bytes_read": 47763,
-    "transcript_path": "C:/Users/Wave/.claude/projects/C--Users-Wave-Desktop-tracebase--claude-worktrees-interesting-mcclintock-a69a77-bench-runs-file-memory-real-repos-workspaces-josdejong-mathjs-d1ecf44e-ON/c2d28740-5ebe-44d9-98c7-65aed076f57a.jsonl"
+    "bash": 1,
+    "bytes_read": 48397,
+    "transcript_path": "C:/Users/Wave/.claude/projects/C--Users-Wave-Desktop-tracebase--claude-worktrees-interesting-mcclintock-a69a77-bench-runs-file-memory-real-repos-workspaces-josdejong-mathjs-d1ecf44e-ON/0651b264-9b4a-4038-a22c-52d35bbee3ba.jsonl"
   },
   "file_memory_rendered": true,
+  "file_memory_recalled_files": [
+    "test/unit-tests/function/algebra/derivative.test.js",
+    "src/expression/embeddedDocs/function/algebra/derivative.js",
+    "src/function/algebra/derivative.js"
+  ],
   "verify": {
     "test_exit": 0,
     "pass": true,
-    "elapsed_sec": 1.4,
-    "tail": "\n\n  ......................\n\n  22 passing (55ms)\n\n"
+    "elapsed_sec": 1.3,
+    "tail": "\n\n  ......................\n\n  22 passing (54ms)\n\n"
   },
   "raw_envelope_keys": [
     "type",

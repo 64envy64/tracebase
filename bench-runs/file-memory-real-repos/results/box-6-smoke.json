@@ -1,75 +1,71 @@
 {
-  "phase": "box 6 smoke \u2014 file-memory real-repos harness end-to-end (N=1)",
+  "phase": "box 6 smoke \u2014 paid OFF/ON pair under D1 retrievalQuery bypass (N=1)",
   "task_id": "josdejong-mathjs-d1ecf44e",
   "repo": "josdejong/mathjs",
   "pr_commit": "d1ecf44e2f4dba4966d602851329643eb8a788c7",
   "title": "fix: #3253 cannot use identifiers containing special characters in function `derivative`",
   "model": "claude-haiku-4-5",
   "allowed_tools": "Read,Edit,Bash,Grep,Glob",
-  "per_trajectory_budget_cap_usd": 0.5,
-  "goal": "verify mechanism wiring end-to-end on a real repo (not a pilot result; N=1 deltas are not conclusions)",
+  "budget_cap_per_traj_usd": 0.5,
   "OFF": {
     "pass": true,
-    "cost_usd": 0.2512173,
-    "wall_sec": 121.7,
-    "duration_ms": 118035,
-    "turns": 13,
-    "tokens": 755432,
-    "glob": 1,
+    "cost_usd": 0.17849685,
+    "wall_sec": 66,
+    "turns": 7,
+    "tokens": 353788,
+    "glob": 0,
     "grep": 0,
-    "read": 3,
-    "edit": 3,
-    "bash": 5,
-    "bytes_read": 51285,
-    "terminal_reason": "success"
+    "read": 2,
+    "edit": 1,
+    "bash": 3,
+    "tool_counts": {
+      "Read": 2,
+      "Bash": 3,
+      "Edit": 1
+    },
+    "bytes_read": 47336
   },
   "ON": {
     "pass": true,
-    "cost_usd": 0.22082524999999997,
-    "wall_sec": 197.2,
-    "duration_ms": 193507,
-    "turns": 16,
-    "tokens": 957635,
+    "cost_usd": 0.20422295000000004,
+    "wall_sec": 142.4,
+    "turns": 14,
+    "tokens": 817687,
     "glob": 0,
     "grep": 0,
-    "read": 4,
+    "read": 3,
     "edit": 3,
-    "bash": 8,
-    "bytes_read": 47763,
-    "terminal_reason": "success",
+    "bash": 1,
+    "tool_counts": {
+      "Bash": 1,
+      "PowerShell": 6,
+      "Read": 3,
+      "Edit": 3
+    },
+    "bytes_read": 48397,
     "file_memory_rendered": true,
-    "indexer": {
-      "indexedCount": 256,
-      "bytesSummarized": 1755562,
-      "skipped": {
-        "excluded-dir": 2,
-        "too-large": 1,
-        "excluded-suffix": 13
-      },
-      "indexed_files_rows": 256,
-      "reasoning_blocks_rows": 0,
-      "session_chunks_rows": 0
-    }
+    "file_memory_recalled_files": [
+      "test/unit-tests/function/algebra/derivative.test.js",
+      "src/expression/embeddedDocs/function/algebra/derivative.js",
+      "src/function/algebra/derivative.js"
+    ],
+    "indexer_indexed_files": 1139,
+    "reasoning_blocks": 0,
+    "session_chunks": 0
   },
-  "deltas_N1_descriptive_only": {
-    "glob_grep_delta": -1,
-    "bytes_read_delta": -3522,
-    "tokens_delta_pct": 26.8,
-    "duration_delta_pct": 62.0,
-    "cost_delta_usd": -0.0304
+  "deltas_N1": {
+    "glob_grep_delta": 0,
+    "bytes_read_delta": 1061,
+    "tokens_delta_pct": 131.1,
+    "duration_delta_pct": 115.8,
+    "cost_delta_usd": 0.0257
   },
-  "wiring_checks": {
-    "off_bare_no_tracebase_no_claude": true,
-    "on_indexed_files_only": true,
-    "on_file_memory_rendered": true,
-    "both_arms_pass": true,
-    "metrics_captured_both": true
-  },
-  "harness_problems_found": [
-    "First ON run hit the 300s wall timeout and was killed before claude emitted its JSON envelope (cost/tokens came back null). Root cause: timeoutMs (300s) < budget-bounded runtime. Fix: raised timeoutMs to 600s so --max-budget-usd 0.50 is the limiter. Re-run produced a clean envelope.",
-    "Killed first-ON run left an inject-context hook handle on .tracebase/memory.db, causing EBUSY on the next workspace cleanup. Fix: junction-aware removeWorkspace() (rmdir the node_modules junction link first, then rmSync with retries). Lock self-released; clone node_modules never damaged.",
-    "Recall relevance (observation, not a wiring bug): the locked prompt template prepends the repo README (800 chars); the inject-context FTS query is the full prompt, so recall matched README/docs/package.json rather than derivative.js. file_memory injected real content but not the navigationally-useful files for this task. Pilot at N=25 will measure whether this nets positive."
+  "recall_quality": "FIXED \u2014 ON recalled src/function/algebra/derivative.js (the bug source) + its test + embedded-doc; ZERO README/docs. (Pre-D1 the same arm recalled README/docs or empty.)",
+  "decision_gate_read": "MIXED: ON recalls source-adjacent (gate's positive condition) BUT regresses on tokens/duration at N=1 (gate's negative condition). Glob+Grep 0 on both arms \u2014 the bench's headline file-navigation metric has no signal on this single task (neither arm used Glob/Grep; both navigated via Bash/PowerShell).",
+  "harness_notes": [
+    "ON tool_counts show 'PowerShell' x6 while OFF used Bash x3 \u2014 both arms had identical allowedTools (Read,Edit,Bash,Grep,Glob); PowerShell is NOT in that set. Its appearance in ON only is an anomaly that confounds the N=1 tool comparison and must be understood before any pilot (likely a Windows Claude Code tool-surfacing quirk).",
+    "N=1: haiku turn-count variance is large (OFF 7 turns vs ON 14). A single pair cannot separate file_memory effect from variance.",
+    "Both arms PASS; recall now returns the correct source file end-to-end through the shipped inject-context path (D1 bypass + recall fixes)."
   ],
-  "smoke_verdict": "PASS \u2014 harness works end-to-end on a real repo: OFF and ON both materialize, run, and verify; file_memory injects/renders; indexer seeds only indexed_files; all metrics captured. N=1 token/duration deltas exceed pilot targets but that is a data point for the pilot, not a smoke gate.",
-  "spend_note": "Measured clean trajectories: OFF $0.2512 + ON $0.2208 = $0.4720. Plus one aborted ON run with no envelope (bounded < $0.50 by --max-budget-usd). Total session spend < ~$1.0, within the $2.00 cap."
+  "spend_usd_this_pair": 0.3827
 }
