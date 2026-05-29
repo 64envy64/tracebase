@@ -587,3 +587,92 @@ function clamp(s: string, max: number): string {
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+// ---------------------------------------------------------------------------
+// Symbol-level extraction (PLAN symbol-recall). Pure: name + kind + a short
+// signature line per top-level / exported symbol. Powers the indexed_symbols
+// table so a concept query ("record") can match a monolithic file that
+// defines `ZodRecord` even when the file summary never surfaced it.
+// ---------------------------------------------------------------------------
+
+export interface ExtractedSymbol {
+  name: string;
+  /** function | class | interface | type | enum | export | method | const */
+  kind: string;
+  /** Trimmed declaration line, clamped — no full bodies. */
+  signature: string;
+}
+
+/** Lines scanned per file for symbol extraction (bounded for huge files). */
+const SYMBOL_INDEX_MAX_LINES = 4000;
+/** Hard cap on symbols emitted per file. */
+const SYMBOL_INDEX_MAX_SYMBOLS = 300;
+/** Per-symbol signature clamp. */
+const SIGNATURE_MAX_CHARS = 140;
+
+/**
+ * Split an identifier into component words: camelCase / PascalCase, snake,
+ * kebab, digit boundaries. `createDerivative` → [create, Derivative];
+ * `ZodRecord` → [Zod, Record]; `parse_int` → [parse, int].
+ */
+export function splitIdentifier(id: string): string[] {
+  return id
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .split(/[_\-\s]+/)
+    .filter((w) => w.length > 0);
+}
+
+export function extractFileSymbols(content: string, language: FileLanguage): ExtractedSymbol[] {
+  if (language === "plain") return [];
+  const lines = content.split(/\r?\n/).slice(0, SYMBOL_INDEX_MAX_LINES);
+  const out: ExtractedSymbol[] = [];
+  const seen = new Set<string>();
+  const push = (name: string | undefined, kind: string, sig: string): void => {
+    if (out.length >= SYMBOL_INDEX_MAX_SYMBOLS) return;
+    if (!name || !/^[A-Za-z_$][\w$]*$/.test(name)) return;
+    const key = `${kind}:${name}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ name, kind, signature: sig.trim().replace(/\s+/g, " ").slice(0, SIGNATURE_MAX_CHARS) });
+  };
+
+  for (const raw of lines) {
+    if (out.length >= SYMBOL_INDEX_MAX_SYMBOLS) break;
+    const line = raw.trim();
+    switch (language) {
+      case "typescript":
+      case "javascript": {
+        let m: RegExpMatchArray | null;
+        if ((m = line.match(/^export\s+(?:async\s+)?(?:default\s+)?(?:const|let|var|function\*?|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/))) {
+          push(m[1], "export", line);
+        } else if ((m = line.match(/^(?:async\s+)?(?:function\*?|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/))) {
+          push(m[1], "decl", line);
+        } else if ((m = line.match(/^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*(?::[^=]+)?=>|[A-Za-z_$][\w$]*\s*=>)/))) {
+          push(m[1], line.startsWith("export") ? "export" : "fn", line);
+        }
+        break;
+      }
+      case "python": {
+        // Top-level AND nested (methods) — any-indent def/class.
+        let m: RegExpMatchArray | null;
+        if ((m = raw.match(/^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)/))) push(m[1], raw.startsWith(" ") || raw.startsWith("\t") ? "method" : "function", line);
+        else if ((m = raw.match(/^\s*class\s+([A-Za-z_]\w*)/))) push(m[1], "class", line);
+        break;
+      }
+      case "go": {
+        let m: RegExpMatchArray | null;
+        if ((m = line.match(/^func\s+(?:\([^)]*\)\s+)?([A-Za-z_]\w*)/))) push(m[1], "function", line);
+        else if ((m = line.match(/^type\s+([A-Za-z_]\w*)/))) push(m[1], "type", line);
+        break;
+      }
+      case "rust": {
+        let m: RegExpMatchArray | null;
+        if ((m = line.match(/^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)/))) push(m[1], "function", line);
+        else if ((m = line.match(/^(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum|trait|type)\s+([A-Za-z_]\w*)/))) push(m[1], "type", line);
+        break;
+      }
+    }
+  }
+  return out;
+}

@@ -51,7 +51,7 @@ import { encodeFloat32LE, decodeFloat32 } from "./embedding-codec.js";
 // requesting_principal)` so BlockStore.hardDeleteBlock can both
 // remove a reasoning_blocks row (CASCADE sweeping its case refs)
 // and write an immutable tombstone for compliance audit.
-const V2_SCHEMA_VERSION = 15;
+const V2_SCHEMA_VERSION = 16;
 
 const V2_SCHEMA = `
 CREATE TABLE IF NOT EXISTS reasoning_blocks (
@@ -394,6 +394,53 @@ BEGIN
   VALUES ('delete', old.rowid, old.summary, old.symbols);
   INSERT INTO indexed_files_fts(rowid, summary, symbols)
   VALUES (new.rowid, new.summary, new.symbols);
+END;
+
+-- v16 — symbol-level recall. One row per extracted symbol (function /
+-- class / type / export / method), carrying its name, camelCase/snake
+-- split tokens (so a concept query "record" matches ZodRecord), a
+-- short signature line, and its parent rel_path. Recall rolls symbol
+-- hits up to their parent files (see recallSymbols). Many rows per file
+-- (rel_path is NOT unique); re-index replaces a file's symbols by
+-- delete-by-rel_path. Same privacy surface as the heuristic summary --
+-- names + signatures only, never full bodies; cloud allowlist ships
+-- counts only.
+CREATE TABLE IF NOT EXISTS indexed_symbols (
+  id          TEXT PRIMARY KEY,
+  rel_path    TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  signature   TEXT,
+  tokens      TEXT,
+  language    TEXT,
+  indexed_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_indexed_symbols_path ON indexed_symbols(rel_path);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS indexed_symbols_fts USING fts5(
+  name,
+  tokens,
+  signature,
+  content='indexed_symbols',
+  content_rowid='rowid',
+  tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS indexed_symbols_fts_insert AFTER INSERT ON indexed_symbols BEGIN
+  INSERT INTO indexed_symbols_fts(rowid, name, tokens, signature)
+  VALUES (new.rowid, new.name, new.tokens, new.signature);
+END;
+
+CREATE TRIGGER IF NOT EXISTS indexed_symbols_fts_delete AFTER DELETE ON indexed_symbols BEGIN
+  INSERT INTO indexed_symbols_fts(indexed_symbols_fts, rowid, name, tokens, signature)
+  VALUES ('delete', old.rowid, old.name, old.tokens, old.signature);
+END;
+
+CREATE TRIGGER IF NOT EXISTS indexed_symbols_fts_update AFTER UPDATE ON indexed_symbols BEGIN
+  INSERT INTO indexed_symbols_fts(indexed_symbols_fts, rowid, name, tokens, signature)
+  VALUES ('delete', old.rowid, old.name, old.tokens, old.signature);
+  INSERT INTO indexed_symbols_fts(rowid, name, tokens, signature)
+  VALUES (new.rowid, new.name, new.tokens, new.signature);
 END;
 
 -- 0.7.0-rc.2 §rc.2 — indexer pending queue.
@@ -994,6 +1041,41 @@ const V2_MIGRATIONS: Record<number, MigrationStep[]> = {
      )`,
     `CREATE INDEX IF NOT EXISTS idx_audit_fact_deletes_fact ON audit_fact_deletes(fact_id)`,
     `CREATE INDEX IF NOT EXISTS idx_audit_fact_deletes_ts   ON audit_fact_deletes(deleted_at)`,
+  ],
+  // v15 → v16: symbol-level recall. Add indexed_symbols + its FTS mirror +
+  // triggers for existing stores. Idempotent (CREATE … IF NOT EXISTS) and
+  // additive — existing indexed_files rows are untouched; symbols populate
+  // lazily as files are (re)indexed.
+  16: [
+    `CREATE TABLE IF NOT EXISTS indexed_symbols (
+      id          TEXT PRIMARY KEY,
+      rel_path    TEXT NOT NULL,
+      name        TEXT NOT NULL,
+      kind        TEXT NOT NULL,
+      signature   TEXT,
+      tokens      TEXT,
+      language    TEXT,
+      indexed_at  INTEGER NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_indexed_symbols_path ON indexed_symbols(rel_path)`,
+    `CREATE VIRTUAL TABLE IF NOT EXISTS indexed_symbols_fts USING fts5(
+      name, tokens, signature,
+      content='indexed_symbols', content_rowid='rowid', tokenize='porter unicode61'
+    )`,
+    `CREATE TRIGGER IF NOT EXISTS indexed_symbols_fts_insert AFTER INSERT ON indexed_symbols BEGIN
+      INSERT INTO indexed_symbols_fts(rowid, name, tokens, signature)
+      VALUES (new.rowid, new.name, new.tokens, new.signature);
+    END`,
+    `CREATE TRIGGER IF NOT EXISTS indexed_symbols_fts_delete AFTER DELETE ON indexed_symbols BEGIN
+      INSERT INTO indexed_symbols_fts(indexed_symbols_fts, rowid, name, tokens, signature)
+      VALUES ('delete', old.rowid, old.name, old.tokens, old.signature);
+    END`,
+    `CREATE TRIGGER IF NOT EXISTS indexed_symbols_fts_update AFTER UPDATE ON indexed_symbols BEGIN
+      INSERT INTO indexed_symbols_fts(indexed_symbols_fts, rowid, name, tokens, signature)
+      VALUES ('delete', old.rowid, old.name, old.tokens, old.signature);
+      INSERT INTO indexed_symbols_fts(rowid, name, tokens, signature)
+      VALUES (new.rowid, new.name, new.tokens, new.signature);
+    END`,
   ],
 };
 

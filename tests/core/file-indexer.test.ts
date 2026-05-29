@@ -648,4 +648,43 @@ describe("recallFiles — source-first ranking", () => {
     const paths = recallFiles(store, { prompt: "console" }).map((h) => h.relPath);
     expect(paths[0]).toBe("src/console.ts");
   });
+
+  it("multi-word basename overlap boosts (from-json-schema for 'json schema')", () => {
+    plant("src/from-json-schema.ts", "/** convert */\nexport function fromJsonSchema() {}\n");
+    plant("src/util.ts", "/** json schema helpers everywhere json schema json schema */\nexport function u() {}\n");
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "json schema" }).map((h) => h.relPath);
+    expect(paths[0]).toBe("src/from-json-schema.ts");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// recallFiles — SYMBOL-level recall (monolithic files)
+// ---------------------------------------------------------------------------
+
+describe("recallFiles — symbol-level recall", () => {
+  it("recalls a monolithic file via a symbol the file summary never surfaced", () => {
+    // A big file whose first 12 symbols (all that the file SUMMARY shows) are
+    // generic; the concept symbol `ZodRecord` is far down the list, so the
+    // file-summary FTS alone cannot match "record". The per-symbol index +
+    // camelCase split ("ZodRecord" → record) must roll up to the file.
+    const dummies = Array.from({ length: 15 }, (_, i) => `export class Thing${i} {}`).join("\n");
+    plant("packages/zod/src/schemas.ts",
+      "/** core schema primitives */\n" + dummies + "\nexport class ZodRecord {}\nexport class ZodTransform {}\n");
+    plant("src/unrelated.ts", "/** helpers */\nexport function helper() {}\n");
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "record" }).map((h) => h.relPath);
+    expect(paths).toContain("packages/zod/src/schemas.ts");
+  });
+
+  it("symbol rollup still honours test suppression (no test file via symbol)", () => {
+    // A test file may define a symbol matching the query; without test intent
+    // it must NOT be surfaced via the symbol path.
+    plant("src/widget.ts", "/** widget */\nexport function renderWidget() {}\n");
+    plant("test/widget.test.ts", "export function renderWidget() {}\ndescribe('renderWidget', () => {});\n");
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "renderWidget" }).map((h) => h.relPath);
+    expect(paths).toContain("src/widget.ts");
+    expect(paths).not.toContain("test/widget.test.ts");
+  });
 });

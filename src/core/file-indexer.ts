@@ -29,7 +29,7 @@ import { readFileSync, statSync } from "node:fs";
 import { resolve as pathResolve, sep as pathSep } from "node:path";
 import type { BlockStore } from "./block-store.js";
 import { detectLeakageExtended, detectPromptInjectionPatterns, isRepoRelative } from "./guard.js";
-import { detectLanguage, summarizeFile, type FileLanguage } from "./file-summarizer.js";
+import { detectLanguage, summarizeFile, extractFileSymbols, splitIdentifier, type FileLanguage } from "./file-summarizer.js";
 import { walkWorkspace, type WalkBudget, type WalkResult } from "./file-walker.js";
 import { FTS_STOP_WORDS } from "./block-serving.js";
 
@@ -176,6 +176,42 @@ export function indexWorkspace(
 // at the end of the run).
 // ---------------------------------------------------------------------------
 
+/**
+ * Replace a file's rows in indexed_symbols with the freshly-extracted set.
+ * Symbol `tokens` carry the camelCase/snake split so a concept query
+ * ("record") matches a symbol named `ZodRecord`. Bounded by
+ * extractFileSymbols' per-file cap; one transaction per file.
+ */
+function reindexSymbols(
+  db: BlockStore["rawDb"],
+  relPath: string,
+  content: string,
+  language: FileLanguage,
+  now: () => number,
+): void {
+  db.prepare("DELETE FROM indexed_symbols WHERE rel_path = ?").run(relPath);
+  const syms = extractFileSymbols(content, language);
+  if (syms.length === 0) return;
+  const t = now();
+  const insert = db.prepare(
+    `INSERT INTO indexed_symbols (id, rel_path, name, kind, signature, tokens, language, indexed_at)
+     VALUES (@id, @rel_path, @name, @kind, @signature, @tokens, @language, @indexed_at)`,
+  );
+  const insertMany = db.transaction((rows: Array<Record<string, unknown>>) => {
+    for (const r of rows) insert.run(r);
+  });
+  insertMany(syms.map((s) => ({
+    id: randomUUID(),
+    rel_path: relPath,
+    name: s.name,
+    kind: s.kind,
+    signature: s.signature || null,
+    tokens: splitIdentifier(s.name).join(" ").toLowerCase() || null,
+    language,
+    indexed_at: t,
+  })));
+}
+
 function persistFile(
   store: BlockStore,
   file: { relPath: string; content: string; sizeBytes: number },
@@ -272,6 +308,9 @@ function persistFile(
       updated_at: tNow,
     });
   }
+
+  // Symbol-level index for this file (replaces prior rows).
+  reindexSymbols(db, file.relPath, file.content, language, now);
 
   // The file is now in indexed_files — drop any pending row for
   // the same rel_path so the queue doesn't keep retrying it.
@@ -459,6 +498,7 @@ export function indexSingleFile(
       updated_at: tNow,
       rel_path: rel,
     });
+    reindexSymbols(db, rel, content, summary.language, now);
     return "updated";
   }
   db.prepare(
@@ -481,6 +521,7 @@ export function indexSingleFile(
     indexed_at: tNow,
     updated_at: tNow,
   });
+  reindexSymbols(db, rel, content, summary.language, now);
   return "indexed";
 }
 
@@ -593,33 +634,95 @@ export function recallFiles(store: BlockStore, opts: RecallFilesOptions): FileHi
       score: number;
     }>;
 
-  // Filter doc/test-class rows, dedupe, then re-rank with a filename/path
-  // boost before truncating to K.
-  const seen = new Set<string>();
+  // Symbol-level rollup: files that DEFINE a symbol matching the query
+  // (by name or camelCase/snake split tokens), even if the file summary
+  // never surfaced the term. Lets a concept query reach a monolithic file
+  // (e.g. "record" → `ZodRecord` in a big schemas.ts).
+  const symbolHitsByFile = recallSymbols(store, fts);
+
   const qTokens = recallQueryTokens(prompt);
-  const candidates: Array<FileHit & { boost: number }> = [];
-  for (const r of rows) {
-    if (seen.has(r.rel_path)) continue;
-    seen.add(r.rel_path);
-    if (excludeDocs && isDocClassPath(r.rel_path)) continue;
-    if (excludeTests && isTestClassPath(r.rel_path)) continue;
+  const seen = new Set<string>();
+  const candidates: Array<FileHit & { boost: number; symbolHits: number }> = [];
+  const consider = (
+    relPath: string, summary: string, symbols: string | null,
+    language: string | null, sizeBytes: number, score: number,
+  ): void => {
+    if (seen.has(relPath)) return;
+    seen.add(relPath);
+    if (excludeDocs && isDocClassPath(relPath)) return;
+    if (excludeTests && isTestClassPath(relPath)) return;
     candidates.push({
-      relPath: r.rel_path,
-      summary: r.summary,
-      symbols: r.symbols ?? "{}",
-      language: r.language,
-      sizeBytes: r.size_bytes,
-      score: r.score,
-      boost: filenameBoost(r.rel_path, qTokens),
+      relPath, summary, symbols: symbols ?? "{}", language, sizeBytes, score,
+      boost: filenameBoost(relPath, qTokens),
+      symbolHits: symbolHitsByFile.get(relPath) ?? 0,
     });
+  };
+
+  for (const r of rows) {
+    consider(r.rel_path, r.summary, r.symbols, r.language, r.size_bytes, r.score);
   }
-  // Sort: higher boost tier first (exact basename match beats path-segment
-  // match beats none), then bm25 (lower = more relevant) within each tier.
-  // The boost counters two bm25 failure modes seen on real repos: a long
-  // canonical source file (e.g. console.py) being length-penalized below a
-  // shorter same-stem sibling, and a feature-named file losing to noise.
-  candidates.sort((a, b) => (b.boost - a.boost) || (a.score - b.score));
-  return candidates.slice(0, k).map(({ boost: _b, ...hit }) => hit);
+  // Pull in symbol-matched files not already surfaced by the file-summary FTS.
+  const extraPaths = [...symbolHitsByFile.keys()].filter((p) => !seen.has(p));
+  if (extraPaths.length > 0) {
+    const ph = extraPaths.map(() => "?").join(",");
+    const extraRows = store.rawDb
+      .prepare(
+        `SELECT rel_path, summary, symbols, language, size_bytes
+           FROM indexed_files WHERE rel_path IN (${ph})`,
+      )
+      .all(...extraPaths) as Array<{
+        rel_path: string; summary: string; symbols: string | null;
+        language: string | null; size_bytes: number;
+      }>;
+    for (const r of extraRows) {
+      // No file-level bm25 (it didn't match the summary FTS); a neutral 0
+      // score — its symbol-match tier carries the ranking.
+      consider(r.rel_path, r.summary, r.symbols, r.language, r.size_bytes, 0);
+    }
+  }
+
+  // Rank tier (higher first):
+  //   4 — exact basename match (the file you named)
+  //   3 — multi-word basename overlap (all query tokens are name words)
+  //   2 — defines a matching symbol, OR a path-segment match
+  //   1 — file-summary FTS match only
+  // Within a tier: more matching symbols first, then bm25 (lower = better).
+  const tier = (c: { boost: number; symbolHits: number }): number =>
+    c.boost === 3 ? 4 : c.boost === 2 ? 3 : (c.symbolHits > 0 || c.boost === 1) ? 2 : 1;
+  candidates.sort((a, b) =>
+    (tier(b) - tier(a)) || (b.symbolHits - a.symbolHits) || (a.score - b.score),
+  );
+  return candidates.slice(0, k).map(({ boost: _b, symbolHits: _s, ...hit }) => hit);
+}
+
+/**
+ * Symbol-level recall: query the indexed_symbols FTS and roll matching
+ * symbols up to their parent files. Returns a map rel_path → count of
+ * distinct matching symbols (the rollup signal recallFiles uses). Best-effort:
+ * if the symbol table is absent (pre-migration) or the query is empty, returns
+ * an empty map. Bounded by SYMBOL_ROLLUP_LIMIT candidate symbols.
+ */
+const SYMBOL_ROLLUP_LIMIT = 200;
+function recallSymbols(store: BlockStore, fts: string): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!fts) return out;
+  let rows: Array<{ rel_path: string }>;
+  try {
+    rows = store.rawDb
+      .prepare(
+        `SELECT indexed_symbols.rel_path AS rel_path
+           FROM indexed_symbols
+           JOIN indexed_symbols_fts ON indexed_symbols.rowid = indexed_symbols_fts.rowid
+           WHERE indexed_symbols_fts MATCH @fts
+           ORDER BY bm25(indexed_symbols_fts)
+           LIMIT @limit`,
+      )
+      .all({ fts, limit: SYMBOL_ROLLUP_LIMIT }) as Array<{ rel_path: string }>;
+  } catch {
+    return out; // table not present (pre-migration store) — degrade cleanly
+  }
+  for (const r of rows) out.set(r.rel_path, (out.get(r.rel_path) ?? 0) + 1);
+  return out;
 }
 
 /**
@@ -742,7 +845,16 @@ function filenameBoost(relPath: string, tokens: string[]): number {
   if (segs.length === 0) return 0;
   const base = (segs[segs.length - 1] ?? "").replace(/\.[a-z0-9]+$/i, "");
   const tokenSet = new Set(tokens);
-  if (tokenSet.has(base)) return 2;
+  // 3 — exact basename match (the file you named). Strictly strongest: an
+  // exact `console.ts` must beat a sibling `_win32_console.ts` that merely
+  // contains "console" as a word.
+  if (tokenSet.has(base)) return 3;
+  // 2 — multi-word basename overlap: every query token is one of the
+  // basename's component words (so `from-json-schema.ts` boosts for
+  // "json schema"). Subset match avoids boosting on a single shared word.
+  const baseParts = new Set(splitIdentifier(base).map((w) => w.toLowerCase()));
+  if (baseParts.size > 0 && tokens.every((t) => baseParts.has(t))) return 2;
+  // 1 — a path segment exactly equals a query token.
   for (const seg of segs.slice(0, -1)) {
     const s = seg.replace(/\.[a-z0-9]+$/i, "");
     if (tokenSet.has(s)) return 1;
