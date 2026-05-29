@@ -37,11 +37,11 @@ const ROOT = resolve(SCRIPT_DIR, "..", "..");
 const BENCH = join(ROOT, "bench-runs", "file-memory-real-repos");
 const REPOS = join(BENCH, "repos");
 const WS_DIR = join(BENCH, "workspaces");
-const RESULTS = join(BENCH, "results");
+export const RESULTS = join(BENCH, "results");
 const REPO_TSX = join(ROOT, "node_modules", ".bin", process.platform === "win32" ? "tsx.cmd" : "tsx");
 const BIN_CLI = join(ROOT, "bin", "cli.ts");
 
-const REPO_DIR_MAP: Record<string, string> = {
+export const REPO_DIR_MAP: Record<string, string> = {
   "josdejong/mathjs": "josdejong-mathjs",
   "psf/black": "psf-black",
   "Textualize/rich": "Textualize-rich",
@@ -85,7 +85,7 @@ const GENERIC_FEATURE_WORDS = new Set([
  * test path" the spec calls for; symptom nouns are intentionally excluded
  * because they hurt (documented finding, not an oversight).
  */
-function buildRetrievalQuery(task: any): string {
+export function buildRetrievalQuery(task: any): string {
   const feats: string[] = [];
   for (const tf of task.test_files_touched as string[]) {
     const base = (tf.split("/").pop() ?? tf)
@@ -150,7 +150,7 @@ function writeMinimalHookConfig(workspace: string): void {
   );
 }
 
-function materializeWorkspace(
+export function materializeWorkspace(
   task: any, variant: "OFF" | "ON",
 ): { ws: string; indexer: any | null } {
   const repoDir = REPO_DIR_MAP[task.repo];
@@ -233,7 +233,7 @@ function materializeWorkspace(
   return { ws, indexer };
 }
 
-function buildPrompt(task: any, ws: string): string {
+export function buildPrompt(task: any, ws: string): string {
   // Amendment 2 (query hygiene): the repo README/CLAUDE.md prefix was REMOVED
   // from the prompt for BOTH arms. inject-context uses the full prompt text as
   // the file_memory FTS query; the README prefix biased recall toward
@@ -268,7 +268,7 @@ interface TranscriptMetrics {
   readCount: number;
 }
 
-function parseTranscript(transcriptPath: string | null): TranscriptMetrics {
+export function parseTranscript(transcriptPath: string | null): TranscriptMetrics {
   const m: TranscriptMetrics = { toolCounts: {}, bytesRead: 0, readCount: 0 };
   if (!transcriptPath || !existsSync(transcriptPath)) return m;
   const idToName = new Map<string, string>();
@@ -302,7 +302,7 @@ function parseTranscript(transcriptPath: string | null): TranscriptMetrics {
 
 // Extract the file paths file_memory recalled from the injected <file_memory>
 // block in the transcript. Lines look like: "• src/foo.js: src/foo.js (lang)...".
-function extractRecalledFiles(transcriptPath: string | null): string[] {
+export function extractRecalledFiles(transcriptPath: string | null): string[] {
   if (!transcriptPath || !existsSync(transcriptPath)) return [];
   const text = readFileSync(transcriptPath, "utf-8");
   const files: string[] = [];
@@ -318,7 +318,7 @@ function extractRecalledFiles(transcriptPath: string | null): string[] {
   return files;
 }
 
-function verifyPass(task: any, ws: string): { exit: number | null; elapsedSec: number; tail: string } {
+export function verifyPass(task: any, ws: string): { exit: number | null; elapsedSec: number; tail: string } {
   const testCmd = repoTestCommand(task.repo, task.test_files_touched[0]);
   const t0 = Date.now();
   const r = spawnSync("bash", ["-lc", `cd '${toPosix(ws)}' && timeout 180s ${testCmd}`], {
@@ -331,12 +331,12 @@ function verifyPass(task: any, ws: string): { exit: number | null; elapsedSec: n
   };
 }
 
-function num(parsed: any, ...keys: string[]): number | null {
+export function num(parsed: any, ...keys: string[]): number | null {
   for (const k of keys) if (typeof parsed?.[k] === "number") return parsed[k];
   return null;
 }
 
-function totalTokens(usage: any): number | null {
+export function totalTokens(usage: any): number | null {
   if (!usage || typeof usage !== "object") return null;
   const f = (k: string) => (typeof usage[k] === "number" ? usage[k] : 0);
   return f("input_tokens") + f("output_tokens") + f("cache_creation_input_tokens") + f("cache_read_input_tokens");
@@ -537,4 +537,14 @@ async function main() {
   console.log(`\nWrote ${outPath}`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Run main() only when invoked directly as a CLI, NOT when imported (e.g.
+// by mini-pilot.ts). Robust cross-platform check: resolve argv[1] and
+// compare to this module's file path (handles Windows file:///C: vs
+// relative argv).
+const invokedDirectly = (() => {
+  try { return !!process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url); }
+  catch { return false; }
+})();
+if (invokedDirectly) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}
