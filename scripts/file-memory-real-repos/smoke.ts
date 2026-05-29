@@ -428,6 +428,14 @@ async function main() {
   const sessionId = randomUUID();
   console.log(`session: ${sessionId}  budget cap: $${budget}`);
 
+  // Bench-isolation guard (propagates to the child claude AND its hooks):
+  // stop inject-context's self-heal from rewriting the ON workspace's
+  // minimal UserPromptSubmit-only config into the full managed hook suite.
+  // Without this the ON arm silently runs the entire mechanism stack
+  // (PreToolUse/PostToolBatch/Stop/PreCompact), violating file_memory-only
+  // isolation. (Root-caused in box-6 diagnostic, 2026-05-30.)
+  process.env.TRACEBASE_SKIP_HOOK_SELF_HEAL = "1";
+
   const t0 = Date.now();
   const traj = runTrajectory({
     workspace: ws, prompt, sessionId,
@@ -455,6 +463,23 @@ async function main() {
 
   const verify = verifyPass(task, ws);
   console.log(`verify: test exit=${verify.exit} (${verify.elapsedSec}s) — ${verify.exit === 0 ? "PASS" : "FAIL"}`);
+
+  // Post-run hook-isolation check (ON only): the workspace settings.json
+  // MUST still contain ONLY UserPromptSubmit after the trajectory. If any
+  // other hook event appears, inject-context's self-heal contaminated the
+  // file_memory-only arm and the run is NOT comparable.
+  let hookIsolation: { ok: boolean; events: string[] } | null = null;
+  if (variant === "ON") {
+    try {
+      const sj = JSON.parse(readFileSync(join(ws, ".claude", "settings.json"), "utf-8"));
+      const events = Object.keys(sj.hooks ?? {});
+      hookIsolation = { ok: events.length === 1 && events[0] === "UserPromptSubmit", events };
+      console.log(`hook isolation: ${hookIsolation.ok ? "OK (UserPromptSubmit only)" : `CONTAMINATED → ${events.join(",")}`}`);
+    } catch (e: any) {
+      hookIsolation = { ok: false, events: [`read-failed: ${e.message}`] };
+      console.log(`hook isolation: UNKNOWN (${e.message})`);
+    }
+  }
 
   // Detect whether <file_memory> rendered in the injected context (ON only):
   // grep the transcript for the file_memory marker.
@@ -502,6 +527,7 @@ async function main() {
     },
     file_memory_rendered: fileMemoryRendered,
     file_memory_recalled_files: variant === "ON" ? recalledFiles : null,
+    hook_isolation: hookIsolation,
     verify: { test_exit: verify.exit, pass: verify.exit === 0, elapsed_sec: verify.elapsedSec, tail: verify.tail },
     raw_envelope_keys: traj.parsed ? Object.keys(traj.parsed) : [],
   };

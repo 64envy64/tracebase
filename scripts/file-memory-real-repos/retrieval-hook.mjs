@@ -79,6 +79,13 @@ const child = spawnSync(cmdStr, {
   input: JSON.stringify(newStdin),
   encoding: "utf-8",
   shell: true,
+  // CRITICAL bench-isolation guard: without this, inject-context's
+  // ensureManagedHooksCurrent() self-heal REWRITES the ON workspace's
+  // minimal UserPromptSubmit-only settings.json into the FULL managed
+  // hook suite (PreToolUse/PostToolBatch/Stop/PreCompact + a 2nd
+  // inject-context), contaminating the file_memory-only arm with the
+  // entire mechanism stack. Skipping self-heal keeps the arm isolated.
+  env: { ...process.env, TRACEBASE_SKIP_HOOK_SELF_HEAL: "1" },
 });
 
 // Forward the real inject-context envelope verbatim; never block on error.

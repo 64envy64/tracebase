@@ -221,3 +221,66 @@ irrelevant context → stop and diagnose; no pilot") is satisfied pre-spend.
 
 The hook wrapper itself is correct infrastructure and is retained for whichever
 path is chosen.
+
+---
+
+## Addendum 2 (2026-05-30) — D1 paid pair: recall gate PASSED, savings gate FAILED, + self-heal contamination
+
+After D1 (explicit `retrievalQuery` bypasses `MIN_PROMPT_CHARS`; commit
+c5eb5af) the free pre-flight passed, so one paid OFF/ON pair ran
+(mathjs `d1ecf44e`, $0.38 total, under the $2 cap).
+
+### Gate outcomes
+- **Recall-quality gate: PASSED.** ON's file_memory recalled the bug source
+  end-to-end through the shipped inject-context wrapper:
+  `src/function/algebra/derivative.js` + its test + embedded-doc, ZERO
+  README/docs. The D1 + recall fixes work.
+- **Savings gate: FAILED (N=1).** ON regressed: tokens +131%, duration +116%,
+  turns 7→14. Both arms PASS.
+- **No pilot.** Per the operator decision gate, a regressing pair does not
+  clear the bar for N=25.
+- **Task has no Glob/Grep surface (0→0 on both arms).** Neither OFF nor ON
+  used Glob/Grep — they navigated via shell. The bench's headline
+  file-navigation-savings metric is therefore *unmeasurable* on this task.
+  **Action: the next paid smoke must use a selected task whose OFF arm
+  actually performs Glob/Grep or repeated search**, or the savings claim
+  has nothing to bite on.
+
+### Confounder root-caused: inject-context self-heal contaminated the ON arm
+The ON workspace's `.claude/settings.json` was NOT the minimal
+UserPromptSubmit-only config the harness wrote. After the run it contained
+the FULL managed hook suite: `PreToolUse`, `PostToolBatch`, `Stop`,
+`PreCompact`, plus a SECOND `inject-context` UserPromptSubmit hook.
+
+Cause: `inject-context`'s `ensureManagedHooksCurrent()` self-heal
+(`inject-context.ts:236`) rewrites the workspace settings on first hook
+fire. **Reproduced for $0:** minimal config (757 B) → fire the wrapper →
+full suite (2295 B). So the paid ON arm silently ran the ENTIRE mechanism
+stack (tool-supervision guard + capture + double injection), not
+file_memory-only — violating pre-reg isolation and inflating tokens/turns.
+
+This also explains the **PowerShell tool anomaly** (ON used `PowerShell` ×6;
+OFF used `Bash` ×3; identical `allowedTools` with no PowerShell). The
+contaminating `PreToolUse` `capture-pre-tool-use --capture warn` guard fires
+on each Bash call; the most likely mechanism is that a warned/guarded Bash
+invocation pushed the agent to a PowerShell shell fallback — which appears
+ONLY in the contaminated arm. (Exact mechanism to be re-confirmed on a clean
+run; PowerShell does not appear in the bare OFF arm at all.)
+
+### Fix (shipped this turn, no paid run)
+- `retrieval-hook.mjs`: the wrapper spawns inject-context with
+  `TRACEBASE_SKIP_HOOK_SELF_HEAL=1`.
+- `smoke.ts`: sets `TRACEBASE_SKIP_HOOK_SELF_HEAL=1` before the trajectory
+  (propagates to the child claude + hooks), and adds a **post-run
+  hook-isolation assertion** — after the ON trajectory it re-reads the
+  workspace settings.json and records `hook_isolation.ok` (must be exactly
+  `['UserPromptSubmit']`). A contaminated future run now FAILS loudly in the
+  result JSON instead of silently confounding the comparison.
+
+### Net
+The recall-quality fix is real and confirmed. The N=1 savings result is NOT
+trustworthy because (a) the ON arm was contaminated by the full hook suite
+and (b) the task has no Glob/Grep surface. Both must be fixed before another
+paid run: isolation guard is now in place; task selection must pick a
+search-heavy task. **No further spend until a clean, search-relevant pair is
+set up and approved.**
