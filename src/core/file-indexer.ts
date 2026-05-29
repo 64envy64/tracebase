@@ -511,6 +511,16 @@ export interface RecallFilesOptions {
    * Set `true` to recover the legacy "everything" behaviour.
    */
   includeDocs?: boolean;
+  /**
+   * Whether to include test files / test-data fixtures (*.test.*, *.spec.*,
+   * test_*.py, paths under test(s)/ __tests__/ spec/, tests/data/…). Default
+   * `false`: dropped UNLESS the query has test intent (mentions test/spec/
+   * fixture). A "where is the fix" query wants the implementation, not the
+   * test that exercises it; test files are otherwise systematically
+   * over-ranked (feature term repeated across test names). Set `true` to
+   * recover them.
+   */
+  includeTests?: boolean;
 }
 
 export interface FileHit {
@@ -544,12 +554,21 @@ export function recallFiles(store: BlockStore, opts: RecallFilesOptions): FileHi
   // Whether to drop doc/metadata hits. Excluded by default unless the
   // caller opts in OR the query itself is doc-intent.
   const excludeDocs = opts.includeDocs !== true && !hasDocIntent(prompt);
+  // Whether to drop test / test-fixture hits. Excluded by default unless
+  // the caller opts in OR the query itself is test-intent. A
+  // code-navigation query ("where is the fix") wants the implementation,
+  // not the test that exercises it — and test files (often named after the
+  // feature, with the feature term repeated in test names) systematically
+  // out-rank the single source file under bm25. Test DATA fixtures
+  // (tests/data/cases/*) crowd even harder.
+  const excludeTests = opts.includeTests !== true && !hasTestIntent(prompt);
 
-  // Over-fetch so we can (a) dedupe on rel_path and (b) drop doc-class
-  // rows while still surfacing K code files. When excluding docs we
-  // fetch a wider candidate window because docs can dominate the raw
-  // bm25 head; bm25 over a few dozen rows is cheap.
-  const overFetch = excludeDocs ? Math.max(k * 2, 40) : k * 2;
+  // Over-fetch so we can (a) dedupe on rel_path, (b) drop doc/test-class
+  // rows, and (c) re-rank with the filename boost while still surfacing K
+  // code files. When excluding we fetch a wider candidate window because
+  // tests/docs can dominate the raw bm25 head; bm25 over a few dozen rows
+  // is cheap.
+  const overFetch = (excludeDocs || excludeTests) ? Math.max(k * 4, 60) : k * 2;
   const rows = store.rawDb
     .prepare(
       `SELECT
@@ -574,23 +593,33 @@ export function recallFiles(store: BlockStore, opts: RecallFilesOptions): FileHi
       score: number;
     }>;
 
+  // Filter doc/test-class rows, dedupe, then re-rank with a filename/path
+  // boost before truncating to K.
   const seen = new Set<string>();
-  const out: FileHit[] = [];
+  const qTokens = recallQueryTokens(prompt);
+  const candidates: Array<FileHit & { boost: number }> = [];
   for (const r of rows) {
     if (seen.has(r.rel_path)) continue;
     seen.add(r.rel_path);
     if (excludeDocs && isDocClassPath(r.rel_path)) continue;
-    out.push({
+    if (excludeTests && isTestClassPath(r.rel_path)) continue;
+    candidates.push({
       relPath: r.rel_path,
       summary: r.summary,
       symbols: r.symbols ?? "{}",
       language: r.language,
       sizeBytes: r.size_bytes,
       score: r.score,
+      boost: filenameBoost(r.rel_path, qTokens),
     });
-    if (out.length >= k) break;
   }
-  return out;
+  // Sort: higher boost tier first (exact basename match beats path-segment
+  // match beats none), then bm25 (lower = more relevant) within each tier.
+  // The boost counters two bm25 failure modes seen on real repos: a long
+  // canonical source file (e.g. console.py) being length-penalized below a
+  // shorter same-stem sibling, and a feature-named file losing to noise.
+  candidates.sort((a, b) => (b.boost - a.boost) || (a.score - b.score));
+  return candidates.slice(0, k).map(({ boost: _b, ...hit }) => hit);
 }
 
 /**
@@ -635,6 +664,31 @@ function hasDocIntent(prompt: string): boolean {
 }
 
 /**
+ * Test / test-fixture path classifier. True for unit/spec test files and the
+ * data fixtures they drive. These exercise the code under test; a
+ * "where is the fix" query wants the implementation, not the test — and test
+ * files (feature term repeated across test names) + data fixtures otherwise
+ * out-rank the single source file under bm25.
+ */
+export function isTestClassPath(relPath: string): boolean {
+  const p = relPath.replace(/\\/g, "/");
+  const base = (p.split("/").pop() ?? p).toLowerCase();
+  // Test/spec file naming: foo.test.ts, foo.spec.js, test_foo.py, foo_test.go.
+  if (/\.(test|spec)\.[a-z0-9]+$/i.test(base)) return true;
+  if (/^test_.+\.py$/i.test(base) || /_test\.(py|go)$/i.test(base)) return true;
+  if (base === "conftest.py") return true;
+  // Anything under a test(s)/ __tests__/ spec/ tree, or a fixtures dir.
+  if (/(^|\/)(tests?|__tests__|spec|specs|fixtures?)\//i.test(p)) return true;
+  return false;
+}
+
+/** Test-intent keywords for the prompt-side override. */
+const TEST_INTENT_RE = /\b(test|tests|spec|specs|fixture|fixtures|unit[- ]test|test[- ]case)\b/i;
+function hasTestIntent(prompt: string): boolean {
+  return TEST_INTENT_RE.test(prompt);
+}
+
+/**
  * Tokenize + escape a free-text prompt into an FTS5 MATCH expression.
  *
  * Strategy (aligned with block recall's `sanitizeFtsQuery`):
@@ -653,17 +707,47 @@ function hasDocIntent(prompt: string): boolean {
  * fewer, so precision survives without the all-or-nothing gate.
  */
 function sanitizeRecallQuery(prompt: string): string {
-  const cleaned = prompt.replace(/[*"():^~{}[\]\\]/g, " ").trim();
-  if (!cleaned) return "";
-  const words = cleaned
-    .split(/\s+/)
-    .map((w) => w.toLowerCase())
-    .filter((w) => w.length > 1 && !FTS_STOP_WORDS.has(w));
+  const words = recallQueryTokens(prompt);
   if (words.length === 0) return "";
-  // Dedupe to keep the MATCH expression compact and avoid double-weighting.
+  return words.map((w) => `"${w}"`).join(" OR ");
+}
+
+/**
+ * Tokenize a free-text prompt into deduped, lowercased, stop-word-stripped
+ * terms — the shared basis for both the FTS MATCH expression and the
+ * filename-boost re-rank.
+ */
+function recallQueryTokens(prompt: string): string[] {
+  const cleaned = (prompt ?? "").replace(/[*"():^~{}[\]\\]/g, " ").trim();
+  if (!cleaned) return [];
   const seen = new Set<string>();
-  const uniqWords = words.filter((w) => (seen.has(w) ? false : (seen.add(w), true)));
-  return uniqWords.map((w) => `"${w}"`).join(" OR ");
+  const out: string[] = [];
+  for (const raw of cleaned.split(/\s+/)) {
+    const w = raw.toLowerCase();
+    if (w.length > 1 && !FTS_STOP_WORDS.has(w) && !seen.has(w)) { seen.add(w); out.push(w); }
+  }
+  return out;
+}
+
+/**
+ * Relevance boost for path/name matches the bm25 lexical score under-weights.
+ * Tier 2: a query token equals the file's basename (sans extension) — the
+ * strongest "this is the file you named" signal (counters bm25 length-penalty
+ * on large canonical files like console.py). Tier 1: a query token equals any
+ * intermediate path segment (sans extension). Tier 0: no path match.
+ */
+function filenameBoost(relPath: string, tokens: string[]): number {
+  if (tokens.length === 0) return 0;
+  const segs = relPath.replace(/\\/g, "/").toLowerCase().split("/").filter(Boolean);
+  if (segs.length === 0) return 0;
+  const base = (segs[segs.length - 1] ?? "").replace(/\.[a-z0-9]+$/i, "");
+  const tokenSet = new Set(tokens);
+  if (tokenSet.has(base)) return 2;
+  for (const seg of segs.slice(0, -1)) {
+    const s = seg.replace(/\.[a-z0-9]+$/i, "");
+    if (tokenSet.has(s)) return 1;
+  }
+  return 0;
 }
 
 // ---------------------------------------------------------------------------

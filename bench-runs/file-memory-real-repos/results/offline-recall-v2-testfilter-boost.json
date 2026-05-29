@@ -1,0 +1,398 @@
+{
+  "tag": "v2-testfilter-boost",
+  "k": 5,
+  "tasks_evaluated": 16,
+  "overall": {
+    "recall@1_source": 43.8,
+    "recall@3_source": 68.8,
+    "recall@5_source": 68.8,
+    "recall@3_adjacent": 68.8,
+    "recall@5_adjacent": 68.8,
+    "tasks_with_doc_recalled": 0,
+    "tasks_source_not_indexed": 0
+  },
+  "per_repo": {
+    "josdejong/mathjs": {
+      "recall@5_source": "5/7",
+      "recall@5_adjacent": "5/7",
+      "recall@3_source": "5/7"
+    },
+    "Textualize/rich": {
+      "recall@5_source": "5/6",
+      "recall@5_adjacent": "5/6",
+      "recall@3_source": "5/6"
+    },
+    "psf/black": {
+      "recall@5_source": "1/3",
+      "recall@5_adjacent": "1/3",
+      "recall@3_source": "1/3"
+    }
+  },
+  "evals": [
+    {
+      "task_id": "josdejong-mathjs-d1ecf44e",
+      "repo": "josdejong/mathjs",
+      "query": "derivative",
+      "source_files": [
+        "src/core/function/typed.js",
+        "src/function/algebra/derivative.js"
+      ],
+      "test_files": [
+        "test/unit-tests/function/algebra/derivative.test.js"
+      ],
+      "recalled": [
+        "src/expression/embeddedDocs/function/algebra/derivative.js",
+        "src/function/algebra/derivative.js",
+        "src/utils/lruQueue.js",
+        "examples/algebra.js"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 1139,
+      "source_indexed": true
+    },
+    {
+      "task_id": "josdejong-mathjs-fb76ac41",
+      "repo": "josdejong/mathjs",
+      "query": "parse",
+      "source_files": [
+        "src/expression/parse.js"
+      ],
+      "test_files": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "recalled": [
+        "src/expression/parse.js",
+        "src/function/matrix/range.js",
+        "examples/expressions.js",
+        "examples/advanced/custom_argument_parsing.js",
+        "examples/algebra.js"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 1141,
+      "source_indexed": true
+    },
+    {
+      "task_id": "josdejong-mathjs-837769c7",
+      "repo": "josdejong/mathjs",
+      "query": "import",
+      "source_files": [
+        "src/core/function/import.js"
+      ],
+      "test_files": [
+        "test/unit-tests/core/import.test.js"
+      ],
+      "recalled": [
+        "src/core/function/import.js",
+        "examples/import.js",
+        "examples/serialization.js",
+        "src/defaultInstance.js",
+        "examples/advanced/expression_trees.js"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 1144,
+      "source_indexed": true
+    },
+    {
+      "task_id": "josdejong-mathjs-b5d635e5",
+      "repo": "josdejong/mathjs",
+      "query": "parse",
+      "source_files": [
+        "src/utils/number.js"
+      ],
+      "test_files": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "recalled": [
+        "src/expression/parse.js",
+        "src/function/matrix/range.js",
+        "examples/expressions.js",
+        "examples/advanced/custom_argument_parsing.js",
+        "examples/algebra.js"
+      ],
+      "source_rank": null,
+      "adjacent_rank": null,
+      "any_doc_recalled": false,
+      "indexed_count": 1144,
+      "source_indexed": true
+    },
+    {
+      "task_id": "josdejong-mathjs-1fc742aa",
+      "repo": "josdejong/mathjs",
+      "query": "import",
+      "source_files": [
+        "src/core/function/import.js"
+      ],
+      "test_files": [
+        "test/unit-tests/core/import.test.js"
+      ],
+      "recalled": [
+        "src/core/function/import.js",
+        "examples/import.js",
+        "examples/serialization.js",
+        "src/defaultInstance.js",
+        "examples/advanced/expression_trees.js"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 1146,
+      "source_indexed": true
+    },
+    {
+      "task_id": "josdejong-mathjs-e5bb6465",
+      "repo": "josdejong/mathjs",
+      "query": "parse",
+      "source_files": [
+        "src/expression/parse.js"
+      ],
+      "test_files": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "recalled": [
+        "src/expression/parse.js",
+        "src/function/matrix/range.js",
+        "examples/expressions.js",
+        "examples/advanced/custom_argument_parsing.js",
+        "examples/algebra.js"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 1147,
+      "source_indexed": true
+    },
+    {
+      "task_id": "josdejong-mathjs-b5773df3",
+      "repo": "josdejong/mathjs",
+      "query": "function node",
+      "source_files": [
+        "src/utils/latex.js"
+      ],
+      "test_files": [
+        "test/unit-tests/expression/node/FunctionNode.test.js"
+      ],
+      "recalled": [
+        "src/expression/node/Node.js",
+        "src/utils/function.js",
+        "src/core/function/typed.js",
+        "src/function/probability/util/randomMatrix.js",
+        "src/type/matrix/function/index.js"
+      ],
+      "source_rank": null,
+      "adjacent_rank": null,
+      "any_doc_recalled": false,
+      "indexed_count": 1147,
+      "source_indexed": true
+    },
+    {
+      "task_id": "Textualize-rich-e2a982d5",
+      "repo": "Textualize/rich",
+      "query": "console",
+      "source_files": [
+        "rich/console.py"
+      ],
+      "test_files": [
+        "tests/test_console.py"
+      ],
+      "recalled": [
+        "rich/_win32_console.py",
+        "rich/__init__.py",
+        "examples/screen.py",
+        "rich/screen.py",
+        "rich/_log_render.py"
+      ],
+      "source_rank": null,
+      "adjacent_rank": null,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true
+    },
+    {
+      "task_id": "Textualize-rich-1b2dada1",
+      "repo": "Textualize/rich",
+      "query": "text",
+      "source_files": [
+        "rich/text.py"
+      ],
+      "test_files": [
+        "tests/test_text.py"
+      ],
+      "recalled": [
+        "rich/text.py",
+        "rich/abc.py",
+        "rich/file_proxy.py",
+        "examples/spinners.py",
+        "rich/default_styles.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true
+    },
+    {
+      "task_id": "Textualize-rich-b6f2f7aa",
+      "repo": "Textualize/rich",
+      "query": "highlighter",
+      "source_files": [
+        "rich/highlighter.py"
+      ],
+      "test_files": [
+        "tests/test_highlighter.py"
+      ],
+      "recalled": [
+        "examples/highlighter.py",
+        "rich/highlighter.py",
+        "examples/rainbow.py",
+        "rich/json.py",
+        "rich/scope.py"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true
+    },
+    {
+      "task_id": "Textualize-rich-dc7a195a",
+      "repo": "Textualize/rich",
+      "query": "pretty",
+      "source_files": [
+        "rich/pretty.py"
+      ],
+      "test_files": [
+        "tests/test_pretty.py"
+      ],
+      "recalled": [
+        "rich/pretty.py",
+        "tools/profile_pretty.py",
+        "tools/stress_test_pretty.py",
+        "rich/_extension.py",
+        "rich/diagnose.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true
+    },
+    {
+      "task_id": "Textualize-rich-d5dcc74d",
+      "repo": "Textualize/rich",
+      "query": "segment",
+      "source_files": [
+        "rich/segment.py"
+      ],
+      "test_files": [
+        "tests/test_segment.py"
+      ],
+      "recalled": [
+        "rich/segment.py",
+        "rich/jupyter.py",
+        "rich/tree.py",
+        "tools/profile_divide.py",
+        "rich/bar.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true
+    },
+    {
+      "task_id": "Textualize-rich-66074922",
+      "repo": "Textualize/rich",
+      "query": "table",
+      "source_files": [
+        "rich/table.py"
+      ],
+      "test_files": [
+        "tests/test_table.py"
+      ],
+      "recalled": [
+        "examples/table.py",
+        "rich/table.py",
+        "examples/export.py",
+        "examples/table_movie.py",
+        "examples/save_table_svg.py"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true
+    },
+    {
+      "task_id": "psf-black-01c29bd5",
+      "repo": "psf/black",
+      "query": "guard inside case",
+      "source_files": [
+        "src/black/linegen.py",
+        "src/black/mode.py"
+      ],
+      "test_files": [
+        "tests/data/cases/if_guard_inside_case.py"
+      ],
+      "recalled": [],
+      "source_rank": null,
+      "adjacent_rank": null,
+      "any_doc_recalled": false,
+      "indexed_count": 445,
+      "source_indexed": true
+    },
+    {
+      "task_id": "psf-black-13e97b44",
+      "repo": "psf/black",
+      "query": "pattern matching case small line length",
+      "source_files": [
+        "src/black/linegen.py"
+      ],
+      "test_files": [
+        "tests/data/cases/pattern_matching_case_case_small_line_length.py"
+      ],
+      "recalled": [
+        "profiling/mix_small.py",
+        "src/black/const.py",
+        ".flake8",
+        "src/blib2to3/pygram.py",
+        "src/black/__init__.py"
+      ],
+      "source_rank": null,
+      "adjacent_rank": null,
+      "any_doc_recalled": false,
+      "indexed_count": 456,
+      "source_indexed": true
+    },
+    {
+      "task_id": "psf-black-650983f7",
+      "repo": "psf/black",
+      "query": "docstring tabs black",
+      "source_files": [
+        "src/black/strings.py"
+      ],
+      "test_files": [
+        "tests/data/cases/docstring.py",
+        "tests/data/cases/docstring_tabs.py",
+        "tests/test_black.py"
+      ],
+      "recalled": [
+        "plugin/black.vim",
+        "src/black/strings.py",
+        "src/black/linegen.py",
+        "src/black/trans.py",
+        "src/black/lines.py"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 457,
+      "source_indexed": true
+    }
+  ]
+}

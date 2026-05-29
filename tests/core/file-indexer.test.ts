@@ -601,3 +601,51 @@ describe("recallFiles — doc exclusion + OR-join + stop-words", () => {
     expect(hits.map((h) => h.relPath)).toContain("src/widget.ts");
   });
 });
+
+// ---------------------------------------------------------------------------
+// recallFiles — test-class exclusion + filename boost (source-first pass)
+// ---------------------------------------------------------------------------
+
+describe("recallFiles — source-first ranking", () => {
+  it("recalls the SOURCE file, not its test, for a feature query", () => {
+    // Both the source and its test match "derivative"; the test repeats the
+    // feature term across test names and would out-rank the source under
+    // bm25. A 'where is the fix' query must surface the implementation.
+    plant("src/function/algebra/derivative.js", "/** derivative */\nexport function createDerivative() {}\nfunction plainDerivative() {}\n");
+    plant("test/unit-tests/function/algebra/derivative.test.js",
+      "describe('derivative', () => { it('derivative a', () => {}); it('derivative b', () => {}); it('derivative c', () => {}); });\n");
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "derivative" }).map((h) => h.relPath);
+    expect(paths).toContain("src/function/algebra/derivative.js");
+    expect(paths).not.toContain("test/unit-tests/function/algebra/derivative.test.js");
+    // filename boost: exact-basename match ranks the source FIRST.
+    expect(paths[0]).toBe("src/function/algebra/derivative.js");
+  });
+
+  it("recovers test files when the query has explicit test intent", () => {
+    plant("src/derivative.js", "/** derivative */\nexport function createDerivative() {}\n");
+    plant("test/derivative.test.js", "describe('derivative', () => { it('x', () => {}); });\n");
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "derivative test" }).map((h) => h.relPath);
+    expect(paths).toContain("test/derivative.test.js");
+  });
+
+  it("excludes tests/data fixtures by default", () => {
+    plant("src/black/linegen.py", "# line generation\ndef transform_line(): pass\n");
+    plant("tests/data/cases/guard.py", "match x:\n    case 1 if guard: pass\n");
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "linegen" }).map((h) => h.relPath);
+    expect(paths).not.toContain("tests/data/cases/guard.py");
+  });
+
+  it("filename boost lifts the canonical file over a same-stem sibling", () => {
+    // Under bm25 a shorter sibling can out-rank the long canonical file; an
+    // exact-basename match to the query token must win.
+    plant("src/_win32_console.ts", "/** console helpers for win32 console console */\nexport function x() {}\n");
+    plant("src/console.ts",
+      "/** console */\nexport function print() {}\n" + "// console rendering logic\n".repeat(40));
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "console" }).map((h) => h.relPath);
+    expect(paths[0]).toBe("src/console.ts");
+  });
+});
