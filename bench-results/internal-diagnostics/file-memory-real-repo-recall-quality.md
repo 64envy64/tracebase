@@ -284,3 +284,59 @@ and (b) the task has no Glob/Grep surface. Both must be fixed before another
 paid run: isolation guard is now in place; task selection must pick a
 search-heavy task. **No further spend until a clean, search-relevant pair is
 set up and approved.**
+
+---
+
+## Addendum 3 (2026-05-30) — shortened mini-pilot (N=6, mathjs): INTERNAL NEGATIVE
+
+After the hook-isolation fix, an 8-task mini-pilot was approved ($8 cap).
+Platform reality forced the scope: `claude` runs on Windows only (not in
+WSL), and only mathjs has Windows deps — so 18 of 25 tasks (rich/zod/black)
+were **infra-skipped** (deps WSL-only; zod pnpm fails on Win Node 20.17).
+Result: **single-repo, JS-only, N=6** mathjs pairs. Spend **$2.2371 / $8**.
+
+### What the fix proved
+- **Hook isolation: 6/6 ON runs OK.** Every ON workspace stayed
+  `['UserPromptSubmit']`-only; no PowerShell, no PreToolUse/capture
+  contamination. The self-heal fix (TRACEBASE_SKIP_HOOK_SELF_HEAL=1 +
+  post-run assertion) works. The PowerShell anomaly did NOT recur — confirming
+  it was a contamination artifact.
+
+### Aggregate (6 OFF/ON pairs, all pass 6/6 both arms)
+| metric | OFF | ON | delta |
+|---|---:|---:|---:|
+| Glob+Grep | 0 | **3** | +3 (worse) |
+| Read | 39 | 38 | −1 (flat) |
+| bytes_read | 294,902 | 231,033 | **−21.7%** |
+| tokens | 5,440,416 | 6,135,471 | **+12.8%** |
+| duration | 507.6 s | 595.4 s | **+17.3%** |
+
+### Did file_memory reduce filesystem exploration on nav-surface tasks?
+**No.**
+- Glob+Grep was **0 across ALL OFF arms** — mathjs/haiku navigates by Read,
+  never Glob/Grep. The bench's HEADLINE metric (Glob+Grep reduction) has **no
+  surface to reduce** on this repo; ON even *added* 3.
+- Read stayed flat (39→38). bytes_read dropped 22% (the one positive).
+- Tokens +12.8% and duration +17.3% — both EXCEED the pre-reg bounds
+  (≤+5% tokens, ≤+10% duration). Savings gate FAILED.
+
+### Recall did not generalize
+ON recalled the task's OWN bug source in only **2/6** tasks. The
+feature-name query (test basename) recalled generic same-token files for the
+rest (3 tasks all recalled parse.test/range.js; 2 recalled import.js). The
+recall win on the original smoke task (derivative→derivative.js) was
+task-specific, not a general property.
+
+### Verdict: INTERNAL NEGATIVE — not publishable, no pilot
+On the only runnable repo (mathjs, JS, haiku, N=6): file_memory does not
+reduce exploration, regresses tokens/time, and recalls the correct source
+only 1/3 of the time. Pass rate held (6/6). The hook-isolation fix is
+validated. This is a faithful negative.
+
+Structural blocker for measuring the claim at all: **mathjs/haiku never uses
+Glob/Grep**, so the file-navigation-savings metric is unmeasurable here. A
+real test needs (a) a repo whose OFF arm genuinely Globs/Greps to locate the
+fix, and (b) that repo runnable on the claude host — which today means
+either Windows deps for rich/zod/black or claude-in-WSL. Both are nontrivial
+infra. Until then, the real-repo file_memory savings claim has no supporting
+evidence and the N=25 pilot remains unjustified.

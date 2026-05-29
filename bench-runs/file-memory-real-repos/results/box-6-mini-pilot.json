@@ -1,0 +1,704 @@
+{
+  "phase": "box-6 shortened mini-pilot (NOT N=25)",
+  "ran_isolation_guard": "TRACEBASE_SKIP_HOOK_SELF_HEAL=1",
+  "budget_cap_usd": 8,
+  "per_traj_cap_usd": 0.5,
+  "platform_note": "child claude is Windows-only; only repos with Windows deps are runnable. At run time: mathjs only. zod/black/rich skipped (deps WSL-only / pnpm fails on Win Node 20.17). Single-repo, JS-only signal.",
+  "off_scanned": 7,
+  "skipped_infra": [
+    {
+      "task_id": "Textualize-rich-e2a982d5",
+      "repo": "Textualize/rich",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "Textualize-rich-1b2dada1",
+      "repo": "Textualize/rich",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "Textualize-rich-b6f2f7aa",
+      "repo": "Textualize/rich",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "Textualize-rich-dc7a195a",
+      "repo": "Textualize/rich",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "Textualize-rich-d5dcc74d",
+      "repo": "Textualize/rich",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "Textualize-rich-66074922",
+      "repo": "Textualize/rich",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "colinhacks-zod-3a818de1",
+      "repo": "colinhacks/zod",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "colinhacks-zod-2f8414bc",
+      "repo": "colinhacks/zod",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "colinhacks-zod-60ff3987",
+      "repo": "colinhacks/zod",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "colinhacks-zod-2e5b23dc",
+      "repo": "colinhacks/zod",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "colinhacks-zod-7f789def",
+      "repo": "colinhacks/zod",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "colinhacks-zod-411f6c64",
+      "repo": "colinhacks/zod",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "colinhacks-zod-b6a3b336",
+      "repo": "colinhacks/zod",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "colinhacks-zod-87cf0f93",
+      "repo": "colinhacks/zod",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "colinhacks-zod-0e960108",
+      "repo": "colinhacks/zod",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "psf-black-01c29bd5",
+      "repo": "psf/black",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "psf-black-13e97b44",
+      "repo": "psf/black",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    },
+    {
+      "task_id": "psf-black-650983f7",
+      "repo": "psf/black",
+      "reason": "no Windows deps (node_modules/venv absent on claude-capable host)"
+    }
+  ],
+  "qualifiers": [
+    "josdejong-mathjs-fb76ac41",
+    "josdejong-mathjs-837769c7",
+    "josdejong-mathjs-b5d635e5",
+    "josdejong-mathjs-1fc742aa",
+    "josdejong-mathjs-e5bb6465",
+    "josdejong-mathjs-b5773df3"
+  ],
+  "contamination_stop": false,
+  "off_results": [
+    {
+      "task_id": "josdejong-mathjs-d1ecf44e",
+      "repo": "josdejong/mathjs",
+      "pr_commit": "d1ecf44e2f4dba4966d602851329643eb8a788c7",
+      "variant": "OFF",
+      "pass": true,
+      "test_exit": 0,
+      "glob": 0,
+      "grep": 0,
+      "read": 2,
+      "edit": 3,
+      "bash": 6,
+      "tool_counts": {
+        "Read": 2,
+        "Bash": 6,
+        "Edit": 3
+      },
+      "bytes_read": 47336,
+      "tokens": 686794,
+      "wall_sec": 118.4,
+      "cost_usd": 0.18015209999999998,
+      "turns": 12,
+      "terminal_reason": "success",
+      "recalled_files": null,
+      "hook_isolation": null,
+      "exit_code": 0
+    },
+    {
+      "task_id": "josdejong-mathjs-fb76ac41",
+      "repo": "josdejong/mathjs",
+      "pr_commit": "fb76ac419d680543d2ecff70a594e177f3e41b5b",
+      "variant": "OFF",
+      "pass": true,
+      "test_exit": 0,
+      "glob": 0,
+      "grep": 0,
+      "read": 12,
+      "edit": 1,
+      "bash": 9,
+      "tool_counts": {
+        "Read": 12,
+        "Bash": 9,
+        "Edit": 1
+      },
+      "bytes_read": 27721,
+      "tokens": 1085781,
+      "wall_sec": 88.9,
+      "cost_usd": 0.16888455000000002,
+      "turns": 23,
+      "terminal_reason": "success",
+      "recalled_files": null,
+      "hook_isolation": null,
+      "exit_code": 0
+    },
+    {
+      "task_id": "josdejong-mathjs-837769c7",
+      "repo": "josdejong/mathjs",
+      "pr_commit": "837769c74886c771986100e3036a92e7a0338616",
+      "variant": "OFF",
+      "pass": true,
+      "test_exit": 0,
+      "glob": 0,
+      "grep": 0,
+      "read": 9,
+      "edit": 2,
+      "bash": 16,
+      "tool_counts": {
+        "Read": 9,
+        "Bash": 16,
+        "Edit": 2
+      },
+      "bytes_read": 47105,
+      "tokens": 1538815,
+      "wall_sec": 140.9,
+      "cost_usd": 0.24984505,
+      "turns": 28,
+      "terminal_reason": "success",
+      "recalled_files": null,
+      "hook_isolation": null,
+      "exit_code": 0
+    },
+    {
+      "task_id": "josdejong-mathjs-b5d635e5",
+      "repo": "josdejong/mathjs",
+      "pr_commit": "b5d635e5b83cdf2d0d0971a20b0c69758d583fb5",
+      "variant": "OFF",
+      "pass": true,
+      "test_exit": 0,
+      "glob": 0,
+      "grep": 0,
+      "read": 5,
+      "edit": 1,
+      "bash": 5,
+      "tool_counts": {
+        "Read": 5,
+        "Bash": 5,
+        "Edit": 1
+      },
+      "bytes_read": 94971,
+      "tokens": 715888,
+      "wall_sec": 63.1,
+      "cost_usd": 0.14831485000000003,
+      "turns": 12,
+      "terminal_reason": "success",
+      "recalled_files": null,
+      "hook_isolation": null,
+      "exit_code": 0
+    },
+    {
+      "task_id": "josdejong-mathjs-1fc742aa",
+      "repo": "josdejong/mathjs",
+      "pr_commit": "1fc742aaf13eb5f2a8de5f507d0d34dcf7c48fef",
+      "variant": "OFF",
+      "pass": true,
+      "test_exit": 0,
+      "glob": 0,
+      "grep": 0,
+      "read": 4,
+      "edit": 2,
+      "bash": 2,
+      "tool_counts": {
+        "Read": 4,
+        "Bash": 2,
+        "Edit": 2
+      },
+      "bytes_read": 33461,
+      "tokens": 424216,
+      "wall_sec": 55.7,
+      "cost_usd": 0.09752720000000001,
+      "turns": 9,
+      "terminal_reason": "success",
+      "recalled_files": null,
+      "hook_isolation": null,
+      "exit_code": 0
+    },
+    {
+      "task_id": "josdejong-mathjs-e5bb6465",
+      "repo": "josdejong/mathjs",
+      "pr_commit": "e5bb6465a922c17defd7481a7e5d8997d3b6566b",
+      "variant": "OFF",
+      "pass": true,
+      "test_exit": 0,
+      "glob": 0,
+      "grep": 0,
+      "read": 4,
+      "edit": 2,
+      "bash": 9,
+      "tool_counts": {
+        "Read": 4,
+        "Bash": 9,
+        "Edit": 2,
+        "Write": 1
+      },
+      "bytes_read": 85257,
+      "tokens": 1233961,
+      "wall_sec": 120.8,
+      "cost_usd": 0.24068354999999997,
+      "turns": 17,
+      "terminal_reason": "success",
+      "recalled_files": null,
+      "hook_isolation": null,
+      "exit_code": 0
+    },
+    {
+      "task_id": "josdejong-mathjs-b5773df3",
+      "repo": "josdejong/mathjs",
+      "pr_commit": "b5773df3c0444000d8de57c60faa0933bf3e9585",
+      "variant": "OFF",
+      "pass": true,
+      "test_exit": 0,
+      "glob": 0,
+      "grep": 0,
+      "read": 5,
+      "edit": 1,
+      "bash": 5,
+      "tool_counts": {
+        "Bash": 5,
+        "Read": 5,
+        "Edit": 1
+      },
+      "bytes_read": 6387,
+      "tokens": 441755,
+      "wall_sec": 38.2,
+      "cost_usd": 0.07644785,
+      "turns": 12,
+      "terminal_reason": "success",
+      "recalled_files": null,
+      "hook_isolation": null,
+      "exit_code": 0
+    }
+  ],
+  "on_results": [
+    {
+      "task_id": "josdejong-mathjs-fb76ac41",
+      "repo": "josdejong/mathjs",
+      "pr_commit": "fb76ac419d680543d2ecff70a594e177f3e41b5b",
+      "variant": "ON",
+      "pass": true,
+      "test_exit": 0,
+      "glob": 0,
+      "grep": 2,
+      "read": 7,
+      "edit": 1,
+      "bash": 6,
+      "tool_counts": {
+        "Read": 7,
+        "Grep": 2,
+        "Bash": 6,
+        "Edit": 1
+      },
+      "bytes_read": 78276,
+      "tokens": 1230304,
+      "wall_sec": 105.4,
+      "cost_usd": 0.2246951,
+      "turns": 17,
+      "terminal_reason": "success",
+      "recalled_files": [
+        "test/unit-tests/expression/function/parse.test.js",
+        "src/function/matrix/range.js",
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "hook_isolation": {
+        "ok": true,
+        "events": [
+          "UserPromptSubmit"
+        ]
+      },
+      "exit_code": 0
+    },
+    {
+      "task_id": "josdejong-mathjs-837769c7",
+      "repo": "josdejong/mathjs",
+      "pr_commit": "837769c74886c771986100e3036a92e7a0338616",
+      "variant": "ON",
+      "pass": true,
+      "test_exit": 0,
+      "glob": 1,
+      "grep": 0,
+      "read": 10,
+      "edit": 1,
+      "bash": 22,
+      "tool_counts": {
+        "Bash": 22,
+        "Read": 10,
+        "Glob": 1,
+        "Edit": 1
+      },
+      "bytes_read": 38724,
+      "tokens": 1877990,
+      "wall_sec": 111,
+      "cost_usd": 0.2695743,
+      "turns": 35,
+      "terminal_reason": "success",
+      "recalled_files": [
+        "src/core/function/import.js",
+        "examples/import.js",
+        "test/typescript-tests/testTypes.ts"
+      ],
+      "hook_isolation": {
+        "ok": true,
+        "events": [
+          "UserPromptSubmit"
+        ]
+      },
+      "exit_code": 0
+    },
+    {
+      "task_id": "josdejong-mathjs-b5d635e5",
+      "repo": "josdejong/mathjs",
+      "pr_commit": "b5d635e5b83cdf2d0d0971a20b0c69758d583fb5",
+      "variant": "ON",
+      "pass": true,
+      "test_exit": 0,
+      "glob": 0,
+      "grep": 0,
+      "read": 6,
+      "edit": 1,
+      "bash": 12,
+      "tool_counts": {
+        "Bash": 12,
+        "Read": 6,
+        "Edit": 1
+      },
+      "bytes_read": 35813,
+      "tokens": 974744,
+      "wall_sec": 87.8,
+      "cost_usd": 0.15995245,
+      "turns": 20,
+      "terminal_reason": "success",
+      "recalled_files": [
+        "test/unit-tests/expression/function/parse.test.js",
+        "src/function/matrix/range.js",
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "hook_isolation": {
+        "ok": true,
+        "events": [
+          "UserPromptSubmit"
+        ]
+      },
+      "exit_code": 0
+    },
+    {
+      "task_id": "josdejong-mathjs-1fc742aa",
+      "repo": "josdejong/mathjs",
+      "pr_commit": "1fc742aaf13eb5f2a8de5f507d0d34dcf7c48fef",
+      "variant": "ON",
+      "pass": true,
+      "test_exit": 0,
+      "glob": 0,
+      "grep": 0,
+      "read": 3,
+      "edit": 2,
+      "bash": 4,
+      "tool_counts": {
+        "Read": 3,
+        "Bash": 4,
+        "Edit": 2
+      },
+      "bytes_read": 28618,
+      "tokens": 539734,
+      "wall_sec": 103.9,
+      "cost_usd": 0.14542755000000002,
+      "turns": 10,
+      "terminal_reason": "success",
+      "recalled_files": [
+        "src/core/function/import.js",
+        "examples/import.js",
+        "test/typescript-tests/testTypes.ts"
+      ],
+      "hook_isolation": {
+        "ok": true,
+        "events": [
+          "UserPromptSubmit"
+        ]
+      },
+      "exit_code": 0
+    },
+    {
+      "task_id": "josdejong-mathjs-e5bb6465",
+      "repo": "josdejong/mathjs",
+      "pr_commit": "e5bb6465a922c17defd7481a7e5d8997d3b6566b",
+      "variant": "ON",
+      "pass": true,
+      "test_exit": 0,
+      "glob": 0,
+      "grep": 0,
+      "read": 9,
+      "edit": 2,
+      "bash": 7,
+      "tool_counts": {
+        "Bash": 7,
+        "Read": 9,
+        "Edit": 2
+      },
+      "bytes_read": 13642,
+      "tokens": 942786,
+      "wall_sec": 142,
+      "cost_usd": 0.17183760000000003,
+      "turns": 19,
+      "terminal_reason": "success",
+      "recalled_files": [
+        "test/unit-tests/expression/function/parse.test.js",
+        "src/function/matrix/range.js",
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "hook_isolation": {
+        "ok": true,
+        "events": [
+          "UserPromptSubmit"
+        ]
+      },
+      "exit_code": 0
+    },
+    {
+      "task_id": "josdejong-mathjs-b5773df3",
+      "repo": "josdejong/mathjs",
+      "pr_commit": "b5773df3c0444000d8de57c60faa0933bf3e9585",
+      "variant": "ON",
+      "pass": true,
+      "test_exit": 0,
+      "glob": 0,
+      "grep": 0,
+      "read": 3,
+      "edit": 1,
+      "bash": 6,
+      "tool_counts": {
+        "Read": 3,
+        "Bash": 6,
+        "Edit": 1
+      },
+      "bytes_read": 35960,
+      "tokens": 569913,
+      "wall_sec": 45.3,
+      "cost_usd": 0.10372425000000002,
+      "turns": 11,
+      "terminal_reason": "success",
+      "recalled_files": [
+        "tools/matrixmarket.js",
+        "tools/update-authors.js",
+        "test/node-tests/esm.test.js"
+      ],
+      "hook_isolation": {
+        "ok": true,
+        "events": [
+          "UserPromptSubmit"
+        ]
+      },
+      "exit_code": 0
+    }
+  ],
+  "pairs": [
+    {
+      "task_id": "josdejong-mathjs-fb76ac41",
+      "repo": "josdejong/mathjs",
+      "off_pass": true,
+      "on_pass": true,
+      "off_glob_grep": 0,
+      "on_glob_grep": 2,
+      "off_read": 12,
+      "on_read": 7,
+      "off_bytes_read": 27721,
+      "on_bytes_read": 78276,
+      "off_tokens": 1085781,
+      "on_tokens": 1230304,
+      "off_wall_sec": 88.9,
+      "on_wall_sec": 105.4,
+      "off_cost": 0.16888455000000002,
+      "on_cost": 0.2246951,
+      "off_turns": 23,
+      "on_turns": 17,
+      "on_recalled_files": [
+        "test/unit-tests/expression/function/parse.test.js",
+        "src/function/matrix/range.js",
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "on_hook_isolation_ok": true,
+      "glob_grep_delta": 2,
+      "read_delta": -5,
+      "tokens_delta_pct": 13.3,
+      "duration_delta_pct": 18.6
+    },
+    {
+      "task_id": "josdejong-mathjs-837769c7",
+      "repo": "josdejong/mathjs",
+      "off_pass": true,
+      "on_pass": true,
+      "off_glob_grep": 0,
+      "on_glob_grep": 1,
+      "off_read": 9,
+      "on_read": 10,
+      "off_bytes_read": 47105,
+      "on_bytes_read": 38724,
+      "off_tokens": 1538815,
+      "on_tokens": 1877990,
+      "off_wall_sec": 140.9,
+      "on_wall_sec": 111,
+      "off_cost": 0.24984505,
+      "on_cost": 0.2695743,
+      "off_turns": 28,
+      "on_turns": 35,
+      "on_recalled_files": [
+        "src/core/function/import.js",
+        "examples/import.js",
+        "test/typescript-tests/testTypes.ts"
+      ],
+      "on_hook_isolation_ok": true,
+      "glob_grep_delta": 1,
+      "read_delta": 1,
+      "tokens_delta_pct": 22,
+      "duration_delta_pct": -21.2
+    },
+    {
+      "task_id": "josdejong-mathjs-b5d635e5",
+      "repo": "josdejong/mathjs",
+      "off_pass": true,
+      "on_pass": true,
+      "off_glob_grep": 0,
+      "on_glob_grep": 0,
+      "off_read": 5,
+      "on_read": 6,
+      "off_bytes_read": 94971,
+      "on_bytes_read": 35813,
+      "off_tokens": 715888,
+      "on_tokens": 974744,
+      "off_wall_sec": 63.1,
+      "on_wall_sec": 87.8,
+      "off_cost": 0.14831485000000003,
+      "on_cost": 0.15995245,
+      "off_turns": 12,
+      "on_turns": 20,
+      "on_recalled_files": [
+        "test/unit-tests/expression/function/parse.test.js",
+        "src/function/matrix/range.js",
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "on_hook_isolation_ok": true,
+      "glob_grep_delta": 0,
+      "read_delta": 1,
+      "tokens_delta_pct": 36.2,
+      "duration_delta_pct": 39.1
+    },
+    {
+      "task_id": "josdejong-mathjs-1fc742aa",
+      "repo": "josdejong/mathjs",
+      "off_pass": true,
+      "on_pass": true,
+      "off_glob_grep": 0,
+      "on_glob_grep": 0,
+      "off_read": 4,
+      "on_read": 3,
+      "off_bytes_read": 33461,
+      "on_bytes_read": 28618,
+      "off_tokens": 424216,
+      "on_tokens": 539734,
+      "off_wall_sec": 55.7,
+      "on_wall_sec": 103.9,
+      "off_cost": 0.09752720000000001,
+      "on_cost": 0.14542755000000002,
+      "off_turns": 9,
+      "on_turns": 10,
+      "on_recalled_files": [
+        "src/core/function/import.js",
+        "examples/import.js",
+        "test/typescript-tests/testTypes.ts"
+      ],
+      "on_hook_isolation_ok": true,
+      "glob_grep_delta": 0,
+      "read_delta": -1,
+      "tokens_delta_pct": 27.2,
+      "duration_delta_pct": 86.5
+    },
+    {
+      "task_id": "josdejong-mathjs-e5bb6465",
+      "repo": "josdejong/mathjs",
+      "off_pass": true,
+      "on_pass": true,
+      "off_glob_grep": 0,
+      "on_glob_grep": 0,
+      "off_read": 4,
+      "on_read": 9,
+      "off_bytes_read": 85257,
+      "on_bytes_read": 13642,
+      "off_tokens": 1233961,
+      "on_tokens": 942786,
+      "off_wall_sec": 120.8,
+      "on_wall_sec": 142,
+      "off_cost": 0.24068354999999997,
+      "on_cost": 0.17183760000000003,
+      "off_turns": 17,
+      "on_turns": 19,
+      "on_recalled_files": [
+        "test/unit-tests/expression/function/parse.test.js",
+        "src/function/matrix/range.js",
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "on_hook_isolation_ok": true,
+      "glob_grep_delta": 0,
+      "read_delta": 5,
+      "tokens_delta_pct": -23.6,
+      "duration_delta_pct": 17.5
+    },
+    {
+      "task_id": "josdejong-mathjs-b5773df3",
+      "repo": "josdejong/mathjs",
+      "off_pass": true,
+      "on_pass": true,
+      "off_glob_grep": 0,
+      "on_glob_grep": 0,
+      "off_read": 5,
+      "on_read": 3,
+      "off_bytes_read": 6387,
+      "on_bytes_read": 35960,
+      "off_tokens": 441755,
+      "on_tokens": 569913,
+      "off_wall_sec": 38.2,
+      "on_wall_sec": 45.3,
+      "off_cost": 0.07644785,
+      "on_cost": 0.10372425000000002,
+      "off_turns": 12,
+      "on_turns": 11,
+      "on_recalled_files": [
+        "tools/matrixmarket.js",
+        "tools/update-authors.js",
+        "test/node-tests/esm.test.js"
+      ],
+      "on_hook_isolation_ok": true,
+      "glob_grep_delta": 0,
+      "read_delta": -2,
+      "tokens_delta_pct": 29,
+      "duration_delta_pct": 18.6
+    }
+  ],
+  "total_spend_usd": 2.2371
+}
