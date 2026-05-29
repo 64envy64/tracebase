@@ -163,3 +163,61 @@ pathology the gate exists to prevent).
 - Did NOT change the selected task.
 - The only change made was Amendment 2 (drop README prefix from the prompt),
   which is a prompt-hygiene improvement valid regardless of the recall finding.
+
+---
+
+## Addendum (2026-05-29) — end-to-end blocker: MIN_PROMPT_CHARS gate vs focused query
+
+After the recall improvements landed (commits 7affaa7 product + ab73ad2 bench)
+and the **unit probe PASSED** (`recallFiles("derivative")` → derivative.js in
+top-K, zero docs), I built the live ON-arm hook wrapper
+(`scripts/file-memory-real-repos/retrieval-hook.mjs`) to feed the field-derived
+query to the **real shipped inject-context** path and ran a $0 pre-flight before
+the approved paid OFF/ON pair. It surfaced a fundamental end-to-end blocker:
+
+**The focused query that works is gated out.** `inject-context` suppresses any
+prompt below `MIN_PROMPT_CHARS = 40` as "trivial" (`src/runtime/recall.ts:576`,
+`shouldQueryForPrompt`). The field-derived focused query `"derivative"` is 10
+chars → suppressed → **empty injection**. Proven via the wrapper:
+```
+wrapper feeds "derivative" → inject-context → {"additionalContext":""}
+```
+
+**Any ≥40-char field query buries the source.** Padding to clear the gate forces
+in high-frequency mathjs path/symptom words ("algebra", "function", "special
+characters", "identifiers"). Each matches hundreds of files; under OR + bm25 the
+single "derivative" vote loses. Across 6 distinct ≥40-char field-derived queries
+(test path, bug description, failing symbol), `src/function/algebra/derivative.js`
+ranked **NONE** in the top-5 — the head was `examples/algebra.js`, sparse `csLu`
+tests, `SymbolNode.js`, `lruQueue.js`. (The real full agent prompt, ≥40 chars,
+behaves the same: post-fix it recalls `examples/expressions.js`,
+`keywords.js`, `custom_evaluate…` — noise, not the source.)
+
+**Net:** the recall improvements are real at the `recallFiles` unit level, but the
+**end-to-end shipped path** cannot surface this bug's source file:
+- focused query (recalls source) → killed by the 40-char trivial gate;
+- gate-compliant query (≥40 chars) → lexical dilution buries the source.
+
+This is a genuine product-interaction limitation, not a harness artifact. It was
+found for **$0**; the approved paid OFF/ON pair was **NOT run** because the
+pre-flight already shows the ON arm would inject either nothing (gated) or
+irrelevant context (diluted) — the operator's own decision gate ("recalls
+irrelevant context → stop and diagnose; no pilot") is satisfied pre-spend.
+
+### Options (operator decision; no spend taken)
+
+- **D1 — Gate fix (product).** Let hook callers pass a structured/short
+  retrieval query that is exempt from `MIN_PROMPT_CHARS` (the gate exists to
+  skip trivial *chatter*, not a deliberately-focused query). Then the focused
+  field query injects the source cleanly. Smallest change that unblocks; needs
+  its own test + a fresh pre-reg.
+- **D2 — Accept the lexical ceiling.** For symptom-style real bug tasks on large
+  repos, lexical file_memory can't reliably bridge query→fix-file. Report the
+  honest negative and stop the real-repo pilot here. (Embeddings would close the
+  gap but are out of scope / non-default.)
+- **D3 — Spend anyway.** Run the paid OFF/ON pair with a ≥40-char field query
+  for the empirical record, expecting ON to inject noise and the decision gate
+  to return "no pilot."
+
+The hook wrapper itself is correct infrastructure and is retained for whichever
+path is chosen.

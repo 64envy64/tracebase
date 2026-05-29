@@ -123,18 +123,25 @@ function removeWorkspace(ws: string): void {
   rmSync(ws, { recursive: true, force: true, maxRetries: 6, retryDelay: 500 });
 }
 
+const RETRIEVAL_HOOK = join(SCRIPT_DIR, "retrieval-hook.mjs");
+
 function writeMinimalHookConfig(workspace: string): void {
   mkdirSync(join(workspace, ".claude"), { recursive: true });
+  // ON-arm hook = the field-derived-query wrapper around the REAL shipped
+  // inject-context. The wrapper substitutes only the recall QUERY (the
+  // pre-registered failing-test feature name from .tracebase/retrieval-
+  // query.txt); recallFiles still does all the work. Not an oracle: no
+  // source filename is hardcoded; missing query-file → original prompt.
   const cmd =
-    `${toPosix(REPO_TSX)} ${toPosix(BIN_CLI)} inject-context ` +
-    `--host claude-code --status compact --budget 800 --path ${toPosix(workspace)}`;
+    `node ${toPosix(RETRIEVAL_HOOK)} ` +
+    `--path ${toPosix(workspace)} --tsx ${toPosix(REPO_TSX)} --cli ${toPosix(BIN_CLI)}`;
   writeFileSync(
     join(workspace, ".claude", "settings.json"),
     JSON.stringify(
       {
         hooks: {
           UserPromptSubmit: [
-            { hooks: [{ type: "command", command: cmd, timeout: 15, statusMessage: "TB FILE memory" }] },
+            { hooks: [{ type: "command", command: cmd, timeout: 30, statusMessage: "TB FILE memory" }] },
           ],
         },
       },
@@ -216,6 +223,10 @@ function materializeWorkspace(
         session_chunks_rows: sc,
       };
     } finally { store.close(); }
+    // Write the field-derived retrieval query the ON hook wrapper will feed
+    // to inject-context (Task#3). Derived from task fields only — never the
+    // expected source filename.
+    writeFileSync(join(ws, ".tracebase", "retrieval-query.txt"), buildRetrievalQuery(task) + "\n");
     writeMinimalHookConfig(ws);
   }
 
