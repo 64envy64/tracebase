@@ -530,20 +530,37 @@ function composeSummary(opts: {
   parts.push(`${opts.role} (${opts.language}).`);
   if (opts.header.matched && opts.header.text.length > 0) {
     parts.push(opts.header.text);
-  } else if (opts.header.text.length > 0) {
+  } else if (opts.header.text.length > 0 && !isNoiseFirstLine(opts.header.text)) {
+    // Only surface a fallback first line when it carries signal. A bare
+    // `import …` / `package …` / `use …` line is path noise that dilutes
+    // the file's real vocabulary under bm25 — skip it.
     parts.push(`First line: ${opts.header.text}`);
   }
-  // Append a short symbols hint so the recall path has something
-  // even when the doc-comment is missing.
-  const hints: string[] = [];
-  if (opts.symbolsObj.exports?.length) {
-    hints.push(`exports: ${opts.symbolsObj.exports.slice(0, 4).join(", ")}`);
-  }
-  if (opts.symbolsObj.imports?.length) {
-    hints.push(`imports: ${opts.symbolsObj.imports.slice(0, 4).join(", ")}`);
-  }
-  if (hints.length > 0) parts.push(hints.join("; "));
+  // `defines:` carries the file's own identifier vocabulary — exported
+  // AND local top-level function/class/symbol names. This is the highest-
+  // value recall surface for code-navigation queries: a query naming the
+  // concept ("derivative") should match the file that defines
+  // `createDerivative` / `plainDerivative`, not a doc that merely shares a
+  // stemmed word. Exports lead (most relevant), then local symbols. Up to
+  // 12 names; the 600-char clamp is the final backstop.
+  const defines = uniq([
+    ...(opts.symbolsObj.exports ?? []),
+    ...(opts.symbolsObj.symbols ?? []),
+  ]).slice(0, 12);
+  if (defines.length > 0) parts.push(`defines: ${defines.join(", ")}`);
+  // Imports stay in the structured `symbols` JSON (dependency-surface
+  // queries can still hit them) but are kept OUT of the summary text:
+  // module specifiers like `../../utils/is.js` are recall noise.
   return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * True when a fallback "first line" is a bare import/module/declaration
+ * statement that carries no behavioural signal — surfacing it only dilutes
+ * the summary's term frequency for the file's real vocabulary.
+ */
+function isNoiseFirstLine(s: string): boolean {
+  return /^\s*(import\b|from\b|require\s*\(|use\b|package\b|#include|using\b|export\s+(?:\{|\*))/.test(s);
 }
 
 function pathRole(relPath: string): string {

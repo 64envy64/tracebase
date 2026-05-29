@@ -31,6 +31,7 @@ import type { BlockStore } from "./block-store.js";
 import { detectLeakageExtended, detectPromptInjectionPatterns, isRepoRelative } from "./guard.js";
 import { detectLanguage, summarizeFile, type FileLanguage } from "./file-summarizer.js";
 import { walkWorkspace, type WalkBudget, type WalkResult } from "./file-walker.js";
+import { FTS_STOP_WORDS } from "./block-serving.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -496,6 +497,20 @@ export interface RecallFilesOptions {
   prompt: string;
   /** Top-K cap. Default 3, hard ceiling 10. */
   k?: number;
+  /**
+   * Whether to include documentation / metadata files (README, *.md,
+   * LICENSE, CHANGELOG, package.json, lockfiles, docs/…) in the result.
+   *
+   * Default `false`: doc-class hits are dropped UNLESS the query itself
+   * has documentation intent (mentions readme/docs/license/changelog/
+   * install/setup/config/dependency…). Rationale: for a code-navigation
+   * query ("fix the derivative special-char bug") a prose doc that merely
+   * shares a stemmed word ("Derived from…", "derivation") otherwise
+   * out-ranks the actual source file under bm25 (short prose doc + porter
+   * stemming). Code queries should recall code; doc queries recall docs.
+   * Set `true` to recover the legacy "everything" behaviour.
+   */
+  includeDocs?: boolean;
 }
 
 export interface FileHit {
@@ -526,11 +541,15 @@ export function recallFiles(store: BlockStore, opts: RecallFilesOptions): FileHi
   const fts = sanitizeRecallQuery(prompt);
   if (!fts) return [];
 
-  // Over-fetch slightly so we can dedupe on rel_path before
-  // truncating to K. In practice rel_path is UNIQUE on
-  // indexed_files so this is a belt-and-braces guard rather than
-  // a real dedup; the over-fetch costs at most a few rows.
-  const overFetch = k * 2;
+  // Whether to drop doc/metadata hits. Excluded by default unless the
+  // caller opts in OR the query itself is doc-intent.
+  const excludeDocs = opts.includeDocs !== true && !hasDocIntent(prompt);
+
+  // Over-fetch so we can (a) dedupe on rel_path and (b) drop doc-class
+  // rows while still surfacing K code files. When excluding docs we
+  // fetch a wider candidate window because docs can dominate the raw
+  // bm25 head; bm25 over a few dozen rows is cheap.
+  const overFetch = excludeDocs ? Math.max(k * 2, 40) : k * 2;
   const rows = store.rawDb
     .prepare(
       `SELECT
@@ -560,6 +579,7 @@ export function recallFiles(store: BlockStore, opts: RecallFilesOptions): FileHi
   for (const r of rows) {
     if (seen.has(r.rel_path)) continue;
     seen.add(r.rel_path);
+    if (excludeDocs && isDocClassPath(r.rel_path)) continue;
     out.push({
       relPath: r.rel_path,
       summary: r.summary,
@@ -574,24 +594,76 @@ export function recallFiles(store: BlockStore, opts: RecallFilesOptions): FileHi
 }
 
 /**
+ * Doc/metadata path classifier. True for files whose value to a code-
+ * navigation query is low and which tend to spuriously out-rank source
+ * under bm25 (prose density + porter stemming). Conservative on purpose:
+ * only well-known documentation + package-metadata shapes.
+ */
+export function isDocClassPath(relPath: string): boolean {
+  const p = relPath.replace(/\\/g, "/");
+  const base = p.split("/").pop() ?? p;
+  const lower = base.toLowerCase();
+  // Prose / documentation extensions.
+  if (/\.(md|mdx|markdown|rst|adoc|txt)$/i.test(lower)) return true;
+  // Well-known metadata files (no extension or json).
+  if (/^(license|licence|copying|authors|notice|changelog|contributing|code_of_conduct|security|maintainers|codeowners)(\.[a-z]+)?$/i.test(lower)) return true;
+  // Package + lockfile + common tool config metadata.
+  if (
+    lower === "package.json" || lower === "package-lock.json" ||
+    lower === "yarn.lock" || lower === "pnpm-lock.yaml" || lower === "composer.lock" ||
+    lower === "cargo.lock" || lower === "poetry.lock" || lower === "go.sum" ||
+    /^(tsconfig|jsconfig)(\.[\w.-]+)?\.json$/i.test(lower) ||
+    /^\.?(eslintrc|prettierrc|babelrc|browserslistrc|editorconfig|npmrc|nvmrc|gitignore|gitattributes|mailmap)(\.[\w.-]+)?$/i.test(lower)
+  ) return true;
+  // Anything under a docs/ directory tree.
+  if (/(^|\/)docs?\//i.test(p)) return true;
+  return false;
+}
+
+/**
+ * Doc-intent keywords for the prompt-side override. Deliberately
+ * SPECIFIC: bare words that also appear in code-task instructions
+ * ("install", "setup", "config") are excluded, because a prompt like
+ * "fix the bug; do NOT install packages" must NOT be treated as a
+ * documentation query. We require unambiguous doc phrasing.
+ */
+const DOC_INTENT_RE =
+  /\b(readme|documentation|changelog|change-log|licen[sc]e|contributing\s+guide|installation|getting[- ]started|tutorial|user[- ]guide|how\s+to\s+(?:install|configure|set\s?up)|package\.json|dependenc(?:y|ies))\b/i;
+
+function hasDocIntent(prompt: string): boolean {
+  return DOC_INTENT_RE.test(prompt);
+}
+
+/**
  * Tokenize + escape a free-text prompt into an FTS5 MATCH expression.
- * Same shape as `BlockStore.sanitizeFtsQuery` (private over there).
- * Mirrored locally to keep file-indexer dep-light against block-store
- * internals.
  *
- * Strategy: strip FTS5 metacharacters, split on whitespace, quote
- * each token, join with OR for >3 tokens (broader recall) or space-
- * AND for ≤3 tokens (tighter precision).
+ * Strategy (aligned with block recall's `sanitizeFtsQuery`):
+ *   1. strip FTS5 metacharacters;
+ *   2. drop stop-words / tool-names / generic agent-prompt fillers
+ *      (shared `FTS_STOP_WORDS`) — they carry no retrieval signal and
+ *      otherwise bury the real term under bm25;
+ *   3. quote each surviving token and join with OR.
+ *
+ * The join is ALWAYS OR (was: AND for ≤3 tokens). The old AND rule was
+ * too brittle against the heuristic summaries: a 2-term query built from
+ * two source basenames (`derivative typed`) required BOTH terms in one
+ * file's summary, which excluded each single-responsibility source file
+ * (derivative.js has "derivative" but not "typed", and vice-versa). OR +
+ * bm25 naturally ranks a file matching more query terms above one matching
+ * fewer, so precision survives without the all-or-nothing gate.
  */
 function sanitizeRecallQuery(prompt: string): string {
   const cleaned = prompt.replace(/[*"():^~{}[\]\\]/g, " ").trim();
   if (!cleaned) return "";
   const words = cleaned
     .split(/\s+/)
-    .filter((w) => w.length > 1); // single chars don't carry signal
+    .map((w) => w.toLowerCase())
+    .filter((w) => w.length > 1 && !FTS_STOP_WORDS.has(w));
   if (words.length === 0) return "";
-  const joiner = words.length <= 3 ? " " : " OR ";
-  return words.map((w) => `"${w}"`).join(joiner);
+  // Dedupe to keep the MATCH expression compact and avoid double-weighting.
+  const seen = new Set<string>();
+  const uniqWords = words.filter((w) => (seen.has(w) ? false : (seen.add(w), true)));
+  return uniqWords.map((w) => `"${w}"`).join(" OR ");
 }
 
 // ---------------------------------------------------------------------------

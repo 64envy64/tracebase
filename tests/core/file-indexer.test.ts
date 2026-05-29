@@ -555,3 +555,49 @@ describe("recallFiles — FTS5-backed file memory recall", () => {
     ).not.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// recallFiles — code-navigation recall quality (box-6 hardening)
+// ---------------------------------------------------------------------------
+
+describe("recallFiles — doc exclusion + OR-join + stop-words", () => {
+  it("excludes doc/README/markdown hits for a code query by default", () => {
+    // Both files mention the stemmed term, but only the source file is the
+    // navigation target. A prose doc must NOT out-rank / crowd it.
+    plant("CONTRIBUTING.md", "# Contributing\n\nReport bugs about the parser and authentication here.\n");
+    plant("src/auth.ts", "/** Authentication parser */\nexport function authenticate() {}\n");
+    indexWorkspace(store, { root });
+    const hits = recallFiles(store, { prompt: "authentication parser" });
+    const paths = hits.map((h) => h.relPath);
+    expect(paths).toContain("src/auth.ts");
+    expect(paths).not.toContain("CONTRIBUTING.md");
+  });
+
+  it("includes docs when the query has explicit doc intent", () => {
+    plant("README.md", "# Project\n\nInstallation and contributing guide for authentication.\n");
+    plant("src/auth.ts", "/** Authentication */\nexport function authenticate() {}\n");
+    indexWorkspace(store, { root });
+    // "readme" is an unambiguous doc-intent token → docs allowed back in.
+    const hits = recallFiles(store, { prompt: "readme authentication" });
+    expect(hits.map((h) => h.relPath)).toContain("README.md");
+  });
+
+  it("OR-joins multi-term queries so each single-responsibility file matches", () => {
+    // Neither file contains BOTH terms; the old ≤3-word AND join returned
+    // nothing. OR + bm25 must surface both.
+    plant("src/derivative.ts", "/** derivative */\nexport function derivative() {}\n");
+    plant("src/typed.ts", "/** typed function checker */\nexport function typed() {}\n");
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "derivative typed" }).map((h) => h.relPath);
+    expect(paths).toContain("src/derivative.ts");
+    expect(paths).toContain("src/typed.ts");
+  });
+
+  it("strips stop-words / tool-names so the real term dominates", () => {
+    plant("src/widget.ts", "/** widget rendering */\nexport function renderWidget() {}\n");
+    indexWorkspace(store, { root });
+    // Mostly stop-words + tool-names; only "widget" carries signal.
+    const hits = recallFiles(store, { prompt: "please can you read the file and edit the widget" });
+    expect(hits.map((h) => h.relPath)).toContain("src/widget.ts");
+  });
+});

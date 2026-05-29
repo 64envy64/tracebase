@@ -360,7 +360,7 @@ export interface BlockServerOptions {
 // block lookup; generic agent-prompt verbs / fillers. Keep this list
 // closed-vocabulary — speculative additions (domain terms a user might
 // genuinely care about) belong in calibration, not here.
-const FTS_STOP_WORDS = new Set<string>([
+export const FTS_STOP_WORDS = new Set<string>([
   // English stop-words
   "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
   "of", "in", "on", "at", "to", "from", "by", "for", "with", "about",
