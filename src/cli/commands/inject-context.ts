@@ -91,6 +91,17 @@ export interface HookStdin {
   prompt?: string;
   userPrompt?: string;
   user_prompt?: string;
+  /**
+   * Optional explicit, focused retrieval query supplied by an integration
+   * (NOT the end user's chat text). When present and non-empty it is used
+   * as the recall query INSTEAD of `prompt`, and it BYPASSES the
+   * trivial-prompt length gate (`MIN_PROMPT_CHARS`) — a deliberately
+   * constructed query is intentional, not chatter. It still flows through
+   * the SAME serving threshold + ranking as any other query (no gate or
+   * scoring change). The ordinary `prompt` path keeps `MIN_PROMPT_CHARS`.
+   */
+  retrievalQuery?: string;
+  retrieval_query?: string;
   /** Workspace path, when the host supplies it. */
   cwd?: string;
   workspace?: string;
@@ -192,12 +203,20 @@ export async function runInjectContext(
 
   try {
     const prompt = extractPrompt(stdin);
+    const retrievalQuery = extractRetrievalQuery(stdin);
+    // The recall query is the explicit focused query when supplied, else
+    // the user prompt. An explicit retrievalQuery is intentional and
+    // bypasses the trivial-prompt length gate; the ordinary prompt path
+    // keeps MIN_PROMPT_CHARS. Either way the query then flows through the
+    // unchanged serving threshold + ranking downstream.
+    const queryForRecall = retrievalQuery ?? prompt;
     const basePath = resolveBasePath(opts.path, stdin);
 
     // Skip trivial chatter so analytics aren't drowned in retrieval
     // events for "hi" and "thanks". The MCP tool path is still
-    // available if the agent really wants patterns mid-thread.
-    if (!shouldQueryForPrompt(prompt, eventName)) {
+    // available if the agent really wants patterns mid-thread. An
+    // explicit retrievalQuery skips this length gate (it is not chatter).
+    if (retrievalQuery === null && !shouldQueryForPrompt(prompt, eventName)) {
       return wrapEnvelope(host, eventName, "", formatStatus({ kind: "trivial" }, NO_TOOL_SIGNAL, statusMode));
     }
 
@@ -229,7 +248,7 @@ export async function runInjectContext(
         store,
         holdoutLoader,
         {
-          prompt,
+          prompt: queryForRecall,
           basePath,
           sessionId: sessionId ?? null,
           tokenBudget: budget,
@@ -503,6 +522,21 @@ function extractPrompt(stdin: HookStdin): string {
     if (typeof c === "string" && c.trim().length > 0) return c.trim();
   }
   return "";
+}
+
+/**
+ * Explicit integration-supplied focused recall query, if any. Returns the
+ * trimmed string or `null`. When present, the caller is asserting an
+ * intentional retrieval query (not end-user chatter), so the recall path
+ * uses it INSTEAD of the prompt and skips the `MIN_PROMPT_CHARS` length
+ * gate. Serving threshold + ranking are unchanged.
+ */
+function extractRetrievalQuery(stdin: HookStdin): string | null {
+  const candidates = [stdin.retrievalQuery, stdin.retrieval_query];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().length > 0) return c.trim();
+  }
+  return null;
 }
 
 function resolveBasePath(explicit: string | undefined, stdin: HookStdin): string | null {

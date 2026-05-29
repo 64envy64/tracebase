@@ -58,13 +58,13 @@ if (existsSync(queryFile)) {
   try { curated = readFileSync(queryFile, "utf-8").trim(); } catch { curated = ""; }
 }
 
-// Replace ONLY the prompt the recall query sees. Preserve cwd + session_id.
-// Fall back to the original prompt if no curated query is available.
-const original = stdin.prompt ?? stdin.userPrompt ?? stdin.user_prompt ?? "";
-const newStdin = {
-  ...stdin,
-  prompt: curated || original,
-};
+// Pass the focused query as the explicit `retrievalQuery` FIELD (not by
+// overwriting `prompt`): inject-context then uses it for recall and bypasses
+// the MIN_PROMPT_CHARS length gate, while the agent's real `prompt` is
+// preserved untouched. If no curated query exists, pass stdin through
+// unchanged (ordinary prompt path, gate intact).
+const newStdin = { ...stdin };
+if (curated) newStdin.retrievalQuery = curated;
 
 // Build a single shell command string with OS-native, quoted paths.
 // cmd.exe (shell:true on Windows) does not resolve a forward-slash
