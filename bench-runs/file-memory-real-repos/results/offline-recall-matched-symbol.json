@@ -1,0 +1,873 @@
+{
+  "tag": "matched-symbol",
+  "k": 5,
+  "tasks_evaluated": 25,
+  "overall": {
+    "recall@1_source": 52,
+    "recall@3_source": 84,
+    "recall@5_source": 88,
+    "recall@3_adjacent": 84,
+    "recall@5_adjacent": 88,
+    "tasks_with_doc_recalled": 0,
+    "tasks_source_not_indexed": 0,
+    "tasks_with_matched_span": 25,
+    "filemem_chars_avg": 961,
+    "filemem_chars_max": 1110,
+    "dep_junk_fp_total": 0
+  },
+  "zod_0e960108": {
+    "query": "record",
+    "recalled": [
+      "packages/zod/src/v4/core/util.ts",
+      "packages/zod/src/v4/core/schemas.ts",
+      "packages/zod/src/v4/classic/schemas.ts",
+      "packages/zod/src/v4/mini/schemas.ts",
+      "packages/zod/src/v3/types.ts"
+    ],
+    "source_rank": 3,
+    "filemem_chars": 1084,
+    "matched_lines": [
+      "• packages/zod/src/v4/core/util.ts: matched: EmptyObject — export type EmptyObject = Record<string, never>;; SomeObject — export type SomeObject = Record<PropertyKey, any>;. util.ts (typescript). defines: JSONType,…",
+      "• packages/zod/src/v4/core/schemas.ts: matched: $ZodObjectConfig — export type $ZodObjectConfig = { out: Record<string, unknown>; in: Record<string, unknown> };; $InferZodRecordOutput — export type…",
+      "• packages/zod/src/v4/classic/schemas.ts: matched: record — export function record<Key extends core.$ZodRecordKey, Value extends core.SomeType>(; ZodRecord — export interface ZodRecord<. schemas.ts (typescript).…",
+      "• packages/zod/src/v4/mini/schemas.ts: matched: record — export function record<Key extends core.$ZodRecordKey, Value extends SomeType>(; ZodMiniRecord — export interface ZodMiniRecord<. schemas.ts (typescript).…",
+      "• packages/zod/src/v3/types.ts: matched: ZodRecordDef — export interface ZodRecordDef<Key extends KeySchema = ZodString, Value extends ZodTypeAny =…; RecordType — export type RecordType<K extends string | number |…"
+    ],
+    "classic_schemas_has_record_span": true
+  },
+  "per_repo": {
+    "josdejong/mathjs": {
+      "recall@5_source": "5/7",
+      "recall@5_adjacent": "5/7",
+      "recall@3_source": "5/7"
+    },
+    "Textualize/rich": {
+      "recall@5_source": "6/6",
+      "recall@5_adjacent": "6/6",
+      "recall@3_source": "6/6"
+    },
+    "colinhacks/zod": {
+      "recall@5_source": "8/9",
+      "recall@5_adjacent": "8/9",
+      "recall@3_source": "7/9"
+    },
+    "psf/black": {
+      "recall@5_source": "3/3",
+      "recall@5_adjacent": "3/3",
+      "recall@3_source": "3/3"
+    }
+  },
+  "evals": [
+    {
+      "task_id": "josdejong-mathjs-d1ecf44e",
+      "repo": "josdejong/mathjs",
+      "query": "derivative",
+      "source_files": [
+        "src/core/function/typed.js",
+        "src/function/algebra/derivative.js"
+      ],
+      "test_files": [
+        "test/unit-tests/function/algebra/derivative.test.js"
+      ],
+      "recalled": [
+        "src/function/algebra/derivative.js",
+        "src/expression/embeddedDocs/function/algebra/derivative.js",
+        "src/utils/lruQueue.js",
+        "examples/algebra.js"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 1139,
+      "source_indexed": true,
+      "filemem_chars": 855,
+      "matched_span_files": 2,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• src/function/algebra/derivative.js: matched: createDerivative — export const createDerivative = /* #__PURE__ */ factory(name, dependencies, ({; plainDerivative — function plainDerivative (expr, variable, options = {…",
+        "• src/expression/embeddedDocs/function/algebra/derivative.js: matched: derivativeDocs — export const derivativeDocs = {. derivative.js (javascript). First line: export const derivativeDocs = { defines: derivativeDocs"
+      ]
+    },
+    {
+      "task_id": "josdejong-mathjs-fb76ac41",
+      "repo": "josdejong/mathjs",
+      "query": "parse",
+      "source_files": [
+        "src/expression/parse.js"
+      ],
+      "test_files": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "recalled": [
+        "src/expression/parse.js",
+        "tools/docgenerator.js",
+        "src/type/unit/Unit.js",
+        "types/index.d.ts",
+        "src/function/matrix/range.js"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 1141,
+      "source_indexed": true,
+      "filemem_chars": 1021,
+      "matched_span_files": 5,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• src/expression/parse.js: matched: parseBlock — function parseBlock (state) {; parseAssignment — function parseAssignment (state) {. parse.js (javascript). defines: createParse, parseMultiple, initialState,…",
+        "• tools/docgenerator.js: matched: parseDescription — function parseDescription () {; parseSyntax — function parseSyntax () {. docgenerator.js (javascript). This is a little tool to generate reference documentation of…",
+        "• src/type/unit/Unit.js: matched: parseNumber — function parseNumber () {; parseUnit — function parseUnit () {. Unit.js (javascript). defines: createUnitClass, Unit, skipWhitespace, isDigitDot",
+        "• types/index.d.ts: matched: ParseOptions — export interface ParseOptions {; ParseFunction — export interface ParseFunction {. index.d.ts (typescript). defines: NoLiteralType, MathNumericType, MathScalarType, MathArray,…",
+        "• src/function/matrix/range.js: matched: _parse — function _parse (str) {. range.js (javascript). defines: createRange, _out, _strRange, _range, _parse"
+      ]
+    },
+    {
+      "task_id": "josdejong-mathjs-837769c7",
+      "repo": "josdejong/mathjs",
+      "query": "import",
+      "source_files": [
+        "src/core/function/import.js"
+      ],
+      "test_files": [
+        "test/unit-tests/core/import.test.js"
+      ],
+      "recalled": [
+        "src/core/function/import.js",
+        "src/expression/embeddedDocs/core/import.js",
+        "examples/import.js",
+        "tools/matrixmarket.js",
+        "examples/advanced/web_server/math_worker.js"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 1144,
+      "source_indexed": true,
+      "filemem_chars": 1063,
+      "matched_span_files": 4,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• src/core/function/import.js: matched: _import — function _import (name, value, options) {; mathImport — function mathImport (functions, options) {. import.js (javascript). defines: importFactory, mathImport,…",
+        "• src/expression/embeddedDocs/core/import.js: matched: importDocs — export const importDocs = {. import.js (javascript). First line: export const importDocs = { defines: importDocs",
+        "• tools/matrixmarket.js: matched: _importFromStream — const _importFromStream = function (stream) {; marketImport — export const marketImport = typed('importMatrix', {. matrixmarket.js (javascript). defines: marketImport",
+        "• examples/advanced/web_server/math_worker.js: matched: noImport — function noImport () {. math_worker.js (javascript). First line: const { create, all } = require('../../..') defines: noImport, evaluate"
+      ]
+    },
+    {
+      "task_id": "josdejong-mathjs-b5d635e5",
+      "repo": "josdejong/mathjs",
+      "query": "parse",
+      "source_files": [
+        "src/utils/number.js"
+      ],
+      "test_files": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "recalled": [
+        "src/expression/parse.js",
+        "tools/docgenerator.js",
+        "src/type/unit/Unit.js",
+        "types/index.d.ts",
+        "src/function/matrix/range.js"
+      ],
+      "source_rank": null,
+      "adjacent_rank": null,
+      "any_doc_recalled": false,
+      "indexed_count": 1144,
+      "source_indexed": true,
+      "filemem_chars": 1020,
+      "matched_span_files": 5,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• src/expression/parse.js: matched: parseBlock — function parseBlock (state) {; parseAssignment — function parseAssignment (state) {. parse.js (javascript). defines: createParse, parseMultiple, initialState,…",
+        "• tools/docgenerator.js: matched: parseDescription — function parseDescription () {; parseSyntax — function parseSyntax () {. docgenerator.js (javascript). This is a little tool to generate reference documentation of…",
+        "• src/type/unit/Unit.js: matched: parseNumber — function parseNumber () {; parseUnit — function parseUnit () {. Unit.js (javascript). defines: createUnitClass, Unit, skipWhitespace, isDigitDot",
+        "• types/index.d.ts: matched: ParseOptions — export interface ParseOptions {; ParseFunction — export interface ParseFunction {. index.d.ts (typescript). defines: Fraction, NoLiteralType, MathNumericType, MathScalarType,…",
+        "• src/function/matrix/range.js: matched: _parse — function _parse (str) {. range.js (javascript). defines: createRange, _out, _strRange, _range, _parse"
+      ]
+    },
+    {
+      "task_id": "josdejong-mathjs-1fc742aa",
+      "repo": "josdejong/mathjs",
+      "query": "import",
+      "source_files": [
+        "src/core/function/import.js"
+      ],
+      "test_files": [
+        "test/unit-tests/core/import.test.js"
+      ],
+      "recalled": [
+        "src/core/function/import.js",
+        "src/expression/embeddedDocs/core/import.js",
+        "examples/import.js",
+        "tools/matrixmarket.js",
+        "examples/advanced/web_server/math_worker.js"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 1146,
+      "source_indexed": true,
+      "filemem_chars": 1063,
+      "matched_span_files": 4,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• src/core/function/import.js: matched: _import — function _import (name, value, options) {; mathImport — function mathImport (functions, options) {. import.js (javascript). defines: importFactory, mathImport,…",
+        "• src/expression/embeddedDocs/core/import.js: matched: importDocs — export const importDocs = {. import.js (javascript). First line: export const importDocs = { defines: importDocs",
+        "• tools/matrixmarket.js: matched: _importFromStream — const _importFromStream = function (stream) {; marketImport — export const marketImport = typed('importMatrix', {. matrixmarket.js (javascript). defines: marketImport",
+        "• examples/advanced/web_server/math_worker.js: matched: noImport — function noImport () {. math_worker.js (javascript). First line: const { create, all } = require('../../..') defines: noImport, evaluate"
+      ]
+    },
+    {
+      "task_id": "josdejong-mathjs-e5bb6465",
+      "repo": "josdejong/mathjs",
+      "query": "parse",
+      "source_files": [
+        "src/expression/parse.js"
+      ],
+      "test_files": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "recalled": [
+        "src/expression/parse.js",
+        "tools/docgenerator.js",
+        "src/type/unit/Unit.js",
+        "types/index.d.ts",
+        "src/function/matrix/range.js"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 1147,
+      "source_indexed": true,
+      "filemem_chars": 1020,
+      "matched_span_files": 5,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• src/expression/parse.js: matched: parseBlock — function parseBlock (state) {; parseAssignment — function parseAssignment (state) {. parse.js (javascript). defines: createParse, parseMultiple, initialState,…",
+        "• tools/docgenerator.js: matched: parseDescription — function parseDescription () {; parseSyntax — function parseSyntax () {. docgenerator.js (javascript). This is a little tool to generate reference documentation of…",
+        "• src/type/unit/Unit.js: matched: parseNumber — function parseNumber () {; parseUnit — function parseUnit () {. Unit.js (javascript). defines: createUnitClass, Unit, skipWhitespace, isDigitDot",
+        "• types/index.d.ts: matched: ParseOptions — export interface ParseOptions {; ParseFunction — export interface ParseFunction {. index.d.ts (typescript). defines: Fraction, NoLiteralType, MathNumericType, MathScalarType,…",
+        "• src/function/matrix/range.js: matched: _parse — function _parse (str) {. range.js (javascript). defines: createRange, _out, _strRange, _range, _parse"
+      ]
+    },
+    {
+      "task_id": "josdejong-mathjs-b5773df3",
+      "repo": "josdejong/mathjs",
+      "query": "function node",
+      "source_files": [
+        "src/utils/latex.js"
+      ],
+      "test_files": [
+        "test/unit-tests/expression/node/FunctionNode.test.js"
+      ],
+      "recalled": [
+        "src/expression/node/Node.js",
+        "src/utils/function.js",
+        "types/index.d.ts",
+        "src/utils/is.js",
+        "tools/docgenerator.js"
+      ],
+      "source_rank": null,
+      "adjacent_rank": null,
+      "any_doc_recalled": false,
+      "indexed_count": 1147,
+      "source_indexed": true,
+      "filemem_chars": 986,
+      "matched_span_files": 4,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• src/expression/node/Node.js: matched: Node — class Node {; _traverse — function _traverse (node, callback) {. Node.js (javascript). defines: createNode, _validateScope, Node, evaluate, _traverse, _transform",
+        "• types/index.d.ts: matched: FunctionNode — export interface FunctionNode<; NodeCtor — export interface NodeCtor {. index.d.ts (typescript). defines: Fraction, NoLiteralType, MathNumericType, MathScalarType,…",
+        "• src/utils/is.js: matched: rule2Node — export function rule2Node (node) {; isNode — export function isNode (x) {. is.js (javascript). type checks for all known types note that: - check by duck-typing on a property like…",
+        "• tools/docgenerator.js: matched: functionEntry — function functionEntry (name) {; generateMarkdown — export function generateMarkdown (doc, functions) {. docgenerator.js (javascript). This is a little tool to generate…"
+      ]
+    },
+    {
+      "task_id": "Textualize-rich-e2a982d5",
+      "repo": "Textualize/rich",
+      "query": "console",
+      "source_files": [
+        "rich/console.py"
+      ],
+      "test_files": [
+        "tests/test_console.py"
+      ],
+      "recalled": [
+        "rich/console.py",
+        "rich/_win32_console.py",
+        "rich/layout.py",
+        "rich/text.py",
+        "rich/_windows.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true,
+      "filemem_chars": 975,
+      "matched_span_files": 5,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• rich/console.py: matched: Console — class Console:; __rich_console__ — def __rich_console__(. console.py (python)",
+        "• rich/_win32_console.py: matched: CONSOLE_CURSOR_INFO — class CONSOLE_CURSOR_INFO(ctypes.Structure):; CONSOLE_SCREEN_BUFFER_INFO — class CONSOLE_SCREEN_BUFFER_INFO(Structure):. _win32_console.py (python). Light wrapper…",
+        "• rich/layout.py: matched: __rich_console__ — def __rich_console__(; render — def render(self, console: Console, options: ConsoleOptions) -> RenderMap:. layout.py (python). defines: LayoutRender, LayoutError",
+        "• rich/text.py: matched: __rich_console__ — def __rich_console__(; render — def render(self, console: \"Console\", end: str = \"\") -> Iterable[\"Segment\"]:. text.py (python). defines: Span, Text",
+        "• rich/_windows.py: matched: get_windows_console_features — def get_windows_console_features() -> WindowsConsoleFeatures:; WindowsConsoleFeatures — class WindowsConsoleFeatures:. _windows.py (python). defines:…"
+      ]
+    },
+    {
+      "task_id": "Textualize-rich-1b2dada1",
+      "repo": "Textualize/rich",
+      "query": "text",
+      "source_files": [
+        "rich/text.py"
+      ],
+      "test_files": [
+        "tests/test_text.py"
+      ],
+      "recalled": [
+        "rich/text.py",
+        "benchmarks/benchmarks.py",
+        "rich/containers.py",
+        "rich/console.py",
+        "rich/panel.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true,
+      "filemem_chars": 887,
+      "matched_span_files": 5,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• rich/text.py: matched: append_text — def append_text(self, text: \"Text\") -> \"Text\":; Text — class Text(JupyterMixin):. text.py (python). defines: Span, Text",
+        "• benchmarks/benchmarks.py: matched: time_text_thin_terminal_heavy_wrapping — def time_text_thin_terminal_heavy_wrapping(self):; time_text_thin_terminal_medium_wrapping — def time_text_thin_terminal_medium_wrapping(self)…",
+        "• rich/containers.py: matched: __getitem__ — def __getitem__(self, index: int) -> \"Text\":; extend — def extend(self, lines: Iterable[\"Text\"]) -> None:. containers.py (python). defines: Renderables, Lines",
+        "• rich/console.py: matched: escape_text — def escape_text(text: str) -> str:; check_text — def check_text() -> None:. console.py (python)",
+        "• rich/panel.py: matched: align_text — def align_text(; _title — def _title(self) -> Optional[Text]:. panel.py (python). defines: Panel"
+      ]
+    },
+    {
+      "task_id": "Textualize-rich-b6f2f7aa",
+      "repo": "Textualize/rich",
+      "query": "highlighter",
+      "source_files": [
+        "rich/highlighter.py"
+      ],
+      "test_files": [
+        "tests/test_highlighter.py"
+      ],
+      "recalled": [
+        "rich/highlighter.py",
+        "examples/highlighter.py",
+        "examples/rainbow.py",
+        "rich/syntax.py",
+        "rich/text.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true,
+      "filemem_chars": 935,
+      "matched_span_files": 5,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• rich/highlighter.py: matched: Highlighter — class Highlighter(ABC):; highlight — def highlight(self, text: Text) -> None:. highlighter.py (python). defines: _combine_regex, Highlighter, NullHighlighter,…",
+        "• examples/highlighter.py: matched: EmailHighlighter — class EmailHighlighter(RegexHighlighter):. highlighter.py (python). This example demonstrates a simple text highlighter. defines: EmailHighlighter",
+        "• examples/rainbow.py: matched: highlight — def highlight(self, text):; RainbowHighlighter — class RainbowHighlighter(Highlighter):. rainbow.py (python). This example demonstrates how to write a custom highlighter.…",
+        "• rich/syntax.py: matched: highlight — def highlight(; _SyntaxHighlightRange — class _SyntaxHighlightRange(NamedTuple):. syntax.py (python)",
+        "• rich/text.py: matched: highlight_regex — def highlight_regex(; highlight_words — def highlight_words(. text.py (python). defines: Span, Text"
+      ]
+    },
+    {
+      "task_id": "Textualize-rich-dc7a195a",
+      "repo": "Textualize/rich",
+      "query": "pretty",
+      "source_files": [
+        "rich/pretty.py"
+      ],
+      "test_files": [
+        "tests/test_pretty.py"
+      ],
+      "recalled": [
+        "rich/pretty.py",
+        "tools/profile_pretty.py",
+        "tools/stress_test_pretty.py",
+        "benchmarks/benchmarks.py",
+        "rich/_extension.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true,
+      "filemem_chars": 543,
+      "matched_span_files": 2,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• rich/pretty.py: matched: Pretty — class Pretty(JupyterMixin):; pretty_repr — def pretty_repr(. pretty.py (python)",
+        "• benchmarks/benchmarks.py: matched: time_pretty — def time_pretty(self):; time_pretty_indent_guides — def time_pretty_indent_guides(self):. benchmarks.py (python). defines: TextSuite, TextHotCacheSuite,…"
+      ]
+    },
+    {
+      "task_id": "Textualize-rich-d5dcc74d",
+      "repo": "Textualize/rich",
+      "query": "segment",
+      "source_files": [
+        "rich/segment.py"
+      ],
+      "test_files": [
+        "tests/test_segment.py"
+      ],
+      "recalled": [
+        "rich/segment.py",
+        "rich/jupyter.py",
+        "rich/tree.py",
+        "rich/align.py",
+        "rich/console.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true,
+      "filemem_chars": 934,
+      "matched_span_files": 5,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• rich/segment.py: matched: Segments — class Segments:; Segment — class Segment(NamedTuple):. segment.py (python). defines: ControlType, Segment",
+        "• rich/jupyter.py: matched: _render_segments — def _render_segments(segments: Iterable[Segment]) -> str:; display — def display(segments: Iterable[Segment], text: str) -> None:. jupyter.py (python). defines:…",
+        "• rich/tree.py: matched: Segment — class Segment(NamedTuple):; make_guide — def make_guide(index: int, style: Style) -> Segment:. tree.py (python). defines: Tree, Segment",
+        "• rich/align.py: matched: generate_segments — def generate_segments() -> Iterable[Segment]:; blank_lines — def blank_lines(count: int) -> Iterable[Segment]:. align.py (python). defines: Align, VerticalCenter",
+        "• rich/console.py: matched: _buffer — def _buffer(self) -> List[Segment]:; _render_buffer — def _render_buffer(self, buffer: Iterable[Segment]) -> str:. console.py (python)"
+      ]
+    },
+    {
+      "task_id": "Textualize-rich-66074922",
+      "repo": "Textualize/rich",
+      "query": "table",
+      "source_files": [
+        "rich/table.py"
+      ],
+      "test_files": [
+        "tests/test_table.py"
+      ],
+      "recalled": [
+        "rich/table.py",
+        "examples/table.py",
+        "examples/table_movie.py",
+        "examples/save_table_svg.py",
+        "rich/markdown.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true,
+      "filemem_chars": 621,
+      "matched_span_files": 2,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• rich/table.py: matched: Table — class Table(JupyterMixin):. table.py (python). defines: Column, Row, _Cell, Table",
+        "• rich/markdown.py: matched: TableElement — class TableElement(MarkdownElement):; TableHeaderElement — class TableHeaderElement(MarkdownElement):. markdown.py (python). defines: MarkdownElement"
+      ]
+    },
+    {
+      "task_id": "colinhacks-zod-3a818de1",
+      "repo": "colinhacks/zod",
+      "query": "number",
+      "source_files": [
+        "packages/zod/src/v4/core/util.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/classic/tests/number.test.ts"
+      ],
+      "recalled": [
+        "packages/bench/number.ts",
+        "packages/zod/src/v4/core/util.ts",
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v3/types.ts",
+        "packages/zod/src/v4/core/checks.ts"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 509,
+      "source_indexed": true,
+      "filemem_chars": 949,
+      "matched_span_files": 4,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• packages/zod/src/v4/core/util.ts: matched: NUMBER_FORMAT_RANGES — export const NUMBER_FORMAT_RANGES: Record<checks.$ZodNumberFormats, [number, number]> = {; floatSafeRemainder — export function floatSafeRemainder(val:…",
+        "• packages/zod/src/v4/core/schemas.ts: matched: $ZodNaNInternals — export interface $ZodNaNInternals extends $ZodTypeInternals<number, number> {; $ZodNumberInternals — export interface $ZodNumberInternals<Input =…",
+        "• packages/zod/src/v3/types.ts: matched: ZodNumber — export class ZodNumber extends ZodType<number, ZodNumberDef, number> {; floatSafeRemainder — function floatSafeRemainder(val: number, step: number) {. types.ts…",
+        "• packages/zod/src/v4/core/checks.ts: matched: $ZodCheckNumberFormat — export interface $ZodCheckNumberFormat extends $ZodCheck<number> {; $ZodCheckNumberFormatInternals — export interface $ZodCheckNumberFormatInternals…"
+      ]
+    },
+    {
+      "task_id": "colinhacks-zod-2f8414bc",
+      "repo": "colinhacks/zod",
+      "query": "transform",
+      "source_files": [
+        "packages/zod/src/v4/classic/schemas.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/classic/tests/transform.test.ts"
+      ],
+      "recalled": [
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/core/api.ts",
+        "packages/zod/src/v4/mini/schemas.ts",
+        "packages/zod/src/v4/core/json-schema-processors.ts"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 509,
+      "source_indexed": true,
+      "filemem_chars": 1091,
+      "matched_span_files": 5,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• packages/zod/src/v4/core/schemas.ts: matched: $ZodTransformDef — export interface $ZodTransformDef extends $ZodTypeDef {; $ZodTransform — export interface $ZodTransform<O = unknown, I = unknown> extends $ZodType {.…",
+        "• packages/zod/src/v4/classic/schemas.ts: matched: transform — export function transform<I = unknown, O = I>(; ZodTransform — export interface ZodTransform<O = unknown, I = unknown>. schemas.ts (typescript). defines:…",
+        "• packages/zod/src/v4/core/api.ts: matched: _transform — export function _transform<I = unknown, O = I>(; $ZodTransformParams — export type $ZodTransformParams = TypeParams<schemas.$ZodTransform, \"transform\">;. api.ts…",
+        "• packages/zod/src/v4/mini/schemas.ts: matched: transform — export function transform<I = unknown, O = I>(; ZodMiniTransform — export interface ZodMiniTransform<O = unknown, I = unknown> extends…",
+        "• packages/zod/src/v4/core/json-schema-processors.ts: matched: transformProcessor — export const transformProcessor: Processor<schemas.$ZodTransform> = (_schema, ctx, _json, _params)…. json-schema-processors.ts…"
+      ]
+    },
+    {
+      "task_id": "colinhacks-zod-60ff3987",
+      "repo": "colinhacks/zod",
+      "query": "error",
+      "source_files": [
+        "packages/zod/src/v4/core/errors.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/classic/tests/error-utils.test.ts"
+      ],
+      "recalled": [
+        "packages/bench/error-handling.ts",
+        "packages/zod/src/v4/core/errors.ts",
+        "packages/zod/src/v4/core/parse.ts",
+        "packages/zod/src/v3/ZodError.ts",
+        "packages/zod/src/v3/types.ts"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 509,
+      "source_indexed": true,
+      "filemem_chars": 939,
+      "matched_span_files": 4,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• packages/zod/src/v4/core/errors.ts: matched: processError — const processError = (error: { issues: $ZodIssue[] }) => {; $ZodError — export interface $ZodError<T = unknown> extends Error {. errors.ts (typescript).…",
+        "• packages/zod/src/v4/core/parse.ts: matched: $ZodErrorClass — export type $ZodErrorClass = { new (issues: errors.$ZodIssue[]): errors.$ZodError };; parse — export const parse: $Parse = /* @__PURE__*/…",
+        "• packages/zod/src/v3/ZodError.ts: matched: processError — const processError = (error: ZodError) => {; ZodError — export class ZodError<T = any> extends Error {. ZodError.ts (typescript). defines: inferFlattenedErrors,…",
+        "• packages/zod/src/v3/types.ts: matched: setError — const setError = () =>; ZodErrorMap — type ZodErrorMap,. types.ts (typescript). defines: RefinementCtx, ZodRawShape, ZodTypeAny, TypeOf, input, output,…"
+      ]
+    },
+    {
+      "task_id": "colinhacks-zod-2e5b23dc",
+      "repo": "colinhacks/zod",
+      "query": "discriminated unions",
+      "source_files": [
+        "packages/zod/src/v4/core/errors.ts",
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v4/locales/en.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/classic/tests/discriminated-unions.test.ts"
+      ],
+      "recalled": [
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v3/types.ts",
+        "packages/zod/src/v4/core/api.ts",
+        "packages/zod/src/v3/helpers/enumUtil.ts",
+        "packages/zod/src/v4/classic/schemas.ts"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 509,
+      "source_indexed": true,
+      "filemem_chars": 1109,
+      "matched_span_files": 5,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• packages/zod/src/v4/core/schemas.ts: matched: $ZodDiscriminatedUnion — export interface $ZodDiscriminatedUnion<; $ZodDiscriminatedUnionDef — export interface $ZodDiscriminatedUnionDef<. schemas.ts (typescript).…",
+        "• packages/zod/src/v3/types.ts: matched: ZodDiscriminatedUnion — export class ZodDiscriminatedUnion<; ZodDiscriminatedUnionOption — export type ZodDiscriminatedUnionOption<Discriminator extends string> = ZodObject<.…",
+        "• packages/zod/src/v4/core/api.ts: matched: _discriminatedUnion — export function _discriminatedUnion<; $ZodDiscriminatedUnionParams — export type $ZodDiscriminatedUnionParams = TypeParams<schemas.$ZodDiscriminatedUnion,…",
+        "• packages/zod/src/v3/helpers/enumUtil.ts: matched: UnionToTupleString — export type UnionToTupleString<T> = CastToStringTuple<UnionToTuple<T>>;; UnionToTuple — type UnionToTuple<T, Tuple extends unknown[] = []> = [T]…",
+        "• packages/zod/src/v4/classic/schemas.ts: matched: discriminatedUnion — export function discriminatedUnion<; ZodDiscriminatedUnion — export interface ZodDiscriminatedUnion<. schemas.ts (typescript). defines:…"
+      ]
+    },
+    {
+      "task_id": "colinhacks-zod-7f789def",
+      "repo": "colinhacks/zod",
+      "query": "record constructor",
+      "source_files": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/core/tests/record-constructor.test.ts"
+      ],
+      "recalled": [
+        "packages/zod/src/v4/core/util.ts",
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/mini/schemas.ts",
+        "packages/zod/src/v3/types.ts"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 509,
+      "source_indexed": true,
+      "filemem_chars": 1099,
+      "matched_span_files": 5,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• packages/zod/src/v4/core/util.ts: matched: Constructor — export type Constructor<T, Def extends any[] = any[]> = new (...args: Def) => T;; EmptyObject — export type EmptyObject = Record<string, never>;. util.ts…",
+        "• packages/zod/src/v4/core/schemas.ts: matched: $ZodObjectJIT — export const $ZodObjectJIT: core.$constructor<$ZodObject> = /*@__PURE__*/ core.$constructor(; $ZodObjectConfig — export type $ZodObjectConfig = { out:…",
+        "• packages/zod/src/v4/classic/schemas.ts: matched: record — export function record<Key extends core.$ZodRecordKey, Value extends core.SomeType>(; ZodRecord — export interface ZodRecord<. schemas.ts (typescript).…",
+        "• packages/zod/src/v4/mini/schemas.ts: matched: record — export function record<Key extends core.$ZodRecordKey, Value extends SomeType>(; ZodMiniRecord — export interface ZodMiniRecord<. schemas.ts (typescript).…",
+        "• packages/zod/src/v3/types.ts: matched: ZodRecordDef — export interface ZodRecordDef<Key extends KeySchema = ZodString, Value extends ZodTypeAny =…; RecordType — export type RecordType<K extends string | number |…"
+      ]
+    },
+    {
+      "task_id": "colinhacks-zod-411f6c64",
+      "repo": "colinhacks/zod",
+      "query": "json schema",
+      "source_files": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "recalled": [
+        "packages/zod/src/v4/core/json-schema-processors.ts",
+        "packages/zod/src/v4/core/to-json-schema.ts",
+        "packages/zod/src/v4/core/json-schema.ts",
+        "packages/zod/src/v4/classic/from-json-schema.ts",
+        "packages/zod/src/v4/core/json-schema-generator.ts"
+      ],
+      "source_rank": null,
+      "adjacent_rank": null,
+      "any_doc_recalled": false,
+      "indexed_count": 509,
+      "source_indexed": true,
+      "filemem_chars": 1110,
+      "matched_span_files": 5,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• packages/zod/src/v4/core/json-schema-processors.ts: matched: ToJSONSchemaParams — type ToJSONSchemaParams,; RegistryToJSONSchemaParams — type RegistryToJSONSchemaParams,. json-schema-processors.ts (typescript).…",
+        "• packages/zod/src/v4/core/to-json-schema.ts: matched: JSONSchemaGeneratorParams — export interface JSONSchemaGeneratorParams {; ToJSONSchemaContext — export interface ToJSONSchemaContext {. to-json-schema.ts…",
+        "• packages/zod/src/v4/core/json-schema.ts: matched: JSONSchema — export type JSONSchema = {; _JSONSchema — export type _JSONSchema = boolean | JSONSchema;. json-schema.ts (typescript). First line: export type Schema =…",
+        "• packages/zod/src/v4/classic/from-json-schema.ts: matched: FromJSONSchemaParams — interface FromJSONSchemaParams {; fromJSONSchema — export function fromJSONSchema(schema: JSONSchema.JSONSchema | boolean, params?:….…",
+        "• packages/zod/src/v4/core/json-schema-generator.ts: matched: JSONSchemaGeneratorParams — type JSONSchemaGeneratorParams,; ToJSONSchemaContext — type ToJSONSchemaContext,. json-schema-generator.ts (typescript). defines:…"
+      ]
+    },
+    {
+      "task_id": "colinhacks-zod-b6a3b336",
+      "repo": "colinhacks/zod",
+      "query": "json schema",
+      "source_files": [
+        "packages/zod/src/v4/core/to-json-schema.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "recalled": [
+        "packages/zod/src/v4/core/json-schema-processors.ts",
+        "packages/zod/src/v4/core/to-json-schema.ts",
+        "packages/zod/src/v4/core/json-schema.ts",
+        "packages/zod/src/v4/classic/from-json-schema.ts",
+        "packages/zod/src/v4/core/json-schema-generator.ts"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 509,
+      "source_indexed": true,
+      "filemem_chars": 1110,
+      "matched_span_files": 5,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• packages/zod/src/v4/core/json-schema-processors.ts: matched: ToJSONSchemaParams — type ToJSONSchemaParams,; RegistryToJSONSchemaParams — type RegistryToJSONSchemaParams,. json-schema-processors.ts (typescript).…",
+        "• packages/zod/src/v4/core/to-json-schema.ts: matched: JSONSchemaGeneratorParams — export interface JSONSchemaGeneratorParams {; ToJSONSchemaContext — export interface ToJSONSchemaContext {. to-json-schema.ts…",
+        "• packages/zod/src/v4/core/json-schema.ts: matched: JSONSchema — export type JSONSchema = {; _JSONSchema — export type _JSONSchema = boolean | JSONSchema;. json-schema.ts (typescript). First line: export type Schema =…",
+        "• packages/zod/src/v4/classic/from-json-schema.ts: matched: FromJSONSchemaParams — interface FromJSONSchemaParams {; fromJSONSchema — export function fromJSONSchema(schema: JSONSchema.JSONSchema | boolean, params?:….…",
+        "• packages/zod/src/v4/core/json-schema-generator.ts: matched: JSONSchemaGeneratorParams — type JSONSchemaGeneratorParams,; ToJSONSchemaContext — type ToJSONSchemaContext,. json-schema-generator.ts (typescript). defines:…"
+      ]
+    },
+    {
+      "task_id": "colinhacks-zod-87cf0f93",
+      "repo": "colinhacks/zod",
+      "query": "from json schema",
+      "source_files": [
+        "packages/zod/src/v4/classic/from-json-schema.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/classic/tests/from-json-schema.test.ts"
+      ],
+      "recalled": [
+        "packages/zod/src/v4/core/json-schema-processors.ts",
+        "packages/zod/src/v4/core/to-json-schema.ts",
+        "packages/zod/src/v4/core/json-schema.ts",
+        "packages/zod/src/v4/classic/from-json-schema.ts",
+        "packages/zod/src/v4/core/json-schema-generator.ts"
+      ],
+      "source_rank": 4,
+      "adjacent_rank": 4,
+      "any_doc_recalled": false,
+      "indexed_count": 509,
+      "source_indexed": true,
+      "filemem_chars": 1110,
+      "matched_span_files": 5,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• packages/zod/src/v4/core/json-schema-processors.ts: matched: ToJSONSchemaParams — type ToJSONSchemaParams,; RegistryToJSONSchemaParams — type RegistryToJSONSchemaParams,. json-schema-processors.ts (typescript).…",
+        "• packages/zod/src/v4/core/to-json-schema.ts: matched: JSONSchemaGeneratorParams — export interface JSONSchemaGeneratorParams {; ToJSONSchemaContext — export interface ToJSONSchemaContext {. to-json-schema.ts…",
+        "• packages/zod/src/v4/core/json-schema.ts: matched: JSONSchema — export type JSONSchema = {; _JSONSchema — export type _JSONSchema = boolean | JSONSchema;. json-schema.ts (typescript). First line: export type Schema =…",
+        "• packages/zod/src/v4/classic/from-json-schema.ts: matched: FromJSONSchemaParams — interface FromJSONSchemaParams {; fromJSONSchema — export function fromJSONSchema(schema: JSONSchema.JSONSchema | boolean, params?:….…",
+        "• packages/zod/src/v4/core/json-schema-generator.ts: matched: JSONSchemaGeneratorParams — type JSONSchemaGeneratorParams,; ToJSONSchemaContext — type ToJSONSchemaContext,. json-schema-generator.ts (typescript). defines:…"
+      ]
+    },
+    {
+      "task_id": "colinhacks-zod-0e960108",
+      "repo": "colinhacks/zod",
+      "query": "record",
+      "source_files": [
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/mini/schemas.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/classic/tests/record.test.ts",
+        "packages/zod/src/v4/mini/tests/index.test.ts"
+      ],
+      "recalled": [
+        "packages/zod/src/v4/core/util.ts",
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/mini/schemas.ts",
+        "packages/zod/src/v3/types.ts"
+      ],
+      "source_rank": 3,
+      "adjacent_rank": 3,
+      "any_doc_recalled": false,
+      "indexed_count": 510,
+      "source_indexed": true,
+      "filemem_chars": 1084,
+      "matched_span_files": 5,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• packages/zod/src/v4/core/util.ts: matched: EmptyObject — export type EmptyObject = Record<string, never>;; SomeObject — export type SomeObject = Record<PropertyKey, any>;. util.ts (typescript). defines: JSONType,…",
+        "• packages/zod/src/v4/core/schemas.ts: matched: $ZodObjectConfig — export type $ZodObjectConfig = { out: Record<string, unknown>; in: Record<string, unknown> };; $InferZodRecordOutput — export type…",
+        "• packages/zod/src/v4/classic/schemas.ts: matched: record — export function record<Key extends core.$ZodRecordKey, Value extends core.SomeType>(; ZodRecord — export interface ZodRecord<. schemas.ts (typescript).…",
+        "• packages/zod/src/v4/mini/schemas.ts: matched: record — export function record<Key extends core.$ZodRecordKey, Value extends SomeType>(; ZodMiniRecord — export interface ZodMiniRecord<. schemas.ts (typescript).…",
+        "• packages/zod/src/v3/types.ts: matched: ZodRecordDef — export interface ZodRecordDef<Key extends KeySchema = ZodString, Value extends ZodTypeAny =…; RecordType — export type RecordType<K extends string | number |…"
+      ]
+    },
+    {
+      "task_id": "psf-black-01c29bd5",
+      "repo": "psf/black",
+      "query": "guard inside case",
+      "source_files": [
+        "src/black/linegen.py",
+        "src/black/mode.py"
+      ],
+      "test_files": [
+        "tests/data/cases/if_guard_inside_case.py"
+      ],
+      "recalled": [
+        "src/black/brackets.py",
+        "src/black/linegen.py"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 445,
+      "source_indexed": true,
+      "filemem_chars": 406,
+      "matched_span_files": 2,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• src/black/brackets.py: matched: get_leaves_inside_matching_brackets — def get_leaves_inside_matching_brackets(leaves: Sequence[Leaf]) -> set[LeafID]:. brackets.py (python). Builds on top of nodes.py to track brackets.…",
+        "• src/black/linegen.py: matched: visit_match_case — def visit_match_case(self, node: Node) -> Iterator[Line]:. linegen.py (python). Generating lines of code"
+      ]
+    },
+    {
+      "task_id": "psf-black-13e97b44",
+      "repo": "psf/black",
+      "query": "pattern matching case small line length",
+      "source_files": [
+        "src/black/linegen.py"
+      ],
+      "test_files": [
+        "tests/data/cases/pattern_matching_case_case_small_line_length.py"
+      ],
+      "recalled": [
+        "src/black/linegen.py",
+        "src/black/lines.py",
+        "src/black/trans.py",
+        "src/black/ranges.py",
+        "src/blib2to3/pytree.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 456,
+      "source_indexed": true,
+      "filemem_chars": 1096,
+      "matched_span_files": 5,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• src/black/linegen.py: matched: visit_match_case — def visit_match_case(self, node: Node) -> Iterator[Line]:; _over_length_only_due_to_subscript_comment — def _over_length_only_due_to_subscript_comment(line: Line,…",
+        "• src/black/lines.py: matched: enumerate_with_length — def enumerate_with_length(; _can_omit_opening_paren — def _can_omit_opening_paren(line: Line, *, first: Leaf, line_length: int) -> bool:. lines.py (python).…",
+        "• src/black/trans.py: matched: do_match — def do_match(self, line: Line) -> TMatchResult:; do_splitter_match — def do_splitter_match(self, line: Line) -> TMatchResult:. trans.py (python). String transformers that can…",
+        "• src/black/ranges.py: matched: sanitized_lines — def sanitized_lines(; adjusted_lines — def adjusted_lines(. ranges.py (python). Functions related to Black's formatting by line ranges feature. defines:…",
+        "• src/blib2to3/pytree.py: matched: generate_matches — def generate_matches(; BasePattern — class BasePattern:. pytree.py (python). Copyright 2006 Google, Inc. All Rights Reserved. Licensed to PSF under a Contributor…"
+      ]
+    },
+    {
+      "task_id": "psf-black-650983f7",
+      "repo": "psf/black",
+      "query": "docstring tabs black",
+      "source_files": [
+        "src/black/strings.py"
+      ],
+      "test_files": [
+        "tests/data/cases/docstring.py",
+        "tests/data/cases/docstring_tabs.py",
+        "tests/test_black.py"
+      ],
+      "recalled": [
+        "plugin/black.vim",
+        "src/black/strings.py",
+        "src/black/lines.py",
+        "src/blackd/__init__.py",
+        "src/black/nodes.py"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 457,
+      "source_indexed": true,
+      "filemem_chars": 999,
+      "matched_span_files": 4,
+      "junk_recalled": [],
+      "matched_lines": [
+        "• src/black/strings.py: matched: lines_with_leading_tabs_expanded — def lines_with_leading_tabs_expanded(s: str) -> list[str]:; fix_multiline_docstring — def fix_multiline_docstring(docstring: str, prefix: str) -> str:.…",
+        "• src/black/lines.py: matched: is_docstring — def is_docstring(self) -> bool:; _line_is_module_docstring — def _line_is_module_docstring(self, current_line: Line) -> bool:. lines.py (python). defines: Line",
+        "• src/blackd/__init__.py: matched: parse_mode — def parse_mode(headers: MultiMapping[str]) -> black.Mode:; parse_python_variant_header — def parse_python_variant_header(value: str) -> tuple[bool,…",
+        "• src/black/nodes.py: matched: is_docstring — def is_docstring(node: NL) -> bool:. nodes.py (python). blib2to3 Node/Leaf transformation-related utility functions. defines: Visitor, whitespace"
+      ]
+    }
+  ]
+}
