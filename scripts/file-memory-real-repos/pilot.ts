@@ -30,7 +30,13 @@ process.env.TRACEBASE_SKIP_HOOK_SELF_HEAL = "1";
 
 const TOTAL_CAP = 12.0;
 const SAFETY_STOP = 11.5;
-const PER_TRAJ_CAP = 0.5;
+// Pre-reg per-trajectory budget is $1.00 (PRE-REGISTRATION-REAL-REPOS.md
+// §"Trajectory shape"). The first run used 0.50 and one OFF trajectory hit
+// the cap (error_max_budget_usd) → an artificial OFF fail. Use the locked
+// $1.00 so no arm is truncated by the harness.
+const PER_TRAJ_CAP = 1.0;
+/** Consecutive infra-empty (tok=0,cost=0,exit≠0) trajectories before STOP. */
+const MAX_CONSECUTIVE_EMPTY = 3;
 const TIMEOUT_MS = 600_000;
 const K = 5;
 const PROGRESS = join(RESULTS, "pilot-n25-progress.jsonl");
@@ -111,6 +117,7 @@ function main() {
 
   const results: any[] = [...done.values()];
   let stopReason: string | null = null;
+  let consecutiveEmpty = 0;
 
   outer:
   for (const task of tasks) {
@@ -121,6 +128,20 @@ function main() {
       if (done.has(key)) continue;
       if (spend >= SAFETY_STOP) { stopReason = `spend $${spend.toFixed(2)} >= safety stop`; break outer; }
       const r = runOne(task, variant);
+      // Infra-empty detection: claude returned nothing (no tokens, no cost,
+      // non-zero exit). NOT a real agent outcome — do NOT record it (so a
+      // resume re-runs it), and halt if the API is failing in a streak.
+      const empty = (r.tokens ?? 0) === 0 && (r.cost_usd ?? 0) === 0 && r.exit_code !== 0;
+      if (empty) {
+        consecutiveEmpty++;
+        console.log(`  ${variant} ${taskId}  INFRA-EMPTY (claude returned no tokens/cost; exit=${r.exit_code}) — NOT recorded, will re-run [streak ${consecutiveEmpty}]`);
+        if (consecutiveEmpty >= MAX_CONSECUTIVE_EMPTY) {
+          stopReason = `${MAX_CONSECUTIVE_EMPTY} consecutive infra-empty trajectories — API failure; stopping (resume after recovery)`;
+          break outer;
+        }
+        continue;
+      }
+      consecutiveEmpty = 0;
       results.push(r); done.set(key, r); appendProgress(r);
       const tag = variant === "ON"
         ? `iso=${r.hook_isolation?.ok} junk=${(r.dep_junk_recalled ?? []).length} srcK=${r.expected_source_in_topk}`

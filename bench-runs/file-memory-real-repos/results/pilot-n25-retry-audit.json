@@ -1,0 +1,259 @@
+{
+  "note": "Audit of trajectories PURGED from the first N=25 run and RETRIED under the sanctioned recovery (per-traj cap restored to locked $1.00, empty-envelope guard, stop after 3 consecutive empties). Valid model outcomes were NOT retried.",
+  "first_run_invalid_aggregate": "discarded \u2014 partial dataset (18/50 contaminated); headline NOT reported as verdict",
+  "purged_count": 18,
+  "audit": [
+    {
+      "task_id": "colinhacks-zod-7f789def",
+      "variant": "OFF",
+      "category": "infra_empty",
+      "reason": "infrastructure failure: transient claude API window returned an empty envelope (tok=0, cost=0, exit=1). No agent execution. Retried.",
+      "original": {
+        "tokens": 0,
+        "cost_usd": 0,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": false,
+        "turns": 1
+      }
+    },
+    {
+      "task_id": "colinhacks-zod-7f789def",
+      "variant": "ON",
+      "category": "infra_empty",
+      "reason": "infrastructure failure: transient claude API window returned an empty envelope (tok=0, cost=0, exit=1). No agent execution. Retried.",
+      "original": {
+        "tokens": 0,
+        "cost_usd": 0,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": false,
+        "turns": 1
+      }
+    },
+    {
+      "task_id": "colinhacks-zod-411f6c64",
+      "variant": "OFF",
+      "category": "infra_empty",
+      "reason": "infrastructure failure: transient claude API window returned an empty envelope (tok=0, cost=0, exit=1). No agent execution. Retried.",
+      "original": {
+        "tokens": 0,
+        "cost_usd": 0,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": false,
+        "turns": 1
+      }
+    },
+    {
+      "task_id": "colinhacks-zod-411f6c64",
+      "variant": "ON",
+      "category": "infra_empty",
+      "reason": "infrastructure failure: transient claude API window returned an empty envelope (tok=0, cost=0, exit=1). No agent execution. Retried.",
+      "original": {
+        "tokens": 0,
+        "cost_usd": 0,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": false,
+        "turns": 1
+      }
+    },
+    {
+      "task_id": "colinhacks-zod-b6a3b336",
+      "variant": "OFF",
+      "category": "infra_empty",
+      "reason": "infrastructure failure: transient claude API window returned an empty envelope (tok=0, cost=0, exit=1). No agent execution. Retried.",
+      "original": {
+        "tokens": 0,
+        "cost_usd": 0,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": false,
+        "turns": 1
+      }
+    },
+    {
+      "task_id": "colinhacks-zod-b6a3b336",
+      "variant": "ON",
+      "category": "infra_empty",
+      "reason": "infrastructure failure: transient claude API window returned an empty envelope (tok=0, cost=0, exit=1). No agent execution. Retried.",
+      "original": {
+        "tokens": 0,
+        "cost_usd": 0,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": false,
+        "turns": 1
+      }
+    },
+    {
+      "task_id": "colinhacks-zod-87cf0f93",
+      "variant": "OFF",
+      "category": "infra_empty",
+      "reason": "infrastructure failure: transient claude API window returned an empty envelope (tok=0, cost=0, exit=1). No agent execution. Retried.",
+      "original": {
+        "tokens": 0,
+        "cost_usd": 0,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": false,
+        "turns": 1
+      }
+    },
+    {
+      "task_id": "colinhacks-zod-87cf0f93",
+      "variant": "ON",
+      "category": "infra_empty",
+      "reason": "infrastructure failure: transient claude API window returned an empty envelope (tok=0, cost=0, exit=1). No agent execution. Retried.",
+      "original": {
+        "tokens": 0,
+        "cost_usd": 0,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": false,
+        "turns": 1
+      }
+    },
+    {
+      "task_id": "colinhacks-zod-0e960108",
+      "variant": "OFF",
+      "category": "infra_empty",
+      "reason": "infrastructure failure: transient claude API window returned an empty envelope (tok=0, cost=0, exit=1). No agent execution. Retried.",
+      "original": {
+        "tokens": 0,
+        "cost_usd": 0,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": false,
+        "turns": 1
+      }
+    },
+    {
+      "task_id": "colinhacks-zod-0e960108",
+      "variant": "ON",
+      "category": "infra_empty",
+      "reason": "infrastructure failure: transient claude API window returned an empty envelope (tok=0, cost=0, exit=1). No agent execution. Retried.",
+      "original": {
+        "tokens": 0,
+        "cost_usd": 0,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": false,
+        "turns": 1
+      }
+    },
+    {
+      "task_id": "psf-black-01c29bd5",
+      "variant": "OFF",
+      "category": "infra_empty",
+      "reason": "infrastructure failure: transient claude API window returned an empty envelope (tok=0, cost=0, exit=1). No agent execution. Retried.",
+      "original": {
+        "tokens": 0,
+        "cost_usd": 0,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": false,
+        "turns": 1
+      }
+    },
+    {
+      "task_id": "psf-black-01c29bd5",
+      "variant": "ON",
+      "category": "infra_empty",
+      "reason": "infrastructure failure: transient claude API window returned an empty envelope (tok=0, cost=0, exit=1). No agent execution. Retried.",
+      "original": {
+        "tokens": 0,
+        "cost_usd": 0,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": false,
+        "turns": 1
+      }
+    },
+    {
+      "task_id": "psf-black-13e97b44",
+      "variant": "OFF",
+      "category": "infra_empty",
+      "reason": "infrastructure failure: transient claude API window returned an empty envelope (tok=0, cost=0, exit=1). No agent execution. Retried.",
+      "original": {
+        "tokens": 0,
+        "cost_usd": 0,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": false,
+        "turns": 1
+      }
+    },
+    {
+      "task_id": "psf-black-13e97b44",
+      "variant": "ON",
+      "category": "infra_empty",
+      "reason": "infrastructure failure: transient claude API window returned an empty envelope (tok=0, cost=0, exit=1). No agent execution. Retried.",
+      "original": {
+        "tokens": 0,
+        "cost_usd": 0,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": false,
+        "turns": 1
+      }
+    },
+    {
+      "task_id": "psf-black-650983f7",
+      "variant": "OFF",
+      "category": "infra_empty",
+      "reason": "infrastructure failure: transient claude API window returned an empty envelope (tok=0, cost=0, exit=1). No agent execution. Retried.",
+      "original": {
+        "tokens": 0,
+        "cost_usd": 0,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": true,
+        "turns": 1
+      }
+    },
+    {
+      "task_id": "psf-black-650983f7",
+      "variant": "ON",
+      "category": "infra_empty",
+      "reason": "infrastructure failure: transient claude API window returned an empty envelope (tok=0, cost=0, exit=1). No agent execution. Retried.",
+      "original": {
+        "tokens": 0,
+        "cost_usd": 0,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": true,
+        "turns": 1
+      }
+    },
+    {
+      "task_id": "josdejong-mathjs-fb76ac41",
+      "variant": "OFF",
+      "category": "budget_cap_artifact",
+      "reason": "harness budget-cap artifact: hit the self-imposed $0.50 per-traj cap (error_max_budget_usd, 57 turns) which is below the locked pre-reg $1.00; OFF truncated -> artificial fail. Retried at $1.00.",
+      "original": {
+        "tokens": 3182603,
+        "cost_usd": 0.50172285,
+        "exit_code": 1,
+        "terminal_reason": "error_max_budget_usd",
+        "pass": false,
+        "turns": 57
+      }
+    },
+    {
+      "task_id": "colinhacks-zod-2e5b23dc",
+      "variant": "ON",
+      "category": "failure_boundary",
+      "reason": "infrastructure-adjacent: sat at the API-failure boundary (task 16), exited after only 14 turns / $0.099 with exit=1 while OFF ran 47 turns. Treated as contaminated, retried.",
+      "original": {
+        "tokens": 576616,
+        "cost_usd": 0.0995357,
+        "exit_code": 1,
+        "terminal_reason": "success",
+        "pass": false,
+        "turns": 14
+      }
+    }
+  ]
+}
