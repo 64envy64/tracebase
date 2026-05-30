@@ -107,3 +107,77 @@ Internal-only. The pre-registered publishable claim is **not met** at N=25.
 file_memory's recall quality and safety are validated (offline recall@5 88 %;
 zero regressions; no junk; isolation clean), but the navigation-tool-call
 savings headline does not hold on this workload class.
+
+---
+
+## Appendix — zod-0e960108 investigation ($0, transcript-only, no reruns)
+
+Task `record()` overload fix; source = `packages/zod/src/v4/classic/schemas.ts`
++ `mini/schemas.ts`; field-derived query = "record". OFF pass / ON pass.
+
+**1. Injected `<file_memory>` (ON), ranked:**
+1. `core/util.ts` — generic util types (noise)
+2. `core/schemas.ts` — `defines: ParseContext, $ZodTypeDef, …`
+3. `classic/schemas.ts` — `defines: ZodStandardSchemaWithJSON, ZodType, _ZodString, ZodString, …`
+
+**2. Expected source in top-K?** YES — `classic/schemas.ts` at **rank 3**
+(`core/schemas.ts` rank 2 is also schema-relevant; `mini/schemas.ts` was
+NOT injected; `util.ts` rank 1 is noise).
+
+**3. Glob/Grep sequence.** OFF = **0** (navigated by 6 Reads). ON = **11**:
+1 Glob `classic/**/record.ts` (no such file) · 2 Glob `classic/**/*.ts` ·
+3 Grep `export.*record` → classic/schemas.ts · 4 Grep `function record` →
+line 1507 · 5–6 Grep record variants · 7–8 Grep `string` overloads (studying
+the sibling pattern) · 9 Glob `mini/**/*.ts` · 10 Grep `function record` →
+mini line 1164 · 11 Grep `string` overloads in mini.
+
+**4. Cause.** PRIMARY = **correct recall but missing symbol-span detail in
+the payload**: the injection named the right file (`classic/schemas.ts`) but
+its visible `defines:` list (first ~12 symbols) was `ZodType/ZodString/…` and
+did NOT include `record`/`ZodRecord` — the very symbol that *caused* the
+recall (the symbol index matched it, but `recallFiles` rolls symbols up to
+files and discards which symbol matched). So the agent had to grep to LOCATE
+`record` inside the 1500-line monolith (×2 for classic+mini). SECONDARY =
+genuine investigation (the fix mirrors the `string()` overload structure;
+OFF did this via Read) + haiku Read-vs-Grep variance.
+
+**5. Recurrence.** The "ON issues 1 confirm-locate search" pattern is mild and
+general — `b6a3b336` (Glob json-schema file), `837769c7` (Glob import.js),
+`e5bb6465` (Grep getToken|parseNumber), `dc7a195a` (Grep def loop_last) each
+ON +1. The MAGNITUDE (11) is unique to `0e960108` (monolith × 2 + matched
+symbol absent from visible defines + sibling-overload study). Counter-example:
+`2f8414bc` OFF **7** → ON **1** — when file_memory surfaces the right area,
+it cuts searches hard. So this is not a structural "ON searches more"; it's a
+payload-detail gap that usually costs +1 and occasionally (monolith) more.
+
+**6. General fix justified? YES** (no repo/task hardcode). The symbol index
+already knows the matched symbol + signature; the payload throws it away.
+
+### Proposed smallest principled fix (NOT implemented — pending review)
+Surface the **matched symbol** on symbol-rollup hits so the agent jumps to it
+instead of grepping to locate it:
+- `recallSymbols` (file-indexer.ts): return `Map<rel_path, {count, symbols:[{name,signature}]}>`
+  instead of `Map<rel_path, count>` (the FTS rows already carry name+signature).
+- `recallFiles`: thread the matched symbols onto the `FileHit` as an optional
+  `matchedSymbols` field (only for files surfaced via the symbol rollup, not
+  basename/summary hits).
+- `build-injection-payload`: for a hit with `matchedSymbols`, render e.g.
+  `• classic/schemas.ts (typescript). matched: record — export function record<…>. defines: …`
+  (signature already clamped ≤140 chars; cap 1–2 matched symbols; existing
+  char-budget walk unchanged).
+- Deterministic tests: (1) recallSymbols returns the matched symbol name for a
+  concept query on a monolithic file; (2) recallFiles exposes `matchedSymbols`
+  on a symbol-rollup hit and NOT on a basename hit; (3) build-injection-payload
+  renders `matched:` + signature within budget; (4) no `matched:` line on a
+  file recalled only via summary/basename.
+
+This is general (helps every monolithic-file recall), no thresholds/gates/
+prompts/embeddings touched, and directly removes the locate-grep the agent did
+on `0e960108`. Whether it would have changed the aggregate is untested (no
+reruns); it is justified on the transcript evidence, not on chasing the metric.
+
+**Not pure model variance** — a real payload gap exists — but the Glob/Grep
+*count* remains a noisy small-N proxy (one task swung the headline; bytes/
+tokens fell). A future bench should treat Glob/Grep as descriptive with
+pass-rate / bytes_read / tokens as the primary bounded outcomes — that change
+requires a fresh pre-registration (not drafted here, per instruction).
