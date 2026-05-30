@@ -700,4 +700,59 @@ describe("recallFiles — symbol-level recall", () => {
     expect(paths).toContain("src/widget.ts");
     expect(paths).not.toContain("test/widget.test.ts");
   });
+
+  // -------------------------------------------------------------------------
+  // matched-symbol payload path (0.8.x). A symbol-rollup hit carries the
+  // matched symbol(s) (name + signature) so the injection payload can show
+  // the span and the agent jumps to it instead of grepping to locate it in a
+  // monolithic file. A basename/summary-only hit must NOT invent a span.
+  // -------------------------------------------------------------------------
+
+  it("carries matchedSymbols (name + signature) on a deep symbol-rollup hit", () => {
+    // The file is reachable for "record" ONLY via the symbol index: its first
+    // 12 symbols (all the summary `defines:` shows) are generic `Thing{i}`,
+    // and `record` is far down — exactly the zod-0e960108 monolith shape.
+    const dummies = Array.from({ length: 15 }, (_, i) => `export class Thing${i} {}`).join("\n");
+    plant("packages/zod/src/schemas.ts",
+      "/** core schema primitives */\n" + dummies +
+      "\nexport function record<Key extends ZodRecordKey, Value extends SomeType>(key: Key, value: Value) {}\n");
+    plant("src/unrelated.ts", "/** helpers */\nexport function helper() {}\n");
+    indexWorkspace(store, { root });
+
+    const hit = recallFiles(store, { prompt: "record" })
+      .find((h) => h.relPath === "packages/zod/src/schemas.ts");
+    expect(hit).toBeDefined();
+    expect(hit!.matchedSymbols).toBeDefined();
+    const rec = hit!.matchedSymbols!.find((s) => s.name === "record");
+    expect(rec).toBeDefined();
+    expect(rec!.signature).toContain("function record");
+  });
+
+  it("does NOT invent matchedSymbols on a basename/summary-only hit", () => {
+    // 'widget' matches by basename + summary, but the file defines no symbol
+    // whose name/tokens are 'widget' (the function is renderThing). The hit
+    // must surface WITHOUT a fabricated matchedSymbols span.
+    plant("src/widget.ts", "/** widget rendering module */\nexport function renderThing() {}\n");
+    indexWorkspace(store, { root });
+
+    const hit = recallFiles(store, { prompt: "widget" })
+      .find((h) => h.relPath === "src/widget.ts");
+    expect(hit).toBeDefined();
+    expect(hit!.matchedSymbols).toBeUndefined();
+  });
+
+  it("dedupes matched symbols by name within a file (class + function share a name)", () => {
+    // extractFileSymbols dedupes by kind:name, so a class `record` and a
+    // function `record` produce TWO rows with the same NAME. The rollup must
+    // collapse them to a single matchedSymbols entry.
+    plant("src/schemas.ts",
+      "export class record {}\nexport function record(a: unknown) { return a; }\n");
+    indexWorkspace(store, { root });
+
+    const hit = recallFiles(store, { prompt: "record" })
+      .find((h) => h.relPath === "src/schemas.ts");
+    expect(hit).toBeDefined();
+    expect(hit!.matchedSymbols).toBeDefined();
+    expect(hit!.matchedSymbols!.filter((s) => s.name === "record").length).toBe(1);
+  });
 });

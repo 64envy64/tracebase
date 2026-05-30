@@ -564,6 +564,19 @@ export interface RecallFilesOptions {
   includeTests?: boolean;
 }
 
+/**
+ * A symbol whose name (or camelCase/snake split tokens) matched the recall
+ * query, rolled up from `indexed_symbols`. Surfaced on a FileHit ONLY when the
+ * file was reached via the symbol index — never invented for a file recalled
+ * by basename or summary FTS alone (so the payload can't fabricate a span).
+ * `signature` is the trimmed declaration line (already ≤140 chars +
+ * whitespace-collapsed at extraction time).
+ */
+export interface MatchedSymbol {
+  name: string;
+  signature: string;
+}
+
 export interface FileHit {
   /** Repo-relative path. */
   relPath: string;
@@ -577,6 +590,16 @@ export interface FileHit {
   sizeBytes: number;
   /** FTS5 bm25 score. Lower is more relevant. Exposed so callers can rank. */
   score: number;
+  /**
+   * Symbols that caused this file to surface via the symbol-rollup tier (a
+   * concept query "record" → `ZodRecord` / `record` deep in a monolithic
+   * `schemas.ts`). Present ONLY for symbol-rollup hits; ABSENT for
+   * basename/summary-only hits, so the injection payload never invents a span.
+   * Deduped by name, best-bm25 first, length-capped. The payload renders 1–2
+   * as a `matched: …` prefix so the agent jumps to the span instead of
+   * issuing locate-Greps.
+   */
+  matchedSymbols?: MatchedSymbol[];
 }
 
 /** Hard ceiling on K. Calls past 10 cap silently. */
@@ -637,7 +660,9 @@ export function recallFiles(store: BlockStore, opts: RecallFilesOptions): FileHi
   // Symbol-level rollup: files that DEFINE a symbol matching the query
   // (by name or camelCase/snake split tokens), even if the file summary
   // never surfaced the term. Lets a concept query reach a monolithic file
-  // (e.g. "record" → `ZodRecord` in a big schemas.ts).
+  // (e.g. "record" → `ZodRecord` in a big schemas.ts). The rollup also
+  // carries the matched symbols themselves (name + signature) so the
+  // injection payload can show the span, not just the file.
   const symbolHitsByFile = recallSymbols(store, fts);
 
   const qTokens = recallQueryTokens(prompt);
@@ -651,10 +676,14 @@ export function recallFiles(store: BlockStore, opts: RecallFilesOptions): FileHi
     seen.add(relPath);
     if (excludeDocs && isDocClassPath(relPath)) return;
     if (excludeTests && isTestClassPath(relPath)) return;
+    const rollup = symbolHitsByFile.get(relPath);
     candidates.push({
       relPath, summary, symbols: symbols ?? "{}", language, sizeBytes, score,
       boost: filenameBoost(relPath, qTokens),
-      symbolHits: symbolHitsByFile.get(relPath) ?? 0,
+      symbolHits: rollup?.count ?? 0,
+      // matchedSymbols ONLY when this file was reached via the symbol index —
+      // never invented for a basename/summary-only hit.
+      ...(rollup && rollup.symbols.length > 0 ? { matchedSymbols: rollup.symbols } : {}),
     });
   };
 
@@ -696,32 +725,68 @@ export function recallFiles(store: BlockStore, opts: RecallFilesOptions): FileHi
 }
 
 /**
+ * Per-file symbol-rollup result. `count` is the number of matching symbol
+ * ROWS (overloads counted separately) — the ranking signal recallFiles tiers
+ * on, unchanged from the pre-matchedSymbols behaviour. `symbols` is the
+ * deduped (by name), best-bm25-first, length-capped list the injection payload
+ * renders as a `matched: …` span.
+ */
+interface SymbolRollup {
+  count: number;
+  symbols: MatchedSymbol[];
+}
+
+/**
  * Symbol-level recall: query the indexed_symbols FTS and roll matching
- * symbols up to their parent files. Returns a map rel_path → count of
- * distinct matching symbols (the rollup signal recallFiles uses). Best-effort:
- * if the symbol table is absent (pre-migration) or the query is empty, returns
- * an empty map. Bounded by SYMBOL_ROLLUP_LIMIT candidate symbols.
+ * symbols up to their parent files. Returns a map rel_path → { count, symbols }
+ * where `count` is the rollup ranking signal and `symbols` are the matched
+ * declarations (name + signature) for the payload. Best-effort: if the symbol
+ * table is absent (pre-migration) or the query is empty, returns an empty map.
+ * Bounded by SYMBOL_ROLLUP_LIMIT candidate symbols.
  */
 const SYMBOL_ROLLUP_LIMIT = 200;
-function recallSymbols(store: BlockStore, fts: string): Map<string, number> {
-  const out = new Map<string, number>();
+/**
+ * Distinct matched symbols retained per file. The payload renders only 1–2;
+ * we keep a small surplus so downstream dedupe/clamp has options without the
+ * list growing unbounded on a file with hundreds of matching overloads.
+ */
+const MATCHED_SYMBOLS_PER_FILE = 3;
+function recallSymbols(store: BlockStore, fts: string): Map<string, SymbolRollup> {
+  const out = new Map<string, SymbolRollup>();
   if (!fts) return out;
-  let rows: Array<{ rel_path: string }>;
+  let rows: Array<{ rel_path: string; name: string; signature: string | null }>;
   try {
     rows = store.rawDb
       .prepare(
-        `SELECT indexed_symbols.rel_path AS rel_path
+        `SELECT indexed_symbols.rel_path AS rel_path,
+                indexed_symbols.name AS name,
+                indexed_symbols.signature AS signature
            FROM indexed_symbols
            JOIN indexed_symbols_fts ON indexed_symbols.rowid = indexed_symbols_fts.rowid
            WHERE indexed_symbols_fts MATCH @fts
            ORDER BY bm25(indexed_symbols_fts)
            LIMIT @limit`,
       )
-      .all({ fts, limit: SYMBOL_ROLLUP_LIMIT }) as Array<{ rel_path: string }>;
+      .all({ fts, limit: SYMBOL_ROLLUP_LIMIT }) as Array<{
+        rel_path: string; name: string; signature: string | null;
+      }>;
   } catch {
     return out; // table not present (pre-migration store) — degrade cleanly
   }
-  for (const r of rows) out.set(r.rel_path, (out.get(r.rel_path) ?? 0) + 1);
+  for (const r of rows) {
+    const entry = out.get(r.rel_path) ?? { count: 0, symbols: [] };
+    entry.count += 1;
+    // Dedupe the rendered list by symbol name (keep the best-bm25 occurrence,
+    // which sorts first), capped. `count` still reflects every row so the
+    // existing tier ordering ("more matching symbols first") is unchanged.
+    if (
+      entry.symbols.length < MATCHED_SYMBOLS_PER_FILE &&
+      !entry.symbols.some((s) => s.name === r.name)
+    ) {
+      entry.symbols.push({ name: r.name, signature: (r.signature ?? "").trim() });
+    }
+    out.set(r.rel_path, entry);
+  }
   return out;
 }
 
