@@ -1,0 +1,617 @@
+{
+  "tag": "v6-venv",
+  "k": 5,
+  "tasks_evaluated": 25,
+  "overall": {
+    "recall@1_source": 52,
+    "recall@3_source": 84,
+    "recall@5_source": 88,
+    "recall@3_adjacent": 84,
+    "recall@5_adjacent": 88,
+    "tasks_with_doc_recalled": 0,
+    "tasks_source_not_indexed": 0
+  },
+  "per_repo": {
+    "josdejong/mathjs": {
+      "recall@5_source": "5/7",
+      "recall@5_adjacent": "5/7",
+      "recall@3_source": "5/7"
+    },
+    "Textualize/rich": {
+      "recall@5_source": "6/6",
+      "recall@5_adjacent": "6/6",
+      "recall@3_source": "6/6"
+    },
+    "colinhacks/zod": {
+      "recall@5_source": "8/9",
+      "recall@5_adjacent": "8/9",
+      "recall@3_source": "7/9"
+    },
+    "psf/black": {
+      "recall@5_source": "3/3",
+      "recall@5_adjacent": "3/3",
+      "recall@3_source": "3/3"
+    }
+  },
+  "evals": [
+    {
+      "task_id": "josdejong-mathjs-d1ecf44e",
+      "repo": "josdejong/mathjs",
+      "query": "derivative",
+      "source_files": [
+        "src/core/function/typed.js",
+        "src/function/algebra/derivative.js"
+      ],
+      "test_files": [
+        "test/unit-tests/function/algebra/derivative.test.js"
+      ],
+      "recalled": [
+        "src/function/algebra/derivative.js",
+        "src/expression/embeddedDocs/function/algebra/derivative.js",
+        "src/utils/lruQueue.js",
+        "examples/algebra.js"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 1139,
+      "source_indexed": true
+    },
+    {
+      "task_id": "josdejong-mathjs-fb76ac41",
+      "repo": "josdejong/mathjs",
+      "query": "parse",
+      "source_files": [
+        "src/expression/parse.js"
+      ],
+      "test_files": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "recalled": [
+        "src/expression/parse.js",
+        "tools/docgenerator.js",
+        "src/type/unit/Unit.js",
+        "types/index.d.ts",
+        "src/function/matrix/range.js"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 1141,
+      "source_indexed": true
+    },
+    {
+      "task_id": "josdejong-mathjs-837769c7",
+      "repo": "josdejong/mathjs",
+      "query": "import",
+      "source_files": [
+        "src/core/function/import.js"
+      ],
+      "test_files": [
+        "test/unit-tests/core/import.test.js"
+      ],
+      "recalled": [
+        "src/core/function/import.js",
+        "src/expression/embeddedDocs/core/import.js",
+        "examples/import.js",
+        "tools/matrixmarket.js",
+        "examples/advanced/web_server/math_worker.js"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 1144,
+      "source_indexed": true
+    },
+    {
+      "task_id": "josdejong-mathjs-b5d635e5",
+      "repo": "josdejong/mathjs",
+      "query": "parse",
+      "source_files": [
+        "src/utils/number.js"
+      ],
+      "test_files": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "recalled": [
+        "src/expression/parse.js",
+        "tools/docgenerator.js",
+        "src/type/unit/Unit.js",
+        "types/index.d.ts",
+        "src/function/matrix/range.js"
+      ],
+      "source_rank": null,
+      "adjacent_rank": null,
+      "any_doc_recalled": false,
+      "indexed_count": 1144,
+      "source_indexed": true
+    },
+    {
+      "task_id": "josdejong-mathjs-1fc742aa",
+      "repo": "josdejong/mathjs",
+      "query": "import",
+      "source_files": [
+        "src/core/function/import.js"
+      ],
+      "test_files": [
+        "test/unit-tests/core/import.test.js"
+      ],
+      "recalled": [
+        "src/core/function/import.js",
+        "src/expression/embeddedDocs/core/import.js",
+        "examples/import.js",
+        "tools/matrixmarket.js",
+        "examples/advanced/web_server/math_worker.js"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 1146,
+      "source_indexed": true
+    },
+    {
+      "task_id": "josdejong-mathjs-e5bb6465",
+      "repo": "josdejong/mathjs",
+      "query": "parse",
+      "source_files": [
+        "src/expression/parse.js"
+      ],
+      "test_files": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "recalled": [
+        "src/expression/parse.js",
+        "tools/docgenerator.js",
+        "src/type/unit/Unit.js",
+        "types/index.d.ts",
+        "src/function/matrix/range.js"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 1147,
+      "source_indexed": true
+    },
+    {
+      "task_id": "josdejong-mathjs-b5773df3",
+      "repo": "josdejong/mathjs",
+      "query": "function node",
+      "source_files": [
+        "src/utils/latex.js"
+      ],
+      "test_files": [
+        "test/unit-tests/expression/node/FunctionNode.test.js"
+      ],
+      "recalled": [
+        "src/expression/node/Node.js",
+        "src/utils/function.js",
+        "types/index.d.ts",
+        "src/utils/is.js",
+        "tools/docgenerator.js"
+      ],
+      "source_rank": null,
+      "adjacent_rank": null,
+      "any_doc_recalled": false,
+      "indexed_count": 1147,
+      "source_indexed": true
+    },
+    {
+      "task_id": "Textualize-rich-e2a982d5",
+      "repo": "Textualize/rich",
+      "query": "console",
+      "source_files": [
+        "rich/console.py"
+      ],
+      "test_files": [
+        "tests/test_console.py"
+      ],
+      "recalled": [
+        "rich/console.py",
+        "rich/_win32_console.py",
+        "rich/layout.py",
+        "rich/text.py",
+        "rich/_windows.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true
+    },
+    {
+      "task_id": "Textualize-rich-1b2dada1",
+      "repo": "Textualize/rich",
+      "query": "text",
+      "source_files": [
+        "rich/text.py"
+      ],
+      "test_files": [
+        "tests/test_text.py"
+      ],
+      "recalled": [
+        "rich/text.py",
+        "benchmarks/benchmarks.py",
+        "rich/containers.py",
+        "rich/console.py",
+        "rich/panel.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true
+    },
+    {
+      "task_id": "Textualize-rich-b6f2f7aa",
+      "repo": "Textualize/rich",
+      "query": "highlighter",
+      "source_files": [
+        "rich/highlighter.py"
+      ],
+      "test_files": [
+        "tests/test_highlighter.py"
+      ],
+      "recalled": [
+        "rich/highlighter.py",
+        "examples/highlighter.py",
+        "examples/rainbow.py",
+        "rich/syntax.py",
+        "rich/text.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true
+    },
+    {
+      "task_id": "Textualize-rich-dc7a195a",
+      "repo": "Textualize/rich",
+      "query": "pretty",
+      "source_files": [
+        "rich/pretty.py"
+      ],
+      "test_files": [
+        "tests/test_pretty.py"
+      ],
+      "recalled": [
+        "rich/pretty.py",
+        "tools/profile_pretty.py",
+        "tools/stress_test_pretty.py",
+        "benchmarks/benchmarks.py",
+        "rich/_extension.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true
+    },
+    {
+      "task_id": "Textualize-rich-d5dcc74d",
+      "repo": "Textualize/rich",
+      "query": "segment",
+      "source_files": [
+        "rich/segment.py"
+      ],
+      "test_files": [
+        "tests/test_segment.py"
+      ],
+      "recalled": [
+        "rich/segment.py",
+        "rich/jupyter.py",
+        "rich/tree.py",
+        "rich/align.py",
+        "rich/console.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true
+    },
+    {
+      "task_id": "Textualize-rich-66074922",
+      "repo": "Textualize/rich",
+      "query": "table",
+      "source_files": [
+        "rich/table.py"
+      ],
+      "test_files": [
+        "tests/test_table.py"
+      ],
+      "recalled": [
+        "rich/table.py",
+        "examples/table.py",
+        "examples/table_movie.py",
+        "examples/save_table_svg.py",
+        "rich/markdown.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 499,
+      "source_indexed": true
+    },
+    {
+      "task_id": "colinhacks-zod-3a818de1",
+      "repo": "colinhacks/zod",
+      "query": "number",
+      "source_files": [
+        "packages/zod/src/v4/core/util.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/classic/tests/number.test.ts"
+      ],
+      "recalled": [
+        "packages/bench/number.ts",
+        "packages/zod/src/v4/core/util.ts",
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v3/types.ts",
+        "packages/zod/src/v4/core/checks.ts"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 509,
+      "source_indexed": true
+    },
+    {
+      "task_id": "colinhacks-zod-2f8414bc",
+      "repo": "colinhacks/zod",
+      "query": "transform",
+      "source_files": [
+        "packages/zod/src/v4/classic/schemas.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/classic/tests/transform.test.ts"
+      ],
+      "recalled": [
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/core/api.ts",
+        "packages/zod/src/v4/mini/schemas.ts",
+        "packages/zod/src/v4/core/json-schema-processors.ts"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 509,
+      "source_indexed": true
+    },
+    {
+      "task_id": "colinhacks-zod-60ff3987",
+      "repo": "colinhacks/zod",
+      "query": "error",
+      "source_files": [
+        "packages/zod/src/v4/core/errors.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/classic/tests/error-utils.test.ts"
+      ],
+      "recalled": [
+        "packages/bench/error-handling.ts",
+        "packages/zod/src/v4/core/errors.ts",
+        "packages/zod/src/v4/core/parse.ts",
+        "packages/zod/src/v3/ZodError.ts",
+        "packages/zod/src/v3/types.ts"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 509,
+      "source_indexed": true
+    },
+    {
+      "task_id": "colinhacks-zod-2e5b23dc",
+      "repo": "colinhacks/zod",
+      "query": "discriminated unions",
+      "source_files": [
+        "packages/zod/src/v4/core/errors.ts",
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v4/locales/en.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/classic/tests/discriminated-unions.test.ts"
+      ],
+      "recalled": [
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v3/types.ts",
+        "packages/zod/src/v4/core/api.ts",
+        "packages/zod/src/v3/helpers/enumUtil.ts",
+        "packages/zod/src/v4/classic/schemas.ts"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 509,
+      "source_indexed": true
+    },
+    {
+      "task_id": "colinhacks-zod-7f789def",
+      "repo": "colinhacks/zod",
+      "query": "record constructor",
+      "source_files": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/core/tests/record-constructor.test.ts"
+      ],
+      "recalled": [
+        "packages/zod/src/v4/core/util.ts",
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/mini/schemas.ts",
+        "packages/zod/src/v3/types.ts"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 509,
+      "source_indexed": true
+    },
+    {
+      "task_id": "colinhacks-zod-411f6c64",
+      "repo": "colinhacks/zod",
+      "query": "json schema",
+      "source_files": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "recalled": [
+        "packages/zod/src/v4/core/json-schema-processors.ts",
+        "packages/zod/src/v4/core/to-json-schema.ts",
+        "packages/zod/src/v4/core/json-schema.ts",
+        "packages/zod/src/v4/classic/from-json-schema.ts",
+        "packages/zod/src/v4/core/json-schema-generator.ts"
+      ],
+      "source_rank": null,
+      "adjacent_rank": null,
+      "any_doc_recalled": false,
+      "indexed_count": 509,
+      "source_indexed": true
+    },
+    {
+      "task_id": "colinhacks-zod-b6a3b336",
+      "repo": "colinhacks/zod",
+      "query": "json schema",
+      "source_files": [
+        "packages/zod/src/v4/core/to-json-schema.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "recalled": [
+        "packages/zod/src/v4/core/json-schema-processors.ts",
+        "packages/zod/src/v4/core/to-json-schema.ts",
+        "packages/zod/src/v4/core/json-schema.ts",
+        "packages/zod/src/v4/classic/from-json-schema.ts",
+        "packages/zod/src/v4/core/json-schema-generator.ts"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 509,
+      "source_indexed": true
+    },
+    {
+      "task_id": "colinhacks-zod-87cf0f93",
+      "repo": "colinhacks/zod",
+      "query": "from json schema",
+      "source_files": [
+        "packages/zod/src/v4/classic/from-json-schema.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/classic/tests/from-json-schema.test.ts"
+      ],
+      "recalled": [
+        "packages/zod/src/v4/core/json-schema-processors.ts",
+        "packages/zod/src/v4/core/to-json-schema.ts",
+        "packages/zod/src/v4/core/json-schema.ts",
+        "packages/zod/src/v4/classic/from-json-schema.ts",
+        "packages/zod/src/v4/core/json-schema-generator.ts"
+      ],
+      "source_rank": 4,
+      "adjacent_rank": 4,
+      "any_doc_recalled": false,
+      "indexed_count": 509,
+      "source_indexed": true
+    },
+    {
+      "task_id": "colinhacks-zod-0e960108",
+      "repo": "colinhacks/zod",
+      "query": "record",
+      "source_files": [
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/mini/schemas.ts"
+      ],
+      "test_files": [
+        "packages/zod/src/v4/classic/tests/record.test.ts",
+        "packages/zod/src/v4/mini/tests/index.test.ts"
+      ],
+      "recalled": [
+        "packages/zod/src/v4/core/util.ts",
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/mini/schemas.ts",
+        "packages/zod/src/v3/types.ts"
+      ],
+      "source_rank": 3,
+      "adjacent_rank": 3,
+      "any_doc_recalled": false,
+      "indexed_count": 510,
+      "source_indexed": true
+    },
+    {
+      "task_id": "psf-black-01c29bd5",
+      "repo": "psf/black",
+      "query": "guard inside case",
+      "source_files": [
+        "src/black/linegen.py",
+        "src/black/mode.py"
+      ],
+      "test_files": [
+        "tests/data/cases/if_guard_inside_case.py"
+      ],
+      "recalled": [
+        "src/black/brackets.py",
+        "src/black/linegen.py"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 445,
+      "source_indexed": true
+    },
+    {
+      "task_id": "psf-black-13e97b44",
+      "repo": "psf/black",
+      "query": "pattern matching case small line length",
+      "source_files": [
+        "src/black/linegen.py"
+      ],
+      "test_files": [
+        "tests/data/cases/pattern_matching_case_case_small_line_length.py"
+      ],
+      "recalled": [
+        "src/black/linegen.py",
+        "src/black/lines.py",
+        "src/black/trans.py",
+        "src/black/ranges.py",
+        "src/blib2to3/pytree.py"
+      ],
+      "source_rank": 1,
+      "adjacent_rank": 1,
+      "any_doc_recalled": false,
+      "indexed_count": 456,
+      "source_indexed": true
+    },
+    {
+      "task_id": "psf-black-650983f7",
+      "repo": "psf/black",
+      "query": "docstring tabs black",
+      "source_files": [
+        "src/black/strings.py"
+      ],
+      "test_files": [
+        "tests/data/cases/docstring.py",
+        "tests/data/cases/docstring_tabs.py",
+        "tests/test_black.py"
+      ],
+      "recalled": [
+        "plugin/black.vim",
+        "src/black/strings.py",
+        "src/black/lines.py",
+        "src/blackd/__init__.py",
+        "src/black/nodes.py"
+      ],
+      "source_rank": 2,
+      "adjacent_rank": 2,
+      "any_doc_recalled": false,
+      "indexed_count": 457,
+      "source_indexed": true
+    }
+  ]
+}

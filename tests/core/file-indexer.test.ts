@@ -677,6 +677,19 @@ describe("recallFiles — symbol-level recall", () => {
     expect(paths).toContain("packages/zod/src/schemas.ts");
   });
 
+  it("Python repo recall does not surface .venv dependency-env copies", () => {
+    // A virtualenv vendors copies of libraries (pip bundles rich). The real
+    // project source must win; the .venv/site-packages copies must be absent.
+    plant("rich/console.py", "# console\nclass Console:\n    def print(self): pass\ndef get_console(): pass\n");
+    plant(".venv/lib/python3.12/site-packages/pip/_vendor/rich/console.py", "# vendored\nclass Console:\n    def print(self): pass\n");
+    plant("lib/site-packages/rich/console.py", "# vendored2\nclass Console: pass\n");
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "console" }).map((h) => h.relPath);
+    expect(paths).toContain("rich/console.py");
+    expect(paths.some((p) => p.includes(".venv"))).toBe(false);
+    expect(paths.some((p) => p.includes("site-packages"))).toBe(false);
+  });
+
   it("symbol rollup still honours test suppression (no test file via symbol)", () => {
     // A test file may define a symbol matching the query; without test intent
     // it must NOT be surfaced via the symbol path.
