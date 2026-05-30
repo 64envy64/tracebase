@@ -1,75 +1,39 @@
 #!/usr/bin/env tsx
 /**
- * Box-6 shortened mini-pilot (NOT the N=25 pilot).
+ * Box-6 paid mini-pilot (NOT N=25). 8 tasks, fixed distribution, chosen by
+ * OFFLINE recall-hit (so this tests whether CORRECT file_memory helps agents,
+ * not whether known-miss retrieval fails). Runs cross-platform; for this round
+ * it runs under WSL (claude + all repo deps live there).
  *
- * Phase A (OFF nav-surface scan): run the OFF arm for selected tasks in
- * selected-tasks order, tightly capped. A task "qualifies" if its OFF arm
- * has navigation surface: Glob+Grep >= 1 OR Read >= 3. Early-stop once 8
- * qualifiers are found.
+ * Per task: OFF (no .tracebase) then ON (indexed_files + symbols +
+ * UserPromptSubmit→inject-context only). Asserts hook isolation on every ON
+ * run; STOPS immediately if isolation fails or ON pass-rate drops vs OFF.
+ * TRACEBASE_SKIP_HOOK_SELF_HEAL=1 keeps ON file_memory-only.
  *
- * Phase B (ON): run the ON arm for the qualifying tasks with the fixed
- * minimal UserPromptSubmit-only hook + TRACEBASE_SKIP_HOOK_SELF_HEAL=1.
- * Assert hook isolation after EVERY ON run (only UserPromptSubmit allowed);
- * STOP immediately if hook_isolation.ok is false.
- *
- * Budget: hard total cap (default $8). Each trajectory is capped, and a run
- * is skipped if it would exceed the total. NO retries (except never — model
- * behaviour is never retried; only infra failures would be, manually).
- *
- * PLATFORM CONSTRAINT (documented, not worked around): the child `claude`
- * CLI runs on Windows only, and only repos whose Windows clone has installed
- * deps are runnable. At run time only josdejong/mathjs has Windows
- * node_modules; zod (pnpm/corepack fails on Windows Node 20.17), black + rich
- * (Python venvs created in WSL) are NOT runnable here. Those tasks are
- * recorded as infra-skipped (not model behaviour). This makes the mini-pilot
- * single-repo / JS-only — a real limitation surfaced in the report.
+ * Paths are env-configurable (see smoke.ts): TB_FM_REPOS (clones w/ deps),
+ * TB_FM_WORKSPACES (WSL FS), TB_FM_BENCH (manifests on /mnt/c), TB_FM_RESULTS.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { runTrajectory } from "../path-a-harness/run-trajectory.js";
 import {
-  REPO_DIR_MAP, RESULTS,
+  REPO_DIR_MAP, RESULTS, REPOS, BENCH,
   materializeWorkspace, buildPrompt, parseTranscript, extractRecalledFiles,
   verifyPass, num, totalTokens,
 } from "./smoke.js";
 
-const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const ROOT = resolve(SCRIPT_DIR, "..", "..");
-const BENCH = join(ROOT, "bench-runs", "file-memory-real-repos");
-const REPOS = join(BENCH, "repos");
-
-// CRITICAL bench-isolation guard (propagates to the child claude + its
-// hooks): stop inject-context self-heal from contaminating the ON arm.
 process.env.TRACEBASE_SKIP_HOOK_SELF_HEAL = "1";
 
+const PRIOR_SPEND = 0.012;          // WSL auth probe already charged
 const TOTAL_CAP = 8.0;
-const PER_TRAJ_CAP = 0.5;
-const SAFETY_STOP = TOTAL_CAP - 0.1; // never start a run past here
-const TARGET_QUALIFIERS = 8;
+const SAFETY_STOP = 7.6;            // never start a run past here
+const PER_TRAJ_CAP = 0.45;
 const TIMEOUT_MS = 480_000;
+const K = 5;
+const DIST: Record<string, number> = { "josdejong/mathjs": 2, "Textualize/rich": 2, "colinhacks/zod": 3, "psf/black": 1 };
 
-let spend = 0;
-
-function runnable(task: any): boolean {
-  const dir = REPO_DIR_MAP[task.repo];
-  if (!dir) return false;
-  // JS/TS repos need node_modules; Python repos need a Windows venv. Only
-  // node_modules-present clones are runnable on this (Windows) host.
-  return existsSync(join(REPOS, dir, "node_modules"));
-}
-
-interface RunResult {
-  task_id: string; repo: string; pr_commit: string; variant: "OFF" | "ON";
-  pass: boolean | null; test_exit: number | null;
-  glob: number; grep: number; read: number; edit: number; bash: number;
-  tool_counts: Record<string, number>; bytes_read: number;
-  tokens: number | null; wall_sec: number; cost_usd: number | null; turns: number | null;
-  terminal_reason: any; recalled_files: string[] | null;
-  hook_isolation: { ok: boolean; events: string[] } | null;
-  exit_code: number | null;
-}
+let spend = PRIOR_SPEND;
 
 function checkHookIsolation(ws: string): { ok: boolean; events: string[] } {
   try {
@@ -81,136 +45,112 @@ function checkHookIsolation(ws: string): { ok: boolean; events: string[] } {
   }
 }
 
-function runOne(task: any, variant: "OFF" | "ON"): RunResult {
+function runOne(task: any, variant: "OFF" | "ON"): any {
   const repoDir = REPO_DIR_MAP[task.repo];
   const taskId = `${repoDir}-${task.pr_commit.slice(0, 8)}`;
   const { ws } = materializeWorkspace(task, variant);
   const prompt = buildPrompt(task, ws);
   const sessionId = randomUUID();
   const cap = Math.max(0.05, Math.min(PER_TRAJ_CAP, TOTAL_CAP - spend));
-
   const t0 = Date.now();
   const traj = runTrajectory({
-    workspace: ws, prompt, sessionId,
-    model: "claude-haiku-4-5",
-    maxBudgetUsd: cap,
-    allowedTools: "Read,Edit,Bash,Grep,Glob",
-    timeoutMs: TIMEOUT_MS,
+    workspace: ws, prompt, sessionId, model: "claude-haiku-4-5",
+    maxBudgetUsd: cap, allowedTools: "Read,Edit,Bash,Grep,Glob", timeoutMs: TIMEOUT_MS,
   });
   const wallSec = Math.round((Date.now() - t0) / 100) / 10;
   const cost = num(traj.parsed as any, "total_cost_usd");
+  if (typeof cost === "number") spend += cost;
   const tm = parseTranscript(traj.transcriptPath);
   const verify = verifyPass(task, ws);
   const recalled = variant === "ON" ? extractRecalledFiles(traj.transcriptPath) : null;
-  const hookIso = variant === "ON" ? checkHookIsolation(ws) : null;
-
-  if (typeof cost === "number") spend += cost;
-
+  const srcSet = new Set<string>(task.source_files_touched ?? []);
   return {
-    task_id: taskId, repo: task.repo, pr_commit: task.pr_commit, variant,
+    task_id: taskId, repo: task.repo, variant,
     pass: verify.exit === 0, test_exit: verify.exit,
     glob: tm.toolCounts["Glob"] ?? 0, grep: tm.toolCounts["Grep"] ?? 0,
     read: tm.toolCounts["Read"] ?? 0, edit: tm.toolCounts["Edit"] ?? 0, bash: tm.toolCounts["Bash"] ?? 0,
-    tool_counts: tm.toolCounts, bytes_read: tm.bytesRead,
+    powershell: tm.toolCounts["PowerShell"] ?? 0, tool_counts: tm.toolCounts, bytes_read: tm.bytesRead,
     tokens: totalTokens((traj.parsed as any)?.usage), wall_sec: wallSec,
     cost_usd: cost, turns: num(traj.parsed as any, "num_turns"),
     terminal_reason: (traj.parsed as any)?.subtype ?? null,
     recalled_files: recalled,
-    hook_isolation: hookIso,
-    exit_code: traj.exitCode,
+    expected_source_in_topk: variant === "ON" ? (recalled ?? []).some((p) => srcSet.has(p)) : null,
+    hook_isolation: variant === "ON" ? checkHookIsolation(ws) : null,
+    exit_code: traj.exitCode, workspace: ws,
   };
 }
 
-function navSurface(r: RunResult): boolean {
-  return (r.glob + r.grep) >= 1 || r.read >= 3;
-}
-
-async function main() {
+function main() {
   mkdirSync(RESULTS, { recursive: true });
   const sel = JSON.parse(readFileSync(join(BENCH, "selected-tasks.json"), "utf-8"));
   const tasks: any[] = sel.tasks;
 
-  const skippedInfra: Array<{ task_id: string; repo: string; reason: string }> = [];
-  const offResults: RunResult[] = [];
-  const qualifiers: any[] = [];
+  // Offline recall-hit set (the gate for "this task tests correct memory").
+  const offlinePath = join(RESULTS, "offline-recall-final-symbols.json");
+  const offline = JSON.parse(readFileSync(offlinePath, "utf-8"));
+  const hit = new Set<string>(
+    offline.evals.filter((e: any) => e.source_rank != null && e.source_rank <= K).map((e: any) => e.task_id),
+  );
+  const tid = (t: any) => `${REPO_DIR_MAP[t.repo]}-${t.pr_commit.slice(0, 8)}`;
 
-  console.log(`=== MINI-PILOT: OFF nav-surface scan (cap $${TOTAL_CAP}, target ${TARGET_QUALIFIERS} qualifiers) ===`);
-  for (const task of tasks) {
-    if (qualifiers.length >= TARGET_QUALIFIERS) { console.log(`reached ${TARGET_QUALIFIERS} qualifiers — stopping scan`); break; }
-    if (spend >= SAFETY_STOP) { console.log(`spend $${spend.toFixed(2)} >= safety stop — halting scan`); break; }
-    const repoDir = REPO_DIR_MAP[task.repo];
-    const taskId = `${repoDir}-${task.pr_commit.slice(0, 8)}`;
-    if (!runnable(task)) {
-      skippedInfra.push({ task_id: taskId, repo: task.repo, reason: "no Windows deps (node_modules/venv absent on claude-capable host)" });
-      console.log(`  SKIP(infra) ${taskId} — ${task.repo} not runnable on Windows`);
-      continue;
-    }
-    const r = runOne(task, "OFF");
-    offResults.push(r);
-    const q = navSurface(r);
-    if (q) qualifiers.push(task);
-    console.log(`  OFF ${taskId}  pass=${r.pass} Glob+Grep=${r.glob + r.grep} Read=${r.read} tok=${r.tokens} ${r.wall_sec}s $${r.cost_usd?.toFixed(3)} ${q ? "→ QUALIFIES" : "→ no nav surface"}  [spend $${spend.toFixed(3)}]`);
+  // Earliest selected tasks per repo that are offline-hits, up to DIST.
+  const picked: any[] = [];
+  const perRepoCount: Record<string, number> = {};
+  for (const t of tasks) {
+    const need = DIST[t.repo] ?? 0;
+    if ((perRepoCount[t.repo] ?? 0) >= need) continue;
+    if (!hit.has(tid(t))) continue;
+    picked.push(t);
+    perRepoCount[t.repo] = (perRepoCount[t.repo] ?? 0) + 1;
+  }
+  console.log(`Selected ${picked.length} tasks (offline-hit, distribution ${JSON.stringify(DIST)}):`);
+  for (const t of picked) console.log(`  ${tid(t)}  (${t.repo})`);
+  console.log("");
+
+  const pairs: any[] = [];
+  let stopReason: string | null = null;
+  for (const task of picked) {
+    if (spend >= SAFETY_STOP) { stopReason = `spend $${spend.toFixed(2)} >= safety stop`; break; }
+    const off = runOne(task, "OFF");
+    console.log(`  OFF ${off.task_id}  pass=${off.pass} G+G=${off.glob + off.grep} Read=${off.read} tok=${off.tokens} ${off.wall_sec}s $${off.cost_usd?.toFixed(3)} [spend $${spend.toFixed(3)}]`);
+    if (spend >= SAFETY_STOP) { stopReason = `spend $${spend.toFixed(2)} >= safety stop (after OFF)`; pairs.push({ off, on: null }); break; }
+    const on = runOne(task, "ON");
+    console.log(`  ON  ${on.task_id}  pass=${on.pass} G+G=${on.glob + on.grep} Read=${on.read} tok=${on.tokens} ${on.wall_sec}s $${on.cost_usd?.toFixed(3)} iso=${on.hook_isolation?.ok} srcInTopK=${on.expected_source_in_topk} recalled=${JSON.stringify(on.recalled_files)} [spend $${spend.toFixed(3)}]`);
+    pairs.push({ off, on });
+    if (on.hook_isolation && !on.hook_isolation.ok) { stopReason = `HOOK ISOLATION FAILED on ${on.task_id}: ${on.hook_isolation.events.join(",")}`; break; }
+    if (off.pass && !on.pass) { stopReason = `ON pass-rate DROP on ${on.task_id} (OFF pass, ON fail)`; break; }
   }
 
-  console.log(`\n=== ON arm for ${qualifiers.length} qualifier(s) (isolation-guarded) ===`);
-  const onResults: RunResult[] = [];
-  let contaminationStop = false;
-  for (const task of qualifiers) {
-    if (spend >= SAFETY_STOP) { console.log(`spend $${spend.toFixed(2)} >= safety stop — halting ON`); break; }
-    const r = runOne(task, "ON");
-    onResults.push(r);
-    console.log(`  ON  ${r.task_id}  pass=${r.pass} Glob+Grep=${r.glob + r.grep} Read=${r.read} tok=${r.tokens} ${r.wall_sec}s $${r.cost_usd?.toFixed(3)} iso=${r.hook_isolation?.ok} recalled=${JSON.stringify(r.recalled_files)}  [spend $${spend.toFixed(3)}]`);
-    if (r.hook_isolation && !r.hook_isolation.ok) {
-      console.log(`  !! HOOK ISOLATION FAILED (${r.hook_isolation.events.join(",")}) — STOPPING IMMEDIATELY`);
-      contaminationStop = true;
-      break;
-    }
-  }
-
-  // Pair OFF/ON by task_id for the report.
-  const onById = new Map(onResults.map((r) => [r.task_id, r]));
-  const pairs = offResults
-    .filter((o) => onById.has(o.task_id))
-    .map((o) => ({ off: o, on: onById.get(o.task_id)! }));
-
-  const out = {
-    phase: "box-6 shortened mini-pilot (NOT N=25)",
-    ran_isolation_guard: "TRACEBASE_SKIP_HOOK_SELF_HEAL=1",
-    budget_cap_usd: TOTAL_CAP, per_traj_cap_usd: PER_TRAJ_CAP,
-    platform_note: "child claude is Windows-only; only repos with Windows deps are runnable. At run time: mathjs only. zod/black/rich skipped (deps WSL-only / pnpm fails on Win Node 20.17). Single-repo, JS-only signal.",
-    off_scanned: offResults.length,
-    skipped_infra: skippedInfra,
-    qualifiers: qualifiers.map((t) => `${REPO_DIR_MAP[t.repo]}-${t.pr_commit.slice(0, 8)}`),
-    contamination_stop: contaminationStop,
-    off_results: offResults,
-    on_results: onResults,
-    pairs: pairs.map(({ off, on }) => ({
-      task_id: off.task_id, repo: off.repo,
-      off_pass: off.pass, on_pass: on.pass,
-      off_glob_grep: off.glob + off.grep, on_glob_grep: on.glob + on.grep,
-      off_read: off.read, on_read: on.read,
-      off_bytes_read: off.bytes_read, on_bytes_read: on.bytes_read,
-      off_tokens: off.tokens, on_tokens: on.tokens,
-      off_wall_sec: off.wall_sec, on_wall_sec: on.wall_sec,
-      off_cost: off.cost_usd, on_cost: on.cost_usd,
-      off_turns: off.turns, on_turns: on.turns,
-      on_recalled_files: on.recalled_files,
-      on_hook_isolation_ok: on.hook_isolation?.ok,
-      glob_grep_delta: (on.glob + on.grep) - (off.glob + off.grep),
-      read_delta: on.read - off.read,
-      tokens_delta_pct: off.tokens ? Math.round(((on.tokens! - off.tokens) / off.tokens) * 1000) / 10 : null,
-      duration_delta_pct: off.wall_sec ? Math.round(((on.wall_sec - off.wall_sec) / off.wall_sec) * 1000) / 10 : null,
-    })),
-    total_spend_usd: Math.round(spend * 10000) / 10000,
+  const complete = pairs.filter((p) => p.on);
+  const sum = (k: string, v: "off" | "on") => complete.reduce((a, p) => a + (p[v]?.[k] ?? 0), 0);
+  const aggregate = {
+    pairs_complete: complete.length,
+    off_pass: complete.filter((p) => p.off.pass).length,
+    on_pass: complete.filter((p) => p.on.pass).length,
+    off_glob_grep: sum("glob", "off") + sum("grep", "off"),
+    on_glob_grep: sum("glob", "on") + sum("grep", "on"),
+    off_read: sum("read", "off"), on_read: sum("read", "on"),
+    off_bytes_read: sum("bytes_read", "off"), on_bytes_read: sum("bytes_read", "on"),
+    off_tokens: sum("tokens", "off"), on_tokens: sum("tokens", "on"),
+    off_wall_sec: Math.round(sum("wall_sec", "off") * 10) / 10, on_wall_sec: Math.round(sum("wall_sec", "on") * 10) / 10,
+    off_cost: Math.round(sum("cost_usd", "off") * 10000) / 10000, on_cost: Math.round(sum("cost_usd", "on") * 10000) / 10000,
+    off_turns: sum("turns", "off"), on_turns: sum("turns", "on"),
+    on_expected_source_in_topk: complete.filter((p) => p.on.expected_source_in_topk).length,
+    on_hook_isolation_all_ok: complete.every((p) => p.on.hook_isolation?.ok),
+    on_powershell_total: sum("powershell", "on"),
   };
-  const outPath = join(RESULTS, "box-6-mini-pilot.json");
-  writeFileSync(outPath, JSON.stringify(out, null, 2) + "\n");
-
+  const out = {
+    phase: "box-6 paid mini-pilot (8 tasks, WSL, symbol-recall harness)",
+    distribution: DIST, selected: picked.map(tid), stop_reason: stopReason,
+    pairs, aggregate, total_spend_usd: Math.round(spend * 10000) / 10000,
+  };
+  writeFileSync(join(RESULTS, "box-6-mini-pilot-wsl.json"), JSON.stringify(out, null, 2) + "\n");
   console.log(`\n=== SUMMARY ===`);
-  console.log(`OFF scanned: ${offResults.length}, infra-skipped: ${skippedInfra.length}, qualifiers: ${qualifiers.length}, pairs: ${pairs.length}`);
-  console.log(`hook isolation all OK: ${onResults.every((r) => r.hook_isolation?.ok) && !contaminationStop}`);
+  console.log(`pairs: ${complete.length}  OFF pass ${aggregate.off_pass}/${complete.length}  ON pass ${aggregate.on_pass}/${complete.length}  iso_all_ok=${aggregate.on_hook_isolation_all_ok}`);
+  console.log(`Glob+Grep OFF ${aggregate.off_glob_grep} -> ON ${aggregate.on_glob_grep} | Read OFF ${aggregate.off_read} -> ON ${aggregate.on_read} | tokens OFF ${aggregate.off_tokens} -> ON ${aggregate.on_tokens}`);
+  console.log(`src-in-topK (ON): ${aggregate.on_expected_source_in_topk}/${complete.length} | PowerShell(ON): ${aggregate.on_powershell_total} | stop=${stopReason ?? "none"}`);
   console.log(`TOTAL SPEND: $${spend.toFixed(4)} / $${TOTAL_CAP}`);
-  console.log(`Wrote ${outPath}`);
+  console.log(`Wrote ${join(RESULTS, "box-6-mini-pilot-wsl.json")}`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main();

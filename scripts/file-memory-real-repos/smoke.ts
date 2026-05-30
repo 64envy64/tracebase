@@ -34,10 +34,13 @@ import { runTrajectory } from "../path-a-harness/run-trajectory.js";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(SCRIPT_DIR, "..", "..");
-const BENCH = join(ROOT, "bench-runs", "file-memory-real-repos");
-const REPOS = join(BENCH, "repos");
-const WS_DIR = join(BENCH, "workspaces");
-export const RESULTS = join(BENCH, "results");
+// Paths are env-overridable so the SAME harness runs on Windows (defaults)
+// and under WSL (code in ~/tb-harness, clones in ~/file-memory-real-repos,
+// bench manifests/results on the /mnt/c worktree, workspaces in WSL FS).
+export const BENCH = process.env.TB_FM_BENCH ?? join(ROOT, "bench-runs", "file-memory-real-repos");
+export const REPOS = process.env.TB_FM_REPOS ?? join(BENCH, "repos");
+const WS_DIR = process.env.TB_FM_WORKSPACES ?? join(BENCH, "workspaces");
+export const RESULTS = process.env.TB_FM_RESULTS ?? join(BENCH, "results");
 const REPO_TSX = join(ROOT, "node_modules", ".bin", process.platform === "win32" ? "tsx.cmd" : "tsx");
 const BIN_CLI = join(ROOT, "bin", "cli.ts");
 
@@ -51,7 +54,15 @@ export const REPO_DIR_MAP: Record<string, string> = {
 // Per-repo: how the agent (and the verifier) runs the scoped test.
 function repoTestCommand(repo: string, testFile: string): string {
   if (repo === "josdejong/mathjs") return `npx mocha ${testFile}`;
-  if (repo === "psf/black" || repo === "Textualize/rich") return `.venv/bin/python -m pytest -q ${testFile}`;
+  if (repo === "psf/black") {
+    // black's data-case fixtures (tests/data/cases/*.py) are not test modules
+    // themselves — they are exercised by the parametrized tests/test_format.py.
+    // Pointing pytest at a fixture collects 0 tests (exit 5), so route fixture
+    // targets to the parametrized suite (matches the box-4c reproducibility run).
+    const target = /(^|\/)tests\/data\//.test(testFile) ? "tests/test_format.py" : testFile;
+    return `.venv/bin/python -m pytest -q ${target}`;
+  }
+  if (repo === "Textualize/rich") return `.venv/bin/python -m pytest -q ${testFile}`;
   if (repo === "colinhacks/zod") return `pnpm test -- ${testFile}`;
   throw new Error(`no test command for ${repo}`);
 }
@@ -116,9 +127,17 @@ export function buildRetrievalQuery(task: any): string {
 // lock from a just-exited inject-context hook holding .tracebase/memory.db.
 function removeWorkspace(ws: string): void {
   if (!existsSync(ws)) return;
-  const nm = join(ws, "node_modules");
-  if (existsSync(nm)) {
-    try { if (lstatSync(nm).isSymbolicLink()) rmdirSync(nm); } catch { /* fall through */ }
+  // On Windows a node_modules/.venv junction must be unlinked via rmdirSync
+  // (removes the link, NOT the target) before the recursive rm. On POSIX,
+  // rmSync recursive unlinks dir symlinks without following them, so the
+  // explicit step is Windows-only.
+  if (process.platform === "win32") {
+    for (const dep of ["node_modules", ".venv"]) {
+      const p = join(ws, dep);
+      if (existsSync(p)) {
+        try { if (lstatSync(p).isSymbolicLink()) rmdirSync(p); } catch { /* fall through */ }
+      }
+    }
   }
   rmSync(ws, { recursive: true, force: true, maxRetries: 6, retryDelay: 500 });
 }
@@ -183,10 +202,18 @@ export function materializeWorkspace(
   }
 
   // 3. Junction node_modules from the canonical clone (avoid huge copy).
-  const cloneNM = join(clone, "node_modules");
-  if (existsSync(cloneNM)) {
-    try { symlinkSync(cloneNM, join(ws, "node_modules"), "junction"); }
-    catch (e: any) { console.error(`  WARN node_modules junction failed: ${e.message}`); }
+  // Link the canonical clone's installed deps into the workspace so the
+  // test command works without re-installing. Cross-platform: Windows uses
+  // a directory junction (no symlink privilege needed); POSIX/WSL a normal
+  // symlink. node_modules (JS/TS) and .venv (Python) are both linked when
+  // present in the clone.
+  const linkType = process.platform === "win32" ? "junction" : "dir";
+  for (const dep of ["node_modules", ".venv"]) {
+    const src = join(clone, dep);
+    if (existsSync(src)) {
+      try { symlinkSync(src, join(ws, dep), linkType); }
+      catch (e: any) { console.error(`  WARN link ${dep} failed: ${e.message}`); }
+    }
   }
 
   // 4. ON-only: .tracebase (indexed_files) + minimal hook.
