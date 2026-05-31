@@ -1,0 +1,76 @@
+{
+  "label": "BOOTSTRAP / COLD-START — NOT organic readiness. Hand-authored recurring-class corpus; no mining; no gate tuning.",
+  "corpusHash": "de94b5202715edbd",
+  "frozenAt": 1780262013,
+  "corpus": {
+    "families": 10,
+    "importedPatterns": 10,
+    "usefulHoldouts": 20,
+    "unrelatedControls": 10,
+    "instancesPerFamily": "1 canonical + 2 holdouts = 3"
+  },
+  "import": {
+    "total": 10,
+    "accepted": 10,
+    "rejected": 0,
+    "duplicate": 0
+  },
+  "leakageAudit": {
+    "ownFixInjected": false,
+    "holdoutsDistinctFromImports": true,
+    "disjointInstances": true,
+    "negativeControlsPresent": 10,
+    "note": "holdouts are different concrete instances of the same class; imported patterns carry reusable reasoning, not the holdout's answer"
+  },
+  "metrics": {
+    "fireRateOverall": 0.033,
+    "fireRateWithinRecurringFamilies": 0.05,
+    "controlFalsePositiveRate": 0,
+    "precisionAtFire": 1,
+    "precisionWilsonLB": 0.207,
+    "falsePositiveRate": 0,
+    "recallAtUseful": 0.05,
+    "abstentionByReason": {
+      "ambiguous_margin": 28,
+      "no_candidates": 1
+    },
+    "latencyMsP50": 1,
+    "latencyMsP95": 3,
+    "calibratorVersion": "mixed",
+    "calibratedCoverage": 0.033
+  },
+  "sensitivity": [
+    {
+      "gateThreshold": 0,
+      "fireRate": 0.033,
+      "precisionAtFire": 1,
+      "wilsonLB": 0.207,
+      "falsePositiveRate": 0,
+      "recallAtUseful": 0.05
+    },
+    {
+      "gateThreshold": 0.2,
+      "fireRate": 0.033,
+      "precisionAtFire": 1,
+      "wilsonLB": 0.207,
+      "falsePositiveRate": 0,
+      "recallAtUseful": 0.05
+    },
+    {
+      "gateThreshold": 0.4,
+      "fireRate": 0.033,
+      "precisionAtFire": 1,
+      "wilsonLB": 0.207,
+      "falsePositiveRate": 0,
+      "recallAtUseful": 0.05
+    },
+    {
+      "gateThreshold": 0.6,
+      "fireRate": 0.033,
+      "precisionAtFire": 1,
+      "wilsonLB": 0.207,
+      "falsePositiveRate": 0,
+      "recallAtUseful": 0.05
+    }
+  ]
+}
