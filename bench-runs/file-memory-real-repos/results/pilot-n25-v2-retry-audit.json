@@ -1,0 +1,48 @@
+{
+  "run": "N=25 V2 (matched-symbol payload)",
+  "total_selected": 25,
+  "pairs_recorded": 16,
+  "infra_incidents": [
+    {
+      "incident": 1,
+      "signature": "exit=1 empties (transient claude API window)",
+      "tasks_affected": "zod tail batch",
+      "resolution": "probe confirmed API recovery; resumed; 12 further pairs ran clean"
+    },
+    {
+      "incident": 2,
+      "signature": "exit=143 SIGTERM startup-hangs (claude spawned, 0 tokens, killed at 600s per-traj timeout)",
+      "tasks_affected": "colinhacks-zod-60ff3987 (recovered on resume), colinhacks-zod-2e5b23dc (hung EVERY attempt, both arms \u2014 un-runnable here), colinhacks-zod-0e960108 (hung on final attempt)",
+      "resolution": "3 resume attempts; 60ff3987 recovered (FP); 2e5b23dc never produced output; halted \u2014 no grinding"
+    }
+  ],
+  "resume_attempts": [
+    {
+      "attempt": 1,
+      "host": "b9zhm9ean",
+      "result": "ran pairs 4-15 clean, self-stopped on 3 consecutive exit=143 empties (60ff3987 ON, 2e5b23dc OFF/ON)"
+    },
+    {
+      "attempt": 2,
+      "host": "beiq8dyhy",
+      "result": "died mid-leg with no record (host/WSL teardown during idle); 0 pairs added"
+    },
+    {
+      "attempt": 3,
+      "host": "btqia16j8",
+      "result": "recorded 60ff3987 ON (FP); 2e5b23dc + 0e960108 hung again; manually stopped to avoid grinding"
+    }
+  ],
+  "unrun_pairs": [
+    "colinhacks-zod-2e5b23dc",
+    "colinhacks-zod-7f789def",
+    "colinhacks-zod-411f6c64",
+    "colinhacks-zod-b6a3b336",
+    "colinhacks-zod-87cf0f93",
+    "colinhacks-zod-0e960108",
+    "psf-black-01c29bd5",
+    "psf-black-13e97b44",
+    "psf-black-650983f7"
+  ],
+  "note": "zod-0e960108 (the matched-symbol motivating case) could not run live due to infra hang; its fix is validated OFFLINE in Part 2 (classic/schemas.ts rank 3 WITH matched record span; mini/schemas.ts also recalled)."
+}

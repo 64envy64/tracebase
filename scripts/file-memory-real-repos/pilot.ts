@@ -39,8 +39,13 @@ const PER_TRAJ_CAP = 1.0;
 const MAX_CONSECUTIVE_EMPTY = 3;
 const TIMEOUT_MS = 600_000;
 const K = 5;
-const PROGRESS = join(RESULTS, "pilot-n25-progress.jsonl");
-const AGG = join(RESULTS, "pilot-n25.json");
+// V2 run (PRE-REGISTRATION-REAL-REPOS-V2.md, locked 2026-05-30). Fresh
+// filenames so this run does NOT resume the V1 (Glob+Grep-claim) trajectories
+// and the V1 artifacts stay intact. ON treatment now includes the
+// matched-symbol payload (74c9b04).
+const RUN_TAG = process.env.TB_PILOT_TAG ?? "n25-v2";
+const PROGRESS = join(RESULTS, `pilot-${RUN_TAG}-progress.jsonl`);
+const AGG = join(RESULTS, `pilot-${RUN_TAG}.json`);
 
 const DEP_JUNK = /(^|\/)(\.venv|venv|\.env|env|site-packages|dist-packages|__pycache__|node_modules|\.tox|\.nox|\.pytest_cache|\.mypy_cache|\.ruff_cache)\//i;
 const isJunk = (p: string): boolean => DEP_JUNK.test(p.replace(/\\/g, "/"));
@@ -171,6 +176,7 @@ function main() {
   const onGG = sum(pairs.map((p) => p.on), "glob") + sum(pairs.map((p) => p.on), "grep");
   const offTok = sum(pairs.map((p) => p.off), "tokens"), onTok = sum(pairs.map((p) => p.on), "tokens");
   const offDur = sum(pairs.map((p) => p.off), "wall_sec"), onDur = sum(pairs.map((p) => p.on), "wall_sec");
+  const offBytes = sum(pairs.map((p) => p.off), "bytes_read"), onBytes = sum(pairs.map((p) => p.on), "bytes_read");
 
   // Per-repo breakdown.
   const repos = [...new Set(pairs.map((p) => p.off.repo))];
@@ -185,13 +191,17 @@ function main() {
     }];
   }));
 
-  const A1 = cells.off_pass_on_fail === 0;
-  const A2 = offGG > 0 ? onGG <= offGG * 0.80 : false;
-  const A3 = offTok > 0 ? onTok <= offTok * 1.05 : false;
-  const A4 = offDur > 0 ? onDur <= offDur * 1.10 : false;
-  const publishable = A1 && A2 && A3 && A4;
   const junkTotal = pairs.reduce((a, p) => a + (p.on.dep_junk_recalled?.length ?? 0), 0);
   const isoAllOk = pairs.every((p) => p.on.hook_isolation?.ok);
+  // V2 locked criteria (PRE-REGISTRATION-REAL-REPOS-V2.md §"Decision rules").
+  // PRIMARY endpoints are VOLUME (bytes_read) + TOKENS; Glob/Grep is descriptive.
+  const A1 = cells.off_pass_on_fail === 0;                       // pass-rate preserved
+  const A2 = offBytes > 0 ? onBytes <= offBytes * 0.90 : false;  // bytes_read cut >=10%
+  const A3 = offTok > 0 ? onTok <= offTok * 0.95 : false;        // token cut >=5%
+  const A4 = offDur > 0 ? onDur <= offDur * 1.10 : false;        // no wall-time inflation
+  const A5 = pairs.length === tasks.length && isoAllOk;          // isolation 25/25 ON
+  const A6 = junkTotal === 0;                                    // no dependency-env junk
+  const publishable = A1 && A2 && A3 && A4 && A5 && A6;
 
   const out = {
     phase: "N=25 file-memory real-repo pilot",
@@ -205,15 +215,23 @@ function main() {
       off_wall_sec: Math.round(offDur * 10) / 10, on_wall_sec: Math.round(onDur * 10) / 10,
       duration_ratio: offDur ? Math.round((onDur / offDur) * 1000) / 1000 : null,
       off_read: sum(pairs.map((p) => p.off), "read"), on_read: sum(pairs.map((p) => p.on), "read"),
-      off_bytes_read: sum(pairs.map((p) => p.off), "bytes_read"), on_bytes_read: sum(pairs.map((p) => p.on), "bytes_read"),
+      off_bytes_read: offBytes, on_bytes_read: onBytes,
+      bytes_read_ratio: offBytes ? Math.round((onBytes / offBytes) * 1000) / 1000 : null,
       off_turns: sum(pairs.map((p) => p.off), "turns"), on_turns: sum(pairs.map((p) => p.on), "turns"),
       src_in_topk: pairs.filter((p) => p.on.expected_source_in_topk).length,
       hook_isolation_all_ok: isoAllOk, dep_junk_fp_total: junkTotal, powershell_on_total: sum(pairs.map((p) => p.on), "powershell"),
     },
     per_repo: perRepo,
+    pre_registration_v2: "bench-runs/file-memory/PRE-REGISTRATION-REAL-REPOS-V2.md",
     criteria: {
-      "A1_zero_on_regression": A1, "A2_gg_cut_>=20pct": A2,
-      "A3_tokens_<=+5pct": A3, "A4_duration_<=+10pct": A4, publishable,
+      "A1_zero_off_pass_on_fail": A1,
+      "A2_bytes_read_<=0.90x": A2,
+      "A3_tokens_<=0.95x": A3,
+      "A4_duration_<=1.10x": A4,
+      "A5_isolation_25_of_25": A5,
+      "A6_dep_junk_fp_0": A6,
+      "glob_grep_descriptive_not_a_gate": true,
+      publishable,
     },
     cost_off: Math.round(sum(pairs.map((p) => p.off), "cost_usd") * 10000) / 10000,
     cost_on: Math.round(sum(pairs.map((p) => p.on), "cost_usd") * 10000) / 10000,
@@ -224,9 +242,10 @@ function main() {
 
   console.log(`\n=== N=25 PILOT SUMMARY ===`);
   console.log(`pairs ${pairs.length}/${tasks.length}  cells: PP=${cells.off_pass_on_pass} PF=${cells.off_pass_on_fail} FP=${cells.off_fail_on_pass} FF=${cells.off_fail_on_fail}`);
-  console.log(`Glob+Grep ${offGG}->${onGG} (ratio ${out.aggregate.glob_grep_ratio}) | tokens ratio ${out.aggregate.tokens_ratio} | duration ratio ${out.aggregate.duration_ratio}`);
+  console.log(`bytes_read ${offBytes}->${onBytes} (ratio ${out.aggregate.bytes_read_ratio}) | tokens ratio ${out.aggregate.tokens_ratio} | duration ratio ${out.aggregate.duration_ratio}`);
+  console.log(`Glob+Grep ${offGG}->${onGG} (ratio ${out.aggregate.glob_grep_ratio}) [DESCRIPTIVE — not a gate]`);
   console.log(`src-in-topK ${out.aggregate.src_in_topk}/${pairs.length} | iso_all_ok ${isoAllOk} | dep_junk_fp ${junkTotal} | PowerShell ${out.aggregate.powershell_on_total}`);
-  console.log(`CRITERIA A1=${A1} A2=${A2} A3=${A3} A4=${A4} => ${publishable ? "PUBLISHABLE (§A)" : "NOT publishable (§B/§C)"}`);
+  console.log(`CRITERIA A1(PF=0)=${A1} A2(bytes<=.90)=${A2} A3(tok<=.95)=${A3} A4(dur<=1.1)=${A4} A5(iso25)=${A5} A6(junk0)=${A6} => ${publishable ? "PUBLISHABLE (§A)" : "NOT publishable (§B/§C)"}`);
   console.log(`SPEND $${spend.toFixed(4)} / $${TOTAL_CAP}  stop=${stopReason ?? "none"}`);
   console.log(`Wrote ${AGG}`);
 }

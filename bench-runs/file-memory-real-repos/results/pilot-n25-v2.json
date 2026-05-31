@@ -1,0 +1,1284 @@
+{
+  "phase": "N=25 file-memory V2 rerun (matched-symbol payload)",
+  "pre_registration": "bench-runs/file-memory/PRE-REGISTRATION-REAL-REPOS-V2.md",
+  "status": "INCOMPLETE \u2014 halted at 16/25 by persistent zod-tail infra hangs (exit=143 startup hangs); NOT publishable",
+  "pairs_complete": 16,
+  "total_selected": 25,
+  "missing_pairs": [
+    "colinhacks-zod-2e5b23dc",
+    "colinhacks-zod-7f789def",
+    "colinhacks-zod-411f6c64",
+    "colinhacks-zod-b6a3b336",
+    "colinhacks-zod-87cf0f93",
+    "colinhacks-zod-0e960108",
+    "psf-black-01c29bd5",
+    "psf-black-13e97b44",
+    "psf-black-650983f7"
+  ],
+  "paired_cells": {
+    "off_pass_on_pass": 5,
+    "off_pass_on_fail": 2,
+    "off_fail_on_pass": 2,
+    "off_fail_on_fail": 7
+  },
+  "aggregate": {
+    "off_bytes_read": 681534,
+    "on_bytes_read": 635354,
+    "bytes_ratio": 0.932,
+    "off_tokens": 24624050,
+    "on_tokens": 17283857,
+    "tokens_ratio": 0.702,
+    "off_wall_sec": 2122.4,
+    "on_wall_sec": 1430.3,
+    "duration_ratio": 0.674,
+    "off_glob_grep": 15,
+    "on_glob_grep": 7,
+    "off_read": 111,
+    "on_read": 103,
+    "src_in_topk": 14,
+    "hook_isolation_all_ok": true,
+    "dep_junk_fp_total": 0
+  },
+  "per_repo": {
+    "josdejong/mathjs": {
+      "n": 7,
+      "off_pass": 6,
+      "on_pass": 6,
+      "off_gg": 12,
+      "on_gg": 3,
+      "off_bytes": 315580,
+      "on_bytes": 351634,
+      "src_in_topk": 5
+    },
+    "Textualize/rich": {
+      "n": 6,
+      "off_pass": 0,
+      "on_pass": 0,
+      "off_gg": 2,
+      "on_gg": 3,
+      "off_bytes": 217122,
+      "on_bytes": 149548,
+      "src_in_topk": 6
+    },
+    "colinhacks/zod": {
+      "n": 3,
+      "off_pass": 1,
+      "on_pass": 1,
+      "off_gg": 1,
+      "on_gg": 1,
+      "off_bytes": 148832,
+      "on_bytes": 134172,
+      "src_in_topk": 3
+    }
+  },
+  "criteria": {
+    "A1_off_pass_on_fail_zero": false,
+    "A2_bytes<=0.90x": false,
+    "A3_tokens<=0.95x": true,
+    "A4_duration<=1.10x": true,
+    "A5_isolation_25of25": false,
+    "A6_dep_junk_0": true,
+    "publishable": false
+  },
+  "recorded_spend_usd": 6.6421,
+  "pairs": [
+    {
+      "id": "josdejong-mathjs-d1ecf44e",
+      "off": {
+        "task_id": "josdejong-mathjs-d1ecf44e",
+        "repo": "josdejong/mathjs",
+        "pr_commit": "d1ecf44e2f4dba4966d602851329643eb8a788c7",
+        "variant": "OFF",
+        "pass": false,
+        "test_exit": 1,
+        "glob": 0,
+        "grep": 0,
+        "read": 8,
+        "edit": 11,
+        "bash": 27,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 8,
+          "Bash": 27,
+          "Edit": 11
+        },
+        "bytes_read": 50230,
+        "tokens": 3262752,
+        "duration_ms": 210265,
+        "wall_sec": 225.1,
+        "cost_usd": 0.49318105000000007,
+        "turns": 47,
+        "terminal_reason": "success",
+        "recalled_files": null,
+        "expected_source_in_topk": null,
+        "hook_isolation": null,
+        "dep_junk_recalled": null,
+        "exit_code": 0
+      },
+      "on": {
+        "task_id": "josdejong-mathjs-d1ecf44e",
+        "repo": "josdejong/mathjs",
+        "pr_commit": "d1ecf44e2f4dba4966d602851329643eb8a788c7",
+        "variant": "ON",
+        "pass": true,
+        "test_exit": 0,
+        "glob": 0,
+        "grep": 0,
+        "read": 3,
+        "edit": 2,
+        "bash": 10,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 3,
+          "Bash": 10,
+          "Edit": 2
+        },
+        "bytes_read": 48534,
+        "tokens": 896724,
+        "duration_ms": 48296,
+        "wall_sec": 54,
+        "cost_usd": 0.14941385000000001,
+        "turns": 16,
+        "terminal_reason": "success",
+        "recalled_files": [
+          "src/function/algebra/derivative.js",
+          "src/expression/embeddedDocs/function/algebra/derivative.js",
+          "src/utils/lruQueue.js"
+        ],
+        "expected_source_in_topk": true,
+        "hook_isolation": {
+          "ok": true,
+          "events": [
+            "UserPromptSubmit"
+          ]
+        },
+        "dep_junk_recalled": [],
+        "exit_code": 0
+      }
+    },
+    {
+      "id": "josdejong-mathjs-fb76ac41",
+      "off": {
+        "task_id": "josdejong-mathjs-fb76ac41",
+        "repo": "josdejong/mathjs",
+        "pr_commit": "fb76ac419d680543d2ecff70a594e177f3e41b5b",
+        "variant": "OFF",
+        "pass": true,
+        "test_exit": 0,
+        "glob": 0,
+        "grep": 3,
+        "read": 6,
+        "edit": 1,
+        "bash": 6,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 6,
+          "Grep": 3,
+          "Bash": 6,
+          "Edit": 1
+        },
+        "bytes_read": 72141,
+        "tokens": 1136057,
+        "duration_ms": 57250,
+        "wall_sec": 62.2,
+        "cost_usd": 0.18645279999999997,
+        "turns": 17,
+        "terminal_reason": "success",
+        "recalled_files": null,
+        "expected_source_in_topk": null,
+        "hook_isolation": null,
+        "dep_junk_recalled": null,
+        "exit_code": 0
+      },
+      "on": {
+        "task_id": "josdejong-mathjs-fb76ac41",
+        "repo": "josdejong/mathjs",
+        "pr_commit": "fb76ac419d680543d2ecff70a594e177f3e41b5b",
+        "variant": "ON",
+        "pass": true,
+        "test_exit": 0,
+        "glob": 0,
+        "grep": 2,
+        "read": 8,
+        "edit": 1,
+        "bash": 7,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 8,
+          "Bash": 7,
+          "Grep": 2,
+          "Edit": 1
+        },
+        "bytes_read": 87271,
+        "tokens": 1264168,
+        "duration_ms": 51247,
+        "wall_sec": 56.5,
+        "cost_usd": 0.20575784999999996,
+        "turns": 19,
+        "terminal_reason": "success",
+        "recalled_files": [
+          "src/expression/parse.js",
+          "tools/docgenerator.js",
+          "src/type/unit/Unit.js"
+        ],
+        "expected_source_in_topk": true,
+        "hook_isolation": {
+          "ok": true,
+          "events": [
+            "UserPromptSubmit"
+          ]
+        },
+        "dep_junk_recalled": [],
+        "exit_code": 0
+      }
+    },
+    {
+      "id": "josdejong-mathjs-837769c7",
+      "off": {
+        "task_id": "josdejong-mathjs-837769c7",
+        "repo": "josdejong/mathjs",
+        "pr_commit": "837769c74886c771986100e3036a92e7a0338616",
+        "variant": "OFF",
+        "pass": true,
+        "test_exit": 0,
+        "glob": 0,
+        "grep": 0,
+        "read": 3,
+        "edit": 1,
+        "bash": 17,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 3,
+          "Bash": 17,
+          "Edit": 1
+        },
+        "bytes_read": 30050,
+        "tokens": 1068848,
+        "duration_ms": 68259,
+        "wall_sec": 73.6,
+        "cost_usd": 0.16678369999999998,
+        "turns": 22,
+        "terminal_reason": "success",
+        "recalled_files": null,
+        "expected_source_in_topk": null,
+        "hook_isolation": null,
+        "dep_junk_recalled": null,
+        "exit_code": 0
+      },
+      "on": {
+        "task_id": "josdejong-mathjs-837769c7",
+        "repo": "josdejong/mathjs",
+        "pr_commit": "837769c74886c771986100e3036a92e7a0338616",
+        "variant": "ON",
+        "pass": false,
+        "test_exit": 1,
+        "glob": 0,
+        "grep": 0,
+        "read": 5,
+        "edit": 0,
+        "bash": 10,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 5,
+          "Bash": 10
+        },
+        "bytes_read": 32685,
+        "tokens": 669689,
+        "duration_ms": 39025,
+        "wall_sec": 42.4,
+        "cost_usd": 0.1096409,
+        "turns": 16,
+        "terminal_reason": "success",
+        "recalled_files": [
+          "src/core/function/import.js",
+          "src/expression/embeddedDocs/core/import.js",
+          "examples/import.js"
+        ],
+        "expected_source_in_topk": true,
+        "hook_isolation": {
+          "ok": true,
+          "events": [
+            "UserPromptSubmit"
+          ]
+        },
+        "dep_junk_recalled": [],
+        "exit_code": 1
+      }
+    },
+    {
+      "id": "josdejong-mathjs-b5d635e5",
+      "off": {
+        "task_id": "josdejong-mathjs-b5d635e5",
+        "repo": "josdejong/mathjs",
+        "pr_commit": "b5d635e5b83cdf2d0d0971a20b0c69758d583fb5",
+        "variant": "OFF",
+        "pass": true,
+        "test_exit": 0,
+        "glob": 1,
+        "grep": 4,
+        "read": 8,
+        "edit": 3,
+        "bash": 14,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 8,
+          "Grep": 4,
+          "Bash": 14,
+          "Glob": 1,
+          "Edit": 3
+        },
+        "bytes_read": 105403,
+        "tokens": 2289664,
+        "duration_ms": 182554,
+        "wall_sec": 184.2,
+        "cost_usd": 0.34563845,
+        "turns": 31,
+        "terminal_reason": "success",
+        "recalled_files": null,
+        "expected_source_in_topk": null,
+        "hook_isolation": null,
+        "dep_junk_recalled": null,
+        "exit_code": 0
+      },
+      "on": {
+        "task_id": "josdejong-mathjs-b5d635e5",
+        "repo": "josdejong/mathjs",
+        "pr_commit": "b5d635e5b83cdf2d0d0971a20b0c69758d583fb5",
+        "variant": "ON",
+        "pass": true,
+        "test_exit": 0,
+        "glob": 0,
+        "grep": 1,
+        "read": 6,
+        "edit": 1,
+        "bash": 10,
+        "powershell": 0,
+        "tool_counts": {
+          "Bash": 10,
+          "Read": 6,
+          "Grep": 1,
+          "Edit": 1
+        },
+        "bytes_read": 36430,
+        "tokens": 924701,
+        "duration_ms": 95210,
+        "wall_sec": 96.7,
+        "cost_usd": 0.15053804999999998,
+        "turns": 19,
+        "terminal_reason": "success",
+        "recalled_files": [
+          "src/expression/parse.js",
+          "tools/docgenerator.js",
+          "src/type/unit/Unit.js"
+        ],
+        "expected_source_in_topk": false,
+        "hook_isolation": {
+          "ok": true,
+          "events": [
+            "UserPromptSubmit"
+          ]
+        },
+        "dep_junk_recalled": [],
+        "exit_code": 0
+      }
+    },
+    {
+      "id": "josdejong-mathjs-1fc742aa",
+      "off": {
+        "task_id": "josdejong-mathjs-1fc742aa",
+        "repo": "josdejong/mathjs",
+        "pr_commit": "1fc742aaf13eb5f2a8de5f507d0d34dcf7c48fef",
+        "variant": "OFF",
+        "pass": true,
+        "test_exit": 0,
+        "glob": 0,
+        "grep": 0,
+        "read": 2,
+        "edit": 1,
+        "bash": 3,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 2,
+          "Bash": 3,
+          "Edit": 1
+        },
+        "bytes_read": 27436,
+        "tokens": 279021,
+        "duration_ms": 53771,
+        "wall_sec": 55.2,
+        "cost_usd": 0.0684496,
+        "turns": 7,
+        "terminal_reason": "success",
+        "recalled_files": null,
+        "expected_source_in_topk": null,
+        "hook_isolation": null,
+        "dep_junk_recalled": null,
+        "exit_code": 0
+      },
+      "on": {
+        "task_id": "josdejong-mathjs-1fc742aa",
+        "repo": "josdejong/mathjs",
+        "pr_commit": "1fc742aaf13eb5f2a8de5f507d0d34dcf7c48fef",
+        "variant": "ON",
+        "pass": true,
+        "test_exit": 0,
+        "glob": 0,
+        "grep": 0,
+        "read": 3,
+        "edit": 1,
+        "bash": 3,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 3,
+          "Bash": 3,
+          "Edit": 1
+        },
+        "bytes_read": 28618,
+        "tokens": 372204,
+        "duration_ms": 54967,
+        "wall_sec": 56.2,
+        "cost_usd": 0.07705255,
+        "turns": 8,
+        "terminal_reason": "success",
+        "recalled_files": [
+          "src/core/function/import.js",
+          "src/expression/embeddedDocs/core/import.js",
+          "examples/import.js"
+        ],
+        "expected_source_in_topk": true,
+        "hook_isolation": {
+          "ok": true,
+          "events": [
+            "UserPromptSubmit"
+          ]
+        },
+        "dep_junk_recalled": [],
+        "exit_code": 0
+      }
+    },
+    {
+      "id": "josdejong-mathjs-e5bb6465",
+      "off": {
+        "task_id": "josdejong-mathjs-e5bb6465",
+        "repo": "josdejong/mathjs",
+        "pr_commit": "e5bb6465a922c17defd7481a7e5d8997d3b6566b",
+        "variant": "OFF",
+        "pass": true,
+        "test_exit": 0,
+        "glob": 0,
+        "grep": 0,
+        "read": 6,
+        "edit": 1,
+        "bash": 5,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 6,
+          "Bash": 5,
+          "Edit": 1
+        },
+        "bytes_read": 18798,
+        "tokens": 585081,
+        "duration_ms": 87344,
+        "wall_sec": 88.7,
+        "cost_usd": 0.10541595000000001,
+        "turns": 13,
+        "terminal_reason": "success",
+        "recalled_files": null,
+        "expected_source_in_topk": null,
+        "hook_isolation": null,
+        "dep_junk_recalled": null,
+        "exit_code": 0
+      },
+      "on": {
+        "task_id": "josdejong-mathjs-e5bb6465",
+        "repo": "josdejong/mathjs",
+        "pr_commit": "e5bb6465a922c17defd7481a7e5d8997d3b6566b",
+        "variant": "ON",
+        "pass": true,
+        "test_exit": 0,
+        "glob": 0,
+        "grep": 0,
+        "read": 4,
+        "edit": 1,
+        "bash": 5,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 4,
+          "Bash": 5,
+          "Edit": 1
+        },
+        "bytes_read": 88600,
+        "tokens": 692213,
+        "duration_ms": 77129,
+        "wall_sec": 78.5,
+        "cost_usd": 0.14473565,
+        "turns": 11,
+        "terminal_reason": "success",
+        "recalled_files": [
+          "src/expression/parse.js",
+          "tools/docgenerator.js",
+          "src/type/unit/Unit.js"
+        ],
+        "expected_source_in_topk": true,
+        "hook_isolation": {
+          "ok": true,
+          "events": [
+            "UserPromptSubmit"
+          ]
+        },
+        "dep_junk_recalled": [],
+        "exit_code": 0
+      }
+    },
+    {
+      "id": "josdejong-mathjs-b5773df3",
+      "off": {
+        "task_id": "josdejong-mathjs-b5773df3",
+        "repo": "josdejong/mathjs",
+        "pr_commit": "b5773df3c0444000d8de57c60faa0933bf3e9585",
+        "variant": "OFF",
+        "pass": true,
+        "test_exit": 0,
+        "glob": 0,
+        "grep": 4,
+        "read": 5,
+        "edit": 2,
+        "bash": 4,
+        "powershell": 0,
+        "tool_counts": {
+          "Bash": 4,
+          "Grep": 4,
+          "Read": 5,
+          "Edit": 2
+        },
+        "bytes_read": 11522,
+        "tokens": 692792,
+        "duration_ms": 74979,
+        "wall_sec": 77.1,
+        "cost_usd": 0.11077185,
+        "turns": 16,
+        "terminal_reason": "success",
+        "recalled_files": null,
+        "expected_source_in_topk": null,
+        "hook_isolation": null,
+        "dep_junk_recalled": null,
+        "exit_code": 0
+      },
+      "on": {
+        "task_id": "josdejong-mathjs-b5773df3",
+        "repo": "josdejong/mathjs",
+        "pr_commit": "b5773df3c0444000d8de57c60faa0933bf3e9585",
+        "variant": "ON",
+        "pass": true,
+        "test_exit": 0,
+        "glob": 0,
+        "grep": 0,
+        "read": 3,
+        "edit": 1,
+        "bash": 4,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 3,
+          "Bash": 4,
+          "Edit": 1
+        },
+        "bytes_read": 29496,
+        "tokens": 454229,
+        "duration_ms": 50098,
+        "wall_sec": 51.5,
+        "cost_usd": 0.08897200000000001,
+        "turns": 9,
+        "terminal_reason": "success",
+        "recalled_files": [
+          "src/expression/node/Node.js",
+          "src/utils/function.js",
+          "types/index.d.ts"
+        ],
+        "expected_source_in_topk": false,
+        "hook_isolation": {
+          "ok": true,
+          "events": [
+            "UserPromptSubmit"
+          ]
+        },
+        "dep_junk_recalled": [],
+        "exit_code": 0
+      }
+    },
+    {
+      "id": "Textualize-rich-e2a982d5",
+      "off": {
+        "task_id": "Textualize-rich-e2a982d5",
+        "repo": "Textualize/rich",
+        "pr_commit": "e2a982d5ea747f0deb7f78e8eaa5b4be7d9194cf",
+        "variant": "OFF",
+        "pass": false,
+        "test_exit": 127,
+        "glob": 0,
+        "grep": 0,
+        "read": 11,
+        "edit": 1,
+        "bash": 13,
+        "powershell": 0,
+        "tool_counts": {
+          "Bash": 13,
+          "Read": 11,
+          "Edit": 1
+        },
+        "bytes_read": 19611,
+        "tokens": 1184123,
+        "duration_ms": 57761,
+        "wall_sec": 59.5,
+        "cost_usd": 0.17243789999999998,
+        "turns": 26,
+        "terminal_reason": "success",
+        "recalled_files": null,
+        "expected_source_in_topk": null,
+        "hook_isolation": null,
+        "dep_junk_recalled": null,
+        "exit_code": 0
+      },
+      "on": {
+        "task_id": "Textualize-rich-e2a982d5",
+        "repo": "Textualize/rich",
+        "pr_commit": "e2a982d5ea747f0deb7f78e8eaa5b4be7d9194cf",
+        "variant": "ON",
+        "pass": false,
+        "test_exit": 127,
+        "glob": 0,
+        "grep": 0,
+        "read": 10,
+        "edit": 1,
+        "bash": 20,
+        "powershell": 0,
+        "tool_counts": {
+          "Bash": 20,
+          "Read": 10,
+          "Edit": 1
+        },
+        "bytes_read": 12370,
+        "tokens": 1428691,
+        "duration_ms": 120610,
+        "wall_sec": 122.1,
+        "cost_usd": 0.20143885,
+        "turns": 32,
+        "terminal_reason": "success",
+        "recalled_files": [
+          "rich/console.py",
+          "rich/_win32_console.py",
+          "rich/layout.py"
+        ],
+        "expected_source_in_topk": true,
+        "hook_isolation": {
+          "ok": true,
+          "events": [
+            "UserPromptSubmit"
+          ]
+        },
+        "dep_junk_recalled": [],
+        "exit_code": 0
+      }
+    },
+    {
+      "id": "Textualize-rich-1b2dada1",
+      "off": {
+        "task_id": "Textualize-rich-1b2dada1",
+        "repo": "Textualize/rich",
+        "pr_commit": "1b2dada1c9fa6f16ec319a8d370458c8bde203f7",
+        "variant": "OFF",
+        "pass": false,
+        "test_exit": 127,
+        "glob": 0,
+        "grep": 0,
+        "read": 6,
+        "edit": 1,
+        "bash": 17,
+        "powershell": 0,
+        "tool_counts": {
+          "Bash": 17,
+          "Read": 6,
+          "Edit": 1
+        },
+        "bytes_read": 9637,
+        "tokens": 1114093,
+        "duration_ms": 71353,
+        "wall_sec": 73.5,
+        "cost_usd": 0.16276945,
+        "turns": 25,
+        "terminal_reason": "success",
+        "recalled_files": null,
+        "expected_source_in_topk": null,
+        "hook_isolation": null,
+        "dep_junk_recalled": null,
+        "exit_code": 0
+      },
+      "on": {
+        "task_id": "Textualize-rich-1b2dada1",
+        "repo": "Textualize/rich",
+        "pr_commit": "1b2dada1c9fa6f16ec319a8d370458c8bde203f7",
+        "variant": "ON",
+        "pass": false,
+        "test_exit": 127,
+        "glob": 0,
+        "grep": 1,
+        "read": 6,
+        "edit": 1,
+        "bash": 18,
+        "powershell": 0,
+        "tool_counts": {
+          "Bash": 18,
+          "Read": 6,
+          "Grep": 1,
+          "Edit": 1
+        },
+        "bytes_read": 41069,
+        "tokens": 1455251,
+        "duration_ms": 79525,
+        "wall_sec": 81.4,
+        "cost_usd": 0.21903425,
+        "turns": 27,
+        "terminal_reason": "success",
+        "recalled_files": [
+          "rich/text.py",
+          "benchmarks/benchmarks.py",
+          "rich/containers.py"
+        ],
+        "expected_source_in_topk": true,
+        "hook_isolation": {
+          "ok": true,
+          "events": [
+            "UserPromptSubmit"
+          ]
+        },
+        "dep_junk_recalled": [],
+        "exit_code": 0
+      }
+    },
+    {
+      "id": "Textualize-rich-b6f2f7aa",
+      "off": {
+        "task_id": "Textualize-rich-b6f2f7aa",
+        "repo": "Textualize/rich",
+        "pr_commit": "b6f2f7aa5b27f612f391cd28212aff51ad0d42d1",
+        "variant": "OFF",
+        "pass": false,
+        "test_exit": 127,
+        "glob": 1,
+        "grep": 0,
+        "read": 6,
+        "edit": 1,
+        "bash": 18,
+        "powershell": 0,
+        "tool_counts": {
+          "Bash": 18,
+          "Read": 6,
+          "Glob": 1,
+          "Edit": 1
+        },
+        "bytes_read": 28441,
+        "tokens": 1488741,
+        "duration_ms": 120899,
+        "wall_sec": 123.4,
+        "cost_usd": 0.25513005,
+        "turns": 27,
+        "terminal_reason": "success",
+        "recalled_files": null,
+        "expected_source_in_topk": null,
+        "hook_isolation": null,
+        "dep_junk_recalled": null,
+        "exit_code": 0
+      },
+      "on": {
+        "task_id": "Textualize-rich-b6f2f7aa",
+        "repo": "Textualize/rich",
+        "pr_commit": "b6f2f7aa5b27f612f391cd28212aff51ad0d42d1",
+        "variant": "ON",
+        "pass": false,
+        "test_exit": 127,
+        "glob": 0,
+        "grep": 0,
+        "read": 6,
+        "edit": 3,
+        "bash": 21,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 6,
+          "Bash": 21,
+          "Edit": 3
+        },
+        "bytes_read": 34715,
+        "tokens": 1877730,
+        "duration_ms": 170192,
+        "wall_sec": 173.6,
+        "cost_usd": 0.3410432500000001,
+        "turns": 31,
+        "terminal_reason": "success",
+        "recalled_files": [
+          "rich/highlighter.py",
+          "examples/highlighter.py",
+          "examples/rainbow.py"
+        ],
+        "expected_source_in_topk": true,
+        "hook_isolation": {
+          "ok": true,
+          "events": [
+            "UserPromptSubmit"
+          ]
+        },
+        "dep_junk_recalled": [],
+        "exit_code": 0
+      }
+    },
+    {
+      "id": "Textualize-rich-dc7a195a",
+      "off": {
+        "task_id": "Textualize-rich-dc7a195a",
+        "repo": "Textualize/rich",
+        "pr_commit": "dc7a195acd480326c2449ec0829726ecd91e0c68",
+        "variant": "OFF",
+        "pass": false,
+        "test_exit": 127,
+        "glob": 0,
+        "grep": 1,
+        "read": 4,
+        "edit": 1,
+        "bash": 6,
+        "powershell": 0,
+        "tool_counts": {
+          "Bash": 6,
+          "Read": 4,
+          "Grep": 1,
+          "Edit": 1
+        },
+        "bytes_read": 65823,
+        "tokens": 665453,
+        "duration_ms": 41942,
+        "wall_sec": 44.6,
+        "cost_usd": 0.1308627,
+        "turns": 13,
+        "terminal_reason": "success",
+        "recalled_files": null,
+        "expected_source_in_topk": null,
+        "hook_isolation": null,
+        "dep_junk_recalled": null,
+        "exit_code": 0
+      },
+      "on": {
+        "task_id": "Textualize-rich-dc7a195a",
+        "repo": "Textualize/rich",
+        "pr_commit": "dc7a195acd480326c2449ec0829726ecd91e0c68",
+        "variant": "ON",
+        "pass": false,
+        "test_exit": 127,
+        "glob": 0,
+        "grep": 0,
+        "read": 7,
+        "edit": 2,
+        "bash": 8,
+        "powershell": 0,
+        "tool_counts": {
+          "Bash": 8,
+          "Read": 7,
+          "Edit": 2
+        },
+        "bytes_read": 8029,
+        "tokens": 755263,
+        "duration_ms": 64724,
+        "wall_sec": 67.5,
+        "cost_usd": 0.11978710000000001,
+        "turns": 18,
+        "terminal_reason": "success",
+        "recalled_files": [
+          "rich/pretty.py",
+          "tools/profile_pretty.py",
+          "tools/stress_test_pretty.py"
+        ],
+        "expected_source_in_topk": true,
+        "hook_isolation": {
+          "ok": true,
+          "events": [
+            "UserPromptSubmit"
+          ]
+        },
+        "dep_junk_recalled": [],
+        "exit_code": 0
+      }
+    },
+    {
+      "id": "Textualize-rich-d5dcc74d",
+      "off": {
+        "task_id": "Textualize-rich-d5dcc74d",
+        "repo": "Textualize/rich",
+        "pr_commit": "d5dcc74d0255d3dbcbb9f0bba208bdde2e40ec54",
+        "variant": "OFF",
+        "pass": false,
+        "test_exit": 127,
+        "glob": 0,
+        "grep": 0,
+        "read": 9,
+        "edit": 1,
+        "bash": 33,
+        "powershell": 0,
+        "tool_counts": {
+          "Bash": 33,
+          "Read": 9,
+          "Edit": 1
+        },
+        "bytes_read": 49457,
+        "tokens": 2658229,
+        "duration_ms": 183815,
+        "wall_sec": 187.5,
+        "cost_usd": 0.4249587000000001,
+        "turns": 44,
+        "terminal_reason": "success",
+        "recalled_files": null,
+        "expected_source_in_topk": null,
+        "hook_isolation": null,
+        "dep_junk_recalled": null,
+        "exit_code": 0
+      },
+      "on": {
+        "task_id": "Textualize-rich-d5dcc74d",
+        "repo": "Textualize/rich",
+        "pr_commit": "d5dcc74d0255d3dbcbb9f0bba208bdde2e40ec54",
+        "variant": "ON",
+        "pass": false,
+        "test_exit": 127,
+        "glob": 0,
+        "grep": 0,
+        "read": 7,
+        "edit": 1,
+        "bash": 18,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 7,
+          "Bash": 18,
+          "Edit": 1
+        },
+        "bytes_read": 30491,
+        "tokens": 1405626,
+        "duration_ms": 96298,
+        "wall_sec": 98,
+        "cost_usd": 0.23165834999999996,
+        "turns": 27,
+        "terminal_reason": "success",
+        "recalled_files": [
+          "rich/segment.py",
+          "rich/jupyter.py",
+          "rich/tree.py"
+        ],
+        "expected_source_in_topk": true,
+        "hook_isolation": {
+          "ok": true,
+          "events": [
+            "UserPromptSubmit"
+          ]
+        },
+        "dep_junk_recalled": [],
+        "exit_code": 0
+      }
+    },
+    {
+      "id": "Textualize-rich-66074922",
+      "off": {
+        "task_id": "Textualize-rich-66074922",
+        "repo": "Textualize/rich",
+        "pr_commit": "66074922edabeac684434b4d87ee994fb97b0627",
+        "variant": "OFF",
+        "pass": false,
+        "test_exit": 127,
+        "glob": 0,
+        "grep": 0,
+        "read": 11,
+        "edit": 1,
+        "bash": 23,
+        "powershell": 0,
+        "tool_counts": {
+          "Bash": 23,
+          "Read": 11,
+          "Edit": 1,
+          "Write": 4
+        },
+        "bytes_read": 44153,
+        "tokens": 2046520,
+        "duration_ms": 103159,
+        "wall_sec": 104.9,
+        "cost_usd": 0.2911537,
+        "turns": 40,
+        "terminal_reason": "success",
+        "recalled_files": null,
+        "expected_source_in_topk": null,
+        "hook_isolation": null,
+        "dep_junk_recalled": null,
+        "exit_code": 0
+      },
+      "on": {
+        "task_id": "Textualize-rich-66074922",
+        "repo": "Textualize/rich",
+        "pr_commit": "66074922edabeac684434b4d87ee994fb97b0627",
+        "variant": "ON",
+        "pass": false,
+        "test_exit": 127,
+        "glob": 0,
+        "grep": 2,
+        "read": 7,
+        "edit": 1,
+        "bash": 17,
+        "powershell": 0,
+        "tool_counts": {
+          "Bash": 17,
+          "Read": 7,
+          "Grep": 2,
+          "Edit": 1,
+          "Write": 1
+        },
+        "bytes_read": 22874,
+        "tokens": 1331270,
+        "duration_ms": 67662,
+        "wall_sec": 69,
+        "cost_usd": 0.19186965000000006,
+        "turns": 29,
+        "terminal_reason": "success",
+        "recalled_files": [
+          "rich/table.py",
+          "examples/table.py",
+          "examples/table_movie.py"
+        ],
+        "expected_source_in_topk": true,
+        "hook_isolation": {
+          "ok": true,
+          "events": [
+            "UserPromptSubmit"
+          ]
+        },
+        "dep_junk_recalled": [],
+        "exit_code": 0
+      }
+    },
+    {
+      "id": "colinhacks-zod-3a818de1",
+      "off": {
+        "task_id": "colinhacks-zod-3a818de1",
+        "repo": "colinhacks/zod",
+        "pr_commit": "3a818de145dc2fa9b5753bc8bf97b0b8484cfbaf",
+        "variant": "OFF",
+        "pass": false,
+        "test_exit": 1,
+        "glob": 1,
+        "grep": 0,
+        "read": 5,
+        "edit": 1,
+        "bash": 7,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 5,
+          "Bash": 7,
+          "Glob": 1,
+          "Edit": 1
+        },
+        "bytes_read": 25513,
+        "tokens": 719104,
+        "duration_ms": 43769,
+        "wall_sec": 45.4,
+        "cost_usd": 0.12596385000000002,
+        "turns": 15,
+        "terminal_reason": "success",
+        "recalled_files": null,
+        "expected_source_in_topk": null,
+        "hook_isolation": null,
+        "dep_junk_recalled": null,
+        "exit_code": 0
+      },
+      "on": {
+        "task_id": "colinhacks-zod-3a818de1",
+        "repo": "colinhacks/zod",
+        "pr_commit": "3a818de145dc2fa9b5753bc8bf97b0b8484cfbaf",
+        "variant": "ON",
+        "pass": false,
+        "test_exit": 1,
+        "glob": 0,
+        "grep": 0,
+        "read": 4,
+        "edit": 1,
+        "bash": 6,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 4,
+          "Bash": 6,
+          "Edit": 1
+        },
+        "bytes_read": 46054,
+        "tokens": 663676,
+        "duration_ms": 41794,
+        "wall_sec": 43.1,
+        "cost_usd": 0.12437885,
+        "turns": 12,
+        "terminal_reason": "success",
+        "recalled_files": [
+          "packages/bench/number.ts",
+          "packages/zod/src/v4/core/util.ts",
+          "packages/zod/src/v4/core/schemas.ts"
+        ],
+        "expected_source_in_topk": true,
+        "hook_isolation": {
+          "ok": true,
+          "events": [
+            "UserPromptSubmit"
+          ]
+        },
+        "dep_junk_recalled": [],
+        "exit_code": 0
+      }
+    },
+    {
+      "id": "colinhacks-zod-2f8414bc",
+      "off": {
+        "task_id": "colinhacks-zod-2f8414bc",
+        "repo": "colinhacks/zod",
+        "pr_commit": "2f8414bc90cebc76be87c3640617e300a5d9b060",
+        "variant": "OFF",
+        "pass": true,
+        "test_exit": 0,
+        "glob": 0,
+        "grep": 0,
+        "read": 15,
+        "edit": 7,
+        "bash": 24,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 15,
+          "Bash": 24,
+          "TaskOutput": 2,
+          "Edit": 7
+        },
+        "bytes_read": 81171,
+        "tokens": 4303427,
+        "duration_ms": 509285,
+        "wall_sec": 512.3,
+        "cost_usd": 0.5910637000000001,
+        "turns": 49,
+        "terminal_reason": "success",
+        "recalled_files": null,
+        "expected_source_in_topk": null,
+        "hook_isolation": null,
+        "dep_junk_recalled": null,
+        "exit_code": 0
+      },
+      "on": {
+        "task_id": "colinhacks-zod-2f8414bc",
+        "repo": "colinhacks/zod",
+        "pr_commit": "2f8414bc90cebc76be87c3640617e300a5d9b060",
+        "variant": "ON",
+        "pass": false,
+        "test_exit": 1,
+        "glob": 0,
+        "grep": 1,
+        "read": 15,
+        "edit": 1,
+        "bash": 19,
+        "powershell": 0,
+        "tool_counts": {
+          "Bash": 19,
+          "Read": 15,
+          "Grep": 1,
+          "Edit": 1
+        },
+        "bytes_read": 24164,
+        "tokens": 1956410,
+        "duration_ms": 113836,
+        "wall_sec": 115.5,
+        "cost_usd": 0.27691345,
+        "turns": 37,
+        "terminal_reason": "success",
+        "recalled_files": [
+          "packages/zod/src/v4/core/schemas.ts",
+          "packages/zod/src/v4/classic/schemas.ts",
+          "packages/zod/src/v4/core/api.ts"
+        ],
+        "expected_source_in_topk": true,
+        "hook_isolation": {
+          "ok": true,
+          "events": [
+            "UserPromptSubmit"
+          ]
+        },
+        "dep_junk_recalled": [],
+        "exit_code": 0
+      }
+    },
+    {
+      "id": "colinhacks-zod-60ff3987",
+      "off": {
+        "task_id": "colinhacks-zod-60ff3987",
+        "repo": "colinhacks/zod",
+        "pr_commit": "60ff398771bb4b6df04d96f00b9a10ee561ee7af",
+        "variant": "OFF",
+        "pass": false,
+        "test_exit": 1,
+        "glob": 0,
+        "grep": 0,
+        "read": 6,
+        "edit": 2,
+        "bash": 12,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 6,
+          "Bash": 12,
+          "Edit": 2
+        },
+        "bytes_read": 42148,
+        "tokens": 1130145,
+        "duration_ms": 202944,
+        "wall_sec": 205.2,
+        "cost_usd": 0.18563625,
+        "turns": 21,
+        "terminal_reason": "success",
+        "recalled_files": null,
+        "expected_source_in_topk": null,
+        "hook_isolation": null,
+        "dep_junk_recalled": null,
+        "exit_code": 0
+      },
+      "on": {
+        "task_id": "colinhacks-zod-60ff3987",
+        "repo": "colinhacks/zod",
+        "pr_commit": "60ff398771bb4b6df04d96f00b9a10ee561ee7af",
+        "variant": "ON",
+        "pass": true,
+        "test_exit": 0,
+        "glob": 0,
+        "grep": 0,
+        "read": 9,
+        "edit": 1,
+        "bash": 9,
+        "powershell": 0,
+        "tool_counts": {
+          "Read": 9,
+          "Bash": 9,
+          "Edit": 1
+        },
+        "bytes_read": 63954,
+        "tokens": 1136012,
+        "duration_ms": 218152,
+        "wall_sec": 224.3,
+        "cost_usd": 0.19320620000000005,
+        "turns": 20,
+        "terminal_reason": "success",
+        "recalled_files": [
+          "packages/bench/error-handling.ts",
+          "packages/zod/src/v4/core/errors.ts",
+          "packages/zod/src/v4/core/parse.ts"
+        ],
+        "expected_source_in_topk": true,
+        "hook_isolation": {
+          "ok": true,
+          "events": [
+            "UserPromptSubmit"
+          ]
+        },
+        "dep_junk_recalled": [],
+        "exit_code": 0
+      }
+    }
+  ]
+}
