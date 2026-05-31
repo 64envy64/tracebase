@@ -121,4 +121,14 @@ describe("organic capture loop", () => {
     expect(model!.featureVersion).toBe(1);
     expect(model!.n).toBeGreaterThanOrEqual(1);
   });
+
+  it("8. capture stamps truthful provenance: distilledBy=rule + capture/distiller versions", () => {
+    const store = makeStore();
+    const out = captureTurnFromTexts(store, { userText: SOLVED_USER, assistantText: SOLVED_ASSISTANT });
+    const block = store.getBlock(out.blockId!)!;
+    // Heuristic capture must NOT claim it ran an LLM distiller.
+    expect(block.provenance.distilledBy).toBe("rule");
+    expect(block.provenance.captureVersion).toBe("capture-heuristic-1");
+    expect(block.provenance.distillerVersion).toBe("heuristic-extract-1");
+  });
 });

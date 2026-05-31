@@ -131,6 +131,14 @@ type CaptureSituation =
 // Soft caps. Intentionally loose on input reading (we'll still cap
 // rendered field lengths at store time) but strict on the "did this
 // turn do real work?" gate.
+/**
+ * Version stamps on every heuristic capture, so a stored block is auditable
+ * back to the capture pipeline + distiller that produced it. Bump on any change
+ * to the extraction heuristics.
+ */
+export const CAPTURE_VERSION = "capture-heuristic-1";
+export const HEURISTIC_DISTILLER_VERSION = "heuristic-extract-1";
+
 const MIN_TASK_CHARS = 80;
 const MIN_OUTCOME_CHARS = 300;
 const MIN_MECHANISM_CHARS = 80;
@@ -759,6 +767,10 @@ export function extractPattern(
     mechanism,
     unlock: unlock.slice(0, MAX_FIELD),
     verification: verification.slice(0, MAX_FIELD),
+    // Heuristic capture — stamp the truthful distiller + versions for audit.
+    distilledBy: "rule",
+    captureVersion: CAPTURE_VERSION,
+    distillerVersion: HEURISTIC_DISTILLER_VERSION,
   };
 }
 

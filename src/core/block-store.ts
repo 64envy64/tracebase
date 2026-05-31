@@ -51,7 +51,7 @@ import { encodeFloat32LE, decodeFloat32 } from "./embedding-codec.js";
 // requesting_principal)` so BlockStore.hardDeleteBlock can both
 // remove a reasoning_blocks row (CASCADE sweeping its case refs)
 // and write an immutable tombstone for compliance audit.
-const V2_SCHEMA_VERSION = 16;
+const V2_SCHEMA_VERSION = 17;
 
 const V2_SCHEMA = `
 CREATE TABLE IF NOT EXISTS reasoning_blocks (
@@ -92,6 +92,8 @@ CREATE TABLE IF NOT EXISTS reasoning_blocks (
   prov_distilled_at           INTEGER NOT NULL,
   prov_distilled_by           TEXT NOT NULL,
   prov_distilled_with_model   TEXT,
+  prov_capture_version        TEXT,         -- v17: capture-pipeline version stamp
+  prov_distiller_version      TEXT,         -- v17: distiller version / name stamp
   prov_parent_trace_id        TEXT,
   prov_distillation_confidence REAL,        -- Phase 4: distiller self-reported 0..1
   prov_validation_report      TEXT,         -- Phase 4: JSON ValidationReport at distill time
@@ -619,6 +621,12 @@ const V2_MIGRATIONS: Record<number, MigrationStep[]> = {
     `ALTER TABLE reasoning_blocks ADD COLUMN prov_distillation_confidence REAL`,
     `ALTER TABLE reasoning_blocks ADD COLUMN prov_validation_report TEXT`,
     `ALTER TABLE reasoning_blocks ADD COLUMN verification TEXT`,
+  ],
+  // v16 → v17: capture + distiller version stamps for provenance audit.
+  // Additive nullable columns; existing rows read back as undefined.
+  17: [
+    `ALTER TABLE reasoning_blocks ADD COLUMN prov_capture_version TEXT`,
+    `ALTER TABLE reasoning_blocks ADD COLUMN prov_distiller_version TEXT`,
   ],
   // v3 → v4: add calibrator_models table for persisted isotonic (etc.)
   // models. Additive; existing rows untouched.
@@ -1406,7 +1414,7 @@ export class BlockStore {
         body_guardrails,
         prov_source_task_id, prov_source_agent, prov_source_model,
         prov_extracted_from, prov_distilled_at, prov_distilled_by,
-        prov_distilled_with_model, prov_parent_trace_id,
+        prov_distilled_with_model, prov_capture_version, prov_distiller_version, prov_parent_trace_id,
         prov_distillation_confidence, prov_validation_report,
         verification,
         stats_times_retrieved, stats_times_injected, stats_times_agent_used,
@@ -1422,7 +1430,7 @@ export class BlockStore {
         @body_guardrails,
         @prov_source_task_id, @prov_source_agent, @prov_source_model,
         @prov_extracted_from, @prov_distilled_at, @prov_distilled_by,
-        @prov_distilled_with_model, @prov_parent_trace_id,
+        @prov_distilled_with_model, @prov_capture_version, @prov_distiller_version, @prov_parent_trace_id,
         @prov_distillation_confidence, @prov_validation_report,
         @verification,
         @stats_times_retrieved, @stats_times_injected, @stats_times_agent_used,
@@ -1579,6 +1587,8 @@ export class BlockStore {
         prov_distilled_at = @prov_distilled_at,
         prov_distilled_by = @prov_distilled_by,
         prov_distilled_with_model = @prov_distilled_with_model,
+        prov_capture_version = @prov_capture_version,
+        prov_distiller_version = @prov_distiller_version,
         prov_parent_trace_id = @prov_parent_trace_id,
         prov_distillation_confidence = @prov_distillation_confidence,
         prov_validation_report = @prov_validation_report,
@@ -2962,6 +2972,8 @@ export class BlockStore {
       prov_distilled_at: b.provenance.distilledAt,
       prov_distilled_by: b.provenance.distilledBy,
       prov_distilled_with_model: b.provenance.distilledWithModel ?? null,
+      prov_capture_version: b.provenance.captureVersion ?? null,
+      prov_distiller_version: b.provenance.distillerVersion ?? null,
       prov_parent_trace_id: b.provenance.parentTraceId ?? null,
       prov_distillation_confidence: b.provenance.distillationConfidence ?? null,
       prov_validation_report: b.provenance.validationReport
@@ -3042,6 +3054,8 @@ export class BlockStore {
         distilledAt: r.prov_distilled_at,
         distilledBy: r.prov_distilled_by as ReasoningBlock["provenance"]["distilledBy"],
         distilledWithModel: r.prov_distilled_with_model ?? undefined,
+        captureVersion: r.prov_capture_version ?? undefined,
+        distillerVersion: r.prov_distiller_version ?? undefined,
         parentTraceId: r.prov_parent_trace_id ?? undefined,
         distillationConfidence: r.prov_distillation_confidence ?? undefined,
         validationReport: r.prov_validation_report
@@ -3257,6 +3271,8 @@ interface BlockRow {
   prov_distilled_at: number;
   prov_distilled_by: string;
   prov_distilled_with_model: string | null;
+  prov_capture_version: string | null;
+  prov_distiller_version: string | null;
   prov_parent_trace_id: string | null;
   prov_distillation_confidence: number | null;
   prov_validation_report: string | null;

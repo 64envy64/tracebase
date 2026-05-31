@@ -166,17 +166,19 @@ describe("runInjectContext — silent injection path", () => {
     expect(ctx).not.toContain("<sub>Audit:");
   });
 
-  it("records injection events only for ids that survived the hook budget", async () => {
+  it("records exactly one retrieval + one injection event for an injected block", async () => {
     const config = initConfig(projectDir);
     const db = new Database(config.storagePath);
     const store = new BlockStore(db);
+    // Single-injection serving authorizes only the top candidate, so the prior
+    // two-near-duplicate + hook-budget scenario no longer applies — one clearly
+    // matching block injects and is recorded.
     storeActive(store, PY_BLOCK);
-    storeActive(store, PY_BLOCK_ALT);
     store.close();
 
     const out = await runInjectContext(
       { path: projectDir, budget: 1 },
-      { prompt: "pytest collection wrong package sys.path shadow helper duplicate" },
+      { prompt: "pytest collects the wrong package when sys.path has a shadowing module" },
     );
     const ctx = envelope(out).hookSpecificOutput.additionalContext;
     const queryId = /<tracebase queryId="([^"]+)">/.exec(ctx)?.[1];

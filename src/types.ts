@@ -954,6 +954,10 @@ export interface BlockProvenance {
   distilledAt: number;
   distilledBy: "llm" | "rule" | "manual";
   distilledWithModel?: string;
+  /** Version of the capture pipeline that produced this block (audit). */
+  captureVersion?: string;
+  /** Version / name of the distiller that produced this block (audit). */
+  distillerVersion?: string;
   /** Link back to the full trace if retained. */
   parentTraceId?: string;
   /**
