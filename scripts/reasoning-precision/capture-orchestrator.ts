@@ -134,18 +134,22 @@ function writeHookConfig(ws: string, arm: "capture" | "recall"): void {
   writeFileSync(join(ws, ".claude", "settings.json"), JSON.stringify({ hooks }, null, 2) + "\n");
 }
 
-function buildPrompt(task: ManifestRow, ws: string): string {
-  const srcTop = task.sourceFilesTouched[0]?.split("/").slice(0, -1).join("/") || "the source";
+function buildPrompt(task: ManifestRow): string {
+  const srcTop = task.sourceFilesTouched[0]?.split("/").slice(0, -1).join("/") || "the source tree";
+  // The PROBLEM statement leads (it seeds the captured `situation`). NO absolute
+  // path appears anywhere the capture path can read — the agent already runs with
+  // cwd set to the workspace, and the test command is repo-relative. Operational
+  // scaffolding (cwd, command, rules) lives in a trailing machine-rules section
+  // the capture extractor skips.
   return [
-    "Working directory (operate strictly inside):", toPosix(ws), "",
-    `Task: a unit test is failing in [${task.expectedFailingTest}]. Find and fix the bug`,
-    `(it is somewhere under [${srcTop}]). Context: ${task.sourceFamily} — "${task.expectedFailingTest}".`,
-    "", "Rules:",
-    "- Work only inside the working directory.",
-    `- Run the test with exactly: ${task.verificationCommand}`,
+    `A unit test fails: ${task.expectedFailingTest}. There is a bug in the source under ${srcTop} (problem area: ${task.sourceFamily}). Find and fix the root cause so the failing test passes; do not modify the test.`,
+    "",
+    "--- machine rules (operational, not part of the problem) ---",
+    "- Operate only inside the current working directory; use repo-relative paths.",
+    `- Run the failing test with: ${task.verificationCommand}`,
     "- Do NOT install or update packages. Do NOT modify the test file. Keep the patch minimal.",
-    "- When you have a fix, briefly state the root cause and what you changed, then run the test to confirm it passes.",
-    "", "End your response with the literal text 'DONE'.",
+    "- When fixed, briefly explain under a '## Root Cause' heading and a '## Fix' heading what was wrong and what you changed, then re-run the test to confirm it passes.",
+    "- End your response with the literal text 'DONE'.",
   ].join("\n");
 }
 
@@ -263,7 +267,7 @@ async function run(): Promise<void> {
       writeHookConfig(ws, task.arm);
       const capturedBefore = task.arm === "capture" ? runtimeCapturedCount() : 0;
       const t0 = Date.now();
-      const traj = runTrajectory({ workspace: ws, prompt: buildPrompt(task, ws), sessionId, model: MODEL, maxBudgetUsd: MAX_TRAJ_USD, allowedTools: "Read,Edit,Bash,Grep,Glob", timeoutMs: 600_000 });
+      const traj = runTrajectory({ workspace: ws, prompt: buildPrompt(task), sessionId, model: MODEL, maxBudgetUsd: MAX_TRAJ_USD, allowedTools: "Read,Edit,Bash,Grep,Glob", timeoutMs: 600_000 });
       const cost = num(traj.parsed, "total_cost_usd") ?? 0;
       const tokens = totalTokens((traj.parsed as any)?.usage);
       const empty = tokens === 0 && cost === 0 && traj.exitCode !== 0;
