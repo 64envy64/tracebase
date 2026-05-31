@@ -54,6 +54,7 @@ describe("dogfood monitor", () => {
     expect(r.store.captured).toBe(0);
     expect(r.ready).toBe(false);
     expect(r.privacy.rawPromptsStored).toBe(0);
+    expect(r.families.familiesWithHoldoutOutcomes).toBe(0);
     expect(r.blockers.some((b) => b.startsWith("capturedRuntime"))).toBe(true);
     expect(r.blockers.some((b) => b.includes("recurring-families: 0"))).toBe(true);
     store.close();

@@ -26,7 +26,7 @@ export interface DogfoodReport {
   privacy: { captureErrors: number; byReason: Record<string, number>; privacyRejects: number; rawPromptsStored: number };
   calibrator: { version: string; coverage: number; injectionEvents: number };
   quality: { firedQueries: number; correctFires: number; precisionAtFire: number | null; precisionWilsonLB: number | null; falsePositiveRateProxy: number | null };
-  families: FamilyStats;
+  families: FamilyStats & { familiesWithHoldoutOutcomes: number };
   gate: Record<string, { value: number | null; required: number; comparator: "gte" | "lte"; pass: boolean }>;
   ready: boolean;
   blockers: string[];
@@ -72,6 +72,11 @@ export function buildDogfoodReport(store: BlockStore): DogfoodReport {
     if (b) runtimeBlocks.push({ id: b.id, trigger: { situation: b.trigger.situation }, body: { mechanism: b.body.mechanism } });
   }
   const families = clusterFamilies(runtimeBlocks);
+  // Recurring families that already have a leakage-safe holdout outcome (a member
+  // block attributed to a resolved recall). 0 until problems genuinely recur AND
+  // a later instance recalls them — the signal the dogfood path is meant to grow.
+  const attrByBlock = new Map(manifest.entries.map((e) => [e.blockId, e.attributedResolved]));
+  const familiesWithHoldoutOutcomes = families.recurring.filter((f) => f.blockIds.some((id) => (attrByBlock.get(id) ?? 0) > 0)).length;
 
   // privacy rejects = capture-store rejections (validation/leakage). rawPromptsStored
   // is 0 by construction (blocks store distilled, scanned situations; the exported
@@ -96,7 +101,7 @@ export function buildDogfoodReport(store: BlockStore): DogfoodReport {
     privacy: { captureErrors, byReason: captureErrByReason, privacyRejects, rawPromptsStored: 0 },
     calibrator: { version: calibratorVersion, coverage: injectionEvents ? calibratedEvents / injectionEvents : 0, injectionEvents },
     quality: { firedQueries, correctFires, precisionAtFire, precisionWilsonLB, falsePositiveRateProxy },
-    families,
+    families: { ...families, familiesWithHoldoutOutcomes },
     gate,
     ready,
     blockers,
@@ -110,7 +115,7 @@ function format(r: DogfoodReport): string {
   L.push(`capture:  ${r.store.captured} captured (${r.store.runtimeCaptured} runtime, ${r.store.imported} imported) · deduped ${r.store.duplicates} · attributed ${r.store.attributed}`);
   L.push(`serving:  fired ${r.store.fired} blocks · ${r.quality.firedQueries} fired queries · precision-ready ${r.store.precisionReady}`);
   L.push(`quality:  precision@fire ${pc(r.quality.precisionAtFire)} · WilsonLB ${pc(r.quality.precisionWilsonLB)} · FP(proxy) ${pc(r.quality.falsePositiveRateProxy)}`);
-  L.push(`families: ${r.families.families} total · ${r.families.recurringFamilies} recurring (≥2 captures) · largest ${r.families.largestFamilySize}`);
+  L.push(`families: ${r.families.families} total · ${r.families.recurringFamilies} recurring (≥2 captures) · ${r.families.familiesWithHoldoutOutcomes} with holdout outcomes · largest ${r.families.largestFamilySize}`);
   L.push(`privacy:  ${r.privacy.privacyRejects} privacy/validation rejects · ${r.privacy.captureErrors} capture errors · raw prompts stored ${r.privacy.rawPromptsStored}`);
   L.push(`calibrator: ${r.calibrator.version} · coverage ${pc(r.calibrator.coverage)} (${r.calibrator.injectionEvents} injections)`);
   L.push(`\nreadiness gate (locked organic):`);
