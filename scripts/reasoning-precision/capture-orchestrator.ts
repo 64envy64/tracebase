@@ -222,8 +222,15 @@ async function run(): Promise<void> {
   mkdirSync(WS_DIR, { recursive: true });
   process.env.TRACEBASE_SKIP_HOOK_SELF_HEAL = "1";
 
-  // Phase A (capture) before Phase B (recall) — recall needs captured blocks.
-  const ordered = [...mf.tasks.filter((t) => t.arm === "capture"), ...mf.tasks.filter((t) => t.arm === "recall")];
+  // Order: 10 capture → 10 recall (so the committed 10+10 health checkpoint
+  // fires: runState.healthDue needs captureDone===10 && recallDone===10) → the
+  // remaining capture → the remaining recall. This honors the operator's
+  // "first 10 capture + 10 recall" checkpoint while still running the bulk of
+  // recall against the full captured corpus (recall needs captured blocks).
+  const cap = mf.tasks.filter((t) => t.arm === "capture");
+  const rec = mf.tasks.filter((t) => t.arm === "recall");
+  const C = HEALTH_CHECKPOINT.capture, R = HEALTH_CHECKPOINT.recall;
+  const ordered = [...cap.slice(0, C), ...rec.slice(0, R), ...cap.slice(C), ...rec.slice(R)];
   const prior = loadProgress();
   const done = new Map<string, any>(prior.filter((r) => !r.empty).map((r) => [r.taskId, r]));
   const records: TrajRecord[] = prior.filter((r) => !r.empty).map((r) => r.record);
@@ -283,13 +290,32 @@ async function run(): Promise<void> {
     const leak = withStore((s) => buildDogfoodManifest(s).entries.some((e: any) => e.leakClean === false));
     const st = runState(records, { pipelineFailures, privacyRegression: leak });
     if (st.healthDue) {
-      console.log(`\n=== HEALTH CHECKPOINT (10 cap + 10 rec) ===`);
-      console.log(`  spend=$${st.spendUsd.toFixed(2)} captured=${st.organic.capturedRuntime} precisionReady=${st.organic.precisionReady} consecEmpty=${st.consecutiveEmpty}`);
+      const totalCap = cap.length, totalRec = rec.length;
+      const capDone = records.filter((r) => r.phase === "capture" && !r.empty).length;
+      const recDone = records.filter((r) => r.phase === "recall" && !r.empty).length;
+      const capYield = capDone ? st.organic.capturedRuntime / capDone : 0;
+      const prYield = recDone ? st.organic.precisionReady / recDone : 0;
+      const projCap = Math.round(capYield * totalCap);
+      const projPR = Math.round(prYield * totalRec);
       const s = withStore((x) => buildDogfoodManifest(x).summary);
-      const healthy = st.organic.capturedRuntime > 0 && !leak && st.consecutiveEmpty < 3 && st.spendUsd < CAP_USD;
+      console.log(`\n=== HEALTH CHECKPOINT (10 capture + 10 recall) ===`);
+      console.log(`  spend=$${st.spendUsd.toFixed(2)} / cap $${CAP_USD}`);
+      console.log(`  capture: ${st.organic.capturedRuntime}/${capDone} captured (yield ${(capYield * 100).toFixed(0)}%) → projected ${projCap}/${totalCap} vs target 50`);
+      console.log(`  recall:  ${st.organic.precisionReady}/${recDone} precision-ready (yield ${(prYield * 100).toFixed(0)}%) → projected ${projPR}/${totalRec} vs target 30 [thin ${st.organic.capturedRuntime}-block corpus — conservative]`);
       console.log(`  store: ${JSON.stringify(s)}`);
-      console.log(`  verdict: ${healthy ? "HEALTHY — continue" : "UNHEALTHY — halting"}\n`);
-      if (!healthy) { writeFinal(mf, records, retryAudit, "health-unhealthy"); return; }
+      console.log(`  safety: leak=${leak} consecEmpty=${st.consecutiveEmpty} pipelineFailures=${pipelineFailures}`);
+      const safetyGreen = !leak && st.consecutiveEmpty < 3 && pipelineFailures < 3 && st.spendUsd < CAP_USD;
+      const checkpoint = { capturedAtCheckpoint: st.organic.capturedRuntime, capDone, capYield, projCap, precisionReadyAtCheckpoint: st.organic.precisionReady, recDone, prYield, projPR, safetyGreen, store: s };
+      writeFileSync(join(RESULTS, `${RUN_TAG}-checkpoint.json`), JSON.stringify(checkpoint, null, 2) + "\n");
+      // Operator protocol: stop at the checkpoint for a credible-path judgment;
+      // continue only on explicit re-dispatch (TB_CHECKPOINT_ONLY unset).
+      if (process.env.TB_CHECKPOINT_ONLY) {
+        console.log(`  CHECKPOINT-ONLY mode → stopping for credible-path review.\n`);
+        writeFinal(mf, records, retryAudit, "checkpoint-batch-complete");
+        return;
+      }
+      if (!safetyGreen) { console.log(`  verdict: SAFETY NOT GREEN — halting\n`); writeFinal(mf, records, retryAudit, "health-unhealthy"); return; }
+      console.log(`  verdict: safety green — continuing\n`);
     }
     if (st.halt) { console.log(`\nHALT: ${st.halt}`); writeFinal(mf, records, retryAudit, st.halt); return; }
   }

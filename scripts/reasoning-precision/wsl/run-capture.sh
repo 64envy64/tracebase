@@ -23,4 +23,7 @@ export TB_MAX_TRAJ_USD="${TB_MAX_TRAJ_USD:-0.50}"
 export CLAUDE_CLI="claude"
 echo "manifest: $TB_MANIFEST"
 echo "shared store: $TB_SHARED_DIR | results: $TB_RESULTS | cap: \$$TB_HARD_CAP_USD"
+echo "=== \$0 preflight gate ==="
+"$H/node_modules/.bin/tsx" "$H/scripts/reasoning-precision/capture-orchestrator.ts" --preflight || { echo "PREFLIGHT FAILED — refusing paid dispatch"; exit 1; }
+echo "=== preflight OK — dispatching paid haiku run ==="
 exec "$H/node_modules/.bin/tsx" "$H/scripts/reasoning-precision/capture-orchestrator.ts"
