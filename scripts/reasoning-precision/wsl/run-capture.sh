@@ -13,12 +13,14 @@ for d in src scripts bin; do rsync -a --delete --exclude node_modules "$WT/$d/" 
 for f in package.json tsconfig.json tsconfig.check.json vitest.config.mts tsup.config.ts; do [ -f "$WT/$f" ] && cp "$WT/$f" "$H/$f"; done
 
 export TB_MANIFEST="$WT/bench-runs/reasoning-reuse/capture-manifest.frozen.json"
-export TB_SHARED_DIR="$HOME/reasoning-capture"
-export TB_REPOS="$HOME/file-memory-real-repos/repos"
-export TB_WORKSPACES="$HOME/reasoning-capture/workspaces"
-export TB_RESULTS="$WT/bench-runs/reasoning-reuse/results"
-export TB_RUN_TAG="${TB_RUN_TAG:-capture-run-v1}"
-export TB_HARD_CAP_USD="${TB_HARD_CAP_USD:-30}"
+# v2: fresh store (clean corpus from fixed-prompt captures). Override-friendly.
+export TB_SHARED_DIR="${TB_SHARED_DIR:-$HOME/reasoning-capture-v2}"
+export TB_REPOS="${TB_REPOS:-$HOME/file-memory-real-repos/repos}"
+export TB_WORKSPACES="${TB_WORKSPACES:-$TB_SHARED_DIR/workspaces}"
+export TB_RESULTS="${TB_RESULTS:-$WT/bench-runs/reasoning-reuse/results}"
+export TB_RUN_TAG="${TB_RUN_TAG:-capture-run-v2}"
+# $30 cap INCLUDING the $2.1734 already spent on the invalidated v1 checkpoint.
+export TB_HARD_CAP_USD="${TB_HARD_CAP_USD:-27.83}"
 export TB_MAX_TRAJ_USD="${TB_MAX_TRAJ_USD:-0.50}"
 export CLAUDE_CLI="claude"
 echo "manifest: $TB_MANIFEST"

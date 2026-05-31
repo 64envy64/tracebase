@@ -210,7 +210,10 @@ function preflight(): number {
   const capHit = Array.from({ length: ORGANIC_TARGET.capturedRuntime }, (_, i) => ({ taskId: `c${i}`, phase: "capture", costUsd: 0, tokens: 1, exitCode: 0, blockId: "b", attributedResolved: false, empty: false } as TrajRecord));
   const recHit = Array.from({ length: ORGANIC_TARGET.precisionReady }, (_, i) => ({ taskId: `r${i}`, phase: "recall", costUsd: 0, tokens: 1, exitCode: 0, blockId: "b", attributedResolved: true, empty: false } as TrajRecord));
   checks.push(["halt: organic-target reachable", runState([...capHit, ...recHit], {}).halt === "organic-target"]);
-  checks.push(["halt: hard-cap fires", runState([{ taskId: "x", phase: "capture", costUsd: CAP_USD, tokens: 1, exitCode: 0, blockId: null, attributedResolved: false, empty: false }], {}).halt === "hard-cap"]);
+  // runState's hard-cap halt compares against the HARD_CAP_USD constant; the
+  // carried-over budget (CAP_USD ≤ 30) is enforced separately by the run loop's
+  // spend-guard, so validate runState's real threshold here with the constant.
+  checks.push(["halt: hard-cap fires", runState([{ taskId: "x", phase: "capture", costUsd: HARD_CAP_USD, tokens: 1, exitCode: 0, blockId: null, attributedResolved: false, empty: false }], {}).halt === "hard-cap"]);
   checks.push(["halt: 3 consecutive empties", runState([{ taskId: "a", phase: "capture", costUsd: 0, tokens: 0, exitCode: 1, blockId: null, attributedResolved: false, empty: true }, { taskId: "b", phase: "capture", costUsd: 0, tokens: 0, exitCode: 1, blockId: null, attributedResolved: false, empty: true }, { taskId: "c", phase: "capture", costUsd: 0, tokens: 0, exitCode: 1, blockId: null, attributedResolved: false, empty: true }], {}).halt === "consecutive-empty"]);
   checks.push(["halt: privacy-regression", runState([], { privacyRegression: true }).halt === "privacy-regression"]);
   let pass = true;
