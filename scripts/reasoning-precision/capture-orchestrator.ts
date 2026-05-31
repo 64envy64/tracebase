@@ -74,7 +74,7 @@ const REPO_DIR_MAP: Record<string, string> = {
   "pytest-dev/pytest": "pytest-dev-pytest",
 };
 
-interface ManifestRow {
+export interface ManifestRow {
   taskId: string; repo: string; baseSHA: string; fixSHA: string;
   sourceFamily: string; expectedFailingTest: string;
   testFilesTouched: string[]; sourceFilesTouched: string[];
@@ -82,6 +82,42 @@ interface ManifestRow {
   relatedFamilyIds: string[]; leakageExclusions: string[]; provenance: string;
 }
 interface FrozenManifest { frozenAt: number; manifestHash: string; model: string; tasks: ManifestRow[]; }
+
+/**
+ * Deterministic STRATIFIED prefix: round-robin across repos (and within a repo,
+ * across reasoning families) so a checkpoint sample is representative of the whole
+ * corpus instead of a family-sorted single-repo prefix. (v1/v2 took the first 10
+ * family-sorted tasks → all axios → a confounded checkpoint; this is the fix.)
+ */
+export function stratifiedPrefix(tasks: ManifestRow[], n: number): ManifestRow[] {
+  const byRepo = new Map<string, ManifestRow[]>();
+  for (const t of tasks) {
+    if (!byRepo.has(t.repo)) byRepo.set(t.repo, []);
+    byRepo.get(t.repo)!.push(t);
+  }
+  for (const arr of byRepo.values()) {
+    arr.sort((a, b) => (a.sourceFamily + a.fixSHA).localeCompare(b.sourceFamily + b.fixSHA));
+  }
+  const repos = [...byRepo.keys()].sort();
+  const out: ManifestRow[] = [];
+  for (let i = 0; out.length < n && repos.some((r) => byRepo.get(r)!.length > 0); i++) {
+    const arr = byRepo.get(repos[i % repos.length]!)!;
+    if (arr.length) out.push(arr.shift()!);
+  }
+  return out;
+}
+
+/** Capture phase first (recall needs blocks); each phase leads with a stratified
+ * checkpoint sample (C capture + R recall) so the 10+10 health checkpoint is
+ * representative, then the remainder. Deterministic + pure (testable). */
+export function orderForRun(tasks: ManifestRow[], C: number, R: number): ManifestRow[] {
+  const cap = tasks.filter((t) => t.arm === "capture");
+  const rec = tasks.filter((t) => t.arm === "recall");
+  const capPre = stratifiedPrefix(cap, C);
+  const recPre = stratifiedPrefix(rec, R);
+  const preIds = new Set([...capPre, ...recPre].map((t) => t.taskId));
+  return [...capPre, ...recPre, ...cap.filter((t) => !preIds.has(t.taskId)), ...rec.filter((t) => !preIds.has(t.taskId))];
+}
 
 // ---- workspace materialization (git archive at base, overlay PR test, link deps)
 function removeWorkspace(ws: string): void {
@@ -241,7 +277,9 @@ async function run(): Promise<void> {
   const cap = mf.tasks.filter((t) => t.arm === "capture");
   const rec = mf.tasks.filter((t) => t.arm === "recall");
   const C = HEALTH_CHECKPOINT.capture, R = HEALTH_CHECKPOINT.recall;
-  const ordered = [...cap.slice(0, C), ...rec.slice(0, R), ...cap.slice(C), ...rec.slice(R)];
+  // STRATIFIED checkpoint sample (round-robin across repos/families) so the 10+10
+  // health checkpoint is representative — not a family-sorted single-repo prefix.
+  const ordered = orderForRun(mf.tasks, C, R);
   const prior = loadProgress();
   const done = new Map<string, any>(prior.filter((r) => !r.empty).map((r) => [r.taskId, r]));
   const records: TrajRecord[] = prior.filter((r) => !r.empty).map((r) => r.record);
@@ -355,4 +393,12 @@ async function main() {
   if (process.argv.includes("--preflight")) { process.exit(preflight()); }
   await run();
 }
-main().catch((e) => { console.error(e); process.exit(1); });
+// Run main() only when invoked directly as a CLI — NOT when imported (tests import
+// orderForRun/stratifiedPrefix). Cross-platform argv vs module-path check.
+const invokedDirectly = (() => {
+  try { return !!process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url); }
+  catch { return false; }
+})();
+if (invokedDirectly) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}
