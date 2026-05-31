@@ -47,6 +47,18 @@ import {
   withRerankerFallback,
 } from "./reranker.js";
 import { mmr, DEFAULT_MMR_LAMBDA, type MMRItem } from "./mmr.js";
+import { tokenizeInformative } from "./serving-tokenizer.js";
+import {
+  decideServing,
+  resolveServingPolicy,
+  SERVING_FEATURE_VERSION,
+  type ServingPolicy,
+  type ServingDecision,
+  type ServingEvidenceV1,
+} from "./serving-confidence.js";
+
+/** Numeric alias for the event field (the const is a literal-typed `1`). */
+const SERVING_FEATURE_VERSION_NUM: number = SERVING_FEATURE_VERSION;
 
 /**
  * Cascade-internal candidate shape. `linearScore` is the BM25 +
@@ -174,6 +186,12 @@ export interface BlockHit {
   /** Gate output: calibrated P(helpful). Identity by default. */
   calibratedProb: number;
   /**
+   * Absolute evidence confidence (serving-confidence feature v1) that fed
+   * the calibrator + gate for this hit — the calibrator-learnable signal,
+   * recorded on the injection event so training and serving share a domain.
+   */
+  evidenceConfidence: number;
+  /**
    * Binding contract: true iff this hit WILL be included in the
    * injection payload AND produce an `injection` analytics event.
    * False for hits below the gate threshold and for every hit of a
@@ -217,9 +235,17 @@ export interface RecallV2Result {
   /**
    * Whether the server recommends injection at all. False if:
    *   - this is a shadow query, or
-   *   - no hit exceeds the gate threshold.
+   *   - the serving-confidence decision abstained.
    */
   shouldInject: boolean;
+  /**
+   * The serving-confidence decision for this recall (block side): the
+   * fire/abstain action, the abstention reason, the top candidate's feature
+   * vector, calibrated probability, and the thresholds in force. Always
+   * present for block recalls; surfaced for CLI/debug + telemetry. Absent
+   * only on legacy callers that pre-date the decision layer.
+   */
+  servingDecision?: ServingDecision;
 }
 
 export type Calibrator = (score: number, block: ReasoningBlock) => number;
@@ -351,39 +377,15 @@ export interface BlockServerOptions {
 }
 
 // ---------------------------------------------------------------------------
-// FTS stop-word list
+// FTS stop-word list — MOVED to serving-tokenizer.ts
 // ---------------------------------------------------------------------------
 //
-// Lowercase tokens dropped by `sanitizeFtsQuery` before FTS5 sees the
-// query. Three groups: English stop-words; Claude Code tool names that
-// commonly appear in agent prompts but carry no semantic weight for
-// block lookup; generic agent-prompt verbs / fillers. Keep this list
-// closed-vocabulary — speculative additions (domain terms a user might
-// genuinely care about) belong in calibration, not here.
-export const FTS_STOP_WORDS = new Set<string>([
-  // English stop-words
-  "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-  "of", "in", "on", "at", "to", "from", "by", "for", "with", "about",
-  "into", "onto", "over", "under", "as", "than", "then", "so",
-  "i", "you", "he", "she", "it", "we", "they", "me", "him", "her",
-  "us", "them", "my", "your", "our", "their", "its",
-  "this", "that", "these", "those",
-  "and", "or", "but", "if", "not", "no", "yes",
-  "do", "does", "did", "doing", "done",
-  "have", "has", "had", "having",
-  "will", "would", "can", "could", "should", "may", "might", "must",
-  "how", "what", "when", "where", "why", "who", "which",
-  "just", "only", "also", "very", "more", "less", "most", "least",
-  // Claude Code tool names — common in prompts but never useful as
-  // retrieval signal for reasoning blocks.
-  "read", "write", "edit", "bash", "grep", "glob", "task", "agent",
-  "webfetch", "websearch", "notebookedit", "exitplanmode", "todowrite",
-  "tool", "tools", "file", "files",
-  // Generic agent verbs / fillers
-  "please", "help", "need", "want", "like", "get", "make", "use", "using",
-  "run", "running", "try", "trying", "check", "checking", "look", "looking",
-  "see", "show", "find", "finding", "let", "lets",
-]);
+// The stop-word / informative-token policy is now canonical in
+// `serving-tokenizer.ts`, shared by FTS sanitization, serving evidence, and
+// offline eval so retrieval and gating cannot diverge. `sanitizeFtsQuery`
+// below builds its FTS string from `tokenizeInformative`. Back-compat:
+// `STOP_WORDS` is re-exported here as `FTS_STOP_WORDS` for existing importers.
+export { STOP_WORDS as FTS_STOP_WORDS } from "./serving-tokenizer.js";
 
 // ---------------------------------------------------------------------------
 // BlockServer
@@ -392,6 +394,14 @@ export const FTS_STOP_WORDS = new Set<string>([
 export class BlockServer {
   private readonly store: BlockStore;
   private readonly gateThreshold: number;
+  /**
+   * Conservative serving-confidence policy (evidence floor, margin,
+   * meaningful-match minimum). The calibrated gate inside it tracks
+   * `gateThreshold`; the other guards are corpus-size-invariant and apply
+   * even when the gate is 0 (e.g. unit tests), which is what stops the
+   * legacy 100%-fire-rate on weak/ambiguous matches.
+   */
+  private readonly policy: ServingPolicy;
   // Mutable so a freshly-fitted calibrator can be hot-swapped without
   // restarting the MCP server. The auto-refit loop in
   // `src/lifecycle/calibrator-refit.ts` calls `setCalibrator()` after
@@ -417,6 +427,10 @@ export class BlockServer {
     // meaningful once an isotonic calibrator is fit and
     // `calibratedProb` stops being identity-passed-through.
     this.gateThreshold = opts.gateThreshold ?? 0;
+    // Evidence-policy guards (margin / floor / meaningful-match minimum)
+    // come from defaults + env; the calibrated-gate field tracks the
+    // configured gateThreshold so a per-call override still flows through.
+    this.policy = resolveServingPolicy({ gateThreshold: this.gateThreshold }).policy;
     this.calibrator = opts.calibrator ?? identityCalibrator;
     this.emitEvents = opts.emitEvents ?? true;
     this.now = opts.now ?? Date.now;
@@ -657,10 +671,51 @@ export class BlockServer {
     // construction below key off the exact same calibrated value,
     // so a query cannot be "eligible for holdout" but then fail to
     // produce an injection in treatment, nor vice-versa.
-    const blockCalibrated = blocks.map(({ block, score }) => ({
+    // Per-call gate (drift trigger relaxes this; the rest of the
+    // production traffic uses the configured `gateThreshold`).
+    const effectiveGate = resolveQueryGate(query.gateOverride, this.gateThreshold);
+
+    // ── Serving-confidence decision ─────────────────────────────────────
+    // Ranking already ordered `blocks` (BM25 → optional cascade). The
+    // decision layer (src/core/serving-confidence.ts) now owns FIRE-vs-
+    // ABSTAIN: it derives absolute, corpus-size-invariant evidence for the
+    // top candidate (lexical coverage + structured API/error/symbol/path
+    // matches), demands a top-vs-second margin, and feeds the calibrator
+    // `evidenceConfidence` — NEVER the legacy max-normalized rank score
+    // that pinned the top hit at 1.0 and produced a ~100% fire-rate.
+    // Drift mode (tool-loop): the drift trigger is the only caller that sets
+    // `gateOverride`, signalling "the agent is stuck — surface any relevant
+    // past pattern, strict precision is counter-productive here". Relax the
+    // WHOLE policy to match that intent (floor down to the gate, single match
+    // allowed, no ambiguity gate), not just the calibrated threshold. Normal
+    // traffic (no override) keeps the full conservative policy.
+    const driftRelaxed = query.gateOverride !== undefined;
+    const policy: ServingPolicy = driftRelaxed
+      ? {
+          gateThreshold: effectiveGate,
+          marginThreshold: 0,
+          minEvidenceConfidence: Math.min(this.policy.minEvidenceConfidence, effectiveGate),
+          minMeaningfulMatches: 1,
+        }
+      : { ...this.policy, gateThreshold: effectiveGate };
+    const evidenceCalibrate = (conf: number, block: ReasoningBlock): number =>
+      clamp01(this.calibrator(conf, block));
+    const { decision: servingDecision, perCandidate } = decideServing(
+      { text: query.text, invariants: query.invariants },
+      blocks.map(({ block, score }) => ({ block, rankScore: score })),
+      policy,
+      evidenceCalibrate,
+    );
+
+    // Calibrated probability keys off `evidenceConfidence` so telemetry,
+    // holdout eligibility, and the gate all read the same number.
+    const blockCalibrated = blocks.map(({ block, score }, i) => ({
       block,
       score,
-      calibratedProb: clamp01(this.calibrator(score, block)),
+      features: perCandidate[i] as ServingEvidenceV1 | undefined,
+      calibratedProb: perCandidate[i]
+        ? evidenceCalibrate(perCandidate[i].evidenceConfidence, block)
+        : 0,
       refs: this.store.listCaseRefs(block.id).slice(0, refLimit),
     }));
     const factCalibrated = rawFacts.map(({ fact, score }) => ({
@@ -669,37 +724,14 @@ export class BlockServer {
       calibratedProb: clamp01(fact.confidence),
     }));
 
-    // Phase 3.2 — experimental holdout.
-    //
-    // Only applies when:
-    //   1. the caller did not already set a manual shadow (manual
-    //      shadow stays exactly as it was; it keeps an undefined
-    //      `controlReason` for back-compat so analytics still treats
-    //      it as diagnostic-only);
-    //   2. the query is gate-eligible — at least one block or fact
-    //      candidate would pass the calibrator + gateThreshold
-    //      *absent* the holdout. A run whose candidates all fall
-    //      below the gate would not emit any injection event in
-    //      treatment either, so marking such a run as holdout would
-    //      contaminate the control cohort with "nothing-to-compare"
-    //      queries and understate the causal lift;
-    //   3. the experiment input is complete — `rate`, `salt`, and a
-    //      `fingerprint` all present. A missing fingerprint is a
-    //      silent no-op: without it assignment cannot be
-    //      deterministic, and we would rather skip the experiment
-    //      than fabricate a cohort;
-    //   4. the deterministic `shouldHoldOut` decision lands this
-    //      fingerprint in the holdout.
-    //
-    // When all four conditions hold, the run is treated as shadow
-    // (no injection events, passesGate = false everywhere,
-    // shouldInject = false, formatInjection renders empty) and the
-    // retrieval event carries `controlReason: "holdout"`.
-    // Per-call gate (drift trigger relaxes this; the rest of the
-    // production traffic uses the configured `gateThreshold`).
-    const effectiveGate = resolveQueryGate(query.gateOverride, this.gateThreshold);
+    // Phase 3.2 — experimental holdout. Eligibility now reads the serving
+    // decision ("would treatment actually inject?") instead of a bare gate
+    // comparison, so a held-out run mirrors exactly what treatment would
+    // have done. The four conditions are unchanged: not already a manual
+    // shadow, gate-eligible, complete experiment input, and the
+    // deterministic assignment lands in the holdout cohort.
     const wouldInjectAbsentShadow =
-      blockCalibrated.some((h) => h.calibratedProb >= effectiveGate) ||
+      servingDecision.action === "inject" ||
       factCalibrated.some((h) => h.calibratedProb >= effectiveGate);
     const holdoutApplied =
       !manualShadow &&
@@ -713,16 +745,12 @@ export class BlockServer {
     const shadow = manualShadow || holdoutApplied;
     const controlReason: "shadow" | "holdout" | undefined = holdoutApplied ? "holdout" : undefined;
 
-    // Finalise hits. `passesGate` is the single-source-of-truth the
-    // injection formatter and analytics emission both key off, and
-    // it reuses the calibrator output computed above so holdout
-    // eligibility and downstream gate decision cannot drift.
-    //
-    // Build a cascade lookup so each BlockHit can carry the
-    // (rerankerScore, rerankerRank) it earned during the cascade.
-    // When `cascadeInfo` is absent (sync recall path), the lookup
-    // is empty and BlockHits have no reranker fields — the same
-    // shape as before B1.1.
+    // Conservative single-injection: only the TOP block fires, and only
+    // when the decision said "inject" and we are not shadowing. Weak /
+    // ambiguous siblings never fire — the margin gate guarantees the top
+    // is clearly separated before any injection. `passesGate` remains the
+    // single source of truth the formatter + analytics key off.
+    const topInjects = !shadow && servingDecision.action === "inject";
     const cascadeById = new Map<string, CascadeCandidate>();
     if (cascadeInfo) {
       for (const c of cascadeInfo.cascade) cascadeById.set(c.block.id, c);
@@ -733,7 +761,10 @@ export class BlockServer {
         block: h.block,
         score: h.score,
         calibratedProb: h.calibratedProb,
-        passesGate: !shadow && h.calibratedProb >= effectiveGate,
+        evidenceConfidence: h.features?.evidenceConfidence ?? 0,
+        // Only the single authorized block injects — the one the decision
+        // selected by calibrated confidence, not necessarily the BM25 top.
+        passesGate: topInjects && h.block.id === servingDecision.topCandidateId,
         refs: h.refs,
       };
       if (cascade?.rerankerScore !== undefined) {
@@ -745,9 +776,9 @@ export class BlockServer {
       return hit;
     });
 
-    // Facts: no calibrator slot yet (Phase 5). Same gate threshold
-    // as blocks; per-item-type thresholds can be introduced later
-    // without changing the event schema.
+    // Facts keep their existing curated-confidence gate: they carry an
+    // explicit author confidence and do not suffer the weak-lexical-match
+    // pathology that motivated the block decision layer.
     const factHits: FactHit[] = factCalibrated.map((h) => ({
       fact: h.fact,
       score: h.score,
@@ -755,8 +786,6 @@ export class BlockServer {
       passesGate: !shadow && h.calibratedProb >= effectiveGate,
     }));
 
-    // shouldInject: true iff any hit passes the gate. passesGate
-    // already encodes "not shadow", so this is a simple disjunction.
     const shouldInject =
       blockHits.some((h) => h.passesGate) || factHits.some((h) => h.passesGate);
 
@@ -787,6 +816,7 @@ export class BlockServer {
       blocks: blockHits,
       facts: factHits,
       shouldInject,
+      servingDecision,
     };
   }
 
@@ -906,21 +936,15 @@ export class BlockServer {
   }
 
   private sanitizeFtsQuery(query: string): string {
-    const cleaned = query.replace(/[*"():^~{}[\]\\]/g, " ").trim();
-    if (!cleaned) return "";
-    const rawWords = cleaned.split(/\s+/).filter(Boolean);
-    if (rawWords.length === 0) return "";
-    // May-2026 — drop English stop-words, Claude Code tool names, and
-    // generic agent-prompt noise before FTS. Without this, queries like
-    // "use the Read tool to check the file" dominate BM25 with the
-    // tool-name term and surface unrelated blocks that happen to mention
-    // "Read". Single-character tokens fall out too (rarely informative,
-    // often FTS syntax artifacts). Fall back to the unfiltered list if
-    // filtering empties the query — better a noisy match than no match.
-    const filtered = rawWords.filter(
-      (w) => w.length > 1 && !FTS_STOP_WORDS.has(w.toLowerCase()),
-    );
-    const words = filtered.length > 0 ? filtered : rawWords;
+    // Canonical informative tokens — the SAME splitter + stop-word policy
+    // the serving-confidence layer uses, so retrieval and gating cannot
+    // diverge on what counts as a signal. An all-stop-word / all-noise
+    // query yields zero tokens → no FTS match → the serving layer abstains
+    // (correct: pure prompt noise must not retrieve a block). Note this
+    // intentionally drops the old "fall back to the unfiltered list" path —
+    // a noisy match is exactly what the precision policy exists to suppress.
+    const words = tokenizeInformative(query);
+    if (words.length === 0) return "";
     const joiner = words.length <= 3 ? " " : " OR ";
     return words.map((w) => `"${w}"`).join(joiner);
   }
@@ -1004,6 +1028,8 @@ export class BlockServer {
       blockId: hit.block.id,
       score: hit.score,
       calibratedProb: hit.calibratedProb,
+      evidenceConfidence: hit.evidenceConfidence,
+      featureVersion: SERVING_FEATURE_VERSION_NUM,
     };
     this.emitter.emit(ev, runId !== undefined ? { runId } : undefined);
   }

@@ -179,6 +179,13 @@ describe("buildInjectionPayload", () => {
     const server = new BlockServer(store);
     const result = server.recall({ text: "pytest shadowing webhook backoff" });
     expect(result.blocks.length).toBe(2);
+    // The server now authorizes a single block (conservative precision). This
+    // test targets the BUILDER's multi-item budget-cut path, so open the gate
+    // and mark both retrieved blocks above-gate; let the budget do the cutting.
+    result.shouldInject = true;
+    result.blocks.forEach((h) => {
+      h.passesGate = true;
+    });
 
     // Force a budget that fits the wrapper + lead-in but only one
     // bullet line. Pick a charBudget around the size of one bullet.
@@ -215,6 +222,12 @@ describe("buildInjectionPayload", () => {
     storeActive(store, TS_BLOCK);
     const server = new BlockServer(store);
     const result = server.recall({ text: "pytest shadowing webhook backoff" });
+    // Single-injection at the server; exercise the builder's maxBlocks cap
+    // directly by opening the gate and marking both retrieved blocks above-gate.
+    result.shouldInject = true;
+    result.blocks.forEach((h) => {
+      h.passesGate = true;
+    });
     const payload = buildInjectionPayload(result, { maxBlocks: 1, tokenBudget: 5000 });
     expect(payload.blockIds.length).toBe(1);
   });

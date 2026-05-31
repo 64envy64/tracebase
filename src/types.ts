@@ -1804,6 +1804,15 @@ export interface InjectionEvent extends EventBase {
   score: number;
   /** Calibrated probability of helpful, if calibrator has been fit. */
   calibratedProb?: number;
+  /**
+   * Absolute evidence confidence (serving-confidence feature v1) the gate
+   * consumed for this injection. Optional for back-compat with pre-migration
+   * events. The block calibrator trains ONLY on events carrying this field,
+   * so legacy max-normalized rank-score events never pollute the v1 curve.
+   */
+  evidenceConfidence?: number;
+  /** Serving feature-schema version this injection's evidence was computed under. */
+  featureVersion?: number;
 }
 
 export interface AgentUsedEvent extends EventBase {
