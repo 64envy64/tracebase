@@ -24,7 +24,13 @@ if (!existsSync(dbPath)) {
   process.exit(1);
 }
 
-const store = new BlockStore(new Database(dbPath, { readonly: true }));
+// Read-only status: open the existing store read-only AND skip migration.
+// BlockStore's constructor migrates by default (a write), which throws
+// SQLITE_READONLY on a readonly connection — so a plain `{ readonly: true }`
+// open crashes against any real store. The runtime (Stop hook) is what
+// creates/migrates the DB; a status command must never attempt a migration.
+// `skipMigrate` makes the documented command work against an existing DB.
+const store = new BlockStore(new Database(dbPath, { readonly: true }), { skipMigrate: true });
 const manifest = buildDogfoodManifest(store);
 console.log(formatDogfoodSummary(manifest.summary));
 if (out) {
