@@ -1,0 +1,742 @@
+{
+  "phase": "box-4c supply expansion (axios/pytest/prettier)",
+  "candidates_count": 47,
+  "results_count": 47,
+  "by_status": {
+    "reproducible": 16,
+    "non_reproducible": 22,
+    "infra_failed": 9
+  },
+  "by_repo_status": {
+    "axios/axios": {
+      "reproducible": 16,
+      "non_reproducible": 7
+    },
+    "pytest-dev/pytest": {
+      "non_reproducible": 15,
+      "infra_failed": 9
+    }
+  },
+  "results": [
+    {
+      "repo": "axios/axios",
+      "pr_commit": "73a7c552820291ee491e4dd8fa901cef113ec800",
+      "parent_commit": "58d8a125bf8339b9079caf9359c82ac136da95b0",
+      "title": "fix: clean up error handling, fix a proto-pollution gap, and seal a few loose ends (#10922)",
+      "status": "reproducible",
+      "reason": "fail_then_pass",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 0,
+      "test_targets": [
+        "tests/unit/prototypePollution.test.js"
+      ],
+      "stderr_tail": null,
+      "pre_fix_elapsed_sec": 1.7,
+      "post_fix_elapsed_sec": 0.9
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "e2dbcb27f9d44ec510dae964672499c93f78bbc1",
+      "parent_commit": "24d6e24dfcd375f044304535b1cdec0cd20eaad8",
+      "title": "Fix junitxml count for teardown errors (#14501)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "testing/test_junitxml.py"
+      ],
+      "stderr_tail": "/home/summrlove/file-memory-real-repos/repos/pytest-dev-pytest/.venv/bin/python: No module named pytest\n",
+      "pre_fix_elapsed_sec": 0.0,
+      "post_fix_elapsed_sec": 0.0
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "7b3369a9c4b8666a9bb4e34c9c49712ce542ce01",
+      "parent_commit": "b0771a3c3e6f2bcefd4168f64cf24e454a7fb77a",
+      "title": "fix: clear RN FormData content type (#10898)",
+      "status": "reproducible",
+      "reason": "fail_then_pass",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 0,
+      "test_targets": [
+        "tests/unit/core/dispatchRequest.test.js",
+        "tests/unit/helpers/resolveConfig.test.js"
+      ],
+      "stderr_tail": null,
+      "pre_fix_elapsed_sec": 1.5,
+      "post_fix_elapsed_sec": 0.9
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "278041d8cce5d96911bb1333f77dca3567fc90e2",
+      "parent_commit": "f70731bbdcc08672f4cd3f085198a930f4722c88",
+      "title": "fix(headers): silently skip empty header names instead of throwing (#10875)",
+      "status": "reproducible",
+      "reason": "fail_then_pass",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 0,
+      "test_targets": [
+        "tests/unit/axiosHeaders.test.js"
+      ],
+      "stderr_tail": null,
+      "pre_fix_elapsed_sec": 0.6,
+      "post_fix_elapsed_sec": 0.6
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "1337845ea3395045ef2a88da05dd4cd34d9247eb",
+      "parent_commit": "979918445324cb9150134d068ba06f8cc9723346",
+      "title": "feat(http): add zstd decompression support (#10920)",
+      "status": "reproducible",
+      "reason": "fail_then_pass",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 0,
+      "test_targets": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "stderr_tail": null,
+      "pre_fix_elapsed_sec": 64.9,
+      "post_fix_elapsed_sec": 67.4
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "40948863677bb793bfff0293cce7e7b4f8a1b212",
+      "parent_commit": "44f0c5bf73c45df6009365141faa394d73596bd7",
+      "title": "fix(progress): guard malformed XHR upload events (#10868)",
+      "status": "reproducible",
+      "reason": "fail_then_pass",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 0,
+      "test_targets": [
+        "tests/unit/helpers/progressEventReducer.test.js"
+      ],
+      "stderr_tail": null,
+      "pre_fix_elapsed_sec": 0.7,
+      "post_fix_elapsed_sec": 0.6
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "3e6b4e1f311b43aa1dc77d78150a601d9fe4b280",
+      "parent_commit": "c4453bab70f53575175903aee60810c821f72129",
+      "title": "fix: error unexpected token in fetch JS compatibility issue with Webpack 4 (#10864)",
+      "status": "reproducible",
+      "reason": "fail_then_pass",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 0,
+      "test_targets": [
+        "tests/unit/syntaxCompat.test.js"
+      ],
+      "stderr_tail": null,
+      "pre_fix_elapsed_sec": 0.6,
+      "post_fix_elapsed_sec": 0.6
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "f2b903fceaa0a02cefd77f6b4b123c679605aae9",
+      "parent_commit": "5061879649bb59df593423b1bc782dff734fd13d",
+      "title": "refactor(utils): use WeakSet for cycle detection in toJSONObject (#10832)",
+      "status": "non_reproducible",
+      "reason": "pre_fix_unexpectedly_passed",
+      "pre_fix_exit": 0,
+      "post_fix_exit": null,
+      "test_targets": [
+        "tests/unit/utils.test.js"
+      ],
+      "stderr_tail": "",
+      "pre_fix_elapsed_sec": 0.7
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "78e8dcf8754ed9d1219628540d69d09bdba5a9be",
+      "parent_commit": "9e6cc4725f074734723909beb3ef9a68644aa905",
+      "title": "fix(security): defense-in-depth against already-polluted Object.prototype in formDataToJSON (#7413)",
+      "status": "reproducible",
+      "reason": "fail_then_pass",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 0,
+      "test_targets": [
+        "tests/unit/helpers/formDataToJSON.test.js"
+      ],
+      "stderr_tail": null,
+      "pre_fix_elapsed_sec": 0.7,
+      "post_fix_elapsed_sec": 0.6
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "5107ee69aee527b19eabaf80000ca65752135435",
+      "parent_commit": "e57349992f230b6b13e80613eb84302560aa5ba8",
+      "title": "fix: prevent undefined error codes in settle (#7276)",
+      "status": "reproducible",
+      "reason": "fail_then_pass",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 0,
+      "test_targets": [
+        "tests/unit/core/settle.test.js"
+      ],
+      "stderr_tail": null,
+      "pre_fix_elapsed_sec": 0.6,
+      "post_fix_elapsed_sec": 0.6
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "e57349992f230b6b13e80613eb84302560aa5ba8",
+      "parent_commit": "ad68e1a484b50086af427f767bbd7d6e3aab7ac3",
+      "title": "fix(fetch): defer global access in fetch adapter (#7260)",
+      "status": "non_reproducible",
+      "reason": "pre_fix_unexpectedly_passed",
+      "pre_fix_exit": 0,
+      "post_fix_exit": null,
+      "test_targets": [
+        "tests/unit/adapters/fetch.test.js"
+      ],
+      "stderr_tail": "apters/fetch.test.js\u001b[2m > \u001b[22m\u001b[2msupports fetch with nodejs\u001b[2m > \u001b[22m\u001b[2mrequest aborting\u001b[2m > \u001b[22m\u001b[2mshould be able to abort the response stream\n\u001b[22m\u001b[39mHTTP server error: Error: aborted\n\u001b[90m    at abortIncoming (node:_http_server:838:17)\u001b[39m\n\u001b[90m    at socketOnClose (node:_http_server:832:3)\u001b[39m\n\u001b[90m    at Socket.emit (node:events:520:35)\u001b[39m\n\u001b[90m    at TCP.<anonymous> (node:net:346:12)\u001b[39m {\n  code: \u001b[32m'ECONNRESET'\u001b[39m,\n  bufferedData: \u001b[32m'chunkchunkchunkchunk'\u001b[39m\n}\n\n",
+      "pre_fix_elapsed_sec": 32.0
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "2a51828213128691d2e37502b5eb2cf4965a737d",
+      "parent_commit": "0e8b6bbb542131bae9940618d84d5286255d4db1",
+      "title": "fix(http): decode URL basic auth credentials (#10825)",
+      "status": "reproducible",
+      "reason": "fail_then_pass",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 0,
+      "test_targets": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "stderr_tail": null,
+      "pre_fix_elapsed_sec": 65.4,
+      "post_fix_elapsed_sec": 65.5
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "0e8b6bbb542131bae9940618d84d5286255d4db1",
+      "parent_commit": "79f39e1d041dca87173226d0255f90eaf252564b",
+      "title": "fix(http): preserve user-supplied Host header when forwarding through a proxy (#10805) (#10822)",
+      "status": "reproducible",
+      "reason": "fail_then_pass",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 0,
+      "test_targets": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "stderr_tail": null,
+      "pre_fix_elapsed_sec": 65.4,
+      "post_fix_elapsed_sec": 65.5
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "cd0d44825fe1db7ab597bb139206d780ae94a8ce",
+      "parent_commit": "f39203dcbee0632eff0c77cdfe350b08a241f838",
+      "title": "fix(http): preserve response in error when stream is aborted after headers (#10708)",
+      "status": "reproducible",
+      "reason": "fail_then_pass",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 0,
+      "test_targets": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "stderr_tail": null,
+      "pre_fix_elapsed_sec": 65.6,
+      "post_fix_elapsed_sec": 65.6
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "2344aab6090c17c7d9ff8719c435a15abf2be2bb",
+      "parent_commit": "d9b941c3027f815e1ec9727c739699d4776b323f",
+      "title": "fix(fetch): preserve abort reasons in fetch adapter (#10806)",
+      "status": "reproducible",
+      "reason": "fail_then_pass",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 0,
+      "test_targets": [
+        "tests/unit/adapters/fetch.test.js"
+      ],
+      "stderr_tail": null,
+      "pre_fix_elapsed_sec": 27.5,
+      "post_fix_elapsed_sec": 27.0
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "d9b941c3027f815e1ec9727c739699d4776b323f",
+      "parent_commit": "bef4868caf27a1076d4ce87b4995ddbf0ac49f20",
+      "title": "revert: transformrequest typing 10745 (#10810)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "tests/module/esm/tests/ts.module.test.js",
+        "tests/module/esm/tests/typings.module.test.js"
+      ],
+      "stderr_tail": "\u001b[31mNo test files found, exiting with code 1\n\u001b[39m\n\u001b[2mfilter: \u001b[22m\u001b[33mtests/module/esm/tests/ts.module.test.js\u001b[2m, \u001b[22mtests/module/esm/tests/typings.module.test.js\u001b[39m\n\u001b[2mprojects: \u001b[22m\u001b[33munit\u001b[39m\n\n\u001b[30m\u001b[42m unit \u001b[49m\u001b[39m \n\n\u001b[2minclude: \u001b[22m\u001b[33mtests/unit/**/*.test.js\u001b[39m\n\u001b[2mexclude:  \u001b[22m\u001b[33m**/node_modules/**\u001b[2m, \u001b[22m**/.git/**\u001b[39m\n\n",
+      "pre_fix_elapsed_sec": 0.5,
+      "post_fix_elapsed_sec": 0.4
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "bef4868caf27a1076d4ce87b4995ddbf0ac49f20",
+      "parent_commit": "25387ae1cedb93b385029e759cac9a22b71ec498",
+      "title": "fix(index): add create to index exports (#6460)",
+      "status": "reproducible",
+      "reason": "fail_then_pass",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 0,
+      "test_targets": [
+        "tests/unit/api.test.js"
+      ],
+      "stderr_tail": null,
+      "pre_fix_elapsed_sec": 0.8,
+      "post_fix_elapsed_sec": 0.8
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "caa3497913b731fbae957e6e88edd82da7930111",
+      "parent_commit": "80324886b1f528a9ec25b0e13e2eba4f75fa817a",
+      "title": "fix: missing beforeRedirect requestDetails argument (#6241)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "stderr_tail": "'t mean the error was thrown inside the file itself, but while it was running.\u001b[39m\n\u001b[31mThe latest test that might've caused the error is \"\u001b[1mshould attach at most one close listener to the outer request across a long redirect chain\u001b[22m\". It might mean one of the following:\n- The error was thrown, while Vitest was running this test.\n- If the error occurred after the test had been completed, this was the last documented test before it was thrown.\u001b[39m\n\u001b[31m\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u001b[39m\n\n",
+      "pre_fix_elapsed_sec": 65.8,
+      "post_fix_elapsed_sec": 184.9
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "c918e85e91528da910836f0fa5c74ca3714daff1",
+      "parent_commit": "694f1eca8cc3869e88b6434466f432b358962a42",
+      "title": "fix(fetch-adapter): set User-Agent header to match http adapter (#10772)",
+      "status": "reproducible",
+      "reason": "fail_then_pass",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 0,
+      "test_targets": [
+        "tests/unit/adapters/fetch.test.js"
+      ],
+      "stderr_tail": null,
+      "pre_fix_elapsed_sec": 27.0,
+      "post_fix_elapsed_sec": 25.8
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "694f1eca8cc3869e88b6434466f432b358962a42",
+      "parent_commit": "bd3816bf9eaff677c3e278df9b03bcd302e9177b",
+      "title": "fix: transformRequest input typing (#10745)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "tests/module/esm/tests/ts.module.test.js",
+        "tests/module/esm/tests/typings.module.test.js"
+      ],
+      "stderr_tail": "\u001b[31mNo test files found, exiting with code 1\n\u001b[39m\n\u001b[2mfilter: \u001b[22m\u001b[33mtests/module/esm/tests/ts.module.test.js\u001b[2m, \u001b[22mtests/module/esm/tests/typings.module.test.js\u001b[39m\n\u001b[2mprojects: \u001b[22m\u001b[33munit\u001b[39m\n\n\u001b[30m\u001b[42m unit \u001b[49m\u001b[39m \n\n\u001b[2minclude: \u001b[22m\u001b[33mtests/unit/**/*.test.js\u001b[39m\n\u001b[2mexclude:  \u001b[22m\u001b[33m**/node_modules/**\u001b[2m, \u001b[22m**/.git/**\u001b[39m\n\n",
+      "pre_fix_elapsed_sec": 0.4,
+      "post_fix_elapsed_sec": 0.5
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "f2dc4495472071d3ed9a5637f35660226c8e44c6",
+      "parent_commit": "a501f100a774f8b382b0844fb7cdd168b90c4a31",
+      "title": "fix(parseProtocol): fix regex to require colon in protocol separator (#10729)",
+      "status": "reproducible",
+      "reason": "fail_then_pass",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 0,
+      "test_targets": [
+        "tests/unit/parseProtocol.test.js"
+      ],
+      "stderr_tail": null,
+      "pre_fix_elapsed_sec": 0.6,
+      "post_fix_elapsed_sec": 0.6
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "640458daaf097dede696508a9fb223d41fbe1217",
+      "parent_commit": "cc9aa2f487d460dd61e7d1f1941cdafac1131ad2",
+      "title": "fix(xhr): unsubscribe cancelToken and signal on error, timeout, and abort paths (#10787)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "tests/browser/cancel.browser.test.js"
+      ],
+      "stderr_tail": "\u001b[31mNo test files found, exiting with code 1\n\u001b[39m\n\u001b[2mfilter: \u001b[22m\u001b[33mtests/browser/cancel.browser.test.js\u001b[39m\n\u001b[2mprojects: \u001b[22m\u001b[33munit\u001b[39m\n\n\u001b[30m\u001b[42m unit \u001b[49m\u001b[39m \n\n\u001b[2minclude: \u001b[22m\u001b[33mtests/unit/**/*.test.js\u001b[39m\n\u001b[2mexclude:  \u001b[22m\u001b[33m**/node_modules/**\u001b[2m, \u001b[22m**/.git/**\u001b[39m\n\n",
+      "pre_fix_elapsed_sec": 0.5,
+      "post_fix_elapsed_sec": 0.4
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "e6a62415821802fc078e2b031f63306e44b11d9c",
+      "parent_commit": "afca61a070728e717203c2bc21e7b589b59b858b",
+      "title": "fix: close redirect listiner chanin correctly to no longer stack (#10800)",
+      "status": "reproducible",
+      "reason": "fail_then_pass",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 0,
+      "test_targets": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "stderr_tail": null,
+      "pre_fix_elapsed_sec": 66.4,
+      "post_fix_elapsed_sec": 66.8
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "afca61a070728e717203c2bc21e7b589b59b858b",
+      "parent_commit": "d8165e9f2c4a73176a372d5d84f43c5fd166026b",
+      "title": "fix: clear stale header on redirect when target is no-proxy (#10794)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "stderr_tail": "test.js\u001b[22m\" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.\u001b[39m\n\u001b[31mThe latest test that might've caused the error is \"\u001b[1mshould not fail with \"socket hang up\" when using timeouts\u001b[22m\". It might mean one of the following:\n- The error was thrown, while Vitest was running this test.\n- If the error occurred after the test had been completed, this was the last documented test before it was thrown.\u001b[39m\n\u001b[31m\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u001b[39m\n\n",
+      "pre_fix_elapsed_sec": 66.0,
+      "post_fix_elapsed_sec": 121.7
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "46ea2a3cfc50ae42310c278387be49d165d71581",
+      "parent_commit": "58d454a6aedce3f57613e40556f474396123e0f2",
+      "title": "Fix capteesys producing doubled output with --capture=no (#14205)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "testing/test_capture.py"
+      ],
+      "stderr_tail": "/home/summrlove/file-memory-real-repos/repos/pytest-dev-pytest/.venv/bin/python: No module named pytest\n",
+      "pre_fix_elapsed_sec": 0.0,
+      "post_fix_elapsed_sec": 0.0
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "1abe84a29554e72f57ac2160d8fbaaafade3bb8c",
+      "parent_commit": "47ed628df2b39ff114c069e70a5cc4ccbdc89b97",
+      "title": "Improve error message for module-level __getattr__ issues (#14170)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "testing/test_mark.py"
+      ],
+      "stderr_tail": "/home/summrlove/file-memory-real-repos/repos/pytest-dev-pytest/.venv/bin/python: No module named pytest\n",
+      "pre_fix_elapsed_sec": 0.0,
+      "post_fix_elapsed_sec": 0.0
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "47ed628df2b39ff114c069e70a5cc4ccbdc89b97",
+      "parent_commit": "fd90f701b3356998fc0562a1fae3c52afcf8e0dc",
+      "title": "Fix monkeypatch.setattr() teardown crash on failed setattr (#14161) (#14209)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "testing/test_monkeypatch.py"
+      ],
+      "stderr_tail": "/home/summrlove/file-memory-real-repos/repos/pytest-dev-pytest/.venv/bin/python: No module named pytest\n",
+      "pre_fix_elapsed_sec": 0.0,
+      "post_fix_elapsed_sec": 0.0
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "62ca642621c0888b044ac5f663c78e86de063887",
+      "parent_commit": "0a4f8891de22ae9bbf7f89252f64ba50080bbedb",
+      "title": "Fix autouse fixtures running in @unittest.skip classes (#14210)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "testing/test_unittest.py"
+      ],
+      "stderr_tail": "/home/summrlove/file-memory-real-repos/repos/pytest-dev-pytest/.venv/bin/python: No module named pytest\n",
+      "pre_fix_elapsed_sec": 0.0,
+      "post_fix_elapsed_sec": 0.0
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "543b11f2534bb0edc85b86767ed239da9c5bd140",
+      "parent_commit": "28d9c65a61e7bdfef7bf726625215f27a624b94b",
+      "title": "Fix -v hint in raises match diff not working (#14226)",
+      "status": "infra_failed",
+      "reason": "no_runnable_test_target",
+      "pre_fix_exit": null,
+      "post_fix_exit": null,
+      "test_targets": [],
+      "stderr_tail": null
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "8571cf8d44a390c4c61f82c9b5a825ae393b1203",
+      "parent_commit": "21be7a259424e509e3d667082a138bcc8fc45c00",
+      "title": "Deprecate `self` in class-scoped fixtures on base classes (#14071)",
+      "status": "infra_failed",
+      "reason": "no_runnable_test_target",
+      "pre_fix_exit": null,
+      "post_fix_exit": null,
+      "test_targets": [],
+      "stderr_tail": null
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "984cabfaccf8aa69fe49097ed3d07bd60d05f240",
+      "parent_commit": "7df5d80ff3a98714a1d3cdbe82941229e511f4b3",
+      "title": "mark/expression: fix scanner - search for backslash in string value, not entire input (#14475)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "testing/test_mark_expression.py"
+      ],
+      "stderr_tail": "/home/summrlove/file-memory-real-repos/repos/pytest-dev-pytest/.venv/bin/python: No module named pytest\n",
+      "pre_fix_elapsed_sec": 0.0,
+      "post_fix_elapsed_sec": 0.0
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "a481f264d70ac3d053d5f7408f4ac1ec439d0c2f",
+      "parent_commit": "794de4c93461d3b3570b074240167e85715a8f69",
+      "title": "Fix strict options from addopts",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "testing/test_config.py",
+        "testing/test_mark.py"
+      ],
+      "stderr_tail": "/home/summrlove/file-memory-real-repos/repos/pytest-dev-pytest/.venv/bin/python: No module named pytest\n",
+      "pre_fix_elapsed_sec": 0.0,
+      "post_fix_elapsed_sec": 0.0
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "84ae27e4710af45cc307f8c0c25259e917090219",
+      "parent_commit": "8f81c76744daf72d4f77cfc8423f4bdc60733d78",
+      "title": "Fix Argument.__repr__ crash when _action is not initialized (#14429)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "testing/test_parseopt.py"
+      ],
+      "stderr_tail": "/home/summrlove/file-memory-real-repos/repos/pytest-dev-pytest/.venv/bin/python: No module named pytest\n",
+      "pre_fix_elapsed_sec": 0.0,
+      "post_fix_elapsed_sec": 0.0
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "deb9f5f79b0537a5e80cc26dd11bfb217e263a72",
+      "parent_commit": "2aa07343b6ebcb426f4cc595e3bf1912b0a442de",
+      "title": "Add a space after the test name with --setup-show (#14430)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "testing/test_setuponly.py"
+      ],
+      "stderr_tail": "/home/summrlove/file-memory-real-repos/repos/pytest-dev-pytest/.venv/bin/python: No module named pytest\n",
+      "pre_fix_elapsed_sec": 0.0,
+      "post_fix_elapsed_sec": 0.0
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "602fc183e54f7652d164f85782c3bba0c96d96d9",
+      "parent_commit": "200e8c66fe2daa90eda7f4ff899b4eab6c768070",
+      "title": "Merge pull request #14422 from EternalRights/fix-known-args-namespace-duplicate",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "testing/test_warnings.py"
+      ],
+      "stderr_tail": "/home/summrlove/file-memory-real-repos/repos/pytest-dev-pytest/.venv/bin/python: No module named pytest\n",
+      "pre_fix_elapsed_sec": 0.0,
+      "post_fix_elapsed_sec": 0.0
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "d72943a57266ef368fb3498a3fd136cbf1c7aee6",
+      "parent_commit": "eaf605cd09ba00e35c62870e2a9ca80cfd4246af",
+      "title": "Fix `-V` to show version information (#14382)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "testing/test_helpconfig.py"
+      ],
+      "stderr_tail": "/home/summrlove/file-memory-real-repos/repos/pytest-dev-pytest/.venv/bin/python: No module named pytest\n",
+      "pre_fix_elapsed_sec": 0.0,
+      "post_fix_elapsed_sec": 0.0
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "7bb1aa6df90bcb1bca9060e34ab984d4586edd8f",
+      "parent_commit": "2d3d16907540149a9d8bd5b58d5a767e513718d7",
+      "title": "Style: Use type.__name__ in raises error messages for consistency (#13862)",
+      "status": "infra_failed",
+      "reason": "no_runnable_test_target",
+      "pre_fix_exit": null,
+      "post_fix_exit": null,
+      "test_targets": [],
+      "stderr_tail": null
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "80f54926278ad4a489030c8c189b359bf2b9658a",
+      "parent_commit": "ada80d5e96e469939abb2a945985279f01857e10",
+      "title": "Mark `yield_fixture` as deprecated (#14342)",
+      "status": "infra_failed",
+      "reason": "no_runnable_test_target",
+      "pre_fix_exit": null,
+      "post_fix_exit": null,
+      "test_targets": [],
+      "stderr_tail": null
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "960ddc6f67d7a37b8390f260f8ded2049f8a28de",
+      "parent_commit": "12558b562bef4bc454e9bfd3a4440cd892fe52a7",
+      "title": "Merge pull request #14222 from bysiber/fix-missing-pipe-metacharacter",
+      "status": "infra_failed",
+      "reason": "no_runnable_test_target",
+      "pre_fix_exit": null,
+      "post_fix_exit": null,
+      "test_targets": [],
+      "stderr_tail": null
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "d889ca0f3b8c45f92ef90f34e67ddbaa2c988134",
+      "parent_commit": "55560d9d4187feecea18b1e637f43f55912d0303",
+      "title": "Merge pull request #14275 from bluetech/fixturedef-finish-idempotent",
+      "status": "infra_failed",
+      "reason": "no_runnable_test_target",
+      "pre_fix_exit": null,
+      "post_fix_exit": null,
+      "test_targets": [],
+      "stderr_tail": null
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "8950ca3bc0988647dfc35b02f854347a1435bd36",
+      "parent_commit": "7bc02cca0dd92ec505b4556c054b4e06e9cb8d4d",
+      "title": "subtests: fix inconcistent handling of non-string messages (#14196)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "testing/test_subtests.py"
+      ],
+      "stderr_tail": "/home/summrlove/file-memory-real-repos/repos/pytest-dev-pytest/.venv/bin/python: No module named pytest\n",
+      "pre_fix_elapsed_sec": 0.0,
+      "post_fix_elapsed_sec": 0.0
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "5f59a745ed777ca1943f6c2de137c3de912ba58a",
+      "parent_commit": "dde81b1948d1592b0156c2fdb79522ade6b4b857",
+      "title": "Merge pull request #14125 from RonnyPfannschmidt/fix-719-parametrize-trailing-comma",
+      "status": "infra_failed",
+      "reason": "no_runnable_test_target",
+      "pre_fix_exit": null,
+      "post_fix_exit": null,
+      "test_targets": [],
+      "stderr_tail": null
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "e95a843a5dbf8af618d0714705bbf97dfdb04044",
+      "parent_commit": "6687d957a715e3c18ab90e282c6a6e0a4bf0144b",
+      "title": "Fix pytest.approx to correctly take account Mapping keys order to compare them (#13815)",
+      "status": "infra_failed",
+      "reason": "no_runnable_test_target",
+      "pre_fix_exit": null,
+      "post_fix_exit": null,
+      "test_targets": [],
+      "stderr_tail": null
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "6687d957a715e3c18ab90e282c6a6e0a4bf0144b",
+      "parent_commit": "374ff2ea60c7be3ff1cc5c76212d1f51c5469894",
+      "title": "Merge pull request #14129 from bluetech/fixtures-docs",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "testing/test_collection.py",
+        "testing/test_pathlib.py",
+        "testing/test_tmpdir.py"
+      ],
+      "stderr_tail": "/home/summrlove/file-memory-real-repos/repos/pytest-dev-pytest/.venv/bin/python: No module named pytest\n",
+      "pre_fix_elapsed_sec": 0.0,
+      "post_fix_elapsed_sec": 0.0
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "004a96740fb990c7d6dc39bd305b08852635ec5d",
+      "parent_commit": "8f5b07d87bf803622bb96227ed939f3c95f8809b",
+      "title": "Show better error when blocking conftest files via `-p` (#14018)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "testing/test_config.py"
+      ],
+      "stderr_tail": "/home/summrlove/file-memory-real-repos/repos/pytest-dev-pytest/.venv/bin/python: No module named pytest\n",
+      "pre_fix_elapsed_sec": 0.0,
+      "post_fix_elapsed_sec": 0.0
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "c287dd7147319bf76179633def108c4b5aa013e6",
+      "parent_commit": "2fb64da82c83d4a485b3b2626ab8b39ede340d43",
+      "title": "Ensure subtest's context kwargs are JSON serializable (#13963)",
+      "status": "non_reproducible",
+      "reason": "post_fix_still_failed(exit 1)",
+      "pre_fix_exit": 1,
+      "post_fix_exit": 1,
+      "test_targets": [
+        "testing/test_subtests.py"
+      ],
+      "stderr_tail": "/home/summrlove/file-memory-real-repos/repos/pytest-dev-pytest/.venv/bin/python: No module named pytest\n",
+      "pre_fix_elapsed_sec": 0.0,
+      "post_fix_elapsed_sec": 0.0
+    },
+    {
+      "repo": "pytest-dev/pytest",
+      "pr_commit": "087ac0450ae8fb4d16727ba98ffb43d6aab115a9",
+      "parent_commit": "be5c7edf302cecceb9d8e9397c0daef890b8940f",
+      "title": "Merge pull request #14015 from bluetech/async-fixture-hard-error",
+      "status": "infra_failed",
+      "reason": "no_runnable_test_target",
+      "pre_fix_exit": null,
+      "post_fix_exit": null,
+      "test_targets": [],
+      "stderr_tail": null
+    }
+  ]
+}

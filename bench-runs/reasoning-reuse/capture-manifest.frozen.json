@@ -1,0 +1,2456 @@
+{
+  "frozenAt": 1780244193,
+  "manifestHash": "413a5cad82d4433e",
+  "model": "claude-haiku-4-5",
+  "policy": {
+    "captureRatio": 0.55,
+    "organicTarget": {
+      "capturedRuntime": 50,
+      "precisionReady": 30
+    }
+  },
+  "audit": {
+    "totalVerified": 98,
+    "rowsBuilt": 98,
+    "skippedNoMeta": 0,
+    "capture": 56,
+    "recall": 42,
+    "families": 56,
+    "recallWithSameFamilyCapture": 42,
+    "leakage": {
+      "captureRecallDisjoint": true,
+      "reuseViolations": [],
+      "duplicateFixShas": [],
+      "recallWithoutFamilyAnchor": []
+    },
+    "perRepo": {
+      "axios/axios": {
+        "capture": 13,
+        "recall": 12
+      },
+      "psf/black": {
+        "capture": 2,
+        "recall": 1
+      },
+      "josdejong/mathjs": {
+        "capture": 18,
+        "recall": 5
+      },
+      "Textualize/rich": {
+        "capture": 13,
+        "recall": 7
+      },
+      "pallets/werkzeug": {
+        "capture": 1,
+        "recall": 0
+      },
+      "colinhacks/zod": {
+        "capture": 9,
+        "recall": 17
+      }
+    },
+    "targetFeasibility": {
+      "captureTasksVsTarget": "56 cap tasks (target ≥50 captured blocks)",
+      "recallTasksVsTarget": "42 recall tasks (target ≥30 precision-ready)"
+    }
+  },
+  "tasks": [
+    {
+      "taskId": "axios-axios-278041d8",
+      "repo": "axios/axios",
+      "baseSHA": "f70731bbdcc08672f4cd3f085198a930f4722c88",
+      "fixSHA": "278041d8cce5d96911bb1333f77dca3567fc90e2",
+      "sourceFamily": "axios:axiosheaders",
+      "expectedFailingTest": "tests/unit/axiosHeaders.test.js",
+      "testFilesTouched": [
+        "tests/unit/axiosHeaders.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/core/AxiosHeaders.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/axiosHeaders.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "axios:axiosheaders"
+      ],
+      "leakageExclusions": [
+        "own-fix:278041d8cce5d96911bb1333f77dca3567fc90e2",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@278041d8; parent f70731bb"
+    },
+    {
+      "taskId": "axios-axios-3e6b4e1f",
+      "repo": "axios/axios",
+      "baseSHA": "c4453bab70f53575175903aee60810c821f72129",
+      "fixSHA": "3e6b4e1f311b43aa1dc77d78150a601d9fe4b280",
+      "sourceFamily": "axios:eslint.config",
+      "expectedFailingTest": "tests/unit/syntaxCompat.test.js",
+      "testFilesTouched": [
+        "tests/unit/syntaxCompat.test.js"
+      ],
+      "sourceFilesTouched": [
+        "eslint.config.js",
+        "lib/adapters/fetch.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/syntaxCompat.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "axios:eslint.config"
+      ],
+      "leakageExclusions": [
+        "own-fix:3e6b4e1f311b43aa1dc77d78150a601d9fe4b280",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@3e6b4e1f; parent c4453bab"
+    },
+    {
+      "taskId": "axios-axios-2344aab6",
+      "repo": "axios/axios",
+      "baseSHA": "d9b941c3027f815e1ec9727c739699d4776b323f",
+      "fixSHA": "2344aab6090c17c7d9ff8719c435a15abf2be2bb",
+      "sourceFamily": "axios:fetch",
+      "expectedFailingTest": "tests/unit/adapters/fetch.test.js",
+      "testFilesTouched": [
+        "tests/smoke/bun/tests/timeout.smoke.test.ts",
+        "tests/unit/adapters/fetch.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/adapters/fetch.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/adapters/fetch.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "axios:fetch"
+      ],
+      "leakageExclusions": [
+        "own-fix:2344aab6090c17c7d9ff8719c435a15abf2be2bb",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@2344aab6; parent d9b941c3"
+    },
+    {
+      "taskId": "axios-axios-62f62816",
+      "repo": "axios/axios",
+      "baseSHA": "c44f4d728b89584cbabbc6f92a5aec543a489b8b",
+      "fixSHA": "62f62816608823e1b152b27d3209092adc77b454",
+      "sourceFamily": "axios:fetch",
+      "expectedFailingTest": "tests/unit/adapters/fetch.test.js",
+      "testFilesTouched": [
+        "tests/unit/adapters/fetch.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/adapters/fetch.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/adapters/fetch.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "axios:fetch"
+      ],
+      "leakageExclusions": [
+        "own-fix:62f62816608823e1b152b27d3209092adc77b454",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@62f62816; parent c44f4d72"
+    },
+    {
+      "taskId": "axios-axios-94e15435",
+      "repo": "axios/axios",
+      "baseSHA": "76794ac27a7222f22f69f96e01305f1ae836c131",
+      "fixSHA": "94e1543576aec5381607dde6f3356a9073dc97bf",
+      "sourceFamily": "axios:fetch",
+      "expectedFailingTest": "tests/unit/adapters/fetch.test.js",
+      "testFilesTouched": [
+        "tests/unit/adapters/fetch.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/adapters/fetch.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/adapters/fetch.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "axios:fetch"
+      ],
+      "leakageExclusions": [
+        "own-fix:94e1543576aec5381607dde6f3356a9073dc97bf",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@94e15435; parent 76794ac2"
+    },
+    {
+      "taskId": "axios-axios-c918e85e",
+      "repo": "axios/axios",
+      "baseSHA": "694f1eca8cc3869e88b6434466f432b358962a42",
+      "fixSHA": "c918e85e91528da910836f0fa5c74ca3714daff1",
+      "sourceFamily": "axios:fetch",
+      "expectedFailingTest": "tests/unit/adapters/fetch.test.js",
+      "testFilesTouched": [
+        "tests/unit/adapters/fetch.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/adapters/fetch.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/adapters/fetch.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "axios:fetch"
+      ],
+      "leakageExclusions": [
+        "own-fix:c918e85e91528da910836f0fa5c74ca3714daff1",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@c918e85e; parent 694f1eca"
+    },
+    {
+      "taskId": "axios-axios-0912bde9",
+      "repo": "axios/axios",
+      "baseSHA": "8b68491d04838aaab5d1a4d30e23d1f534beceeb",
+      "fixSHA": "0912bde937c9505ce5464d5b9c56b81d1edeab63",
+      "sourceFamily": "axios:formdatatojson",
+      "expectedFailingTest": "tests/unit/helpers/formDataToJSON.test.js",
+      "testFilesTouched": [
+        "tests/unit/helpers/formDataToJSON.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/helpers/formDataToJSON.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/helpers/formDataToJSON.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "axios:formdatatojson"
+      ],
+      "leakageExclusions": [
+        "own-fix:0912bde937c9505ce5464d5b9c56b81d1edeab63",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@0912bde9; parent 8b68491d"
+    },
+    {
+      "taskId": "axios-axios-78e8dcf8",
+      "repo": "axios/axios",
+      "baseSHA": "9e6cc4725f074734723909beb3ef9a68644aa905",
+      "fixSHA": "78e8dcf8754ed9d1219628540d69d09bdba5a9be",
+      "sourceFamily": "axios:formdatatojson",
+      "expectedFailingTest": "tests/unit/helpers/formDataToJSON.test.js",
+      "testFilesTouched": [
+        "tests/unit/helpers/formDataToJSON.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/helpers/formDataToJSON.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/helpers/formDataToJSON.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "axios:formdatatojson"
+      ],
+      "leakageExclusions": [
+        "own-fix:78e8dcf8754ed9d1219628540d69d09bdba5a9be",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@78e8dcf8; parent 9e6cc472"
+    },
+    {
+      "taskId": "axios-axios-75873270",
+      "repo": "axios/axios",
+      "baseSHA": "f0b98673b32677643a3b608431270d36e997473c",
+      "fixSHA": "75873270a59bd5d895322eee145738e95fb89258",
+      "sourceFamily": "axios:formdatatostream",
+      "expectedFailingTest": "tests/unit/helpers/formDataToStream.test.js",
+      "testFilesTouched": [
+        "tests/unit/helpers/formDataToStream.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/helpers/formDataToStream.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/helpers/formDataToStream.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "axios:formdatatostream"
+      ],
+      "leakageExclusions": [
+        "own-fix:75873270a59bd5d895322eee145738e95fb89258",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@75873270; parent f0b98673"
+    },
+    {
+      "taskId": "axios-axios-0e8b6bbb",
+      "repo": "axios/axios",
+      "baseSHA": "79f39e1d041dca87173226d0255f90eaf252564b",
+      "fixSHA": "0e8b6bbb542131bae9940618d84d5286255d4db1",
+      "sourceFamily": "axios:http",
+      "expectedFailingTest": "tests/unit/adapters/http.test.js",
+      "testFilesTouched": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/adapters/http.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/adapters/http.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "axios:http"
+      ],
+      "leakageExclusions": [
+        "own-fix:0e8b6bbb542131bae9940618d84d5286255d4db1",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@0e8b6bbb; parent 79f39e1d"
+    },
+    {
+      "taskId": "axios-axios-1337845e",
+      "repo": "axios/axios",
+      "baseSHA": "979918445324cb9150134d068ba06f8cc9723346",
+      "fixSHA": "1337845ea3395045ef2a88da05dd4cd34d9247eb",
+      "sourceFamily": "axios:http",
+      "expectedFailingTest": "tests/unit/adapters/http.test.js",
+      "testFilesTouched": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/adapters/http.js",
+        "lib/core/Axios.js",
+        "lib/core/mergeConfig.js",
+        "lib/defaults/transitional.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/adapters/http.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "axios:http"
+      ],
+      "leakageExclusions": [
+        "own-fix:1337845ea3395045ef2a88da05dd4cd34d9247eb",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@1337845e; parent 97991844"
+    },
+    {
+      "taskId": "axios-axios-2a518282",
+      "repo": "axios/axios",
+      "baseSHA": "0e8b6bbb542131bae9940618d84d5286255d4db1",
+      "fixSHA": "2a51828213128691d2e37502b5eb2cf4965a737d",
+      "sourceFamily": "axios:http",
+      "expectedFailingTest": "tests/unit/adapters/http.test.js",
+      "testFilesTouched": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/adapters/http.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/adapters/http.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "axios:http"
+      ],
+      "leakageExclusions": [
+        "own-fix:2a51828213128691d2e37502b5eb2cf4965a737d",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@2a518282; parent 0e8b6bbb"
+    },
+    {
+      "taskId": "axios-axios-6feafcff",
+      "repo": "axios/axios",
+      "baseSHA": "302e2739c602f00e323d4f3f5c79500647633a73",
+      "fixSHA": "6feafcff6c2dbafe206161c5d09e38e1d36af66f",
+      "sourceFamily": "axios:http",
+      "expectedFailingTest": "tests/unit/adapters/http.test.js",
+      "testFilesTouched": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/adapters/http.js",
+        "lib/core/mergeConfig.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/adapters/http.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "axios:http"
+      ],
+      "leakageExclusions": [
+        "own-fix:6feafcff6c2dbafe206161c5d09e38e1d36af66f",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@6feafcff; parent 302e2739"
+    },
+    {
+      "taskId": "axios-axios-73a7c552",
+      "repo": "axios/axios",
+      "baseSHA": "58d8a125bf8339b9079caf9359c82ac136da95b0",
+      "fixSHA": "73a7c552820291ee491e4dd8fa901cef113ec800",
+      "sourceFamily": "axios:http",
+      "expectedFailingTest": "tests/unit/prototypePollution.test.js",
+      "testFilesTouched": [
+        "tests/unit/prototypePollution.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/adapters/http.js",
+        "lib/core/AxiosHeaders.js",
+        "lib/helpers/buildURL.js",
+        "lib/helpers/formDataToStream.js",
+        "lib/helpers/resolveConfig.js",
+        "lib/helpers/toFormData.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/prototypePollution.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "axios:http"
+      ],
+      "leakageExclusions": [
+        "own-fix:73a7c552820291ee491e4dd8fa901cef113ec800",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@73a7c552; parent 58d8a125"
+    },
+    {
+      "taskId": "axios-axios-8b68491d",
+      "repo": "axios/axios",
+      "baseSHA": "62f62816608823e1b152b27d3209092adc77b454",
+      "fixSHA": "8b68491d04838aaab5d1a4d30e23d1f534beceeb",
+      "sourceFamily": "axios:http",
+      "expectedFailingTest": "tests/unit/adapters/http.test.js",
+      "testFilesTouched": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/adapters/http.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/adapters/http.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "axios:http"
+      ],
+      "leakageExclusions": [
+        "own-fix:8b68491d04838aaab5d1a4d30e23d1f534beceeb",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@8b68491d; parent 62f62816"
+    },
+    {
+      "taskId": "axios-axios-cd0d4482",
+      "repo": "axios/axios",
+      "baseSHA": "f39203dcbee0632eff0c77cdfe350b08a241f838",
+      "fixSHA": "cd0d44825fe1db7ab597bb139206d780ae94a8ce",
+      "sourceFamily": "axios:http",
+      "expectedFailingTest": "tests/unit/adapters/http.test.js",
+      "testFilesTouched": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/adapters/http.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/adapters/http.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "axios:http"
+      ],
+      "leakageExclusions": [
+        "own-fix:cd0d44825fe1db7ab597bb139206d780ae94a8ce",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@cd0d4482; parent f39203dc"
+    },
+    {
+      "taskId": "axios-axios-e6a62415",
+      "repo": "axios/axios",
+      "baseSHA": "afca61a070728e717203c2bc21e7b589b59b858b",
+      "fixSHA": "e6a62415821802fc078e2b031f63306e44b11d9c",
+      "sourceFamily": "axios:http",
+      "expectedFailingTest": "tests/unit/adapters/http.test.js",
+      "testFilesTouched": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/adapters/http.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/adapters/http.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "axios:http"
+      ],
+      "leakageExclusions": [
+        "own-fix:e6a62415821802fc078e2b031f63306e44b11d9c",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@e6a62415; parent afca61a0"
+    },
+    {
+      "taskId": "axios-axios-e8904af0",
+      "repo": "axios/axios",
+      "baseSHA": "1c7f6d76e58359daddf38a6e636dd801ffd9c61b",
+      "fixSHA": "e8904af03385b040e53f1263a444e825db4335d9",
+      "sourceFamily": "axios:http",
+      "expectedFailingTest": "tests/unit/adapters/http.test.js",
+      "testFilesTouched": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/adapters/http.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/adapters/http.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "axios:http"
+      ],
+      "leakageExclusions": [
+        "own-fix:e8904af03385b040e53f1263a444e825db4335d9",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@e8904af0; parent 1c7f6d76"
+    },
+    {
+      "taskId": "axios-axios-bef4868c",
+      "repo": "axios/axios",
+      "baseSHA": "25387ae1cedb93b385029e759cac9a22b71ec498",
+      "fixSHA": "bef4868caf27a1076d4ce87b4995ddbf0ac49f20",
+      "sourceFamily": "axios:index",
+      "expectedFailingTest": "tests/unit/api.test.js",
+      "testFilesTouched": [
+        "tests/unit/api.test.js"
+      ],
+      "sourceFilesTouched": [
+        "index.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/api.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "axios:index"
+      ],
+      "leakageExclusions": [
+        "own-fix:bef4868caf27a1076d4ce87b4995ddbf0ac49f20",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@bef4868c; parent 25387ae1"
+    },
+    {
+      "taskId": "axios-axios-42eb721e",
+      "repo": "axios/axios",
+      "baseSHA": "75873270a59bd5d895322eee145738e95fb89258",
+      "fixSHA": "42eb721eebc95cfded8d6c70cf62f3fbe83f3246",
+      "sourceFamily": "axios:mergeconfig",
+      "expectedFailingTest": "tests/unit/prototypePollution.test.js",
+      "testFilesTouched": [
+        "tests/unit/prototypePollution.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/core/mergeConfig.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/prototypePollution.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "axios:mergeconfig"
+      ],
+      "leakageExclusions": [
+        "own-fix:42eb721eebc95cfded8d6c70cf62f3fbe83f3246",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@42eb721e; parent 75873270"
+    },
+    {
+      "taskId": "axios-axios-f2dc4495",
+      "repo": "axios/axios",
+      "baseSHA": "a501f100a774f8b382b0844fb7cdd168b90c4a31",
+      "fixSHA": "f2dc4495472071d3ed9a5637f35660226c8e44c6",
+      "sourceFamily": "axios:parseprotocol",
+      "expectedFailingTest": "tests/unit/parseProtocol.test.js",
+      "testFilesTouched": [
+        "tests/unit/parseProtocol.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/helpers/parseProtocol.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/parseProtocol.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "axios:parseprotocol"
+      ],
+      "leakageExclusions": [
+        "own-fix:f2dc4495472071d3ed9a5637f35660226c8e44c6",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@f2dc4495; parent a501f100"
+    },
+    {
+      "taskId": "axios-axios-40948863",
+      "repo": "axios/axios",
+      "baseSHA": "44f0c5bf73c45df6009365141faa394d73596bd7",
+      "fixSHA": "40948863677bb793bfff0293cce7e7b4f8a1b212",
+      "sourceFamily": "axios:progresseventreducer",
+      "expectedFailingTest": "tests/unit/helpers/progressEventReducer.test.js",
+      "testFilesTouched": [
+        "tests/unit/helpers/progressEventReducer.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/helpers/progressEventReducer.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/helpers/progressEventReducer.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "axios:progresseventreducer"
+      ],
+      "leakageExclusions": [
+        "own-fix:40948863677bb793bfff0293cce7e7b4f8a1b212",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@40948863; parent 44f0c5bf"
+    },
+    {
+      "taskId": "axios-axios-7b3369a9",
+      "repo": "axios/axios",
+      "baseSHA": "b0771a3c3e6f2bcefd4168f64cf24e454a7fb77a",
+      "fixSHA": "7b3369a9c4b8666a9bb4e34c9c49712ce542ce01",
+      "sourceFamily": "axios:resolveconfig",
+      "expectedFailingTest": "tests/unit/core/dispatchRequest.test.js",
+      "testFilesTouched": [
+        "tests/unit/core/dispatchRequest.test.js",
+        "tests/unit/helpers/resolveConfig.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/helpers/resolveConfig.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/core/dispatchRequest.test.js tests/unit/helpers/resolveConfig.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "axios:resolveconfig"
+      ],
+      "leakageExclusions": [
+        "own-fix:7b3369a9c4b8666a9bb4e34c9c49712ce542ce01",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@7b3369a9; parent b0771a3c"
+    },
+    {
+      "taskId": "axios-axios-947f7091",
+      "repo": "axios/axios",
+      "baseSHA": "a04dd96dbbc31f8b8ff2658706a92224b8956ce9",
+      "fixSHA": "947f7091d849435220accd2e656f34c824810200",
+      "sourceFamily": "axios:server",
+      "expectedFailingTest": "tests/unit/adapters/http.test.js",
+      "testFilesTouched": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "sourceFilesTouched": [
+        "examples/abort-controller/server.js",
+        "lib/adapters/http.js",
+        "sandbox/server.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/adapters/http.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "axios:server"
+      ],
+      "leakageExclusions": [
+        "own-fix:947f7091d849435220accd2e656f34c824810200",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@947f7091; parent a04dd96d"
+    },
+    {
+      "taskId": "axios-axios-5107ee69",
+      "repo": "axios/axios",
+      "baseSHA": "e57349992f230b6b13e80613eb84302560aa5ba8",
+      "fixSHA": "5107ee69aee527b19eabaf80000ca65752135435",
+      "sourceFamily": "axios:settle",
+      "expectedFailingTest": "tests/unit/core/settle.test.js",
+      "testFilesTouched": [
+        "tests/unit/core/settle.test.js"
+      ],
+      "sourceFilesTouched": [
+        "lib/core/settle.js"
+      ],
+      "verificationCommand": "npx vitest run --project unit tests/unit/core/settle.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "axios:settle"
+      ],
+      "leakageExclusions": [
+        "own-fix:5107ee69aee527b19eabaf80000ca65752135435",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; axios/axios@5107ee69; parent e5734999"
+    },
+    {
+      "taskId": "psf-black-01c29bd5",
+      "repo": "psf/black",
+      "baseSHA": "88e78334afa2ff046e8689dc8a8e848dd87792b6",
+      "fixSHA": "01c29bd5fded1d6f17ebd4e6f2b7e3999c153bf8",
+      "sourceFamily": "black:linegen",
+      "expectedFailingTest": "tests/test_format.py",
+      "testFilesTouched": [
+        "tests/data/cases/if_guard_inside_case.py"
+      ],
+      "sourceFilesTouched": [
+        "src/black/linegen.py",
+        "src/black/mode.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_format.py",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "black:linegen"
+      ],
+      "leakageExclusions": [
+        "own-fix:01c29bd5fded1d6f17ebd4e6f2b7e3999c153bf8",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; psf/black@01c29bd5; parent 88e78334"
+    },
+    {
+      "taskId": "psf-black-13e97b44",
+      "repo": "psf/black",
+      "baseSHA": "7613840124a7d6fdf7ce95157f9fc40360c2db88",
+      "fixSHA": "13e97b44997539a16a2454d9483a746b586253e0",
+      "sourceFamily": "black:linegen",
+      "expectedFailingTest": "tests/test_format.py",
+      "testFilesTouched": [
+        "tests/data/cases/pattern_matching_case_case_small_line_length.py"
+      ],
+      "sourceFilesTouched": [
+        "src/black/linegen.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_format.py",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "black:linegen"
+      ],
+      "leakageExclusions": [
+        "own-fix:13e97b44997539a16a2454d9483a746b586253e0",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; psf/black@13e97b44; parent 76138401"
+    },
+    {
+      "taskId": "psf-black-650983f7",
+      "repo": "psf/black",
+      "baseSHA": "13e97b44997539a16a2454d9483a746b586253e0",
+      "fixSHA": "650983f7b32b15feeb0fa30c0ed1a8b6e2a9b28f",
+      "sourceFamily": "black:strings",
+      "expectedFailingTest": "tests/test_black.py",
+      "testFilesTouched": [
+        "tests/data/cases/docstring.py",
+        "tests/data/cases/docstring_tabs.py",
+        "tests/test_black.py"
+      ],
+      "sourceFilesTouched": [
+        "src/black/strings.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_black.py",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "black:strings"
+      ],
+      "leakageExclusions": [
+        "own-fix:650983f7b32b15feeb0fa30c0ed1a8b6e2a9b28f",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; psf/black@650983f7; parent 13e97b44"
+    },
+    {
+      "taskId": "josdejong-mathjs-c19c15f0",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "33cb3d68f3b4b499d973271c5c0b7cee6ca74776",
+      "fixSHA": "c19c15f0c188829810a779adedd9908950ea0c7e",
+      "sourceFamily": "mathjs:assignmentnode",
+      "expectedFailingTest": "test/unit-tests/expression/node/AssignmentNode.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/expression/node/AssignmentNode.test.js",
+        "test/unit-tests/expression/node/BlockNode.test.js",
+        "test/unit-tests/expression/node/ConditionalNode.test.js",
+        "test/unit-tests/expression/node/FunctionAssignmentNode.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/expression/node/AssignmentNode.js",
+        "src/expression/node/FunctionAssignmentNode.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/expression/node/AssignmentNode.test.js test/unit-tests/expression/node/BlockNode.test.js test/unit-tests/expression/node/ConditionalNode.test.js test/unit-tests/expression/node/FunctionAssignmentNode.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:assignmentnode"
+      ],
+      "leakageExclusions": [
+        "own-fix:c19c15f0c188829810a779adedd9908950ea0c7e",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@c19c15f0; parent 33cb3d68"
+    },
+    {
+      "taskId": "josdejong-mathjs-68b4b503",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "3a77a6fedef52d4633cdd252ce09ac3fc80e7217",
+      "fixSHA": "68b4b503f75a554d17e476cdd9205c37aeb4b1b6",
+      "sourceFamily": "mathjs:column",
+      "expectedFailingTest": "test/unit-tests/function/matrix/column.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/function/matrix/column.test.js",
+        "test/unit-tests/function/matrix/row.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/function/matrix/column.js",
+        "src/function/matrix/row.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/function/matrix/column.test.js test/unit-tests/function/matrix/row.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:column"
+      ],
+      "leakageExclusions": [
+        "own-fix:68b4b503f75a554d17e476cdd9205c37aeb4b1b6",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@68b4b503; parent 3a77a6fe"
+    },
+    {
+      "taskId": "josdejong-mathjs-153fe775",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "31e69099d625e614e33758598c7c384a3fad001e",
+      "fixSHA": "153fe7750208866befcff39a6427c75fa040504f",
+      "sourceFamily": "mathjs:comparenatural",
+      "expectedFailingTest": "test/unit-tests/function/relational/compareNatural.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/function/relational/compareNatural.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/function/relational/compareNatural.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/function/relational/compareNatural.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:comparenatural"
+      ],
+      "leakageExclusions": [
+        "own-fix:153fe7750208866befcff39a6427c75fa040504f",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@153fe775; parent 31e69099"
+    },
+    {
+      "taskId": "josdejong-mathjs-abf9c9fa",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "1edc38ce9a812ca3aeddb67ca376d0dd21802e8b",
+      "fixSHA": "abf9c9fadecb829e6fa4f5bdcaad83fd7c2e901a",
+      "sourceFamily": "mathjs:corr",
+      "expectedFailingTest": "test/unit-tests/function/statistics/corr.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/function/statistics/corr.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/function/statistics/corr.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/function/statistics/corr.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:corr"
+      ],
+      "leakageExclusions": [
+        "own-fix:abf9c9fadecb829e6fa4f5bdcaad83fd7c2e901a",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@abf9c9fa; parent 1edc38ce"
+    },
+    {
+      "taskId": "josdejong-mathjs-00cee875",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "6fb485de5fec3ce7ee4ee7f18bc8c899d90fe680",
+      "fixSHA": "00cee8759793fe8182b3a5bd33c7433637d04295",
+      "sourceFamily": "mathjs:det",
+      "expectedFailingTest": "test/unit-tests/function/matrix/det.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/function/matrix/det.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/function/matrix/det.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/function/matrix/det.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:det"
+      ],
+      "leakageExclusions": [
+        "own-fix:00cee8759793fe8182b3a5bd33c7433637d04295",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@00cee875; parent 6fb485de"
+    },
+    {
+      "taskId": "josdejong-mathjs-8c659a86",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "095ccb6ae7ed2ba18a42a13f1ae0f0156116d576",
+      "fixSHA": "8c659a86cd951a37762246a3cfff2ae5780d8eea",
+      "sourceFamily": "mathjs:equal",
+      "expectedFailingTest": "test/unit-tests/function/utils/isInteger.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/function/utils/isInteger.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/function/relational/equal.js",
+        "src/function/utils/isInteger.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/function/utils/isInteger.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:equal"
+      ],
+      "leakageExclusions": [
+        "own-fix:8c659a86cd951a37762246a3cfff2ae5780d8eea",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@8c659a86; parent 095ccb6a"
+    },
+    {
+      "taskId": "josdejong-mathjs-338dfe9a",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "f74d6365ebcafe1f4a1c50dfa1b2a2e0ae464d1a",
+      "fixSHA": "338dfe9ae30c5579fed843506958b8e2211ba028",
+      "sourceFamily": "mathjs:flatten",
+      "expectedFailingTest": "test/unit-tests/function/matrix/flatten.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/function/matrix/flatten.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/function/matrix/flatten.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/function/matrix/flatten.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:flatten"
+      ],
+      "leakageExclusions": [
+        "own-fix:338dfe9ae30c5579fed843506958b8e2211ba028",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@338dfe9a; parent f74d6365"
+    },
+    {
+      "taskId": "josdejong-mathjs-5754478f",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "0a093307b8b9841d8efb54dcb342f9e81128c802",
+      "fixSHA": "5754478f168b67e9774d4dfbb5c4f45ad34f97ca",
+      "sourceFamily": "mathjs:flatten",
+      "expectedFailingTest": "test/unit-tests/function/matrix/flatten.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/function/matrix/flatten.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/function/matrix/flatten.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/function/matrix/flatten.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "mathjs:flatten"
+      ],
+      "leakageExclusions": [
+        "own-fix:5754478f168b67e9774d4dfbb5c4f45ad34f97ca",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@5754478f; parent 0a093307"
+    },
+    {
+      "taskId": "josdejong-mathjs-6fa58905",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "3c59d1a9cae01eab1381f66b5c8546f3455b5404",
+      "fixSHA": "6fa589057e4756ae3c76f7dfbf2295d535e1b1c1",
+      "sourceFamily": "mathjs:formatter",
+      "expectedFailingTest": "test/unit-tests/function/string/format.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/function/string/format.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/utils/bignumber/formatter.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/function/string/format.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:formatter"
+      ],
+      "leakageExclusions": [
+        "own-fix:6fa589057e4756ae3c76f7dfbf2295d535e1b1c1",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@6fa58905; parent 3c59d1a9"
+    },
+    {
+      "taskId": "josdejong-mathjs-d27910fa",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "5e439be0a8a46386f1b658b94f34340d75369fb1",
+      "fixSHA": "d27910fa1f6a081e41ecca7614ccf3eb3e1ebe9f",
+      "sourceFamily": "mathjs:functionassignmentnode",
+      "expectedFailingTest": "test/unit-tests/expression/node/FunctionAssignmentNode.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/expression/node/FunctionAssignmentNode.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/expression/node/FunctionAssignmentNode.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/expression/node/FunctionAssignmentNode.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:functionassignmentnode"
+      ],
+      "leakageExclusions": [
+        "own-fix:d27910fa1f6a081e41ecca7614ccf3eb3e1ebe9f",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@d27910fa; parent 5e439be0"
+    },
+    {
+      "taskId": "josdejong-mathjs-1fc742aa",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "17f295cd4feea2908b50891a830e2f9241811389",
+      "fixSHA": "1fc742aaf13eb5f2a8de5f507d0d34dcf7c48fef",
+      "sourceFamily": "mathjs:import",
+      "expectedFailingTest": "test/unit-tests/core/import.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/core/import.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/core/function/import.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/core/import.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:import"
+      ],
+      "leakageExclusions": [
+        "own-fix:1fc742aaf13eb5f2a8de5f507d0d34dcf7c48fef",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@1fc742aa; parent 17f295cd"
+    },
+    {
+      "taskId": "josdejong-mathjs-837769c7",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "66775ee8b5d59dc89a9101c51ee1310fa23d8a04",
+      "fixSHA": "837769c74886c771986100e3036a92e7a0338616",
+      "sourceFamily": "mathjs:import",
+      "expectedFailingTest": "test/unit-tests/core/import.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/core/import.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/core/function/import.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/core/import.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "mathjs:import"
+      ],
+      "leakageExclusions": [
+        "own-fix:837769c74886c771986100e3036a92e7a0338616",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@837769c7; parent 66775ee8"
+    },
+    {
+      "taskId": "josdejong-mathjs-b5773df3",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "8d8ea987eb4365cfc12cb90bccb62f658df49cb7",
+      "fixSHA": "b5773df3c0444000d8de57c60faa0933bf3e9585",
+      "sourceFamily": "mathjs:latex",
+      "expectedFailingTest": "test/unit-tests/expression/node/FunctionNode.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/expression/node/FunctionNode.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/utils/latex.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/expression/node/FunctionNode.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:latex"
+      ],
+      "leakageExclusions": [
+        "own-fix:b5773df3c0444000d8de57c60faa0933bf3e9585",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@b5773df3; parent 8d8ea987"
+    },
+    {
+      "taskId": "josdejong-mathjs-8679c076",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "76c4811484f88ad43e95c36936688d3b7381abd7",
+      "fixSHA": "8679c076176a8ea14be92985622dc4255800e527",
+      "sourceFamily": "mathjs:mod",
+      "expectedFailingTest": "test/unit-tests/function/arithmetic/mod.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/function/arithmetic/mod.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/function/arithmetic/mod.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/function/arithmetic/mod.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:mod"
+      ],
+      "leakageExclusions": [
+        "own-fix:8679c076176a8ea14be92985622dc4255800e527",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@8679c076; parent 76c48114"
+    },
+    {
+      "taskId": "josdejong-mathjs-b5d635e5",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "29abd1701b354e215cdeb8ef9dda57dfa16c78ee",
+      "fixSHA": "b5d635e5b83cdf2d0d0971a20b0c69758d583fb5",
+      "sourceFamily": "mathjs:number",
+      "expectedFailingTest": "test/unit-tests/expression/parse.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/utils/number.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/expression/parse.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:number"
+      ],
+      "leakageExclusions": [
+        "own-fix:b5d635e5b83cdf2d0d0971a20b0c69758d583fb5",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@b5d635e5; parent 29abd170"
+    },
+    {
+      "taskId": "josdejong-mathjs-307c9dbc",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "a6d628c11eb7b38a48258e854a7c68dbc0d5751f",
+      "fixSHA": "307c9dbca7e8a880451adc4b4a4a8e1e883c552f",
+      "sourceFamily": "mathjs:optimizecallback",
+      "expectedFailingTest": "test/unit-tests/type/matrix/DenseMatrix.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/type/matrix/DenseMatrix.test.js",
+        "test/unit-tests/type/matrix/utils/deepMap.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/utils/optimizeCallback.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/type/matrix/DenseMatrix.test.js test/unit-tests/type/matrix/utils/deepMap.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:optimizecallback"
+      ],
+      "leakageExclusions": [
+        "own-fix:307c9dbca7e8a880451adc4b4a4a8e1e883c552f",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@307c9dbc; parent a6d628c1"
+    },
+    {
+      "taskId": "josdejong-mathjs-7db79129",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "b81420fad620b676d7c6ce307090dab906b71640",
+      "fixSHA": "7db791298c178d8fd202e8fde12f7b913845f442",
+      "sourceFamily": "mathjs:parse",
+      "expectedFailingTest": "test/unit-tests/expression/parse.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/expression/parse.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/expression/parse.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:parse"
+      ],
+      "leakageExclusions": [
+        "own-fix:7db791298c178d8fd202e8fde12f7b913845f442",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@7db79129; parent b81420fa"
+    },
+    {
+      "taskId": "josdejong-mathjs-b15904ff",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "6cb374d8d2ed9d494d59f56a81933d8ccc4a23d2",
+      "fixSHA": "b15904ff0bc0e2d8f7a3fdebb04a85c6880234ff",
+      "sourceFamily": "mathjs:parse",
+      "expectedFailingTest": "test/unit-tests/expression/parse.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/expression/parse.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/expression/parse.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "mathjs:parse"
+      ],
+      "leakageExclusions": [
+        "own-fix:b15904ff0bc0e2d8f7a3fdebb04a85c6880234ff",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@b15904ff; parent 6cb374d8"
+    },
+    {
+      "taskId": "josdejong-mathjs-e5bb6465",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "17a27fa70d205baae96279873d15b8e0af759a32",
+      "fixSHA": "e5bb6465a922c17defd7481a7e5d8997d3b6566b",
+      "sourceFamily": "mathjs:parse",
+      "expectedFailingTest": "test/unit-tests/expression/parse.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/expression/parse.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/expression/parse.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "mathjs:parse"
+      ],
+      "leakageExclusions": [
+        "own-fix:e5bb6465a922c17defd7481a7e5d8997d3b6566b",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@e5bb6465; parent 17a27fa7"
+    },
+    {
+      "taskId": "josdejong-mathjs-fb76ac41",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "2a4faaa03cebaa77b9012145c03b07db0673bd94",
+      "fixSHA": "fb76ac419d680543d2ecff70a594e177f3e41b5b",
+      "sourceFamily": "mathjs:parse",
+      "expectedFailingTest": "test/unit-tests/expression/parse.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/expression/parse.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/expression/parse.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/expression/parse.test.js",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "mathjs:parse"
+      ],
+      "leakageExclusions": [
+        "own-fix:fb76ac419d680543d2ecff70a594e177f3e41b5b",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@fb76ac41; parent 2a4faaa0"
+    },
+    {
+      "taskId": "josdejong-mathjs-f8656583",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "d7ad0015505565e97a100c2fa0a27930f648bf53",
+      "fixSHA": "f8656583394f0af8c748070598f2b96e05c9f1c7",
+      "sourceFamily": "mathjs:quantileseq",
+      "expectedFailingTest": "test/unit-tests/function/statistics/quantileSeq.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/function/statistics/quantileSeq.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/function/statistics/quantileSeq.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/function/statistics/quantileSeq.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:quantileseq"
+      ],
+      "leakageExclusions": [
+        "own-fix:f8656583394f0af8c748070598f2b96e05c9f1c7",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@f8656583; parent d7ad0015"
+    },
+    {
+      "taskId": "josdejong-mathjs-27ffc788",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "544d6aabb7b3c7988588e5b78e097f5c74aea57e",
+      "fixSHA": "27ffc7887ee80359a22d3c38e83f21f526f5d195",
+      "sourceFamily": "mathjs:reshape",
+      "expectedFailingTest": "test/unit-tests/function/matrix/reshape.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/function/matrix/reshape.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/function/matrix/reshape.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/function/matrix/reshape.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:reshape"
+      ],
+      "leakageExclusions": [
+        "own-fix:27ffc7887ee80359a22d3c38e83f21f526f5d195",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@27ffc788; parent 544d6aab"
+    },
+    {
+      "taskId": "josdejong-mathjs-d1ecf44e",
+      "repo": "josdejong/mathjs",
+      "baseSHA": "4c64018a79cc14a86c62cfb53498fde209b69630",
+      "fixSHA": "d1ecf44e2f4dba4966d602851329643eb8a788c7",
+      "sourceFamily": "mathjs:typed",
+      "expectedFailingTest": "test/unit-tests/function/algebra/derivative.test.js",
+      "testFilesTouched": [
+        "test/unit-tests/function/algebra/derivative.test.js"
+      ],
+      "sourceFilesTouched": [
+        "src/core/function/typed.js",
+        "src/function/algebra/derivative.js"
+      ],
+      "verificationCommand": "npx mocha test/unit-tests/function/algebra/derivative.test.js",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "mathjs:typed"
+      ],
+      "leakageExclusions": [
+        "own-fix:d1ecf44e2f4dba4966d602851329643eb8a788c7",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; josdejong/mathjs@d1ecf44e; parent 4c64018a"
+    },
+    {
+      "taskId": "Textualize-rich-155bd04b",
+      "repo": "Textualize/rich",
+      "baseSHA": "0b845b39d9815c3219bf3b855a45b01e0b7c29f6",
+      "fixSHA": "155bd04b12580aee94b2bc04c46a3856065273a3",
+      "sourceFamily": "rich:_export_format",
+      "expectedFailingTest": "tests/test_console.py",
+      "testFilesTouched": [
+        "tests/test_console.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/_export_format.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_console.py",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "rich:_export_format"
+      ],
+      "leakageExclusions": [
+        "own-fix:155bd04b12580aee94b2bc04c46a3856065273a3",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@155bd04b; parent 0b845b39"
+    },
+    {
+      "taskId": "Textualize-rich-92e71647",
+      "repo": "Textualize/rich",
+      "baseSHA": "9f620dc50c0008c35e9f8493f198e6e593574a70",
+      "fixSHA": "92e7164773ab1a0dd438ba43fee5d3b76b28ba1a",
+      "sourceFamily": "rich:_export_format",
+      "expectedFailingTest": "tests/test_console.py",
+      "testFilesTouched": [
+        "tests/test_console.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/_export_format.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_console.py",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "rich:_export_format"
+      ],
+      "leakageExclusions": [
+        "own-fix:92e7164773ab1a0dd438ba43fee5d3b76b28ba1a",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@92e71647; parent 9f620dc5"
+    },
+    {
+      "taskId": "Textualize-rich-e2a982d5",
+      "repo": "Textualize/rich",
+      "baseSHA": "0ba607dc080c9f102b5ae5346bcdb70d6e9c969d",
+      "fixSHA": "e2a982d5ea747f0deb7f78e8eaa5b4be7d9194cf",
+      "sourceFamily": "rich:console",
+      "expectedFailingTest": "tests/test_console.py",
+      "testFilesTouched": [
+        "tests/test_console.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/console.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_console.py",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "rich:console"
+      ],
+      "leakageExclusions": [
+        "own-fix:e2a982d5ea747f0deb7f78e8eaa5b4be7d9194cf",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@e2a982d5; parent 0ba607dc"
+    },
+    {
+      "taskId": "Textualize-rich-e34ad8ba",
+      "repo": "Textualize/rich",
+      "baseSHA": "076e0d208eb0b4e74cd8639e11a558b9319bd799",
+      "fixSHA": "e34ad8ba1c3cf6bbbeedbfdfecfe65c0e7413a59",
+      "sourceFamily": "rich:console",
+      "expectedFailingTest": "tests/test_console.py",
+      "testFilesTouched": [
+        "tests/test_console.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/console.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_console.py",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "rich:console"
+      ],
+      "leakageExclusions": [
+        "own-fix:e34ad8ba1c3cf6bbbeedbfdfecfe65c0e7413a59",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@e34ad8ba; parent 076e0d20"
+    },
+    {
+      "taskId": "Textualize-rich-f0d84355",
+      "repo": "Textualize/rich",
+      "baseSHA": "28a05fa17721a20df55dae160bede89ff5873d7e",
+      "fixSHA": "f0d84355f38ff952377f2d0efe92e32164cdbb10",
+      "sourceFamily": "rich:console",
+      "expectedFailingTest": "tests/test_console.py",
+      "testFilesTouched": [
+        "tests/test_console.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/console.py",
+        "rich/style.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_console.py",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "rich:console"
+      ],
+      "leakageExclusions": [
+        "own-fix:f0d84355f38ff952377f2d0efe92e32164cdbb10",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@f0d84355; parent 28a05fa1"
+    },
+    {
+      "taskId": "Textualize-rich-f2ca04cc",
+      "repo": "Textualize/rich",
+      "baseSHA": "155bd04b12580aee94b2bc04c46a3856065273a3",
+      "fixSHA": "f2ca04cc5caa100feb44efbd3520eedaf2cafdb1",
+      "sourceFamily": "rich:console",
+      "expectedFailingTest": "tests/test_console.py",
+      "testFilesTouched": [
+        "tests/test_console.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/console.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_console.py",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "rich:console"
+      ],
+      "leakageExclusions": [
+        "own-fix:f2ca04cc5caa100feb44efbd3520eedaf2cafdb1",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@f2ca04cc; parent 155bd04b"
+    },
+    {
+      "taskId": "Textualize-rich-2d035d11",
+      "repo": "Textualize/rich",
+      "baseSHA": "1ad6f73a4d1d3b40ac3f879feccfaad66412bd1d",
+      "fixSHA": "2d035d116e5e91df3b0992c494b5bc6957e57f50",
+      "sourceFamily": "rich:highlighter",
+      "expectedFailingTest": "tests/test_highlighter.py",
+      "testFilesTouched": [
+        "tests/test_highlighter.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/highlighter.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_highlighter.py",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "rich:highlighter"
+      ],
+      "leakageExclusions": [
+        "own-fix:2d035d116e5e91df3b0992c494b5bc6957e57f50",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@2d035d11; parent 1ad6f73a"
+    },
+    {
+      "taskId": "Textualize-rich-b6f2f7aa",
+      "repo": "Textualize/rich",
+      "baseSHA": "b1397be1e79fc3ac6d7fd4f66474fbe6d5e820bf",
+      "fixSHA": "b6f2f7aa5b27f612f391cd28212aff51ad0d42d1",
+      "sourceFamily": "rich:highlighter",
+      "expectedFailingTest": "tests/test_highlighter.py",
+      "testFilesTouched": [
+        "tests/test_highlighter.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/highlighter.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_highlighter.py",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "rich:highlighter"
+      ],
+      "leakageExclusions": [
+        "own-fix:b6f2f7aa5b27f612f391cd28212aff51ad0d42d1",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@b6f2f7aa; parent b1397be1"
+    },
+    {
+      "taskId": "Textualize-rich-01b85ac1",
+      "repo": "Textualize/rich",
+      "baseSHA": "368e8ad77c95a6bef8f9d332039091d1417296bc",
+      "fixSHA": "01b85ac116c4635b6ddb8b488be8254be6df2a84",
+      "sourceFamily": "rich:markup",
+      "expectedFailingTest": "tests/test_markup.py",
+      "testFilesTouched": [
+        "tests/test_markup.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/markup.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_markup.py",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "rich:markup"
+      ],
+      "leakageExclusions": [
+        "own-fix:01b85ac116c4635b6ddb8b488be8254be6df2a84",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@01b85ac1; parent 368e8ad7"
+    },
+    {
+      "taskId": "Textualize-rich-21b38008",
+      "repo": "Textualize/rich",
+      "baseSHA": "7d36119f8378b36129502c3281a7faffef837e02",
+      "fixSHA": "21b3800894f6a81d3f68a0e34796be67e3ccd39f",
+      "sourceFamily": "rich:panel",
+      "expectedFailingTest": "tests/test_panel.py",
+      "testFilesTouched": [
+        "tests/test_panel.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/panel.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_panel.py",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "rich:panel"
+      ],
+      "leakageExclusions": [
+        "own-fix:21b3800894f6a81d3f68a0e34796be67e3ccd39f",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@21b38008; parent 7d36119f"
+    },
+    {
+      "taskId": "Textualize-rich-dc7a195a",
+      "repo": "Textualize/rich",
+      "baseSHA": "b6f2f7aa5b27f612f391cd28212aff51ad0d42d1",
+      "fixSHA": "dc7a195acd480326c2449ec0829726ecd91e0c68",
+      "sourceFamily": "rich:pretty",
+      "expectedFailingTest": "tests/test_pretty.py",
+      "testFilesTouched": [
+        "tests/test_pretty.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/pretty.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_pretty.py",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "rich:pretty"
+      ],
+      "leakageExclusions": [
+        "own-fix:dc7a195acd480326c2449ec0829726ecd91e0c68",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@dc7a195a; parent b6f2f7aa"
+    },
+    {
+      "taskId": "Textualize-rich-aa5edf59",
+      "repo": "Textualize/rich",
+      "baseSHA": "1f3ec9a8c145c6b98ade7faaecf83b39d93b5ad9",
+      "fixSHA": "aa5edf59292ef25c14142a1f0f0fa37335b3c0d8",
+      "sourceFamily": "rich:progress",
+      "expectedFailingTest": "tests/test_progress.py",
+      "testFilesTouched": [
+        "tests/test_progress.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/progress.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_progress.py",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "rich:progress"
+      ],
+      "leakageExclusions": [
+        "own-fix:aa5edf59292ef25c14142a1f0f0fa37335b3c0d8",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@aa5edf59; parent 1f3ec9a8"
+    },
+    {
+      "taskId": "Textualize-rich-abd5a2af",
+      "repo": "Textualize/rich",
+      "baseSHA": "12eeb42c96a7a953865b19da204dea6fe658713b",
+      "fixSHA": "abd5a2afc41ff1196fe4d901b8784bb08acf3140",
+      "sourceFamily": "rich:prompt",
+      "expectedFailingTest": "tests/test_prompt.py",
+      "testFilesTouched": [
+        "tests/test_prompt.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/prompt.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_prompt.py",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "rich:prompt"
+      ],
+      "leakageExclusions": [
+        "own-fix:abd5a2afc41ff1196fe4d901b8784bb08acf3140",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@abd5a2af; parent 12eeb42c"
+    },
+    {
+      "taskId": "Textualize-rich-236e8e8d",
+      "repo": "Textualize/rich",
+      "baseSHA": "0c8bb032ad3b54a32fdb8a43f5ab457c8cd6dcb1",
+      "fixSHA": "236e8e8dc3d82a7c7dd286675b59e111af8136ba",
+      "sourceFamily": "rich:repr",
+      "expectedFailingTest": "tests/test_repr.py",
+      "testFilesTouched": [
+        "tests/test_repr.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/repr.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_repr.py",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "rich:repr"
+      ],
+      "leakageExclusions": [
+        "own-fix:236e8e8dc3d82a7c7dd286675b59e111af8136ba",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@236e8e8d; parent 0c8bb032"
+    },
+    {
+      "taskId": "Textualize-rich-0099f505",
+      "repo": "Textualize/rich",
+      "baseSHA": "f0d84355f38ff952377f2d0efe92e32164cdbb10",
+      "fixSHA": "0099f505c3dbf316e03afcf16f05dc4a86d172a2",
+      "sourceFamily": "rich:rich",
+      "expectedFailingTest": "tests/test_console.py",
+      "testFilesTouched": [
+        "tests/test_console.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/__init__.py",
+        "rich/console.py",
+        "rich/json.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_console.py",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "rich:rich"
+      ],
+      "leakageExclusions": [
+        "own-fix:0099f505c3dbf316e03afcf16f05dc4a86d172a2",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@0099f505; parent f0d84355"
+    },
+    {
+      "taskId": "Textualize-rich-4bc4437d",
+      "repo": "Textualize/rich",
+      "baseSHA": "d14b304aa45bf0759729f4e066606065daa341c8",
+      "fixSHA": "4bc4437d1b929ee2a0f663be236940435eee31c9",
+      "sourceFamily": "rich:segment",
+      "expectedFailingTest": "tests/test_segment.py",
+      "testFilesTouched": [
+        "tests/test_segment.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/segment.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_segment.py",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "rich:segment"
+      ],
+      "leakageExclusions": [
+        "own-fix:4bc4437d1b929ee2a0f663be236940435eee31c9",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@4bc4437d; parent d14b304a"
+    },
+    {
+      "taskId": "Textualize-rich-d5dcc74d",
+      "repo": "Textualize/rich",
+      "baseSHA": "4101991898ee7a09fe1706daca24af5e1e054862",
+      "fixSHA": "d5dcc74d0255d3dbcbb9f0bba208bdde2e40ec54",
+      "sourceFamily": "rich:segment",
+      "expectedFailingTest": "tests/test_segment.py",
+      "testFilesTouched": [
+        "tests/test_segment.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/segment.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_segment.py",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "rich:segment"
+      ],
+      "leakageExclusions": [
+        "own-fix:d5dcc74d0255d3dbcbb9f0bba208bdde2e40ec54",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@d5dcc74d; parent 41019918"
+    },
+    {
+      "taskId": "Textualize-rich-66074922",
+      "repo": "Textualize/rich",
+      "baseSHA": "e732952eb53e62bfe936192dd84fb5c1d4d5d4ee",
+      "fixSHA": "66074922edabeac684434b4d87ee994fb97b0627",
+      "sourceFamily": "rich:table",
+      "expectedFailingTest": "tests/test_table.py",
+      "testFilesTouched": [
+        "tests/test_table.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/table.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_table.py",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "rich:table"
+      ],
+      "leakageExclusions": [
+        "own-fix:66074922edabeac684434b4d87ee994fb97b0627",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@66074922; parent e732952e"
+    },
+    {
+      "taskId": "Textualize-rich-9e18b966",
+      "repo": "Textualize/rich",
+      "baseSHA": "fe55a131c2780fa856464ad04d7d6dc8a1079b72",
+      "fixSHA": "9e18b96652f37293121b04017fb6aa95af21b013",
+      "sourceFamily": "rich:table",
+      "expectedFailingTest": "tests/test_columns.py",
+      "testFilesTouched": [
+        "tests/test_columns.py",
+        "tests/test_table.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/table.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_columns.py tests/test_table.py",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "rich:table"
+      ],
+      "leakageExclusions": [
+        "own-fix:9e18b96652f37293121b04017fb6aa95af21b013",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@9e18b966; parent fe55a131"
+    },
+    {
+      "taskId": "Textualize-rich-1b2dada1",
+      "repo": "Textualize/rich",
+      "baseSHA": "e2a982d5ea747f0deb7f78e8eaa5b4be7d9194cf",
+      "fixSHA": "1b2dada1c9fa6f16ec319a8d370458c8bde203f7",
+      "sourceFamily": "rich:text",
+      "expectedFailingTest": "tests/test_text.py",
+      "testFilesTouched": [
+        "tests/test_text.py"
+      ],
+      "sourceFilesTouched": [
+        "rich/text.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_text.py",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "rich:text"
+      ],
+      "leakageExclusions": [
+        "own-fix:1b2dada1c9fa6f16ec319a8d370458c8bde203f7",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; Textualize/rich@1b2dada1; parent e2a982d5"
+    },
+    {
+      "taskId": "pallets-werkzeug-9e050f77",
+      "repo": "pallets/werkzeug",
+      "baseSHA": "855665483334f8ae45d0b847351083617f81c4f8",
+      "fixSHA": "9e050f7750214d6779636813b8d661250804e811",
+      "sourceFamily": "werkzeug:cache_control",
+      "expectedFailingTest": "tests/test_datastructures.py",
+      "testFilesTouched": [
+        "tests/test_datastructures.py"
+      ],
+      "sourceFilesTouched": [
+        "src/werkzeug/datastructures/cache_control.py",
+        "src/werkzeug/utils.py"
+      ],
+      "verificationCommand": ".venv/bin/python -m pytest -q --no-header -x tests/test_datastructures.py",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "werkzeug:cache_control"
+      ],
+      "leakageExclusions": [
+        "own-fix:9e050f7750214d6779636813b8d661250804e811",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; pallets/werkzeug@9e050f77; parent 85566548"
+    },
+    {
+      "taskId": "colinhacks-zod-15cafa13",
+      "repo": "colinhacks/zod",
+      "baseSHA": "23edf4844bcd89fa37c549dab187ce7f86728540",
+      "fixSHA": "15cafa13940b7055cc21e4ef440a6a0c6b7af72b",
+      "sourceFamily": "zod:core",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/object.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/object.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/util.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/object.test.ts",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "zod:core"
+      ],
+      "leakageExclusions": [
+        "own-fix:15cafa13940b7055cc21e4ef440a6a0c6b7af72b",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@15cafa13; parent 23edf484"
+    },
+    {
+      "taskId": "colinhacks-zod-34f60159",
+      "repo": "colinhacks/zod",
+      "baseSHA": "b6b1288277e6ca87dab0ad1c7251b92612b7445c",
+      "fixSHA": "34f601590351e5d3a57fe20c001155940ba65324",
+      "sourceFamily": "zod:core",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/default.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/default.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/util.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/default.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:core"
+      ],
+      "leakageExclusions": [
+        "own-fix:34f601590351e5d3a57fe20c001155940ba65324",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@34f60159; parent b6b12882"
+    },
+    {
+      "taskId": "colinhacks-zod-3a818de1",
+      "repo": "colinhacks/zod",
+      "baseSHA": "55747b3cd05cd8b60b4f3d6a6348e2c508069c12",
+      "fixSHA": "3a818de145dc2fa9b5753bc8bf97b0b8484cfbaf",
+      "sourceFamily": "zod:core",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/number.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/number.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/util.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/number.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:core"
+      ],
+      "leakageExclusions": [
+        "own-fix:3a818de145dc2fa9b5753bc8bf97b0b8484cfbaf",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@3a818de1; parent 55747b3c"
+    },
+    {
+      "taskId": "colinhacks-zod-b9b62c65",
+      "repo": "colinhacks/zod",
+      "baseSHA": "584b1089e1fc7bfcc97797576eff8da85bcdf031",
+      "fixSHA": "b9b62c65357c2b0fed4ae046a30c8e84e4094202",
+      "sourceFamily": "zod:core",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/jitless-allows-eval.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/jitless-allows-eval.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/util.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/jitless-allows-eval.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:core"
+      ],
+      "leakageExclusions": [
+        "own-fix:b9b62c65357c2b0fed4ae046a30c8e84e4094202",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@b9b62c65; parent 584b1089"
+    },
+    {
+      "taskId": "colinhacks-zod-2e5b23dc",
+      "repo": "colinhacks/zod",
+      "baseSHA": "518f15ddada3b5d959f4ff32b094789e2d85349a",
+      "fixSHA": "2e5b23dcd41eb257bda434b9997fd60a19cdf38f",
+      "sourceFamily": "zod:errors",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/discriminated-unions.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/discriminated-unions.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/errors.ts",
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v4/locales/en.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/discriminated-unions.test.ts",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "zod:errors"
+      ],
+      "leakageExclusions": [
+        "own-fix:2e5b23dcd41eb257bda434b9997fd60a19cdf38f",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@2e5b23dc; parent 518f15dd"
+    },
+    {
+      "taskId": "colinhacks-zod-60ff3987",
+      "repo": "colinhacks/zod",
+      "baseSHA": "f533671752ae7247bc25dca8f2dbfda80fa2fccc",
+      "fixSHA": "60ff398771bb4b6df04d96f00b9a10ee561ee7af",
+      "sourceFamily": "zod:errors",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/error-utils.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/error-utils.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/errors.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/error-utils.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:errors"
+      ],
+      "leakageExclusions": [
+        "own-fix:60ff398771bb4b6df04d96f00b9a10ee561ee7af",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@60ff3987; parent f5336717"
+    },
+    {
+      "taskId": "colinhacks-zod-87cf0f93",
+      "repo": "colinhacks/zod",
+      "baseSHA": "c7a8ccc0d0fb4f2bd1c938b8d79873a8ebd6573e",
+      "fixSHA": "87cf0f93cd0f34bdc69f11c9377568e6812841c4",
+      "sourceFamily": "zod:from-json-schema",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/from-json-schema.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/from-json-schema.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/classic/from-json-schema.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/from-json-schema.test.ts",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "zod:from-json-schema"
+      ],
+      "leakageExclusions": [
+        "own-fix:87cf0f93cd0f34bdc69f11c9377568e6812841c4",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@87cf0f93; parent c7a8ccc0"
+    },
+    {
+      "taskId": "colinhacks-zod-fbe8ad1b",
+      "repo": "colinhacks/zod",
+      "baseSHA": "1fb56a5c18c27102dbc92260a4007c7732a0ccca",
+      "fixSHA": "fbe8ad1b709460fc45d88fdcb5eca591198de60d",
+      "sourceFamily": "zod:json-schema-processors",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/to-json-schema.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/json-schema-processors.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/to-json-schema.test.ts",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "zod:json-schema-processors"
+      ],
+      "leakageExclusions": [
+        "own-fix:fbe8ad1b709460fc45d88fdcb5eca591198de60d",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@fbe8ad1b; parent 1fb56a5c"
+    },
+    {
+      "taskId": "colinhacks-zod-44f6a03e",
+      "repo": "colinhacks/zod",
+      "baseSHA": "ca3c8629c0c2715571f70b44c2433cad3db7fe4e",
+      "fixSHA": "44f6a03e1d7cd918bfb9d9962d967deb6718335b",
+      "sourceFamily": "zod:ka",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/locales_ka.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/locales_ka.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/locales/ka.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/locales_ka.test.ts",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "zod:ka"
+      ],
+      "leakageExclusions": [
+        "own-fix:44f6a03e1d7cd918bfb9d9962d967deb6718335b",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@44f6a03e; parent ca3c8629"
+    },
+    {
+      "taskId": "colinhacks-zod-f19860f1",
+      "repo": "colinhacks/zod",
+      "baseSHA": "57d80a82bde8877f3eb79e5dad9786096c37490f",
+      "fixSHA": "f19860f1f17e3bdc3e696ee5290441bba093d7a4",
+      "sourceFamily": "zod:parse",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/codec.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/codec.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/parse.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/codec.test.ts",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "zod:parse"
+      ],
+      "leakageExclusions": [
+        "own-fix:f19860f1f17e3bdc3e696ee5290441bba093d7a4",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@f19860f1; parent 57d80a82"
+    },
+    {
+      "taskId": "colinhacks-zod-f29f2a6d",
+      "repo": "colinhacks/zod",
+      "baseSHA": "ee7376ad3ac04ede2567a7074762d20b0de1de6d",
+      "fixSHA": "f29f2a6db443284eff44db181dbe146df98f92c2",
+      "sourceFamily": "zod:regexes",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/string.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/string.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/regexes.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/string.test.ts",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "zod:regexes"
+      ],
+      "leakageExclusions": [
+        "own-fix:f29f2a6db443284eff44db181dbe146df98f92c2",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@f29f2a6d; parent ee7376ad"
+    },
+    {
+      "taskId": "colinhacks-zod-0e960108",
+      "repo": "colinhacks/zod",
+      "baseSHA": "cc9139d209001bfdeb23dfe2d5b0262c02c950cf",
+      "fixSHA": "0e960108f0d98dbea7844a8ff914f0980352f636",
+      "sourceFamily": "zod:schemas",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/record.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/record.test.ts",
+        "packages/zod/src/v4/mini/tests/index.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/mini/schemas.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/record.test.ts packages/zod/src/v4/mini/tests/index.test.ts",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "zod:schemas"
+      ],
+      "leakageExclusions": [
+        "own-fix:0e960108f0d98dbea7844a8ff914f0980352f636",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@0e960108; parent cc9139d2"
+    },
+    {
+      "taskId": "colinhacks-zod-1cab6938",
+      "repo": "colinhacks/zod",
+      "baseSHA": "b8dffe9e62f17e6571e6249d05cc5102b54d94e4",
+      "fixSHA": "1cab69383fcdeae2a366d5e2a2fc4d8fc765d168",
+      "sourceFamily": "zod:schemas",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/catch.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/catch.test.ts",
+        "packages/zod/src/v4/classic/tests/partial.test.ts",
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/catch.test.ts packages/zod/src/v4/classic/tests/partial.test.ts packages/zod/src/v4/classic/tests/to-json-schema.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:schemas"
+      ],
+      "leakageExclusions": [
+        "own-fix:1cab69383fcdeae2a366d5e2a2fc4d8fc765d168",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@1cab6938; parent b8dffe9e"
+    },
+    {
+      "taskId": "colinhacks-zod-2f8414bc",
+      "repo": "colinhacks/zod",
+      "baseSHA": "bee2dc8d4971a5142d6197a01426837e2a57f69d",
+      "fixSHA": "2f8414bc90cebc76be87c3640617e300a5d9b060",
+      "sourceFamily": "zod:schemas",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/transform.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/transform.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/classic/schemas.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/transform.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:schemas"
+      ],
+      "leakageExclusions": [
+        "own-fix:2f8414bc90cebc76be87c3640617e300a5d9b060",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@2f8414bc; parent bee2dc8d"
+    },
+    {
+      "taskId": "colinhacks-zod-3cd45ebc",
+      "repo": "colinhacks/zod",
+      "baseSHA": "3a818de145dc2fa9b5753bc8bf97b0b8484cfbaf",
+      "fixSHA": "3cd45ebcbcf06a3f16e702a010074dfceca3ea50",
+      "sourceFamily": "zod:schemas",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/string.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/string.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/core/regexes.ts",
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v4/mini/schemas.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/string.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:schemas"
+      ],
+      "leakageExclusions": [
+        "own-fix:3cd45ebcbcf06a3f16e702a010074dfceca3ea50",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@3cd45ebc; parent 3a818de1"
+    },
+    {
+      "taskId": "colinhacks-zod-411f6c64",
+      "repo": "colinhacks/zod",
+      "baseSHA": "f457edf1e504787eadfe2dffe51a77c64e3f0e17",
+      "fixSHA": "411f6c64e910c5e18799d0a7a09bcd7a4e40f23e",
+      "sourceFamily": "zod:schemas",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/to-json-schema.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/to-json-schema.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:schemas"
+      ],
+      "leakageExclusions": [
+        "own-fix:411f6c64e910c5e18799d0a7a09bcd7a4e40f23e",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@411f6c64; parent f457edf1"
+    },
+    {
+      "taskId": "colinhacks-zod-61d7bedb",
+      "repo": "colinhacks/zod",
+      "baseSHA": "195e86962b5156012a4cdcfbff87dffddce87b78",
+      "fixSHA": "61d7bedb873bf8185162bb51d027fd8acf2710ee",
+      "sourceFamily": "zod:schemas",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/record.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/record.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/record.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:schemas"
+      ],
+      "leakageExclusions": [
+        "own-fix:61d7bedb873bf8185162bb51d027fd8acf2710ee",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@61d7bedb; parent 195e8696"
+    },
+    {
+      "taskId": "colinhacks-zod-757f0b0f",
+      "repo": "colinhacks/zod",
+      "baseSHA": "6217527e4880054dda5e4d33aa12192a36a35062",
+      "fixSHA": "757f0b0f5217e0e7125478cd91af1e2c0cd21aa9",
+      "sourceFamily": "zod:schemas",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/recursive-types.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/recursive-types.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/classic/schemas.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/recursive-types.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:schemas"
+      ],
+      "leakageExclusions": [
+        "own-fix:757f0b0f5217e0e7125478cd91af1e2c0cd21aa9",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@757f0b0f; parent 6217527e"
+    },
+    {
+      "taskId": "colinhacks-zod-76e8f706",
+      "repo": "colinhacks/zod",
+      "baseSHA": "8fcb71a5ffa5b32a508ac8bb38b7e1e13c387bf5",
+      "fixSHA": "76e8f706bb554de82234106de8299d0139cb3b8e",
+      "sourceFamily": "zod:schemas",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/object.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/object.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/object.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:schemas"
+      ],
+      "leakageExclusions": [
+        "own-fix:76e8f706bb554de82234106de8299d0139cb3b8e",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@76e8f706; parent 8fcb71a5"
+    },
+    {
+      "taskId": "colinhacks-zod-7f789def",
+      "repo": "colinhacks/zod",
+      "baseSHA": "2e5b23dcd41eb257bda434b9997fd60a19cdf38f",
+      "fixSHA": "7f789defd73ee35f3099ab5c2091cb19bd2b3578",
+      "sourceFamily": "zod:schemas",
+      "expectedFailingTest": "packages/zod/src/v4/core/tests/record-constructor.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/core/tests/record-constructor.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/core/tests/record-constructor.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:schemas"
+      ],
+      "leakageExclusions": [
+        "own-fix:7f789defd73ee35f3099ab5c2091cb19bd2b3578",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@7f789def; parent 2e5b23dc"
+    },
+    {
+      "taskId": "colinhacks-zod-91a7d0d1",
+      "repo": "colinhacks/zod",
+      "baseSHA": "34f601590351e5d3a57fe20c001155940ba65324",
+      "fixSHA": "91a7d0d1e0d3c8338e9fd92cf819cded87e8973f",
+      "sourceFamily": "zod:schemas",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/string.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/string.test.ts",
+        "packages/zod/src/v4/mini/tests/string.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/string.test.ts packages/zod/src/v4/mini/tests/string.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:schemas"
+      ],
+      "leakageExclusions": [
+        "own-fix:91a7d0d1e0d3c8338e9fd92cf819cded87e8973f",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@91a7d0d1; parent 34f60159"
+    },
+    {
+      "taskId": "colinhacks-zod-b6b12882",
+      "repo": "colinhacks/zod",
+      "baseSHA": "e8196a8d98e3bc3cc6714ef5ff34b5abf33eff4a",
+      "fixSHA": "b6b1288277e6ca87dab0ad1c7251b92612b7445c",
+      "sourceFamily": "zod:schemas",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/function.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/function.test.ts",
+        "packages/zod/src/v4/classic/tests/tuple.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/function.test.ts packages/zod/src/v4/classic/tests/tuple.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:schemas"
+      ],
+      "leakageExclusions": [
+        "own-fix:b6b1288277e6ca87dab0ad1c7251b92612b7445c",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@b6b12882; parent e8196a8d"
+    },
+    {
+      "taskId": "colinhacks-zod-c2be4f81",
+      "repo": "colinhacks/zod",
+      "baseSHA": "1cab69383fcdeae2a366d5e2a2fc4d8fc765d168",
+      "fixSHA": "c2be4f819064eed62c7c350a2d399b5faecd15f8",
+      "sourceFamily": "zod:schemas",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/catch.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/catch.test.ts",
+        "packages/zod/src/v4/classic/tests/preprocess.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/catch.test.ts packages/zod/src/v4/classic/tests/preprocess.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:schemas"
+      ],
+      "leakageExclusions": [
+        "own-fix:c2be4f819064eed62c7c350a2d399b5faecd15f8",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@c2be4f81; parent 1cab6938"
+    },
+    {
+      "taskId": "colinhacks-zod-fffe99bd",
+      "repo": "colinhacks/zod",
+      "baseSHA": "b9b62c65357c2b0fed4ae046a30c8e84e4094202",
+      "fixSHA": "fffe99bdd7445cc072b5ed2d74b2a6204bdbc86c",
+      "sourceFamily": "zod:schemas",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/union.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/union.test.ts",
+        "packages/zod/src/v4/mini/tests/index.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/union.test.ts packages/zod/src/v4/mini/tests/index.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:schemas"
+      ],
+      "leakageExclusions": [
+        "own-fix:fffe99bdd7445cc072b5ed2d74b2a6204bdbc86c",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@fffe99bd; parent b9b62c65"
+    },
+    {
+      "taskId": "colinhacks-zod-b6a3b336",
+      "repo": "colinhacks/zod",
+      "baseSHA": "a1cf8a9312582591d9cdccdd677ba1d90e706cc0",
+      "fixSHA": "b6a3b3369a5b9fdde9adde8203b96b71c0634ad5",
+      "sourceFamily": "zod:to-json-schema",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/to-json-schema.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/to-json-schema.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/to-json-schema.test.ts",
+      "arm": "capture",
+      "relatedFamilyIds": [
+        "zod:to-json-schema"
+      ],
+      "leakageExclusions": [
+        "own-fix:b6a3b3369a5b9fdde9adde8203b96b71c0634ad5",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@b6a3b336; parent a1cf8a93"
+    },
+    {
+      "taskId": "colinhacks-zod-ebc8287c",
+      "repo": "colinhacks/zod",
+      "baseSHA": "fa4a37404966d7ada0f5bb02ceeb592f1d4d9c52",
+      "fixSHA": "ebc8287ca206402cf3a9aceb745b204493cbadfb",
+      "sourceFamily": "zod:to-json-schema",
+      "expectedFailingTest": "packages/zod/src/v4/classic/tests/to-json-schema.test.ts",
+      "testFilesTouched": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "sourceFilesTouched": [
+        "packages/zod/src/v4/core/to-json-schema.ts"
+      ],
+      "verificationCommand": "pnpm test -- --reporter=basic packages/zod/src/v4/classic/tests/to-json-schema.test.ts",
+      "arm": "recall",
+      "relatedFamilyIds": [
+        "zod:to-json-schema"
+      ],
+      "leakageExclusions": [
+        "own-fix:ebc8287ca206402cf3a9aceb745b204493cbadfb",
+        "descendants-with-fix"
+      ],
+      "provenance": "box4c-reproducible; colinhacks/zod@ebc8287c; parent fa4a3740"
+    }
+  ]
+}

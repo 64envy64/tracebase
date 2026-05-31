@@ -1,0 +1,1399 @@
+{
+  "phase": "supply mining (relaxed)",
+  "since": "2022-06-21",
+  "slice": 250,
+  "srcMax": 25,
+  "targets": [
+    "colinhacks/zod",
+    "josdejong/mathjs",
+    "Textualize/rich"
+  ],
+  "stats": {
+    "colinhacks/zod": {
+      "scanned": 250,
+      "kept": 44,
+      "excluded_known": 28,
+      "excluded_shape": 174
+    },
+    "josdejong/mathjs": {
+      "scanned": 178,
+      "kept": 16,
+      "excluded_known": 11,
+      "excluded_shape": 151
+    },
+    "Textualize/rich": {
+      "scanned": 90,
+      "kept": 22,
+      "excluded_known": 8,
+      "excluded_shape": 60
+    }
+  },
+  "candidates": [
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "c2be4f819064eed62c7c350a2d399b5faecd15f8",
+      "parent_commit": "1cab69383fcdeae2a366d5e2a2fc4d8fc765d168",
+      "title": "fix(v4): generalize optin/fallback to transform; restore preprocess on absent keys (#5941)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/catch.test.ts",
+        "packages/zod/src/v4/classic/tests/preprocess.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "source_loc_added": 14,
+      "source_loc_removed": 8,
+      "source_loc_net": 22,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "b6b1288277e6ca87dab0ad1c7251b92612b7445c",
+      "parent_commit": "e8196a8d98e3bc3cc6714ef5ff34b5abf33eff4a",
+      "title": "correct logic for validating length (#5843)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/function.test.ts",
+        "packages/zod/src/v4/classic/tests/tuple.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "source_loc_added": 14,
+      "source_loc_removed": 7,
+      "source_loc_net": 21,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "3cd45ebcbcf06a3f16e702a010074dfceca3ea50",
+      "parent_commit": "3a818de145dc2fa9b5753bc8bf97b0b8484cfbaf",
+      "title": "fix (v4) : adds strict validation to httpUrl()  (#5672)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/string.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/core/regexes.ts",
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v4/mini/schemas.ts"
+      ],
+      "source_loc_added": 21,
+      "source_loc_removed": 2,
+      "source_loc_net": 23,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "44f6a03e1d7cd918bfb9d9962d967deb6718335b",
+      "parent_commit": "ca3c8629c0c2715571f70b44c2433cad3db7fe4e",
+      "title": "fix(locales): correct Georgian translation for 'string' to 'ველი' (#5655)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/locales_ka.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/locales/ka.ts"
+      ],
+      "source_loc_added": 8,
+      "source_loc_removed": 8,
+      "source_loc_net": 16,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "363c966b4a3001489b8f444e43ff30f6780b3b1f",
+      "parent_commit": "8506c352e8f69c54b475687dc8b687b707233886",
+      "title": "Fix #5560",
+      "test_files_touched": [
+        "packages/zod/src/v4/mini/tests/standard-schema.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/to-json-schema.ts"
+      ],
+      "source_loc_added": 4,
+      "source_loc_removed": 4,
+      "source_loc_net": 8,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "adf65cdef4d8de10b788293808e8d52807adb7c0",
+      "parent_commit": "7e9ad3f0333d3284f51db089af0eaccc5a333591",
+      "title": "Drop id uniqueness enforcement at registry level (#5574)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/registries.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/registries.ts",
+        "packages/zod/src/v4/core/to-json-schema.ts"
+      ],
+      "source_loc_added": 15,
+      "source_loc_removed": 3,
+      "source_loc_net": 18,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "7e9ad3f0333d3284f51db089af0eaccc5a333591",
+      "parent_commit": "0b3093dead737f808483e17ed000efd196754f45",
+      "title": "Fix JSON Schema generation for `z.iso.time` with minute precision (#5557)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/json-schema-processors.ts"
+      ],
+      "source_loc_added": 6,
+      "source_loc_removed": 0,
+      "source_loc_net": 6,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "0b3093dead737f808483e17ed000efd196754f45",
+      "parent_commit": "ffa58fa859a8badbb1f8dcac25e675ebcd95af75",
+      "title": "Fix lint",
+      "test_files_touched": [
+        "packages/resolution/attw.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/locales/nl.ts",
+        "play.ts"
+      ],
+      "source_loc_added": 3,
+      "source_loc_removed": 7,
+      "source_loc_net": 10,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "68e89b493ac310d880f02b32ec3a862d88b87dd4",
+      "parent_commit": "01604eef54eea2aa7145ffc8210af9993ef0e133",
+      "title": "Fix Dutch (nl) error strings (#5529)",
+      "test_files_touched": [
+        "packages/zod/src/v4/core/tests/locales/nl.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/locales/nl.ts"
+      ],
+      "source_loc_added": 16,
+      "source_loc_removed": 8,
+      "source_loc_net": 24,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "ae68f62fddc4f7b2bbc5df5a9ca49a83c697eef2",
+      "parent_commit": "7abe4e510042cc05aafdcf4c1a80ba9c91d998f5",
+      "title": "fix: Fix error details for tuples with extraneous elements (#5555)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/tuple.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "source_loc_added": 3,
+      "source_loc_removed": 1,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "a526e78a761de4a88740cd15dfda9910757fcd30",
+      "parent_commit": "3da0d63f1208fd58efb69c9c057f957d9eaa285e",
+      "title": "feat(v4): add min, max, nonempty, & size to ZodMap (#5316)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/map.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/locales/en.ts"
+      ],
+      "source_loc_added": 9,
+      "source_loc_removed": 0,
+      "source_loc_net": 9,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "ae3b39c09fa38c4b9ad23ee5a51ebbbad06d7c92",
+      "parent_commit": "9712a6707f3d4584f222729965f3b78f076f0435",
+      "title": "Fix `includes` method params typing to accept `string | $ZodCheckIncludesParams` (#5556)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/string.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/classic/schemas.ts"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "9d6e7d0094691f7b2900d3da47480e41b2c0be64",
+      "parent_commit": "2b564dc90853eecb6a21957740a1dd03b33ba35a",
+      "title": "fix(implementasync): Inferred type should always be a promise (#5476)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/function.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "fb66ee123fb370a2f6fd45c622cdb00fdfacb2fd",
+      "parent_commit": "6e968a3b49cbcb3bffc30c68634e80168e8f2a2e",
+      "title": "fix(mini): export ZodMiniJSONSchema types to prevent TS4023 (#5511)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/fix-json-issue.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/mini/schemas.ts"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 2,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "d224363839bf487da46e342f8636e650946334c4",
+      "parent_commit": "a43295dd4c3b8a425f9ea93d55790a1347368993",
+      "title": "test: add result verification to test cases (#5473)",
+      "test_files_touched": [
+        "packages/zod/src/v3/tests/complex.test.ts",
+        "packages/zod/src/v3/tests/function.test.ts",
+        "packages/zod/src/v3/tests/nan.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/util.ts"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "002e01ad0fcc17b17683adafc80f2a86e8d355a9",
+      "parent_commit": "f97e80da9197064937a58167619967bee4ebb638",
+      "title": "fix(record): handle non-function constructor field in isPlainObject (#5098)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/index.test.ts",
+        "packages/zod/src/v4/core/tests/extend.test.ts",
+        "packages/zod/src/v4/core/tests/record-constructor.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/util.ts"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 0,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "f97e80da9197064937a58167619967bee4ebb638",
+      "parent_commit": "f7910528901c05293bad275fffcb54a82e28fcc9",
+      "title": "fix(core): prevent infinite recursion for recursive tuples (#5089) (#5094)",
+      "test_files_touched": [
+        "packages/zod/src/v4/core/tests/recursive-tuples.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "source_loc_added": 6,
+      "source_loc_removed": 6,
+      "source_loc_net": 12,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "9fc493f86f17a5fc550df78e7e261137885f51ea",
+      "parent_commit": "f2f0d178e1c526bc00ad0385706efad318bd44b0",
+      "title": "fix: use oneOf for discriminated unions in JSON Schema (#5453)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/to-json-schema.ts"
+      ],
+      "source_loc_added": 9,
+      "source_loc_removed": 2,
+      "source_loc_net": 11,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "f2f0d178e1c526bc00ad0385706efad318bd44b0",
+      "parent_commit": "3d93a7d593c19dc1822bc96a7c9d47312c29995e",
+      "title": "Fix dual package hazard for `globalRegistry` (#5452)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/registries.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/registries.ts"
+      ],
+      "source_loc_added": 12,
+      "source_loc_removed": 1,
+      "source_loc_net": 13,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "86d4dad5bc27b4b35df533c9170a552ad8c6c3bc",
+      "parent_commit": "1bac0f37b529eb9a0d833a01200f5a898e8e6220",
+      "title": "Fix partial record",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/record.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/core/schemas.ts",
+        "play.ts"
+      ],
+      "source_loc_added": 8,
+      "source_loc_removed": 13,
+      "source_loc_net": 21,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "2849df8907b011ab056d67ae8e3d27577ac4ed3e",
+      "parent_commit": "8e4739fadbd7de710eb67d34ba7e06a1029a68ab",
+      "title": "fix(locales): improve Dutch (nl) localization (#5367)",
+      "test_files_touched": [
+        "packages/zod/src/v4/core/tests/locales/nl.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/locales/nl.ts"
+      ],
+      "source_loc_added": 10,
+      "source_loc_removed": 10,
+      "source_loc_net": 20,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "aa6f0f02c2a92a266ff1495a8d2541ae46012fcb",
+      "parent_commit": "9f650385644ae319f806a965b83f79ebd252e497",
+      "title": "More fixes (#5223)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/string.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "source_loc_added": 5,
+      "source_loc_removed": 4,
+      "source_loc_net": 9,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "e1f19482bbed3fbaa563a0d8e09f1a577cc58ac7",
+      "parent_commit": "887e37cd7568219c54f9c2f71bbfe0300ce48376",
+      "title": "fix(v4): ensure array defaults are shallow-cloned (#5173)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/default.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/util.ts"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 0,
+      "source_loc_net": 1,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "4309c61304daf40aab2124b5f513abe2b4df8637",
+      "parent_commit": "976b43657d4aff6d47c73c1c86125623ea08752d",
+      "title": "Fix cidrv6 validation - cidrv6 should reject invalid strings with multiple slashes (#5196)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/string.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "source_loc_added": 3,
+      "source_loc_removed": 2,
+      "source_loc_net": 5,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "309f3584fd9a3856c3e0c813196210ba4b11d2a9",
+      "parent_commit": "87b97ccd556e6d8dc6b4f4455762cc7405b0abc9",
+      "title": "fix(v4): toJSONSchema - output numbers with exclusive range correctly when targeting `openapi-3.0` (#5139)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/to-json-schema.ts"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 2,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "5c5fa90e47df934acf6051a3ec30516baeef2eac",
+      "parent_commit": "8bf0c1639f0d3700f01fa8aaee2d8fa5d0abbe10",
+      "title": "fix(v4): toJSONSchema - wrong record output when targeting `openapi-3.0` (#5141)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/to-json-schema.ts"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "8bf0c1639f0d3700f01fa8aaee2d8fa5d0abbe10",
+      "parent_commit": "0cf45896edf8728b57c8e7f2b5a56536760afac1",
+      "title": "fix(v4): toJSONSchema tuple path handling for draft-7 with metadata IDs (#5152)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/to-json-schema.ts"
+      ],
+      "source_loc_added": 10,
+      "source_loc_removed": 2,
+      "source_loc_net": 12,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "0cf45896edf8728b57c8e7f2b5a56536760afac1",
+      "parent_commit": "a410616b39eedf3b4654c0c791b0ab1868996bfb",
+      "title": "fix(v4): toJSONSchema - add missing oneOf inside items in tuple conversion (#5146)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/to-json-schema.ts"
+      ],
+      "source_loc_added": 4,
+      "source_loc_removed": 2,
+      "source_loc_net": 6,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "0313553db1bca4a023ff4767503befc025689188",
+      "parent_commit": "592b7b5553b5ef64474ec4ff6d4a9a5fc3c9d409",
+      "title": "fix(v4): make size-based Set/File min/max inclusive; update snapshots\\n\\n- Set and File min()/max() now emit inclusive: true\\n- Aligns messages with Arrays (>= for min, <= for max)\\n- Updates tests (i",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/file.test.ts",
+        "packages/zod/src/v4/classic/tests/set.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/checks.ts"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 0,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "d589186c20c3dc112f5a5fda23cccd4d1f74420e",
+      "parent_commit": "03cfa8d9367c56d8c29870a83af10edc91eba34a",
+      "title": "fix: ensure keyof returns enum (#5045)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/object.test.ts",
+        "packages/zod/src/v4/mini/tests/object.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/mini/schemas.ts"
+      ],
+      "source_loc_added": 4,
+      "source_loc_removed": 4,
+      "source_loc_net": 8,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "d43cf19d5cafd505f2f8e76f13e18564470f0696",
+      "parent_commit": "f2949a81a06fe197c53e47c1fab024cebbd7f1f1",
+      "title": "Fix recursive object initialization errors with check() and other methods (#5018)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/recursive-types.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/classic/schemas.ts",
+        "packages/zod/src/v4/core/util.ts"
+      ],
+      "source_loc_added": 7,
+      "source_loc_removed": 3,
+      "source_loc_net": 10,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "362eb33093e9c5f306eeec95e36985a99aba8fc7",
+      "parent_commit": "73a1970e7fd0cdcb2ffac3f6f7db85da849ee3d8",
+      "title": "Fix optional + pipe handling. Closes #5002. v4.0.13",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/optional.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v4/core/versions.ts",
+        "play.ts"
+      ],
+      "source_loc_added": 21,
+      "source_loc_removed": 2,
+      "source_loc_net": 23,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "d6cd30d3898aaf592c6077464c1a45fd0f6f66d3",
+      "parent_commit": "dfae37195bed15dce84af0b17ef04cdc3704ef5e",
+      "title": "fix #4973 (#4974)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/file.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 2,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "f75d85294df2ff4ccea056e8eeb7c14750fa929f",
+      "parent_commit": "17e7f3b4e1c2c97b3c9487c97ac6703a16ed1cfb",
+      "title": "fix: escapes decimal place in `z.literal` (#4895)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/literal.test.ts",
+        "packages/zod/src/v4/classic/tests/template-literal.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/schemas.ts"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "a9c120e0d6abf82aefd342aac9668cbf8ca28786",
+      "parent_commit": "a3e43911abb980f1830b68a440c231ae52eacec0",
+      "title": "Fix def on ZodDiscriminatedUnion",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/discriminated-unions.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/classic/schemas.ts",
+        "play.ts"
+      ],
+      "source_loc_added": 16,
+      "source_loc_removed": 1,
+      "source_loc_net": 17,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "0df5f6946ef7137be710767f06ff0c05e7dd9b47",
+      "parent_commit": "c5f349b6c4e76f879eba9fd350dd79950fcb02f9",
+      "title": "Fix tests",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/to-json-schema.ts"
+      ],
+      "source_loc_added": 7,
+      "source_loc_removed": 2,
+      "source_loc_net": 9,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "a7cb6ed52e507a267d25e6eeca7dc1c82d7d5c06",
+      "parent_commit": "218a26784b0618b6c2dfd9eced8888d330427435",
+      "title": "fix(v4): add exact to length check issue (#4617)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/array.test.ts",
+        "packages/zod/src/v4/classic/tests/validations.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/checks.ts"
+      ],
+      "source_loc_added": 3,
+      "source_loc_removed": 1,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "c22944b029295cc0d33ee1b2273ea64e889528ff",
+      "parent_commit": "91274c3e154731205cc6958fd8c2ba5d48503db9",
+      "title": "Fix race condition",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/readonly.test.ts"
+      ],
+      "source_files_touched": [
+        "play.ts"
+      ],
+      "source_loc_added": 20,
+      "source_loc_removed": 2,
+      "source_loc_net": 22,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "af88d743a7f6b8c1f5a2d43e3282c976833eeee7",
+      "parent_commit": "0c686afdc95a324330a60315c59189fa09d8c497",
+      "title": "Fix test",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/file.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/util.ts"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "303f1e9612e896ba9fe1ef5059da659b54f119e6",
+      "parent_commit": "9548f1198b0bcbd8b69034fee2dd22030878f7d8",
+      "title": "fix: issc type at ZodCheckLessThan (#4659)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/number.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/checks.ts",
+        "play.ts"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 2,
+      "source_loc_net": 3,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "5fdece94bf1ada76e5742f2755d45d3711a8e962",
+      "parent_commit": "a73a3b3009735c6f82531393e65a82cad6b62e05",
+      "title": "fix(v4): reflect inclusive boundaries in minLength/maxLength issue objects (#4591)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/array.test.ts",
+        "packages/zod/src/v4/classic/tests/error.test.ts",
+        "packages/zod/src/v4/classic/tests/nested-refine.test.ts",
+        "packages/zod/src/v4/classic/tests/preprocess.test.ts",
+        "packages/zod/src/v4/classic/tests/validations.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/checks.ts"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 0,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "6fd3b39ab65970ec7f708e0aa4d0c9e20d9d2050",
+      "parent_commit": "dc2c0b0fccd893a08306ccadc8baa821b1b06a5b",
+      "title": "fix(JSONSchema): add type for enum (#4577)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/to-json-schema.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/schemas.ts",
+        "packages/zod/src/v4/core/to-json-schema.ts",
+        "packages/zod/src/v4/core/util.ts"
+      ],
+      "source_loc_added": 13,
+      "source_loc_removed": 12,
+      "source_loc_net": 25,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "33495d51f2c5ca48311e68fd25db331b81e7cf75",
+      "parent_commit": "056e3f81f5b2829ad9b3d0c47fa20f2af2e05029",
+      "title": "Fix isPlainObject",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/index.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/zod/src/v4/core/util.ts"
+      ],
+      "source_loc_added": 5,
+      "source_loc_removed": 1,
+      "source_loc_net": 6,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "colinhacks/zod",
+      "pr_commit": "fdb63da8cea1ecc9b055e18d3c067bcef858ee03",
+      "parent_commit": "e8a84912926a497e0b95fbc7aef3697314a89ce6",
+      "title": "chore: fix typos (#4543)",
+      "test_files_touched": [
+        "packages/zod/src/v4/classic/tests/discriminated-unions.test.ts"
+      ],
+      "source_files_touched": [
+        "packages/docs/next.config.mjs"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "8c659a86cd951a37762246a3cfff2ae5780d8eea",
+      "parent_commit": "095ccb6ae7ed2ba18a42a13f1ae0f0156116d576",
+      "title": "fix: respect tolerances in function `isInteger` (#3575)",
+      "test_files_touched": [
+        "test/unit-tests/function/utils/isInteger.test.js"
+      ],
+      "source_files_touched": [
+        "src/function/relational/equal.js",
+        "src/function/utils/isInteger.js"
+      ],
+      "source_loc_added": 9,
+      "source_loc_removed": 15,
+      "source_loc_net": 24,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "307c9dbca7e8a880451adc4b4a4a8e1e883c552f",
+      "parent_commit": "a6d628c11eb7b38a48258e854a7c68dbc0d5751f",
+      "title": "fix: issue in callback optimization and add error handling for invalid argument types (#3394)",
+      "test_files_touched": [
+        "test/unit-tests/type/matrix/DenseMatrix.test.js",
+        "test/unit-tests/type/matrix/utils/deepMap.test.js"
+      ],
+      "source_files_touched": [
+        "src/utils/optimizeCallback.js"
+      ],
+      "source_loc_added": 19,
+      "source_loc_removed": 2,
+      "source_loc_net": 21,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "3d84b5b594639980dc297e8e15c07a5527599dbe",
+      "parent_commit": "8679c076176a8ea14be92985622dc4255800e527",
+      "title": "fix #3092: a typo in an error message when converting a string into a number",
+      "test_files_touched": [
+        "test/unit-tests/expression/parse.test.js",
+        "test/unit-tests/function/statistics/max.test.js",
+        "test/unit-tests/function/statistics/min.test.js",
+        "test/unit-tests/function/statistics/prod.test.js",
+        "test/unit-tests/function/statistics/sum.test.js",
+        "test/unit-tests/type/numeric.test.js"
+      ],
+      "source_files_touched": [
+        "src/type/number.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 2,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "8679c076176a8ea14be92985622dc4255800e527",
+      "parent_commit": "76c4811484f88ad43e95c36936688d3b7381abd7",
+      "title": "fix #3087: extend function `mod` with support for negative divisors in when using `BigNumber` or `Fraction`",
+      "test_files_touched": [
+        "test/unit-tests/function/arithmetic/mod.test.js"
+      ],
+      "source_files_touched": [
+        "src/function/arithmetic/mod.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 8,
+      "source_loc_net": 10,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "c19c15f0c188829810a779adedd9908950ea0c7e",
+      "parent_commit": "33cb3d68f3b4b499d973271c5c0b7cee6ca74776",
+      "title": "fix: change toTex variable and function assignment from `:=` to `=` (see #2980, #3032)",
+      "test_files_touched": [
+        "test/unit-tests/expression/node/AssignmentNode.test.js",
+        "test/unit-tests/expression/node/BlockNode.test.js",
+        "test/unit-tests/expression/node/ConditionalNode.test.js",
+        "test/unit-tests/expression/node/FunctionAssignmentNode.test.js"
+      ],
+      "source_files_touched": [
+        "src/expression/node/AssignmentNode.js",
+        "src/expression/node/FunctionAssignmentNode.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 2,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "abf9c9fadecb829e6fa4f5bdcaad83fd7c2e901a",
+      "parent_commit": "1edc38ce9a812ca3aeddb67ca376d0dd21802e8b",
+      "title": "fixed matrix issue in correlation function + error handling (#3030)",
+      "test_files_touched": [
+        "test/unit-tests/function/statistics/corr.test.js"
+      ],
+      "source_files_touched": [
+        "src/function/statistics/corr.js"
+      ],
+      "source_loc_added": 16,
+      "source_loc_removed": 5,
+      "source_loc_net": 21,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "a1e6e9301e05c880176aca12ab926a3abe6a48de",
+      "parent_commit": "47bf525e3e826c4fd5719b3f15d9a8b72e5366fe",
+      "title": "fix: nearly-zero temperature conversion result (#2962)",
+      "test_files_touched": [
+        "test/unit-tests/type/unit/Unit.test.js"
+      ],
+      "source_files_touched": [
+        "src/type/unit/Unit.js"
+      ],
+      "source_loc_added": 13,
+      "source_loc_removed": 11,
+      "source_loc_net": 24,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "aa819fac6a035ef7a50bddc29c35e015ab9617be",
+      "parent_commit": "bf911816d3644e2780506930a0868484cd437630",
+      "title": "fix: #2974 Simplify puts plus and minus signs next to eachother (#2981)",
+      "test_files_touched": [
+        "test/unit-tests/function/algebra/simplify.test.js"
+      ],
+      "source_files_touched": [
+        "src/function/algebra/simplify.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 0,
+      "source_loc_net": 1,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "6fa589057e4756ae3c76f7dfbf2295d535e1b1c1",
+      "parent_commit": "3c59d1a9cae01eab1381f66b5c8546f3455b5404",
+      "title": "Big Number Format Fixes (#2956)",
+      "test_files_touched": [
+        "test/unit-tests/function/string/format.test.js"
+      ],
+      "source_files_touched": [
+        "src/utils/bignumber/formatter.js"
+      ],
+      "source_loc_added": 4,
+      "source_loc_removed": 3,
+      "source_loc_net": 7,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "00cee8759793fe8182b3a5bd33c7433637d04295",
+      "parent_commit": "6fb485de5fec3ce7ee4ee7f18bc8c899d90fe680",
+      "title": "fix #2907: determinant of empty matrix should be 1",
+      "test_files_touched": [
+        "test/unit-tests/function/matrix/det.test.js"
+      ],
+      "source_files_touched": [
+        "src/function/matrix/det.js"
+      ],
+      "source_loc_added": 5,
+      "source_loc_removed": 1,
+      "source_loc_net": 6,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "f8656583394f0af8c748070598f2b96e05c9f1c7",
+      "parent_commit": "d7ad0015505565e97a100c2fa0a27930f648bf53",
+      "title": "fix: quantileSeq not accepting a matrix as second argument `prob` (see #2902)",
+      "test_files_touched": [
+        "test/unit-tests/function/statistics/quantileSeq.test.js"
+      ],
+      "source_files_touched": [
+        "src/function/statistics/quantileSeq.js"
+      ],
+      "source_loc_added": 4,
+      "source_loc_removed": 3,
+      "source_loc_net": 7,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "68b4b503f75a554d17e476cdd9205c37aeb4b1b6",
+      "parent_commit": "3a77a6fedef52d4633cdd252ce09ac3fc80e7217",
+      "title": "Fix #2891: functions `column` and `row` sometimes returning a scalar number",
+      "test_files_touched": [
+        "test/unit-tests/function/matrix/column.test.js",
+        "test/unit-tests/function/matrix/row.test.js"
+      ],
+      "source_files_touched": [
+        "src/function/matrix/column.js",
+        "src/function/matrix/row.js"
+      ],
+      "source_loc_added": 10,
+      "source_loc_removed": 2,
+      "source_loc_net": 12,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "27ffc7887ee80359a22d3c38e83f21f526f5d195",
+      "parent_commit": "544d6aabb7b3c7988588e5b78e097f5c74aea57e",
+      "title": "fix: function `reshape` mutating the original matrix (see #2854)",
+      "test_files_touched": [
+        "test/unit-tests/function/matrix/reshape.test.js"
+      ],
+      "source_files_touched": [
+        "src/function/matrix/reshape.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "65c538dbac296b7e6507ef4dc95565d6105105a6",
+      "parent_commit": "0b2f35b1ed993bda0dde1d1575ebd3b0e841e3e2",
+      "title": "Allow prefixes for `celsius` and `fahrenheit` and add unit tests for it (see #2821)",
+      "test_files_touched": [
+        "test/unit-tests/type/unit/Unit.test.js"
+      ],
+      "source_files_touched": [
+        "src/type/unit/Unit.js"
+      ],
+      "source_loc_added": 4,
+      "source_loc_removed": 4,
+      "source_loc_net": 8,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "d27910fa1f6a081e41ecca7614ccf3eb3e1ebe9f",
+      "parent_commit": "5e439be0a8a46386f1b658b94f34340d75369fb1",
+      "title": "fix #2818: throw an error when a function assignment has duplicate parameter names (#2819)",
+      "test_files_touched": [
+        "test/unit-tests/expression/node/FunctionAssignmentNode.test.js"
+      ],
+      "source_files_touched": [
+        "src/expression/node/FunctionAssignmentNode.js"
+      ],
+      "source_loc_added": 10,
+      "source_loc_removed": 0,
+      "source_loc_net": 10,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "josdejong/mathjs",
+      "pr_commit": "5754478f168b67e9774d4dfbb5c4f45ad34f97ca",
+      "parent_commit": "0a093307b8b9841d8efb54dcb342f9e81128c802",
+      "title": "Fix #2793: `math.flatten()` clones object values too (#2799)",
+      "test_files_touched": [
+        "test/unit-tests/function/matrix/flatten.test.js"
+      ],
+      "source_files_touched": [
+        "src/function/matrix/flatten.js"
+      ],
+      "source_loc_added": 5,
+      "source_loc_removed": 6,
+      "source_loc_net": 11,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "027a4727a5b8f8407109c01df5e24604352bbe50",
+      "parent_commit": "245649b3e2d6e16aef315d95904df26bee7b8550",
+      "title": "Merge pull request #3350 from ofek/fix-test-warning",
+      "test_files_touched": [
+        "tests/test_syntax.py"
+      ],
+      "source_files_touched": [
+        "docs/source/conf.py"
+      ],
+      "source_loc_added": 7,
+      "source_loc_removed": 2,
+      "source_loc_net": 9,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "92e7164773ab1a0dd438ba43fee5d3b76b28ba1a",
+      "parent_commit": "9f620dc50c0008c35e9f8493f198e6e593574a70",
+      "title": "Fix #3104 (#3105)",
+      "test_files_touched": [
+        "tests/test_console.py"
+      ],
+      "source_files_touched": [
+        "rich/_export_format.py"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "e0d3aee1eccd424c98d05b94910f9d5ddb821a40",
+      "parent_commit": "a972ca05522577de2f98eb7c957deead9c87b38f",
+      "title": "Merge pull request #3132 from Textualize/fix-markdown-on-light",
+      "test_files_touched": [
+        "tests/test_markdown.py",
+        "tests/test_markdown_no_hyperlinks.py"
+      ],
+      "source_files_touched": [
+        "rich/console.py",
+        "rich/markdown.py",
+        "rich/syntax.py",
+        "rich/text.py"
+      ],
+      "source_loc_added": 14,
+      "source_loc_removed": 2,
+      "source_loc_net": 16,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "bef0e50b63cf7294ae6c27bf8a79cbe3592599a0",
+      "parent_commit": "720800e6930d85ad027b1e9bd0cbb96b5e994ce3",
+      "title": "Merge pull request #3130 from Textualize/fix-table-inline-styles",
+      "test_files_touched": [
+        "tests/test_markdown.py"
+      ],
+      "source_files_touched": [
+        "rich/markdown.py"
+      ],
+      "source_loc_added": 5,
+      "source_loc_removed": 7,
+      "source_loc_net": 12,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "2d035d116e5e91df3b0992c494b5bc6957e57f50",
+      "parent_commit": "1ad6f73a4d1d3b40ac3f879feccfaad66412bd1d",
+      "title": "Merge pull request #3067 from LukeSavefrogs/master",
+      "test_files_touched": [
+        "tests/test_highlighter.py"
+      ],
+      "source_files_touched": [
+        "rich/highlighter.py"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "236e8e8dc3d82a7c7dd286675b59e111af8136ba",
+      "parent_commit": "0c8bb032ad3b54a32fdb8a43f5ab457c8cd6dcb1",
+      "title": "Merge pull request #3006 from AryazE/master",
+      "test_files_touched": [
+        "tests/test_repr.py"
+      ],
+      "source_files_touched": [
+        "rich/repr.py"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "0c8bb032ad3b54a32fdb8a43f5ab457c8cd6dcb1",
+      "parent_commit": "8a616de8e25db3c93abaaa220c493d80878de69d",
+      "title": "Merge pull request #3043 from davep/fix-export-html",
+      "test_files_touched": [
+        "tests/test_console.py"
+      ],
+      "source_files_touched": [
+        "rich/_export_format.py"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "cbf01a0a847d07daf14ea3e6deb4f1ed803c91e6",
+      "parent_commit": "01b85ac116c4635b6ddb8b488be8254be6df2a84",
+      "title": "Merge pull request #3064 from Textualize/fix-markdown-table",
+      "test_files_touched": [
+        "tests/test_markdown.py"
+      ],
+      "source_files_touched": [
+        "rich/markdown.py"
+      ],
+      "source_loc_added": 8,
+      "source_loc_removed": 9,
+      "source_loc_net": 17,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "01b85ac116c4635b6ddb8b488be8254be6df2a84",
+      "parent_commit": "368e8ad77c95a6bef8f9d332039091d1417296bc",
+      "title": "Merge pull request #3063 from Textualize/escape-end",
+      "test_files_touched": [
+        "tests/test_markup.py"
+      ],
+      "source_files_touched": [
+        "rich/markup.py"
+      ],
+      "source_loc_added": 3,
+      "source_loc_removed": 1,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "e34ad8ba1c3cf6bbbeedbfdfecfe65c0e7413a59",
+      "parent_commit": "076e0d208eb0b4e74cd8639e11a558b9319bd799",
+      "title": "Merge pull request #2923 from Textualize/fix-is-terminal",
+      "test_files_touched": [
+        "tests/test_console.py"
+      ],
+      "source_files_touched": [
+        "rich/console.py"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "f2ca04cc5caa100feb44efbd3520eedaf2cafdb1",
+      "parent_commit": "155bd04b12580aee94b2bc04c46a3856065273a3",
+      "title": "Merge pull request #2804 from minrk/jupyter-console",
+      "test_files_touched": [
+        "tests/test_console.py"
+      ],
+      "source_files_touched": [
+        "rich/console.py"
+      ],
+      "source_loc_added": 9,
+      "source_loc_removed": 5,
+      "source_loc_net": 14,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "155bd04b12580aee94b2bc04c46a3856065273a3",
+      "parent_commit": "0b845b39d9815c3219bf3b855a45b01e0b7c29f6",
+      "title": "Merge pull request #2844 from Textualize/html-fix",
+      "test_files_touched": [
+        "tests/test_console.py"
+      ],
+      "source_files_touched": [
+        "rich/_export_format.py"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 3,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "cba485f6c4bd181756ae944f032e942902d698ee",
+      "parent_commit": "b89d0362e8ebcb18902f0f0a206879f1829b5c0b",
+      "title": "Merge pull request #2820 from Textualize/empty-dataclass",
+      "test_files_touched": [
+        "tests/test_pretty.py"
+      ],
+      "source_files_touched": [
+        "rich/pretty.py"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 0,
+      "source_loc_net": 1,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "4bc4437d1b929ee2a0f663be236940435eee31c9",
+      "parent_commit": "d14b304aa45bf0759729f4e066606065daa341c8",
+      "title": "Merge pull request #2736 from Textualize/split-fix",
+      "test_files_touched": [
+        "tests/test_segment.py"
+      ],
+      "source_files_touched": [
+        "rich/segment.py"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "e23ca4d1fd11ca2da3d68a30e53dc370d5163a94",
+      "parent_commit": "13dd9c2c2ebee5409368d5494f4712f52a073b93",
+      "title": "Merge pull request #2558 from Textualize/syntax-measure",
+      "test_files_touched": [
+        "tests/test_syntax.py"
+      ],
+      "source_files_touched": [
+        "rich/syntax.py"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 1,
+      "source_loc_net": 3,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "0099f505c3dbf316e03afcf16f05dc4a86d172a2",
+      "parent_commit": "f0d84355f38ff952377f2d0efe92e32164cdbb10",
+      "title": "Merge pull request #2538 from onlyacat/fix_default_ensure_ascii",
+      "test_files_touched": [
+        "tests/test_console.py"
+      ],
+      "source_files_touched": [
+        "rich/__init__.py",
+        "rich/console.py",
+        "rich/json.py"
+      ],
+      "source_loc_added": 4,
+      "source_loc_removed": 4,
+      "source_loc_net": 8,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "f0d84355f38ff952377f2d0efe92e32164cdbb10",
+      "parent_commit": "28a05fa17721a20df55dae160bede89ff5873d7e",
+      "title": "Merge pull request #2541 from Textualize/rich-12.6.0",
+      "test_files_touched": [
+        "tests/test_console.py"
+      ],
+      "source_files_touched": [
+        "rich/console.py",
+        "rich/style.py"
+      ],
+      "source_loc_added": 5,
+      "source_loc_removed": 3,
+      "source_loc_net": 8,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "73a285c8ca0bcee0605cb01d33c8f3ff84ad8f46",
+      "parent_commit": "8b3f3af1d22d9d5ae9131ce4bae27655d5e8bb48",
+      "title": "Merge pull request #2510 from CalumY/fix-typos",
+      "test_files_touched": [
+        "tests/test_tree.py"
+      ],
+      "source_files_touched": [
+        "rich/ansi.py",
+        "rich/filesize.py",
+        "rich/traceback.py"
+      ],
+      "source_loc_added": 3,
+      "source_loc_removed": 3,
+      "source_loc_net": 6,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "8b3f3af1d22d9d5ae9131ce4bae27655d5e8bb48",
+      "parent_commit": "3e33def25df56e5f4d4c82c84bb54139eb667337",
+      "title": "Merge pull request #2524 from jcrist/fix-cyclic-references-handling",
+      "test_files_touched": [
+        "tests/test_pretty.py"
+      ],
+      "source_files_touched": [
+        "rich/pretty.py"
+      ],
+      "source_loc_added": 12,
+      "source_loc_removed": 11,
+      "source_loc_net": 23,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "42c0ecf3ac6286d97731b1e86fd622933077b548",
+      "parent_commit": "9655778e17411e9382050375d5922bf8f2ebad3e",
+      "title": "Merge pull request #2531 from Textualize/syntax-measure",
+      "test_files_touched": [
+        "tests/test_syntax.py"
+      ],
+      "source_files_touched": [
+        "rich/syntax.py"
+      ],
+      "source_loc_added": 12,
+      "source_loc_removed": 2,
+      "source_loc_net": 14,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "aa5edf59292ef25c14142a1f0f0fa37335b3c0d8",
+      "parent_commit": "1f3ec9a8c145c6b98ade7faaecf83b39d93b5ad9",
+      "title": "Merge pull request #2495 from oefe/progress-wrap_file-add-mode",
+      "test_files_touched": [
+        "tests/test_progress.py"
+      ],
+      "source_files_touched": [
+        "rich/progress.py"
+      ],
+      "source_loc_added": 4,
+      "source_loc_removed": 0,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "Textualize/rich",
+      "pr_commit": "0425c792c11360185654a81ad53488ce8223d0f7",
+      "parent_commit": "828db35a68535504e13d76467a2902fc0c3243f7",
+      "title": "Parse escape codes in `Pretty` repr (#2470)",
+      "test_files_touched": [
+        "tests/test_pretty.py"
+      ],
+      "source_files_touched": [
+        "rich/pretty.py",
+        "rich/repr.py"
+      ],
+      "source_loc_added": 11,
+      "source_loc_removed": 8,
+      "source_loc_net": 19,
+      "discovered_status": "MINED"
+    }
+  ]
+}

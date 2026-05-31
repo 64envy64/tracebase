@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+export PATH="$HOME/.local/bin:$PATH"
+WT="/mnt/c/Users/Wave/Desktop/tracebase/.claude/worktrees/interesting-mcclintock-a69a77"
+B="$WT/bench-runs/file-memory-real-repos"
+export TB_REPOS="$HOME/file-memory-real-repos/repos"
+export TB_KNOWN_POOLS="$B/candidate-pool.json,$B/mined-candidates.json"
+export TB_OUT="$B/mined-candidates-2.json"
+export TB_TARGETS="axios/axios,josdejong/mathjs"
+export TB_SINCE_MONTHS="${TB_SINCE_MONTHS:-96}"
+export TB_SLICE="${TB_SLICE:-400}"
+export TB_SRC_MAX="${TB_SRC_MAX:-30}"
+exec "$HOME/tb-harness/node_modules/.bin/tsx" "$WT/scripts/reasoning-precision/wsl/mine-candidates.ts"

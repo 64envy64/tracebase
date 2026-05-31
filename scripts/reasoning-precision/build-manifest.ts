@@ -38,7 +38,7 @@ const readJson = (p: string): any => JSON.parse(readFileSync(p, "utf-8"));
 
 // --- collect reproducible (repo, fixSHA) from every box-4c result file present.
 const reproKeys = new Set<string>();
-for (const f of ["box-4c-repro.json", "box-4c-supply.json"]) {
+for (const f of ["box-4c-repro.json", "box-4c-supply.json", "box-4c-mined.json", "box-4c-mined2-mathjs.json", "box-4c-mined2-axios-sample.json", "box-4c-mined2-axios-batch2.json", "box-4c-werkzeug.json"]) {
   const p = join(RESULTS, f);
   if (!existsSync(p)) continue;
   for (const r of readJson(p).results ?? []) {
@@ -50,6 +50,10 @@ for (const f of ["box-4c-repro.json", "box-4c-supply.json"]) {
 const meta = new Map<string, any>();
 const pool = readJson(join(BENCH, "candidate-pool.json"));
 for (const c of pool.candidates ?? []) meta.set(`${c.repo}@${c.pr_commit}`, c);
+for (const mp of ["mined-candidates.json", "mined-candidates-2-dedup.json", "mined-werkzeug.json"]) {
+  const p = join(BENCH, mp);
+  if (existsSync(p)) for (const c of readJson(p).candidates ?? []) meta.set(`${c.repo}@${c.pr_commit}`, c);
+}
 const sel = readJson(join(BENCH, "selected-tasks.json"));
 for (const c of sel.tasks ?? []) meta.set(`${c.repo}@${c.pr_commit}`, { ...meta.get(`${c.repo}@${c.pr_commit}`), ...c });
 
@@ -73,6 +77,7 @@ function verificationCommand(repo: string, c: any): { cmd: string; testTargets: 
   if (repo === "colinhacks/zod") { const t = tests.filter((x) => /\.test\.(ts|tsx|js)$/.test(x)); return { cmd: `pnpm test -- --reporter=basic ${q(t)}`, testTargets: t }; }
   if (repo === "axios/axios") { const t = tests.filter((x) => x.startsWith("tests/") && /\.(test|spec)\.js$/.test(x)); return { cmd: `npx vitest run --project unit ${q(t)}`, testTargets: t }; }
   if (repo === "pytest-dev/pytest") { const t = tests.filter((x) => x.startsWith("testing/") && /\/test_/.test("/" + x) && x.endsWith(".py")); return { cmd: `.venv/bin/python -m pytest -q --no-header -p no:cacheprovider ${q(t)}`, testTargets: t }; }
+  if (repo === "pallets/werkzeug") { const t = tests.filter((x) => x.startsWith("tests/") && /\/test_/.test("/" + x) && x.endsWith(".py")); return { cmd: `.venv/bin/python -m pytest -q --no-header -x ${q(t)}`, testTargets: t }; }
   throw new Error(`no verification command for ${repo}`);
 }
 

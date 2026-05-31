@@ -1,0 +1,1617 @@
+{
+  "phase": "mined-2 axios",
+  "candidates": [
+    {
+      "repo": "axios/axios",
+      "pr_commit": "6feafcff6c2dbafe206161c5d09e38e1d36af66f",
+      "parent_commit": "302e2739c602f00e323d4f3f5c79500647633a73",
+      "title": "fix: socket issue (#10777)",
+      "test_files_touched": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js",
+        "lib/core/mergeConfig.js"
+      ],
+      "source_loc_added": 29,
+      "source_loc_removed": 0,
+      "source_loc_net": 29,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "1728aa1b15b8857f970611fd8983c06b423fc486",
+      "parent_commit": "42eb721eebc95cfded8d6c70cf62f3fbe83f3246",
+      "title": "fix: short-circuits on any truthy non-boolean in withXSRFToken (#10762)",
+      "test_files_touched": [
+        "tests/browser/xsrf.browser.test.js"
+      ],
+      "source_files_touched": [
+        "lib/helpers/resolveConfig.js"
+      ],
+      "source_loc_added": 11,
+      "source_loc_removed": 3,
+      "source_loc_net": 14,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "42eb721eebc95cfded8d6c70cf62f3fbe83f3246",
+      "parent_commit": "75873270a59bd5d895322eee145738e95fb89258",
+      "title": "fix: replace in with has own prop util (#10761)",
+      "test_files_touched": [
+        "tests/unit/prototypePollution.test.js"
+      ],
+      "source_files_touched": [
+        "lib/core/mergeConfig.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 2,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "75873270a59bd5d895322eee145738e95fb89258",
+      "parent_commit": "f0b98673b32677643a3b608431270d36e997473c",
+      "title": "fix: strip crlf correctly (#10758)",
+      "test_files_touched": [
+        "tests/unit/helpers/formDataToStream.test.js"
+      ],
+      "source_files_touched": [
+        "lib/helpers/formDataToStream.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 1,
+      "source_loc_net": 3,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "e8904af03385b040e53f1263a444e825db4335d9",
+      "parent_commit": "1c7f6d76e58359daddf38a6e636dd801ffd9c61b",
+      "title": "fix: stream response bypassed max content length (#10754)",
+      "test_files_touched": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 24,
+      "source_loc_removed": 0,
+      "source_loc_net": 24,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "37cf18f2e2c10171ddd851c8e46938d48cc35948",
+      "parent_commit": "0a73b7c585356fd7a85c35fda756dcaffae6089c",
+      "title": "fix: header security issues (#10749)",
+      "test_files_touched": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js",
+        "lib/utils.js"
+      ],
+      "source_loc_added": 12,
+      "source_loc_removed": 11,
+      "source_loc_net": 23,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "914bc2605ae43cee86fc1327c3f0022e1870d431",
+      "parent_commit": "0912bde937c9505ce5464d5b9c56b81d1edeab63",
+      "title": "fix(progress): clamp loaded to total for computable upload/download events (#7458)",
+      "test_files_touched": [
+        "test/unit/helpers/progressEventReducer.js"
+      ],
+      "source_files_touched": [
+        "lib/helpers/progressEventReducer.js"
+      ],
+      "source_loc_added": 5,
+      "source_loc_removed": 5,
+      "source_loc_net": 10,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "0912bde937c9505ce5464d5b9c56b81d1edeab63",
+      "parent_commit": "8b68491d04838aaab5d1a4d30e23d1f534beceeb",
+      "title": "fix: support multiselect in form data (#10676)",
+      "test_files_touched": [
+        "tests/unit/helpers/formDataToJSON.test.js"
+      ],
+      "source_files_touched": [
+        "lib/helpers/formDataToJSON.js"
+      ],
+      "source_loc_added": 3,
+      "source_loc_removed": 1,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "8b68491d04838aaab5d1a4d30e23d1f534beceeb",
+      "parent_commit": "62f62816608823e1b152b27d3209092adc77b454",
+      "title": "fix(http): handle socket-only request errors without leaking keep-alive listeners (#10576)",
+      "test_files_touched": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 15,
+      "source_loc_removed": 0,
+      "source_loc_net": 15,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "62f62816608823e1b152b27d3209092adc77b454",
+      "parent_commit": "c44f4d728b89584cbabbc6f92a5aec543a489b8b",
+      "title": "fix(fetch): remove Content-Type without boundary for FormData (#7314)",
+      "test_files_touched": [
+        "tests/unit/adapters/fetch.test.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/fetch.js"
+      ],
+      "source_loc_added": 13,
+      "source_loc_removed": 0,
+      "source_loc_net": 13,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "947f7091d849435220accd2e656f34c824810200",
+      "parent_commit": "a04dd96dbbc31f8b8ff2658706a92224b8956ce9",
+      "title": "Fixes #10610 Deprecation Warning : url.parse() is deprecated in Node.… (#10625)",
+      "test_files_touched": [
+        "tests/unit/adapters/http.test.js"
+      ],
+      "source_files_touched": [
+        "examples/abort-controller/server.js",
+        "lib/adapters/http.js",
+        "sandbox/server.js"
+      ],
+      "source_loc_added": 11,
+      "source_loc_removed": 8,
+      "source_loc_net": 19,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "94e1543576aec5381607dde6f3356a9073dc97bf",
+      "parent_commit": "76794ac27a7222f22f69f96e01305f1ae836c131",
+      "title": "fix(fetch): cancel ReadableStream body after request stream capability probe (#7515)",
+      "test_files_touched": [
+        "tests/unit/adapters/fetch.test.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/fetch.js"
+      ],
+      "source_loc_added": 5,
+      "source_loc_removed": 1,
+      "source_loc_net": 6,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "e943f6c54581deb983f065b05b9af757ebb0ca5d",
+      "parent_commit": "ebc6056adc341b1bcc7c940262391c2b4c7223b6",
+      "title": "fix: proxy from env v2 fix (#7499)",
+      "test_files_touched": [
+        "tests/smoke/cjs/package-lock.json",
+        "tests/smoke/esm/package-lock.json",
+        "tests/smoke/esm/package.json"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js",
+        "rollup.config.js"
+      ],
+      "source_loc_added": 15,
+      "source_loc_removed": 4,
+      "source_loc_net": 19,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "d905b7598dd6f8994af0a32a5e0b5b814b11ad1b",
+      "parent_commit": "f7a4ee21d5d62e472b33cbadf351467b19776a3c",
+      "title": "refactor: refresh test suite to be modernised (#7489)",
+      "test_files_touched": [
+        "test/specs/core/enhanceError.spec.js",
+        "tests/browser/adapter.browser.test.js",
+        "tests/browser/basicAuth.browser.test.js",
+        "tests/browser/cancel.browser.test.js",
+        "tests/browser/cancelToken.browser.test.js",
+        "tests/browser/cookies.browser.test.js",
+        "tests/browser/defaults.browser.test.js",
+        "tests/browser/formdata.browser.test.js",
+        "tests/browser/headers.browser.test.js",
+        "tests/browser/instance.browser.test.js",
+        "tests/browser/interceptors.browser.test.js",
+        "tests/browser/isURLSameOrigin.browser.test.js",
+        "tests/browser/options.browser.test.js",
+        "tests/browser/progress.browser.test.js",
+        "tests/browser/promise.browser.test.js",
+        "tests/browser/requests.browser.test.js",
+        "tests/browser/settle.browser.test.js",
+        "tests/browser/smoke.browser.test.js",
+        "tests/browser/toFormData.browser.test.js",
+        "tests/browser/transform.browser.test.js",
+        "tests/browser/xsrf.browser.test.js",
+        "tests/setup/server.js",
+        "tests/smoke/cjs/package-lock.json",
+        "tests/smoke/cjs/package.json",
+        "tests/smoke/cjs/tests/auth.smoke.test.cjs",
+        "tests/smoke/cjs/tests/basic.smoke.test.cjs",
+        "tests/smoke/cjs/tests/cancel.smoke.test.cjs",
+        "tests/smoke/cjs/tests/error.smoke.test.cjs",
+        "tests/smoke/cjs/tests/fetch.smoke.test.cjs",
+        "tests/smoke/cjs/tests/files.smoke.test.cjs",
+        "tests/smoke/cjs/tests/formData.smoke.test.cjs",
+        "tests/smoke/cjs/tests/headers.smoke.test.cjs",
+        "tests/smoke/cjs/tests/http2.smoke.test.cjs",
+        "tests/smoke/cjs/tests/instance.smoke.test.cjs",
+        "tests/smoke/cjs/tests/interceptors.smoke.test.cjs",
+        "tests/smoke/cjs/tests/progress.smoke.test.cjs",
+        "tests/smoke/cjs/tests/rateLimit.smoke.test.cjs",
+        "tests/smoke/cjs/tests/timeout.smoke.test.cjs",
+        "tests/smoke/cjs/tests/urlencode.smoke.test.cjs",
+        "tests/smoke/esm/package-lock.json",
+        "tests/smoke/esm/package.json",
+        "tests/smoke/esm/tests/auth.smoke.test.js",
+        "tests/smoke/esm/tests/basic.smoke.test.js",
+        "tests/smoke/esm/tests/cancel.smoke.test.js",
+        "tests/smoke/esm/tests/error.smoke.test.js",
+        "tests/smoke/esm/tests/fetch.smoke.test.js",
+        "tests/smoke/esm/tests/files.smoke.test.js",
+        "tests/smoke/esm/tests/formData.smoke.test.js",
+        "tests/smoke/esm/tests/headers.smoke.test.js",
+        "tests/smoke/esm/tests/http2.smoke.test.js",
+        "tests/smoke/esm/tests/instance.smoke.test.js",
+        "tests/smoke/esm/tests/interceptors.smoke.test.js",
+        "tests/smoke/esm/tests/progress.smoke.test.js",
+        "tests/smoke/esm/tests/rateLimit.smoke.test.js",
+        "tests/smoke/esm/tests/timeout.smoke.test.js",
+        "tests/smoke/esm/tests/urlencode.smoke.test.js",
+        "tests/smoke/esm/vitest.config.js",
+        "tests/unit/adapters/{error-details.test.js => errorDetails.test.js}",
+        "tests/unit/adapters/fetch.test.js",
+        "tests/unit/adapters/http.test.js",
+        "tests/unit/api.test.js",
+        "tests/unit/cancel/canceledError.test.js",
+        "tests/unit/cancel/isCancel.test.js",
+        "tests/unit/core/AxiosError.test.js",
+        "tests/unit/core/buildFullPath.test.js",
+        "tests/unit/core/mergeConfig.test.js",
+        "tests/unit/core/transformData.test.js",
+        "tests/unit/helpers/bind.test.js",
+        "tests/unit/helpers/buildURL.test.js",
+        "tests/unit/helpers/combineURLs.test.js",
+        "tests/unit/helpers/formDataToJSON.test.js",
+        "tests/unit/helpers/isAbsoluteURL.test.js",
+        "tests/unit/helpers/isAxiosError.test.js",
+        "tests/unit/helpers/parseHeaders.test.js",
+        "tests/unit/helpers/spread.test.js",
+        "tests/unit/helpers/validator.test.js",
+        "tests/unit/utils/endsWith.test.js",
+        "tests/unit/utils/extend.test.js",
+        "tests/unit/utils/forEach.test.js",
+        "tests/unit/utils/isX.test.js",
+        "tests/unit/utils/kindOf.test.js",
+        "tests/unit/utils/kindOfTest.test.js",
+        "tests/unit/utils/merge.test.js",
+        "tests/unit/utils/toArray.test.js",
+        "tests/unit/utils/toFlatObject.test.js",
+        "tests/unit/utils/trim.test.js"
+      ],
+      "source_files_touched": [
+        "vitest.config.js"
+      ],
+      "source_loc_added": 16,
+      "source_loc_removed": 0,
+      "source_loc_net": 16,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "f7a4ee21d5d62e472b33cbadf351467b19776a3c",
+      "parent_commit": "fa337332b9cb675b2840e94f105a5b0440899642",
+      "title": "fix(http): closing detached http2 session on timeout (#7457)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 3,
+      "source_loc_removed": 0,
+      "source_loc_net": 3,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "688826facdf0c51073bf5712432ff0fc3b396db6",
+      "parent_commit": "f17a787026a2ab19bdf54feabb1252543aebc9ea",
+      "title": "fix(headers): trim trailing CRLF in normalized header values (#7456)",
+      "test_files_touched": [
+        "test/unit/core/AxiosHeaders.js"
+      ],
+      "source_files_touched": [
+        "lib/core/AxiosHeaders.js"
+      ],
+      "source_loc_added": 3,
+      "source_loc_removed": 1,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "d51accbea1faef6e3b74c7dfa636704a2332bfbb",
+      "parent_commit": "3e30bbf1b33c8b6213c793eb0cf6b61b0edc72f1",
+      "title": "fix(core): copy status from source error in AxiosError.from (#7403)",
+      "test_files_touched": [
+        "test/specs/core/AxiosError.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/core/AxiosError.js"
+      ],
+      "source_loc_added": 6,
+      "source_loc_removed": 0,
+      "source_loc_net": 6,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "696fa753c5366afbd21859c294c64c9ff2b359ab",
+      "parent_commit": "569f028a5878faaec8d7d138ba686aac407bda4c",
+      "title": "fix: status is missing in AxiosError on and after v1.13.3 (#7368)",
+      "test_files_touched": [
+        "test/unit/regression/bugs.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/fetch.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 2,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "569f028a5878faaec8d7d138ba686aac407bda4c",
+      "parent_commit": "44b7c9f0c4900fd8784f18e871199402f07fc69f",
+      "title": "fix: added a option to choose between legacy and the new request/response interceptor ordering",
+      "test_files_touched": [
+        "test/specs/interceptors.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/core/Axios.js",
+        "lib/defaults/transitional.js"
+      ],
+      "source_loc_added": 13,
+      "source_loc_removed": 3,
+      "source_loc_net": 16,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "ee90dfc28abffbb61e24974b2bd3139a4a40ac76",
+      "parent_commit": "af4f6d960f7478604841cfff2eb5c2491565c518",
+      "title": "fix: issues with version 1.13.3 (#7352)",
+      "test_files_touched": [
+        "test/specs/interceptors.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/core/Axios.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 7,
+      "source_loc_net": 9,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "5945e40bb171d4ac4fc195df276cf952244f0f89",
+      "parent_commit": "7373fbff24cd92ce650d99ff6f7fe08c2e2a0a04",
+      "title": "fix(interceptor): handle the error in the same interceptor (#6269)",
+      "test_files_touched": [
+        "test/specs/interceptors.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/core/Axios.js"
+      ],
+      "source_loc_added": 7,
+      "source_loc_removed": 2,
+      "source_loc_net": 9,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "a4230f5581b3f58b6ff531b6dbac377a4fd7942a",
+      "parent_commit": "e0a120620e3728c8161ecdafb4903f373c83673a",
+      "title": "Revert \"fix: silentJSONParsing=false should throw on invalid JSON (#7253) (#7…\" (#7298)",
+      "test_files_touched": [
+        "test/regression_silent_json.js"
+      ],
+      "source_files_touched": [
+        "lib/defaults/index.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 2,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "7d19335e43d6754a1a9a66e424f7f7da259895bf",
+      "parent_commit": "ec9d94e9f88da13e9219acadf65061fb38ce080a",
+      "title": "fix: silentJSONParsing=false should throw on invalid JSON (#7253) (#7257)",
+      "test_files_touched": [
+        "test/regression_silent_json.js"
+      ],
+      "source_files_touched": [
+        "lib/defaults/index.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 2,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "6ef867e684adf7fb2343e3b29a79078a3c76dc29",
+      "parent_commit": "15bf9563f64d8f921668b0eba18033a9add38e94",
+      "title": "fix: unclear error message is thrown when specifying an empty proxy authorization (#6314)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 8,
+      "source_loc_removed": 4,
+      "source_loc_net": 12,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "8d372335f5c50ecd01e8615f2468a9eb19703117",
+      "parent_commit": "12c314b603e7852a157e93e47edb626a471ba6c5",
+      "title": "fix(http): fix 'socket hang up' bug for keep-alive requests when using timeouts; (#7206)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 3,
+      "source_loc_removed": 0,
+      "source_loc_net": 3,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "bcd5581d208cd372055afdcb2fd10b68ca40613c",
+      "parent_commit": "c9b33712aac00ca6da7e9767426ff2e0a36c7eed",
+      "title": "fix(http): fixed a regression that caused the data stream to be interrupted for responses with non-OK HTTP statuses; (#7193)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "cf78825e1229b60d1629ad0bbc8a752ff43c3f53",
+      "parent_commit": "c26d00f451949306f708aa78d1e9f12b9eb6ff4b",
+      "title": "fix(fetch): use current global fetch instead of cached one when env fetch is not specified to keep MSW support; (#7030)",
+      "test_files_touched": [
+        "test/unit/adapters/fetch.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/fetch.js"
+      ],
+      "source_loc_added": 13,
+      "source_loc_removed": 11,
+      "source_loc_net": 24,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "a9f47afbf3224d2ca987dbd8188789c7ea853c5d",
+      "parent_commit": "066b39195a677c95794849236b2f98c7f9e9ff0e",
+      "title": "fix(fetch-adapter): set correct Content-Type for Node FormData (#6998)",
+      "test_files_touched": [
+        "test/unit/adapters/fetch.js"
+      ],
+      "source_files_touched": [
+        "lib/helpers/resolveConfig.js"
+      ],
+      "source_loc_added": 13,
+      "source_loc_removed": 9,
+      "source_loc_net": 22,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "6d84189349c43b1dcdd977b522610660cc4c7042",
+      "parent_commit": "0dbb7fd4f61dc568498cd13a681fa7f907d6ec7e",
+      "title": "fix(params): removing '[' and ']' from URL encode exclude characters (#3316) (#5715)",
+      "test_files_touched": [
+        "test/specs/helpers/buildURL.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/helpers/buildURL.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 3,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "f7a3b5e0f7e5e127b97defa92a132fbf1b55cf15",
+      "parent_commit": "e61a8934d8f94dd429a2f309b48c67307c700df0",
+      "title": "fix(headers): fixed support for setting multiple header values from an iterated source; (#6885)",
+      "test_files_touched": [
+        "test/helpers/retry.js",
+        "test/specs/formdata.spec.js",
+        "test/unit/core/AxiosHeaders.js"
+      ],
+      "source_files_touched": [
+        "lib/core/AxiosHeaders.js"
+      ],
+      "source_loc_added": 6,
+      "source_loc_removed": 1,
+      "source_loc_net": 7,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "6c5d4cd69286868059c5e52d45085cb9a894a983",
+      "parent_commit": "dfe8411c9a082c3d068bdd1f8d6e73054f387f45",
+      "title": "fix(core): fix the Axios constructor implementation to treat the config argument as optional; (#6881)",
+      "test_files_touched": [
+        "test/unit/core/Axios.js"
+      ],
+      "source_files_touched": [
+        "lib/core/Axios.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "1b1f9ccdc15f1ea745160ec9a5223de9db4673bc",
+      "parent_commit": "47a611f0846b9976e02327b01e0f7b4002a97808",
+      "title": "fix(headers): allow iterable objects to be a data source for the set method; (#6873)",
+      "test_files_touched": [
+        "test/unit/core/AxiosHeaders.js"
+      ],
+      "source_files_touched": [
+        "lib/core/AxiosHeaders.js",
+        "lib/utils.js"
+      ],
+      "source_loc_added": 18,
+      "source_loc_removed": 9,
+      "source_loc_net": 27,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "f10c2e0de7fde0051f848609a29c2906d0caa1d9",
+      "parent_commit": "1e6632cd6253c89be7cb1ff757ba91afbd247de1",
+      "title": "fix(buildFullPath): handle `allowAbsoluteUrls: false` without `baseURL` (#6833)",
+      "test_files_touched": [
+        "test/specs/core/buildFullPath.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/core/buildFullPath.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "ec159e507bdf08c04ba1a10fe7710094e9e50ec9",
+      "parent_commit": "a9f7689b0c4b6d68c7f587c3aa376860da509d94",
+      "title": "fix(xhr/fetch): pass `allowAbsoluteUrls` to `buildFullPath` in `xhr` and `fetch` adapters (#6814)",
+      "test_files_touched": [
+        "test/specs/options.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/helpers/resolveConfig.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "23a25af0688d1db2c396deb09229d2271cc24f6c",
+      "parent_commit": "32c7bcc0f233285ba27dec73a4b1e81fb7a219b3",
+      "title": "fix(utils): replace getRandomValues with crypto module (#6788)",
+      "test_files_touched": [
+        "test/unit/utils/utils.js"
+      ],
+      "source_files_touched": [
+        "lib/utils.js"
+      ],
+      "source_loc_added": 5,
+      "source_loc_removed": 2,
+      "source_loc_net": 7,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "32c7bcc0f233285ba27dec73a4b1e81fb7a219b3",
+      "parent_commit": "4a3e26cf65bb040b7eb4577d5fd62199b0f3d017",
+      "title": "feat: Add config for ignoring absolute URLs (#5902) (#6192)",
+      "test_files_touched": [
+        "test/specs/core/buildFullPath.spec.js",
+        "test/specs/options.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/core/Axios.js",
+        "lib/core/buildFullPath.js"
+      ],
+      "source_loc_added": 13,
+      "source_loc_removed": 3,
+      "source_loc_net": 16,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "eac4619fe2e0926e876cd260ee21e3690381dbb5",
+      "parent_commit": "df956d18febc9100a563298dfdf0f102c3d15410",
+      "title": "fix: allow passing a callback as paramsSerializer to buildURL (#6680)",
+      "test_files_touched": [
+        "test/specs/helpers/buildURL.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/helpers/buildURL.js"
+      ],
+      "source_loc_added": 7,
+      "source_loc_removed": 1,
+      "source_loc_net": 8,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "cc3217a612024d83a663722a56d7a98d8759c6d5",
+      "parent_commit": "8f3cde11d2501f97ddb77ed9f8938703293647d9",
+      "title": "fix: updated stream aborted error message to be more clear (#6615)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "364993f0d8bc6e0e06f76b8a35d2d0a35cab054c",
+      "parent_commit": "d1980854fee1765cd02fa0787adf5d6e34dd9dcf",
+      "title": "fix(http): fixed support for IPv6 literal strings in url (#5731)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "6700a8adac06942205f6a7a21421ecb36c4e0852",
+      "parent_commit": "7004707c4180b416341863bd86913fe4fc2f1df1",
+      "title": "fix(core): add the missed implementation of AxiosError#status property; (#6573)",
+      "test_files_touched": [
+        "test/specs/core/AxiosError.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/core/AxiosError.js"
+      ],
+      "source_loc_added": 5,
+      "source_loc_removed": 2,
+      "source_loc_net": 7,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "7004707c4180b416341863bd86913fe4fc2f1df1",
+      "parent_commit": "fed1a4b2d78ed4a588c84e09d32749ed01dc2794",
+      "title": "fix(adapter): fix undefined reference to hasBrowserEnv (#6572)",
+      "test_files_touched": [
+        "test/unit/regression/SNYK-JS-AXIOS-7361793.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "6b6b605eaf73852fb2dae033f1e786155959de3a",
+      "parent_commit": "07a661a2a6b9092c4aa640dcc7f724ec5e65bdda",
+      "title": "fix(sec): CVE-2024-39338 (#6539) (#6543)",
+      "test_files_touched": [
+        "test/specs/helpers/isAbsoluteURL.spec.js",
+        "test/unit/regression/SNYK-JS-AXIOS-7361793.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js",
+        "lib/helpers/isAbsoluteURL.js"
+      ],
+      "source_loc_added": 3,
+      "source_loc_removed": 3,
+      "source_loc_net": 6,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "07a661a2a6b9092c4aa640dcc7f724ec5e65bdda",
+      "parent_commit": "c6cce43cd94489f655f4488c5a50ecaf781c94f2",
+      "title": "fix(sec): disregard protocol-relative URL to remediate SSRF (#6539)",
+      "test_files_touched": [
+        "test/specs/helpers/isAbsoluteURL.spec.js",
+        "test/unit/regression/SNYK-JS-AXIOS-7361793.js"
+      ],
+      "source_files_touched": [
+        "lib/helpers/isAbsoluteURL.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 2,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "870e0a76f60d0094774a6a63fa606eec52a381af",
+      "parent_commit": "95a3e8e346cfd6a5548e171f2341df3235d0e26b",
+      "title": "fix(fetch): fix headers getting from a stream response; (#6401)",
+      "test_files_touched": [
+        "test/unit/adapters/fetch.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/fetch.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "bb5f9a5ab768452de9e166dc28d0ffc234245ef1",
+      "parent_commit": "81e0455b7b57fbaf2be16a73ebe0e6591cc6d8f9",
+      "title": "fix(fetch): treat fetch-related TypeError as an AxiosError.ERR_NETWORK error; (#6380)",
+      "test_files_touched": [
+        "test/unit/adapters/fetch.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/fetch.js"
+      ],
+      "source_loc_added": 8,
+      "source_loc_removed": 5,
+      "source_loc_net": 13,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "81e0455b7b57fbaf2be16a73ebe0e6591cc6d8f9",
+      "parent_commit": "d1d359da347704e8b28d768e61515a3e96c5b072",
+      "title": "fix(core/axios): handle un-writable error stack (#6362)",
+      "test_files_touched": [
+        "test/unit/core/Axios.js"
+      ],
+      "source_files_touched": [
+        "lib/core/Axios.js"
+      ],
+      "source_loc_added": 9,
+      "source_loc_removed": 6,
+      "source_loc_net": 15,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "1a08f90f402336e4d00e9ee82f211c6adb1640b0",
+      "parent_commit": "104aa3f65dc30d70273798dff413fb44edd1c9e6",
+      "title": "fix: capture async stack only for rejections with native error objects; (#6203)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/core/Axios.js"
+      ],
+      "source_loc_added": 14,
+      "source_loc_removed": 11,
+      "source_loc_net": 25,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "a1938ff073fcb0f89011f001dfbc1fa1dc995e39",
+      "parent_commit": "123f354b920f154a209ea99f76b7b2ef3d9ebbab",
+      "title": "fix: fixed missed dispatchBeforeRedirect argument (#5778)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 2,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "123f354b920f154a209ea99f76b7b2ef3d9ebbab",
+      "parent_commit": "6d4c421ee157d93b47f3f9082a7044b1da221461",
+      "title": "fix: wrap errors to improve async stack trace (#5987)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/core/Axios.js"
+      ],
+      "source_loc_added": 22,
+      "source_loc_removed": 1,
+      "source_loc_net": 23,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "f4f2b039dd38eb4829e8583caede4ed6d2dd59be",
+      "parent_commit": "1f73dcbbe0bb37f9e9908abb46a3c252536655c8",
+      "title": "fix(dns): fixed lookup error handling; (#6175)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 4,
+      "source_loc_removed": 0,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "3c0c11cade045c4412c242b5727308cff9897a0e",
+      "parent_commit": "75af1cdff5b3a6ca3766d3d3afbc3115bb0811b8",
+      "title": "fix(security): fixed formToJSON prototype pollution vulnerability; (#6167)",
+      "test_files_touched": [
+        "test/specs/helpers/formDataToJSON.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/helpers/formDataToJSON.js"
+      ],
+      "source_loc_added": 3,
+      "source_loc_removed": 0,
+      "source_loc_net": 3,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "5e7ad38fb0f819fceb19fb2ee5d5d38f56aa837d",
+      "parent_commit": "8befb86efb101ef9dc1d1c16d77d2bf42600727f",
+      "title": "fix: Regular Expression Denial of Service (ReDoS) (#6132)",
+      "test_files_touched": [
+        "test/specs/defaults.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/helpers/combineURLs.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "96ee232bd3ee4de2e657333d4d2191cd389e14d0",
+      "parent_commit": "7d45ab2e2ad6e59f5475e39afd4b286b1f393fc0",
+      "title": "fix(CSRF): fixed CSRF vulnerability CVE-2023-45857 (#6028)",
+      "test_files_touched": [
+        "test/specs/xsrf.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/xhr.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 2,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "7d45ab2e2ad6e59f5475e39afd4b286b1f393fc0",
+      "parent_commit": "5aaff532a6b820bb9ab6a8cd0f77131b47e2adb8",
+      "title": "chore(tests): fixed tests to pass in node v19 and v20 with `keep-alive` enabled; (#6021)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js",
+        "test/unit/regression/SNYK-JS-AXIOS-1038255.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "4c89f25196525e90a6e75eda9cb31ae0a2e18acd",
+      "parent_commit": "ae003913a39f3bdf9bbbd8f71a1ed681fd044d8b",
+      "title": "fix(headers): allow `content-encoding` header to handle case-insensitive values (#5890) (#5892)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "8fda2766b1e6bcb72c3fabc146223083ef13ce17",
+      "parent_commit": "d8b4ca0ea5f2f05efa4edfe1e7684593f9f68273",
+      "title": "fix(headers): fixed common Content-Type header merging; (#5832)",
+      "test_files_touched": [
+        "test/specs/defaults.spec.js",
+        "test/specs/headers.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/core/Axios.js",
+        "lib/defaults/index.js"
+      ],
+      "source_loc_added": 5,
+      "source_loc_removed": 14,
+      "source_loc_net": 19,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "d8b4ca0ea5f2f05efa4edfe1e7684593f9f68273",
+      "parent_commit": "3f53eb6960f05a1f88409c4b731a40de595cb825",
+      "title": "fix(headers): added support for setting header names that overlap with class methods; (#5831)",
+      "test_files_touched": [
+        "test/unit/core/AxiosHeaders.js"
+      ],
+      "source_files_touched": [
+        ".eslintrc.cjs",
+        "lib/core/AxiosHeaders.js",
+        "lib/utils.js"
+      ],
+      "source_loc_added": 15,
+      "source_loc_removed": 3,
+      "source_loc_net": 18,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "aa372f7306295dfd1100c1c2c77ce95c95808e76",
+      "parent_commit": "0abc70564746496eb211bbd951041b4655aec268",
+      "title": "fix(utils): make isFormData detection logic stricter to avoid unnecessary calling of the `toString` method on the target; (#5661)",
+      "test_files_touched": [
+        "test/unit/utils/utils.js"
+      ],
+      "source_files_touched": [
+        "lib/utils.js"
+      ],
+      "source_loc_added": 9,
+      "source_loc_removed": 5,
+      "source_loc_net": 14,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "a56c8661209d5ce5a645a05f294a0e08a6c1f6b3",
+      "parent_commit": "e7decef6a99f4627e27ed9ea5b00ce8e201c3841",
+      "title": "fix(params): re-added the ability to set the function as `paramsSerializer` config; (#5633)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/core/Axios.js"
+      ],
+      "source_loc_added": 11,
+      "source_loc_removed": 5,
+      "source_loc_net": 16,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "ea87ebfe6d1699af072b9e7cd40faf8f14b0ab93",
+      "parent_commit": "0b449293fc238f30f39ab9ed0fca86a23c8a6a79",
+      "title": "fix(headers): fixed the filtering logic of the clear method; (#5542)",
+      "test_files_touched": [
+        "test/unit/core/AxiosHeaders.js"
+      ],
+      "source_files_touched": [
+        "lib/core/AxiosHeaders.js"
+      ],
+      "source_loc_added": 6,
+      "source_loc_removed": 2,
+      "source_loc_net": 8,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "96d336f527619f21da012fe1f117eeb53e5a2120",
+      "parent_commit": "08104c028c0f9353897b1b6691d74c440fd0c32d",
+      "title": "fix(formdata): add hotfix to use the asynchronous API to compute the content-length header value; (#5521)",
+      "test_files_touched": [
+        "test/unit/adapters/axios.png",
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js",
+        "lib/core/AxiosHeaders.js"
+      ],
+      "source_loc_added": 13,
+      "source_loc_removed": 6,
+      "source_loc_net": 19,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "926347315405e43842373b646c8a23d3700ab53f",
+      "parent_commit": "995737726024c6741cf4a09508d004c4f1323ffb",
+      "title": "chore(ci): fixed contributors avatar rendering for CHANGELOG.md; (#5514)",
+      "test_files_touched": [
+        "test/specs/__helpers.js"
+      ],
+      "source_files_touched": [
+        "bin/contributors.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "9915635c69d0ab70daca5738488421f67ca60959",
+      "parent_commit": "5bde91cac787d92ae56c6cb293941244cc4c617d",
+      "title": "fix(headers): fixed & optimized clear method; (#5507)",
+      "test_files_touched": [
+        "test/unit/core/AxiosHeaders.js"
+      ],
+      "source_files_touched": [
+        "lib/core/AxiosHeaders.js"
+      ],
+      "source_loc_added": 14,
+      "source_loc_removed": 2,
+      "source_loc_net": 16,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "1e58a659ec9b0653f4693508d748caa5a41bb1a2",
+      "parent_commit": "56e9ca1a865099f75eb0e897e944883a36bddf48",
+      "title": "fix: fixed Brotli decompression; (#5353)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js",
+        "lib/platform/browser/index.js"
+      ],
+      "source_loc_added": 9,
+      "source_loc_removed": 1,
+      "source_loc_net": 10,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "9041c7d272a7d4c3ca416fcb12daf8e94240494d",
+      "parent_commit": "786b113a40011faaee95da0b02eaa7de06944d7a",
+      "title": "Fixed decompression for responses without `Content-Length` header (#5306)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 16,
+      "source_loc_removed": 8,
+      "source_loc_net": 24,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "786b113a40011faaee95da0b02eaa7de06944d7a",
+      "parent_commit": "cac6cfa6f6eda3fce45b658eafa07a70747a4652",
+      "title": "fix: removing multiple/trailing/leading whitespaces (#5022)",
+      "test_files_touched": [
+        "test/specs/core/AxiosError.spec.js"
+      ],
+      "source_files_touched": [
+        "examples/post/server.js",
+        "lib/adapters/xhr.js",
+        "lib/helpers/speedometer.js"
+      ],
+      "source_loc_added": 3,
+      "source_loc_removed": 3,
+      "source_loc_net": 6,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "b0ebf9fcacbab3e5a020a1a4d5d3837342d7dcd7",
+      "parent_commit": "ef1c48a476f1712c6ae281407b301a75b83b6482",
+      "title": "Fix: Don't add null values to query string.  (#5108)",
+      "test_files_touched": [
+        "test/specs/helpers/buildURL.spec.js",
+        "test/typescript/axios.ts"
+      ],
+      "source_files_touched": [
+        "lib/helpers/buildURL.js",
+        "lib/helpers/toFormData.js"
+      ],
+      "source_loc_added": 8,
+      "source_loc_removed": 9,
+      "source_loc_net": 17,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "9d4b016ddedf835bfd838b63e50af14d84e2813e",
+      "parent_commit": "ed19414b33a1c12022479ef5a9980121bb8e8afb",
+      "title": "feat: added custom params serializer support; (#5113)",
+      "test_files_touched": [
+        "test/specs/helpers/buildURL.spec.js",
+        "test/typescript/axios.ts"
+      ],
+      "source_files_touched": [
+        "lib/core/Axios.js",
+        "lib/helpers/buildURL.js"
+      ],
+      "source_loc_added": 21,
+      "source_loc_removed": 6,
+      "source_loc_net": 27,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "717f476b0f19e51a1794b6a3409ceaa1fe9b456e",
+      "parent_commit": "83454a55f6274ee4d7b5cce6c608a62c5aa6b0cb",
+      "title": "fix: restore proxy config backwards compatibility with 0.x (#5097)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 7,
+      "source_loc_removed": 4,
+      "source_loc_net": 11,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "110ae9ae613068f4292be9fbd2bf0abf28a6377a",
+      "parent_commit": "85740c3e7a1fa48346dfcbd4497f463ccb1c1b05",
+      "title": "fix: handling of array values for AxiosHeaders (#5085)",
+      "test_files_touched": [
+        "test/unit/core/AxiosHeaders.js",
+        "test/unit/regression/bugs.js"
+      ],
+      "source_files_touched": [
+        "lib/core/AxiosHeaders.js"
+      ],
+      "source_loc_added": 4,
+      "source_loc_removed": 10,
+      "source_loc_net": 14,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "3e4d52171e03f438da36fa726fc828b48a329dcd",
+      "parent_commit": "d61dbede9578e21f04d5506a79727b3adfe23704",
+      "title": "Fixed query params composing; (#5018)",
+      "test_files_touched": [
+        "test/unit/regression/bugs.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 8,
+      "source_loc_removed": 3,
+      "source_loc_net": 11,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "1504792765a89bfe5b07041979a86218cace9c6d",
+      "parent_commit": "a11f9501b823a167de7187ee542e4204ad1a517a",
+      "title": "Fixing content-type header repeated (#4745)",
+      "test_files_touched": [
+        "test/specs/transform.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/core/dispatchRequest.js"
+      ],
+      "source_loc_added": 4,
+      "source_loc_removed": 0,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "a11f9501b823a167de7187ee542e4204ad1a517a",
+      "parent_commit": "9bb016f95e6de871a44f3276fd06562704a0abb0",
+      "title": "Fix/4737/timeout error message for http (#4738)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 5,
+      "source_loc_removed": 1,
+      "source_loc_net": 6,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "e9c9f3392b4a31e24b2bcb8399639de624a24386",
+      "parent_commit": "c30252f685e8f4326722de84923fcbc8cf557f06",
+      "title": "Fix/4263/maxbodylength defaults (#4731)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 3,
+      "source_loc_removed": 0,
+      "source_loc_net": 3,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "24f22b2b0bc93fc1a0b2ab0fab1c803c05aa2963",
+      "parent_commit": "13dd93f6c54abb6e15ee5f97d5fb3a287dc42058",
+      "title": "Fixing proxy beforeRedirect regression (#4708)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 14,
+      "source_loc_removed": 3,
+      "source_loc_net": 17,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "2f50c8249bba77a34eb7d14e3274ed560c2f2e91",
+      "parent_commit": "9579bad1d38fe5eb6e191eb582dd3f55f4d1489a",
+      "title": "Adding HTTP status code for transformResponse (#4580)",
+      "test_files_touched": [
+        "test/specs/core/transformData.spec.js",
+        "test/unit/defaults/transformReponse.js"
+      ],
+      "source_files_touched": [
+        "lib/core/dispatchRequest.js",
+        "lib/core/transformData.js"
+      ],
+      "source_loc_added": 6,
+      "source_loc_removed": 2,
+      "source_loc_net": 8,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "de48c5d626e056d5e6056099c881b878103fc20e",
+      "parent_commit": "27280ec260bb353b57807ebcf8aa30b772663405",
+      "title": "Fixed race condition on immediate requests cancellation (#4261)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/cancel/CancelToken.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 3,
+      "source_loc_net": 5,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "544cf134f3ab8f1fd0b4519d0c5dfff79dfcd3fe",
+      "parent_commit": "743b4a8b8fc691705076b83ebbc04b5e25b6348e",
+      "title": "Interceptor clear (#4248)",
+      "test_files_touched": [
+        "test/specs/interceptors.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/core/InterceptorManager.js"
+      ],
+      "source_loc_added": 9,
+      "source_loc_removed": 0,
+      "source_loc_net": 9,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "b9e9fb4fa0ab1e0f4bc9ac8d8cf493f5f8507dc3",
+      "parent_commit": "76432c18bee20e2cbd9e673af8a3bf43641ad115",
+      "title": "Enhanced protocol parsing implementation to fix #4633; (#4639)",
+      "test_files_touched": [
+        "test/unit/helpers/parseProtocol.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/xhr.js",
+        "lib/helpers/parseProtocol.js"
+      ],
+      "source_loc_added": 8,
+      "source_loc_removed": 2,
+      "source_loc_net": 10,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "76432c18bee20e2cbd9e673af8a3bf43641ad115",
+      "parent_commit": "82fd15f3d4d0af5c965701d05deed98c6c056e94",
+      "title": "Fixed FormData posting in browser environment by reverting #3785; (#4640)",
+      "test_files_touched": [
+        "test/specs/formdata.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/xhr.js"
+      ],
+      "source_loc_added": 4,
+      "source_loc_removed": 0,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "e52e4dbb575fc8bd9cb7d2f5306f30ee82b40b4d",
+      "parent_commit": "80387424e49ff302a1d75eea48296d5ebb6362c6",
+      "title": "Fixed errors when running tests",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 1,
+      "source_loc_net": 3,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "412d3bd6078433dda4a7eb4d86e021dbc57fdeb2",
+      "parent_commit": "3d13b67c562d45434536697bb232e2b1fba8e035",
+      "title": "Adding support for beforeRedirect config option (#3852)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js",
+        "lib/core/mergeConfig.js"
+      ],
+      "source_loc_added": 5,
+      "source_loc_removed": 1,
+      "source_loc_net": 6,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "4461761fcb75a63fe4eab217e9e9632f48aa4dee",
+      "parent_commit": "5c5cbdf4ba1e2b55b6bff35673bdd5206b4eddf8",
+      "title": "Fixed The timeoutErrorMessage property in config not work with Node.js (fixes #3580) (#3581)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 7,
+      "source_loc_removed": 1,
+      "source_loc_net": 8,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "95792908f06b74a5c227798261ffc25be412e43e",
+      "parent_commit": "99648153ce4be7ee185a6e7c3e50ee3eae2aed32",
+      "title": "Adding error handling when missing url (#3791)",
+      "test_files_touched": [
+        "test/specs/api.spec.js",
+        "test/specs/requests.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/core/Axios.js"
+      ],
+      "source_loc_added": 7,
+      "source_loc_removed": 0,
+      "source_loc_net": 7,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "c00c4ddd87fc616e85b64ed4cfad19eec44f49a6",
+      "parent_commit": "962f9ab7129f38024f73a75e2869feaa6eb2d260",
+      "title": "Fixing maxBodyLength enforcement (#3786)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 4,
+      "source_loc_removed": 0,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "c5fe05bdff82e0fa4ace9a832e75052e1ee297f0",
+      "parent_commit": "1885ac79c535d5c932b09aaa40dd96223972d138",
+      "title": "Adding aborted event handler (#3916)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 12,
+      "source_loc_removed": 0,
+      "source_loc_net": 12,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "94a93447992392441f1928dffc9f10529ecec417",
+      "parent_commit": "fce210a67e240820cc2c9b146ac80ba6985b8477",
+      "title": "Test types (#4140)",
+      "test_files_touched": [
+        "test/typescript/axios.ts"
+      ],
+      "source_files_touched": [
+        "Gruntfile.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 14,
+      "source_loc_net": 15,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "f3ca6371caa738ba5308d413433d9f676f2e0138",
+      "parent_commit": "4091b075f69ebbcf13ed74c22799e1f6dba93f44",
+      "title": "Caseless header comparing in HTTP adapter. (#2880)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 13,
+      "source_loc_removed": 7,
+      "source_loc_net": 20,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "199c8aab64c45532389f3e56a913017a54803dfe",
+      "parent_commit": "94fc4ea7161b1e13c55df102e3177b53d26ef00e",
+      "title": "Adding parseInt to config.timeout (#3781)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 16,
+      "source_loc_removed": 2,
+      "source_loc_net": 18,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "e426910be7c417bdbcde9c18cb184ead826fc0e1",
+      "parent_commit": "c7329fefc890050edd51e40e469a154d0117fc55",
+      "title": "Protocol not parsed when setting proxy config from env vars (#3070)",
+      "test_files_touched": [
+        "test/unit/adapters/cert.pem",
+        "test/unit/adapters/http.js",
+        "test/unit/adapters/key.pem"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 2,
+      "source_loc_net": 4,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "fa3673710ea6bb3f351b4790bb17998d2f01f342",
+      "parent_commit": "b7e954eba3911874575ed241ec2ec38ff8af21bb",
+      "title": "fix axios.delete ignores config.data (#3282)",
+      "test_files_touched": [
+        "test/specs/requests.spec.js"
+      ],
+      "source_files_touched": [
+        "lib/core/Axios.js"
+      ],
+      "source_loc_added": 2,
+      "source_loc_removed": 1,
+      "source_loc_net": 3,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "04d45f20911a02e9457db9e9d104aa156e170b11",
+      "parent_commit": "e8c6e191410b05c496637768301debdcb7669c65",
+      "title": "Fixing requestHeaders.Authorization (#3287)",
+      "test_files_touched": [
+        "test/specs/__helpers.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/xhr.js"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "axios/axios",
+      "pr_commit": "16aa2ce7fa42e7c46407b78966b7521d8e588a72",
+      "parent_commit": "c4300a88cf994b9c4b88b065806edb98705a2c5d",
+      "title": "Fixing response with utf-8 BOM can not parse to json (#2419)",
+      "test_files_touched": [
+        "test/unit/adapters/http.js"
+      ],
+      "source_files_touched": [
+        "lib/adapters/http.js",
+        "lib/utils.js"
+      ],
+      "source_loc_added": 18,
+      "source_loc_removed": 1,
+      "source_loc_net": 19,
+      "discovered_status": "MINED"
+    }
+  ]
+}

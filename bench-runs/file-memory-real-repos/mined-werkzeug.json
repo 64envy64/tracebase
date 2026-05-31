@@ -1,0 +1,90 @@
+{
+  "phase": "supply mining (relaxed)",
+  "since": "2021-06-26",
+  "slice": 250,
+  "srcMax": 25,
+  "targets": [
+    "pallets/werkzeug"
+  ],
+  "stats": {
+    "pallets/werkzeug": {
+      "scanned": 25,
+      "kept": 4,
+      "excluded_known": 0,
+      "excluded_shape": 21
+    }
+  },
+  "candidates": [
+    {
+      "repo": "pallets/werkzeug",
+      "pr_commit": "7d67f88e6c8ed49ab205e2b6b208aede8b9b27d7",
+      "parent_commit": "bb45f5d049078d9ee97de3a2d7f7a28b74ece7cf",
+      "title": "Fix typos discovered by codespell (#3069)",
+      "test_files_touched": [
+        "tests/test_test.py",
+        "tests/test_wrappers.py"
+      ],
+      "source_files_touched": [
+        "src/werkzeug/routing/map.py"
+      ],
+      "source_loc_added": 1,
+      "source_loc_removed": 1,
+      "source_loc_net": 2,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "pallets/werkzeug",
+      "pr_commit": "9e050f7750214d6779636813b8d661250804e811",
+      "parent_commit": "855665483334f8ae45d0b847351083617f81c4f8",
+      "title": "Fix CacheControl issues (#2882)",
+      "test_files_touched": [
+        "tests/test_datastructures.py"
+      ],
+      "source_files_touched": [
+        "src/werkzeug/datastructures/cache_control.py",
+        "src/werkzeug/utils.py"
+      ],
+      "source_loc_added": 20,
+      "source_loc_removed": 3,
+      "source_loc_net": 23,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "pallets/werkzeug",
+      "pr_commit": "560dd5f320bff318175f209595d42f5a80045417",
+      "parent_commit": "6f7e1e57462b63bde7a992048c6d56f5ef0d3204",
+      "title": "Merge pull request #2356 from spaceone/fix-typos-in-docstrings",
+      "test_files_touched": [
+        "tests/test_formparser.py"
+      ],
+      "source_files_touched": [
+        "examples/coolmagic/utils.py",
+        "examples/plnt/sync.py",
+        "examples/simplewiki/application.py",
+        "src/werkzeug/debug/__init__.py",
+        "src/werkzeug/wrappers/request.py",
+        "src/werkzeug/wrappers/response.py"
+      ],
+      "source_loc_added": 6,
+      "source_loc_removed": 6,
+      "source_loc_net": 12,
+      "discovered_status": "MINED"
+    },
+    {
+      "repo": "pallets/werkzeug",
+      "pr_commit": "eba0ec06fbd90c9c0582704d4acdcbe716f45a1c",
+      "parent_commit": "1bcf940d6d3161a2f8ec54aa93c6a4f073e67218",
+      "title": "Merge pull request #2206 from MLH-Fellowship/1608-fix-header-newline-handling",
+      "test_files_touched": [
+        "tests/test_datastructures.py"
+      ],
+      "source_files_touched": [
+        "src/werkzeug/datastructures.py"
+      ],
+      "source_loc_added": 7,
+      "source_loc_removed": 7,
+      "source_loc_net": 14,
+      "discovered_status": "MINED"
+    }
+  ]
+}
