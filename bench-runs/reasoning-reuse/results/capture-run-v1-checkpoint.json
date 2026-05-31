@@ -1,0 +1,21 @@
+{
+  "capturedAtCheckpoint": 0,
+  "capDone": 10,
+  "capYield": 0,
+  "projCap": 0,
+  "precisionReadyAtCheckpoint": 0,
+  "recDone": 10,
+  "prYield": 0,
+  "projPR": null,
+  "safetyGreen": true,
+  "store": {
+    "captured": 0,
+    "runtimeCaptured": 0,
+    "imported": 0,
+    "fired": 0,
+    "attributed": 0,
+    "rejected": 4,
+    "duplicates": 0,
+    "precisionReady": 0
+  }
+}

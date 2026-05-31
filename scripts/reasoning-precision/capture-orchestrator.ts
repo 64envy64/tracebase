@@ -219,6 +219,10 @@ async function run(): Promise<void> {
   if (!existsSync(MANIFEST_PATH)) throw new Error(`no frozen manifest at ${MANIFEST_PATH}`);
   const mf: FrozenManifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf-8"));
   if (!isInitialized(SHARED_DIR)) initConfig(SHARED_DIR, { install: { agent: "claude-code", agents: ["claude-code"] } });
+  // Materialize + migrate the shared store file NOW so the read-only snapshot
+  // reads (runtimeCapturedCount / recallOutcome) work before the first Stop-hook
+  // write — initConfig only writes config.json, not memory.db (SQLITE_CANTOPEN).
+  { const db = new Database(join(SHARED_DIR, ".tracebase", "memory.db")); new BlockStore(db); db.close(); }
   mkdirSync(WS_DIR, { recursive: true });
   process.env.TRACEBASE_SKIP_HOOK_SELF_HEAL = "1";
 
