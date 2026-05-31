@@ -1699,8 +1699,49 @@ interface EventBase {
   runId?: string;
 }
 
+/**
+ * Privacy-safe serving-decision telemetry, stamped on EVERY retrieval event
+ * (inject, abstain, and zero-hit alike). Carries the gate's inputs + outputs
+ * so an offline aggregator can report fire-rate, precision@fire, abstention
+ * reasons, latency, and calibration coverage WITHOUT persisting the raw prompt
+ * (only `queryHash`). Optional on the event for back-compat with pre-telemetry
+ * rows — old readers ignore it, and old rows simply lack it.
+ */
+export interface ServingTelemetry {
+  /** Correlates with the retrieval event's queryId. */
+  retrievalId: string;
+  /** Non-reversible hash of the prompt — never the raw text. */
+  queryHash: string;
+  /** Optional retrieval scope (e.g. "repo:org/app"). */
+  scope?: string;
+  /** Active blocks in the store at decision time. */
+  corpusSize: number;
+  /** Candidates the ranker returned for the decision. */
+  candidateCount: number;
+  /** Top candidate's absolute evidence confidence. */
+  evidenceConfidence: number;
+  /** Top-vs-second evidence margin. */
+  margin: number;
+  /** Calibrated P(helpful) for the top candidate. */
+  calibratedProb: number;
+  /** Whether the layer injected or abstained. */
+  decision: "inject" | "abstain";
+  /** Abstention reason, or "injected". */
+  reason: string;
+  /** Serving feature-schema version. */
+  featureVersion: number;
+  /** Calibrator model version, or "identity" when unfitted. */
+  calibratorVersion: number | "identity";
+  /** Wall-clock recall latency in ms. */
+  latencyMs: number;
+  /** Block IDs actually injected (empty on abstain / shadow). */
+  injectedBlockIds: string[];
+}
+
 export interface RetrievalEvent extends EventBase {
   event: "retrieval";
+  /** Serving-decision telemetry (Phase 1). Optional for back-compat. */
+  serving?: ServingTelemetry;
   /**
    * Top-K block candidates AFTER the full cascade
    * (BM25 → rerank → MMR). `rerankerScore` + `rerankerRank` are

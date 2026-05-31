@@ -36,6 +36,7 @@ import type {
   BlockInvariants,
   ProjectFact,
   RetrievalEvent,
+  ServingTelemetry,
   InjectionEvent,
   FactInjectionEvent,
 } from "../types.js";
@@ -47,7 +48,7 @@ import {
   withRerankerFallback,
 } from "./reranker.js";
 import { mmr, DEFAULT_MMR_LAMBDA, type MMRItem } from "./mmr.js";
-import { tokenizeInformative } from "./serving-tokenizer.js";
+import { tokenizeInformative, queryHash } from "./serving-tokenizer.js";
 import {
   decideServing,
   resolveServingPolicy,
@@ -325,6 +326,13 @@ export interface BlockServerOptions {
   /** Maps raw ranker score + block → P(helpful). Identity by default. */
   calibrator?: Calibrator;
   /**
+   * Version of the supplied `calibrator`, stamped on serving telemetry.
+   * "identity" (default) when unfitted; the fitted model's featureVersion
+   * when a real calibrator is wired in. Lets the aggregator split calibrated
+   * vs uncalibrated traffic without inspecting the function.
+   */
+  calibratorVersion?: number | "identity";
+  /**
    * If true, emit retrieval / injection events to the store's event log.
    * Default true. Tests can disable for noise-free assertions.
    */
@@ -408,6 +416,8 @@ export class BlockServer {
   // it persists a new isotonic model — production traffic immediately
   // routes through the better-fit model on the next recall.
   private calibrator: Calibrator;
+  /** Version tag for the active calibrator; stamped on serving telemetry. */
+  private calibratorVersion: number | "identity";
   private readonly emitEvents: boolean;
   private readonly now: () => number;
   private readonly emitter: EventEmitter;
@@ -432,6 +442,7 @@ export class BlockServer {
     // configured gateThreshold so a per-call override still flows through.
     this.policy = resolveServingPolicy({ gateThreshold: this.gateThreshold }).policy;
     this.calibrator = opts.calibrator ?? identityCalibrator;
+    this.calibratorVersion = opts.calibratorVersion ?? "identity";
     this.emitEvents = opts.emitEvents ?? true;
     this.now = opts.now ?? Date.now;
     // Unified emission: either the caller-supplied emitter (preferred,
@@ -452,8 +463,9 @@ export class BlockServer {
    * captured at the start of their call, so a swap mid-recall cannot
    * produce a mixed-scoring result.
    */
-  setCalibrator(calibrator: Calibrator): void {
+  setCalibrator(calibrator: Calibrator, version: number | "identity" = "identity"): void {
     this.calibrator = calibrator;
+    this.calibratorVersion = version;
   }
 
   /**
@@ -469,6 +481,7 @@ export class BlockServer {
    * it ignores the reranker / mmrLambda options entirely.
    */
   recall(query: BlockRecallQuery): RecallV2Result {
+    const startedAt = this.now();
     const queryId = query.queryId ?? randomUUID();
     const manualShadow = query.shadow ?? false;
     const limit = query.limit ?? 5;
@@ -478,7 +491,7 @@ export class BlockServer {
     const blocks = this.searchBlocks(query.text, query.invariants, limit);
     const rawFacts = this.searchFacts(query.text, query.invariants, query.scope, factLimit);
 
-    return this.finalizeRecall(query, queryId, manualShadow, refLimit, blocks, rawFacts);
+    return this.finalizeRecall(query, queryId, manualShadow, refLimit, blocks, rawFacts, startedAt);
   }
 
   /**
@@ -502,6 +515,7 @@ export class BlockServer {
    * `mmrLambda === 1` AND reranker is `NoopReranker`.
    */
   async recallAsync(query: BlockRecallQuery): Promise<RecallV2Result> {
+    const startedAt = this.now();
     const queryId = query.queryId ?? randomUUID();
     const manualShadow = query.shadow ?? false;
     const limit = query.limit ?? 5;
@@ -552,6 +566,7 @@ export class BlockServer {
       // Calibrator math stays valid; reranker info is logged separately.
       finalBlocks.map((c) => ({ block: c.block, score: c.linearScore })),
       rawFacts,
+      startedAt,
       { cascade: cascadeRanked, telemetry },
     );
   }
@@ -663,6 +678,7 @@ export class BlockServer {
     refLimit: number,
     blocks: Array<{ block: ReasoningBlock; score: number }>,
     rawFacts: Array<{ fact: ProjectFact; score: number }>,
+    startedAt: number,
     cascadeInfo?: { cascade: CascadeCandidate[]; telemetry: CascadeTelemetry },
   ): RecallV2Result {
 
@@ -789,6 +805,26 @@ export class BlockServer {
     const shouldInject =
       blockHits.some((h) => h.passesGate) || factHits.some((h) => h.passesGate);
 
+    // Phase 1 — privacy-safe serving telemetry, stamped on the retrieval
+    // event so it lands for EVERY recall (inject, abstain, zero-hit). Only
+    // the queryHash is persisted, never the raw prompt.
+    const serving: ServingTelemetry = {
+      retrievalId: queryId,
+      queryHash: queryHash(query.text),
+      ...(query.scope ? { scope: query.scope } : {}),
+      corpusSize: this.store.countBlocks("active"),
+      candidateCount: blocks.length,
+      evidenceConfidence: servingDecision.features?.evidenceConfidence ?? 0,
+      margin: servingDecision.features?.margin ?? 0,
+      calibratedProb: servingDecision.calibratedProb ?? 0,
+      decision: servingDecision.action,
+      reason: servingDecision.reason,
+      featureVersion: SERVING_FEATURE_VERSION_NUM,
+      calibratorVersion: this.calibratorVersion,
+      latencyMs: Math.max(0, this.now() - startedAt),
+      injectedBlockIds: blockHits.filter((h) => h.passesGate).map((h) => h.block.id),
+    };
+
     // Emit events. One injection event per hit with passesGate=true —
     // one-to-one correspondence with what the formatter will render.
     if (this.emitEvents) {
@@ -800,6 +836,7 @@ export class BlockServer {
         controlReason,
         query.runId,
         cascadeInfo,
+        serving,
       );
       for (const h of blockHits) {
         if (h.passesGate) this.emitInjection(queryId, h, query.runId);
@@ -976,11 +1013,13 @@ export class BlockServer {
     controlReason: "shadow" | "holdout" | undefined,
     runId?: string,
     cascadeInfo?: { cascade: CascadeCandidate[]; telemetry: CascadeTelemetry },
+    serving?: ServingTelemetry,
   ): void {
     const ev: RetrievalEvent = {
       ts: this.now(),
       queryId,
       event: "retrieval",
+      ...(serving ? { serving } : {}),
       candidates: blockHits.map((h) => {
         const c: RetrievalEvent["candidates"][number] = {
           blockId: h.block.id,
