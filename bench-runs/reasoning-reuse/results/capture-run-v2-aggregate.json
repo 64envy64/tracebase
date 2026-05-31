@@ -1,0 +1,25 @@
+{
+  "runTag": "capture-run-v2",
+  "manifestHash": "413a5cad82d4433e",
+  "stopReason": "checkpoint-batch-complete",
+  "completed": 20,
+  "captureTrajectories": 10,
+  "recallTrajectories": 10,
+  "retried": 0,
+  "spendUsd": 2.2034,
+  "organic": {
+    "capturedRuntime": 9,
+    "precisionReady": 0
+  },
+  "dogfoodSummary": {
+    "captured": 9,
+    "runtimeCaptured": 9,
+    "imported": 0,
+    "fired": 0,
+    "attributed": 0,
+    "rejected": 4,
+    "duplicates": 3,
+    "precisionReady": 0
+  },
+  "targetMet": false
+}
