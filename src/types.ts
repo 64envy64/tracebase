@@ -304,6 +304,35 @@ export interface ExperimentConfig {
    * runtime-tunable experimental knob lives under one roof.
    */
   cascade?: CascadeConfig;
+  /**
+   * Phase D.4 — explicit opt-in applicability canary state. A sibling of
+   * `holdout` under the shared `experiment` namespace. DEFAULT ABSENT (off):
+   * the canary serving rail is a no-op until an operator explicitly enables it
+   * with a rate + policy acknowledgement. An env var may only DISABLE it.
+   */
+  applicabilityCanary?: ApplicabilityCanaryConfig;
+}
+
+/**
+ * Persisted state of the applicability canary on this local project (Phase D.4).
+ * Parallels `HoldoutConfig`: the salt is generated once on first enable and
+ * preserved across disable / re-enable so assignment is stable. The canary is
+ * APPLY-ONLY in D.4 — it exposes the reranker-selected block when baseline V4
+ * abstains; it never enables reranker withholds.
+ */
+export interface ApplicabilityCanaryConfig {
+  /** When false, the canary serving rail is a no-op (byte-identical serving). */
+  enabled: boolean;
+  /** Treatment fraction in (0, 1]. Ignored when `enabled === false`. */
+  rate: number;
+  /** Deterministic assignment salt; stable for the project lifetime. */
+  salt: string;
+  /** The reranker policy version this canary serves (logged on every exposure). */
+  policyVersion: string;
+  /** ISO timestamp of first-ever enable. Preserved across re-enables. */
+  createdAt: string;
+  /** ISO timestamp of the last state change. */
+  updatedAt: string;
 }
 
 /**
