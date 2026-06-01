@@ -1,0 +1,93 @@
+{
+  "label": "Phase D.2 applicability eval — V4 baseline vs §4.5 reranker on a frozen adversary corpus. DISCLOSED hand-authored; NOT organic; no model/network; no tuning.",
+  "corpusHash": "81bc9729a00f3239",
+  "corpus": {
+    "blocks": 7,
+    "fixtures": 9,
+    "useful": 3,
+    "negatives": 6,
+    "adversaries": [
+      "strong-positive",
+      "sibling-collision",
+      "misleading-api",
+      "stale",
+      "harmful-pitfall",
+      "missing-invariant",
+      "dialogue-ambiguity"
+    ]
+  },
+  "arms": {
+    "v4": {
+      "recallAtUseful": 0,
+      "precisionAtFire": 0,
+      "fpRate": 0.167,
+      "wilsonLB": 0
+    },
+    "reranker": {
+      "recallAtUseful": 1,
+      "precisionAtFire": 1,
+      "fpRate": 0,
+      "wilsonLB": 0.438
+    }
+  },
+  "changedDecisions": {
+    "rerankerOnlyApply": 3,
+    "rerankerWithholds": 1,
+    "recoveredUseful": [
+      "strong/float-acc",
+      "strong/lost-update",
+      "strong/deadlock"
+    ],
+    "falsePositives": []
+  },
+  "latency": {
+    "p50": 0,
+    "p95": 1
+  },
+  "probes": {
+    "timeoutFailOpen": true
+  },
+  "sensitivity": [
+    {
+      "strongSingleField": 0.3,
+      "usefulRecovered": 3,
+      "usefulTotal": 3,
+      "negativeFP": 0,
+      "negativeTotal": 6
+    },
+    {
+      "strongSingleField": 0.4,
+      "usefulRecovered": 3,
+      "usefulTotal": 3,
+      "negativeFP": 0,
+      "negativeTotal": 6
+    },
+    {
+      "strongSingleField": 0.5,
+      "usefulRecovered": 3,
+      "usefulTotal": 3,
+      "negativeFP": 0,
+      "negativeTotal": 6
+    },
+    {
+      "strongSingleField": 0.6,
+      "usefulRecovered": 3,
+      "usefulTotal": 3,
+      "negativeFP": 0,
+      "negativeTotal": 6
+    },
+    {
+      "strongSingleField": 0.7,
+      "usefulRecovered": 2,
+      "usefulTotal": 3,
+      "negativeFP": 0,
+      "negativeTotal": 6
+    }
+  ],
+  "verdict": {
+    "recoversRecall": true,
+    "precisionHeld": true,
+    "note": "`on` is forbidden by the rollout. This eval gauges promotion-readiness of the §4.5 reranker; the policy is reported as-is and never weakened to hit a target."
+  },
+  "organicReadiness": "N/A — bootstrap/adversarial corpus only; never counts toward organic readiness"
+}

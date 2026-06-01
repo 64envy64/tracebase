@@ -182,6 +182,14 @@ export class DeterministicApplicabilityReranker implements ApplicabilityProvider
   readonly name = "deterministic-applicability.v1";
   readonly featureVersion = APPLICABILITY_FEATURE_VERSION;
 
+  /**
+   * Override the strong-single-field floor. Exposed ONLY for the frozen
+   * sensitivity STUDY (scripts/reasoning-precision/applicability-eval.ts) to show
+   * the 0.5 choice sits in a stable region. The production server never sets it,
+   * so the shipped constant stays STRONG_SINGLE_FIELD (0.5).
+   */
+  constructor(private readonly strongSingleField: number = STRONG_SINGLE_FIELD) {}
+
   async rank(
     query: ApplicabilityQueryViews,
     candidates: readonly ApplicabilityCandidate[],
@@ -230,9 +238,9 @@ export class DeterministicApplicabilityReranker implements ApplicabilityProvider
       const fieldsAboveFloor = [mechanism, remediation, invariants].filter((x) => x >= FIELD_FLOOR).length;
       // Only a CAUSAL field (mechanism/remediation) can be the "strong single" —
       // an invariant/API-only match (misleading API overlap) never licenses alone.
-      const strongCausalSingle = Math.max(mechanism, remediation) >= STRONG_SINGLE_FIELD;
+      const strongCausalSingle = Math.max(mechanism, remediation) >= this.strongSingleField;
       // Had real (raw) evidence but it was SHARED with a sibling → ambiguous.
-      const hadSharedEvidence = Math.max(rawMechanism, rawRemediation) >= STRONG_SINGLE_FIELD;
+      const hadSharedEvidence = Math.max(rawMechanism, rawRemediation) >= this.strongSingleField;
 
       let verdict: ApplicabilityVerdict;
       const reasons: ApplicabilityReason[] = [];

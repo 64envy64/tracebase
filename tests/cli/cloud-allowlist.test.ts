@@ -1032,4 +1032,27 @@ describe("sanitizeForCloud — Router V2 shadow comparison never reaches the clo
     expect(serialized).not.toContain("q_causview");
     expect(serialized).not.toContain("structured-two-view");
   });
+
+  it("strips an applicability_comparison-shaped object whole (Phase D.2, local-only)", () => {
+    const out = sanitizeForCloud({
+      installationId: "inst-1",
+      applicability: {
+        queryHash: "q_d2hash",
+        v4TopBlockId: "block-uuid-a",
+        applicabilityTopBlockId: "block-uuid-b",
+        applicabilityVerdict: "applicable",
+        applicabilityProvider: "deterministic-applicability.v1",
+        changedDecision: "reranker_only_apply",
+      },
+      metrics: { applicability: { applicabilityVerdict: "inapplicable", applicabilityTopBlockId: "block-uuid-c" } },
+    }) as { installationId?: string; applicability?: unknown; metrics?: { applicability?: unknown } };
+    expect(out.installationId).toBe("inst-1");
+    expect(out.applicability).toBeUndefined();
+    expect(out.metrics?.applicability).toBeUndefined();
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain("block-uuid");
+    expect(serialized).not.toContain("q_d2hash");
+    expect(serialized).not.toContain("reranker_only_apply");
+    expect(serialized).not.toContain("deterministic-applicability");
+  });
 });
