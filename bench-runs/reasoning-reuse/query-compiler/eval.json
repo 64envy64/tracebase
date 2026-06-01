@@ -1,0 +1,52 @@
+{
+  "label": "Phase D.1 two-view query-compiler eval — baseline / literal-hybrid / literal+causal, V4 over each. DISCLOSED hand-authored; NOT organic; no model/network; no tuning.",
+  "corpusHash": "ceaf0190f160f6bf",
+  "acceptedFamilies": 6,
+  "corpus": {
+    "families": 6,
+    "usefulQueries": 7,
+    "negatives": 6
+  },
+  "arms": {
+    "sparse": {
+      "recallAtUseful": 0.143,
+      "precisionAtFire": 1,
+      "fpRate": 0
+    },
+    "literal": {
+      "recallAtUseful": 0.286,
+      "precisionAtFire": 1,
+      "fpRate": 0
+    },
+    "causal": {
+      "recallAtUseful": 0.571,
+      "precisionAtFire": 1,
+      "fpRate": 0,
+      "semanticLaneFP": 0
+    }
+  },
+  "causalLift": {
+    "causalAddedDecisions": 2,
+    "causalLaneInvoked": 5,
+    "causalSemanticOnlyTotal": 24,
+    "usefulConverted": [
+      "float-accumulation/symbol-causal",
+      "float-equality/symbol-causal"
+    ]
+  },
+  "latency": {
+    "incrementalP50": 4,
+    "incrementalP95": 11
+  },
+  "probes": {
+    "providerTimeoutFailOpen": true,
+    "remoteEngagedWithoutOptIn": false
+  },
+  "verdict": {
+    "causalAddsRecall": true,
+    "fpHeld": true,
+    "reshufflingOnly": false,
+    "note": "`on` is forbidden by the rollout. This eval gauges promotion-readiness of the causal candidate lane; the policy is reported as-is and never weakened to hit a target."
+  },
+  "organicReadiness": "N/A — bootstrap/adversarial corpus only; never counts toward organic readiness"
+}
