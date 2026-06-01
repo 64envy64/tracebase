@@ -92,7 +92,12 @@ export type ServingReason =
   | "generic_only"
   | "ambiguous_margin"
   | "below_calibrated_threshold"
-  | "injected";
+  | "injected"
+  // Router V2 (family-aware) reasons. Additive: the V1 path never emits these,
+  // and `ServingTelemetry.reason` is stored as a free string, so existing
+  // events and consumers are unaffected.
+  | "ambiguous_sibling_family"
+  | "family_contradicted";
 
 export interface ServingDecision {
   action: ServingAction;
@@ -266,7 +271,7 @@ export function blockTriggerTokens(block: ReasoningBlock): {
   return { all, keywords };
 }
 
-interface FeatureCore {
+export interface FeatureCore {
   features: Omit<ServingEvidenceV1, "secondBestEvidenceConfidence" | "margin">;
   meaningfulMatchCount: number;
   hasExactStructured: boolean;
@@ -505,6 +510,8 @@ export function explainDecision(d: ServingDecision): string {
     ambiguous_margin: "top candidate not separated from runner-up",
     below_calibrated_threshold: "calibrated P(helpful) below gate",
     injected: "evidence and margin cleared all gates",
+    ambiguous_sibling_family: "top reasoning-family not separated from runner-up family",
+    family_contradicted: "top reasoning-family carries a pitfall / net-harmful outcomes",
   };
   const detail = f
     ? ` [conf=${f.evidenceConfidence} margin=${f.margin} matches=${f.matchedInformativeTokenCount}/${f.informativeQueryTokenCount}` +
