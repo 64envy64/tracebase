@@ -320,4 +320,3 @@ Primary references informing this direction:
   https://arxiv.org/abs/2205.09707
 - SCoRE selective conformal risk control:
   https://arxiv.org/abs/2603.24704
-
