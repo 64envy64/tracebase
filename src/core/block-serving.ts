@@ -42,6 +42,9 @@ import type {
   RouterShadowComparisonEvent,
   RouterShadowAgreement,
   RouterShadowFallback,
+  RetrievalHybridComparisonEvent,
+  RetrievalFallback,
+  RetrievalDecisionAgreement,
 } from "../types.js";
 import {
   type Reranker,
@@ -65,6 +68,12 @@ import {
 } from "./serving-confidence.js";
 import { decideServingV2, type ServingModeV2 } from "./serving-decision-v2.js";
 import { SERVING_FEATURE_VERSION_V2 } from "./serving-evidence-v2.js";
+import {
+  fuseHybrid,
+  type RetrievalProvider,
+  type RetrievalCandidate,
+  type RetrievalRolloutMode,
+} from "./retrieval-provider.js";
 
 /** Numeric alias for the event field (the const is a literal-typed `1`). */
 const SERVING_FEATURE_VERSION_NUM: number = SERVING_FEATURE_VERSION;
@@ -416,6 +425,24 @@ export interface BlockServerOptions {
    * this to `"v2-family"` only in shadow mode.
    */
   shadowEvaluate?: ServingModeV2;
+  /**
+   * Phase C hybrid retrieval rollout. Default `"off"` — sparse FTS only, no
+   * provider invoked, byte-for-byte the legacy slate. `"shadow"` serves the
+   * sparse slate unchanged but records a sparse-vs-hybrid comparison;
+   * `"on"` serves the fused hybrid slate (fail-open to sparse). The hybrid path
+   * is async (providers are async) and runs via `recallHybrid` /
+   * `emitHybridComparison`; the sync `recall()` fast path is always sparse.
+   */
+  retrievalMode?: RetrievalRolloutMode;
+  /**
+   * Semantic candidate provider for hybrid retrieval. Required for shadow/on to
+   * contribute anything; absent ⇒ the hybrid path falls open to sparse. Must
+   * be deterministic and fail-open (return null on any failure). Defaults to
+   * none.
+   */
+  retrievalProvider?: RetrievalProvider;
+  /** Hard wall-clock budget for one semantic provider call. Default 250ms. */
+  retrievalDeadlineMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -464,6 +491,10 @@ export class BlockServer {
   private readonly servingMode: ServingMode;
   /** Router V2 shadow evaluation (rollout=shadow); undefined = no shadow work. */
   private readonly shadowEvaluate: ServingModeV2 | undefined;
+  /** Phase C hybrid retrieval rollout (off default; shadow/on opt-in, fail-open). */
+  private readonly retrievalMode: RetrievalRolloutMode;
+  private readonly retrievalProvider: RetrievalProvider | undefined;
+  private readonly retrievalDeadlineMs: number;
 
   constructor(store: BlockStore, opts: BlockServerOptions = {}) {
     this.store = store;
@@ -493,6 +524,15 @@ export class BlockServer {
     this.cascadeFetchMultiplier = Math.max(1, opts.cascadeFetchMultiplier ?? 4);
     this.servingMode = opts.servingMode ?? "v1";
     this.shadowEvaluate = opts.shadowEvaluate;
+    this.retrievalMode = opts.retrievalMode ?? "off";
+    this.retrievalProvider = opts.retrievalProvider;
+    this.retrievalDeadlineMs = Math.max(1, opts.retrievalDeadlineMs ?? 250);
+  }
+
+  /** Hybrid retrieval rollout mode (off default). The recall entry routes
+   *  shadow/on through the async hybrid path; off stays on sync sparse. */
+  get retrievalRollout(): RetrievalRolloutMode {
+    return this.retrievalMode;
   }
 
   /**
@@ -609,6 +649,158 @@ export class BlockServer {
       startedAt,
       { cascade: cascadeRanked, telemetry },
     );
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase C — hybrid retrieval (sparse FTS ⊕ optional semantic provider)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Serve the FUSED hybrid slate (rollout=on). Builds the sparse FTS slate
+   * (always available), unions it with the optional semantic provider's
+   * candidates via RRF, and decides on the fused top-N. Fail-open: if no
+   * provider is configured or it returns null/times-out/throws, the fused slate
+   * is exactly the sparse slate, so this degrades to the sparse decision.
+   */
+  async recallHybrid(query: BlockRecallQuery): Promise<RecallV2Result> {
+    const startedAt = this.now();
+    const queryId = query.queryId ?? randomUUID();
+    const manualShadow = query.shadow ?? false;
+    const limit = query.limit ?? 5;
+    const factLimit = query.factLimit ?? 5;
+    const refLimit = query.refLimit ?? 3;
+    const fetchLimit = limit * this.cascadeFetchMultiplier;
+
+    const sparse = this.searchBlocks(query.text, query.invariants, fetchLimit);
+    let slate: Array<{ block: ReasoningBlock; score: number }> = sparse.slice(0, limit);
+    try {
+      const sem = await this.semanticSlate(query, fetchLimit);
+      slate = fuseHybrid(sparse, sem.candidates, (id) => this.store.getBlock(id), limit).slate;
+    } catch {
+      // fail open to sparse (slate already set to sparse top-N).
+    }
+    const rawFacts = this.searchFacts(query.text, query.invariants, query.scope, factLimit);
+    return this.finalizeRecall(query, queryId, manualShadow, refLimit, slate, rawFacts, startedAt);
+  }
+
+  /**
+   * Compute the hybrid slate side-by-side and emit a privacy-safe
+   * `retrieval.hybrid_comparison` event (rollout=shadow). NEVER serves anything
+   * and NEVER throws — the served result is whatever the caller already
+   * produced from the sparse path. A distinct, additive, local-only stream.
+   */
+  async emitHybridComparison(query: BlockRecallQuery, queryId: string): Promise<void> {
+    if (this.retrievalMode !== "shadow") return;
+    try {
+      const t0 = this.now();
+      const limit = query.limit ?? 5;
+      const fetchLimit = limit * this.cascadeFetchMultiplier;
+      const sparse = this.searchBlocks(query.text, query.invariants, fetchLimit);
+      const sparseTop = sparse.slice(0, limit);
+      const sem = await this.semanticSlate(query, fetchLimit);
+      const fused = fuseHybrid(sparse, sem.candidates, (id) => this.store.getBlock(id), limit);
+      const sparseDecision = this.decideOnSlate(query, sparseTop);
+      const hybridDecision = this.decideOnSlate(query, fused.slate);
+      const event: RetrievalHybridComparisonEvent = {
+        event: "retrieval.hybrid_comparison",
+        ts: this.now(),
+        queryId,
+        ...(query.runId ? { runId: query.runId } : {}),
+        queryHash: queryHash(query.text),
+        corpusSize: this.store.countBlocks("active"),
+        provider: sem.provider,
+        fallback: sem.fallback,
+        providerLatencyMs: sem.latencyMs,
+        hybridLatencyMs: Math.max(0, this.now() - t0),
+        sparseSlateSize: fused.telemetry.sparseSlateSize,
+        semanticSlateSize: fused.telemetry.semanticSlateSize,
+        hybridSlateSize: fused.telemetry.fusedSlateSize,
+        overlap: fused.telemetry.overlap,
+        semanticOnly: fused.telemetry.semanticOnly,
+        rankMovement: fused.telemetry.rankMovement,
+        sparseAction: sparseDecision.action,
+        hybridAction: hybridDecision.action,
+        ...(sparseDecision.topCandidateId ? { sparseTopBlockId: sparseDecision.topCandidateId } : {}),
+        ...(hybridDecision.topCandidateId ? { hybridTopBlockId: hybridDecision.topCandidateId } : {}),
+        decisionAgreement: retrievalDecisionAgreement(
+          sparseDecision.action,
+          sparseDecision.topCandidateId,
+          hybridDecision.action,
+          hybridDecision.topCandidateId,
+        ),
+        featureVersion: hybridDecision.featureVersion,
+      };
+      this.emitter.emit(event, query.runId ? { runId: query.runId } : undefined);
+    } catch {
+      // shadow telemetry must never break or alter a recall.
+    }
+  }
+
+  /**
+   * Run the configured serving decision on a candidate slate WITHOUT emitting
+   * any event (used by the shadow comparison). Mirrors `finalizeRecall`'s
+   * dispatch; fails open to V1 like the served path.
+   */
+  private decideOnSlate(
+    query: BlockRecallQuery,
+    slate: ReadonlyArray<{ block: ReasoningBlock; score: number }>,
+  ): { action: "inject" | "abstain"; topCandidateId?: string; featureVersion: number } {
+    const policy: ServingPolicy = { ...this.policy, gateThreshold: this.gateThreshold };
+    const calibrate = (conf: number, block: ReasoningBlock): number => clamp01(this.calibrator(conf, block));
+    const sq: ServingQuery = { text: query.text, ...(query.invariants ? { invariants: query.invariants } : {}) };
+    const candidates: ServingCandidate[] = slate.map(({ block, score }) => ({ block, rankScore: score }));
+    if (this.servingMode === "v1") {
+      const { decision } = decideServing(sq, candidates, policy, calibrate);
+      return { action: decision.action, ...(decision.topCandidateId ? { topCandidateId: decision.topCandidateId } : {}), featureVersion: SERVING_FEATURE_VERSION_NUM };
+    }
+    try {
+      const r = decideServingV2(sq, candidates, policy, calibrate, { mode: this.servingMode });
+      return { action: r.decision.action, ...(r.decision.topCandidateId ? { topCandidateId: r.decision.topCandidateId } : {}), featureVersion: SERVING_FEATURE_VERSION_V2_NUM };
+    } catch {
+      const { decision } = decideServing(sq, candidates, policy, calibrate);
+      return { action: decision.action, ...(decision.topCandidateId ? { topCandidateId: decision.topCandidateId } : {}), featureVersion: SERVING_FEATURE_VERSION_NUM };
+    }
+  }
+
+  /**
+   * Invoke the semantic provider with a hard wall-clock deadline + fail-open
+   * classification. Returns a CLOSED fallback enum (never a raw error) plus the
+   * provider's candidates (or null). Scans only the active blocks, bounded by
+   * HYBRID_SCAN_CAP.
+   */
+  private async semanticSlate(
+    query: BlockRecallQuery,
+    limit: number,
+  ): Promise<{ candidates: RetrievalCandidate[] | null; provider: string; fallback: RetrievalFallback; latencyMs: number }> {
+    const provider = this.retrievalProvider;
+    if (!provider) return { candidates: null, provider: "none", fallback: "unavailable", latencyMs: 0 };
+    const t0 = this.now();
+    const rq = { text: query.text, ...(query.invariants ? { invariants: query.invariants } : {}), limit };
+    const ctx = {
+      activeBlocks: this.store.listBlocks({ status: "active" }).slice(0, HYBRID_SCAN_CAP),
+      deadlineMs: this.retrievalDeadlineMs,
+      now: this.now,
+    };
+    let candidates: RetrievalCandidate[] | null = null;
+    let fallback: RetrievalFallback = "none";
+    try {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<typeof RETRIEVAL_TIMEOUT>((res) => {
+        timer = setTimeout(() => res(RETRIEVAL_TIMEOUT), this.retrievalDeadlineMs);
+        timer.unref?.();
+      });
+      const raced = await Promise.race([provider.retrieve(rq, ctx), timeout]);
+      if (timer) clearTimeout(timer);
+      if (raced === RETRIEVAL_TIMEOUT) fallback = "timeout";
+      else if (raced === null) fallback = "unavailable";
+      else {
+        candidates = raced;
+        fallback = "none";
+      }
+    } catch {
+      fallback = "error";
+    }
+    return { candidates, provider: provider.name, fallback, latencyMs: Math.max(0, this.now() - t0) };
   }
 
   /**
@@ -1493,4 +1685,29 @@ function shadowAgreement(
   if (v1Inj && !v2Inj) return "v1_only_inject";
   if (!v1Inj && v2Inj) return "v2_only_inject";
   return v1Top && v2Top && v1Top === v2Top ? "agree_inject_same" : "agree_inject_diff";
+}
+
+// ---------------------------------------------------------------------------
+// Phase C hybrid retrieval helpers
+// ---------------------------------------------------------------------------
+
+/** Max active blocks a semantic provider may scan per recall (bounded cost). */
+const HYBRID_SCAN_CAP = 2000;
+
+/** Sentinel for a provider call that blew the wall-clock deadline. */
+const RETRIEVAL_TIMEOUT: unique symbol = Symbol("retrieval-timeout");
+
+/** Classify how the sparse-slate decision compared to the hybrid-slate decision. */
+function retrievalDecisionAgreement(
+  sparseAction: "inject" | "abstain",
+  sparseTop: string | undefined,
+  hybridAction: "inject" | "abstain",
+  hybridTop: string | undefined,
+): RetrievalDecisionAgreement {
+  const si = sparseAction === "inject";
+  const hi = hybridAction === "inject";
+  if (!si && !hi) return "agree_abstain";
+  if (si && !hi) return "sparse_only_inject";
+  if (!si && hi) return "hybrid_only_inject";
+  return sparseTop && hybridTop && sparseTop === hybridTop ? "agree_inject_same" : "agree_inject_diff";
 }

@@ -39,6 +39,7 @@ import {
 } from "../install-targets.js";
 import { readHookHealth } from "../hook-self-heal.js";
 import { resolveReasoningRouterMode, REASONING_ROUTER_ENV } from "../../experiments/reasoning-router-rollout.js";
+import { resolveReasoningRetrievalMode, REASONING_RETRIEVAL_ENV } from "../../experiments/reasoning-retrieval-rollout.js";
 
 /**
  * 0.6.0 — `info` added for purely diagnostic state that's
@@ -368,6 +369,8 @@ export function runDoctor(invocationPath: string): DoctorReport {
   // hot path; doctor is the operator-facing surface for them. A typo'd env value
   // fails safe to `off`, and is reported here as a WARN so it isn't silent.
   checks.push(reasoningRouterDoctorCheck());
+  // --- Phase C hybrid retrieval rollout (TRACEBASE_REASONING_RETRIEVAL).
+  checks.push(reasoningRetrievalDoctorCheck());
 
   // --- Live MCP boot probe
   //
@@ -1248,6 +1251,44 @@ export function reasoningRouterDoctorCheck(env: NodeJS.ProcessEnv = process.env)
     name: "reasoning-router",
     level: "info",
     message: "Router V2 rollout: off (serving V1 only; default)",
+  };
+}
+
+/**
+ * Phase C hybrid retrieval rollout diagnostic. Reads TRACEBASE_REASONING_RETRIEVAL
+ * and reports the effective mode; a typo fails safe to `off` and is surfaced as
+ * a WARN. Static operator-facing text — no prompt/path/raw value echoed.
+ * Exported for tests.
+ */
+export function reasoningRetrievalDoctorCheck(env: NodeJS.ProcessEnv = process.env): DoctorCheck {
+  const { mode, diagnostics } = resolveReasoningRetrievalMode(env);
+  const invalid = diagnostics.some((d) => d.includes("ignored"));
+  if (invalid) {
+    return {
+      name: "reasoning-retrieval",
+      level: "warn",
+      message: `Hybrid retrieval rollout: invalid ${REASONING_RETRIEVAL_ENV} value — defaulted to off (sparse FTS only)`,
+      fix: `Set ${REASONING_RETRIEVAL_ENV} to one of: off | shadow | on.`,
+    };
+  }
+  if (mode === "shadow") {
+    return {
+      name: "reasoning-retrieval",
+      level: "info",
+      message: "Hybrid retrieval rollout: shadow (serving sparse FTS; computing sparse-vs-hybrid comparison)",
+    };
+  }
+  if (mode === "on") {
+    return {
+      name: "reasoning-retrieval",
+      level: "pass",
+      message: "Hybrid retrieval rollout: on (serving fused sparse⊕semantic; fails open to sparse)",
+    };
+  }
+  return {
+    name: "reasoning-retrieval",
+    level: "info",
+    message: "Hybrid retrieval rollout: off (sparse FTS only; default)",
   };
 }
 

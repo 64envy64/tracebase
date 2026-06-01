@@ -1693,7 +1693,11 @@ export type AnalyticsEvent =
   // decision with the side-by-side V2-family decision on the SAME candidate
   // slate. Privacy-safe (queryHash + opaque block ids + counts; no prompt /
   // body / path). Local-only: never part of the cloud UsageMetrics aggregate.
-  | RouterShadowComparisonEvent;
+  | RouterShadowComparisonEvent
+  // Phase C hybrid retrieval (TRACEBASE_REASONING_RETRIEVAL=shadow) — one event
+  // per recall comparing the sparse FTS slate with the fused sparse⊕semantic
+  // slate (and the decision on each). Privacy-safe + local-only, same contract.
+  | RetrievalHybridComparisonEvent;
 
 interface EventBase {
   ts: number;
@@ -2521,4 +2525,58 @@ export interface RouterShadowComparisonEvent extends EventBase {
    * message (which could leak a path/secret/prompt). Set only on fallback.
    */
   v2FallbackReason?: RouterShadowFallback;
+}
+
+/** Closed-enum outcome of the semantic provider call (never a raw error). */
+export type RetrievalFallback = "none" | "unavailable" | "timeout" | "error";
+
+/** How the sparse-slate decision compared to the hybrid-slate decision. */
+export type RetrievalDecisionAgreement =
+  | "agree_abstain"
+  | "agree_inject_same"
+  | "agree_inject_diff"
+  | "sparse_only_inject"
+  | "hybrid_only_inject";
+
+/**
+ * Phase C hybrid retrieval comparison — emitted once per recall when
+ * `TRACEBASE_REASONING_RETRIEVAL=shadow`. Compares the served sparse-FTS slate
+ * with the fused sparse⊕semantic slate and the decision each produces. Privacy-
+ * safe by construction: a non-reversible `queryHash`, opaque block ids, counts,
+ * and closed enums only — NO raw query, body, vector, path, or exception text.
+ * LOCAL-ONLY: never part of the cloud `UsageMetrics` aggregate.
+ */
+export interface RetrievalHybridComparisonEvent extends EventBase {
+  event: "retrieval.hybrid_comparison";
+  queryHash: string;
+  corpusSize: number;
+  /** Name of the semantic provider (e.g. "deterministic-local"); never a vendor secret. */
+  provider: string;
+  /** Closed-enum outcome of the provider call. */
+  fallback: RetrievalFallback;
+  /** Wall-clock of the semantic provider call. */
+  providerLatencyMs: number;
+  /** Total hybrid overhead (provider + fusion + the two side decisions). */
+  hybridLatencyMs: number;
+
+  // Slate shape.
+  sparseSlateSize: number;
+  semanticSlateSize: number;
+  /** Distinct blocks in the fused slate (before the top-N cut). */
+  hybridSlateSize: number;
+  /** Blocks in BOTH sparse and semantic lists. */
+  overlap: number;
+  /** Blocks only the semantic provider surfaced (the recall lever). */
+  semanticOnly: number;
+  /** Rank movement of the served (top-N) fused slate vs the sparse order. */
+  rankMovement: number;
+
+  // Decision comparison (the configured serving mode applied to each slate).
+  sparseAction: "inject" | "abstain";
+  hybridAction: "inject" | "abstain";
+  sparseTopBlockId?: string;
+  hybridTopBlockId?: string;
+  decisionAgreement: RetrievalDecisionAgreement;
+  /** Serving feature version of the decision (1 = V1, 2 = V2-family). */
+  featureVersion: number;
 }

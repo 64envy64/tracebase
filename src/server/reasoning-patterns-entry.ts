@@ -125,9 +125,22 @@ export async function runReasoningPatternsRecall(
   // orthogonal — a query can be in the cascade arm AND in the holdout
   // cohort simultaneously, in which case shadow semantics win and no
   // injection fires regardless of which recall variant ran.
-  const cascadeConfig = deps.readCascadeConfig ? deps.readCascadeConfig() : null;
-  if (shouldUseCascade(problemFingerprint, cascadeConfig)) {
-    return blockServer.recallAsync(query);
+  // Phase C hybrid retrieval rollout — orthogonal to the cascade decision.
+  //   off    → serve the existing sparse path unchanged.
+  //   on     → serve the fused hybrid slate (recallHybrid; fail-open to sparse).
+  //   shadow → serve the existing sparse path unchanged, then compute the
+  //            hybrid comparison side-by-side and emit local-only telemetry.
+  const retrievalMode = blockServer.retrievalRollout;
+  if (retrievalMode === "on") {
+    return blockServer.recallHybrid(query);
   }
-  return blockServer.recall(query);
+
+  const cascadeConfig = deps.readCascadeConfig ? deps.readCascadeConfig() : null;
+  const served = shouldUseCascade(problemFingerprint, cascadeConfig)
+    ? await blockServer.recallAsync(query)
+    : blockServer.recall(query);
+  if (retrievalMode === "shadow") {
+    await blockServer.emitHybridComparison(query, served.queryId);
+  }
+  return served;
 }
