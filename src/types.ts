@@ -2630,4 +2630,19 @@ export interface ReasoningEvidenceComparisonEvent extends EventBase {
   redactedFieldCount: number;
   fallback: EvidenceFallback;
   latencyMs: number;
+  // Shadow V4 decision (Phase C.3 contrastive lane). Present when V4 is computed
+  // in shadow alongside V3. Bounded numerics + closed enums only — no raw tokens.
+  v4Action?: "inject" | "abstain";
+  v4Reason?: string;
+  v4TopBlockId?: string;
+  /** License reason of the V4-selected candidate (closed enum incl. ambiguous-sibling/no-competitor). */
+  v4LicenseReason?: string;
+  /** Discriminative support of the V4-selected candidate vs its nearest sibling ∈ [0,1]. */
+  v4DiscriminativeSupport?: number;
+  /** Whether V4 found a competing sibling/family to contrast against. */
+  v4HasCompetitor?: boolean;
+  /** Family-margin (top − runner-up family confidence) at the V4 decision ∈ [0,1]. */
+  v4FamilySeparation?: number;
+  /** Candidates V4 contrastively licensed (structured-corroborated after the gap). */
+  v4LicensedCandidates?: number;
 }

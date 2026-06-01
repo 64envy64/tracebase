@@ -71,6 +71,7 @@ import {
 } from "./serving-confidence.js";
 import { decideServingV2, type ServingModeV2 } from "./serving-decision-v2.js";
 import { decideServingV3 } from "./serving-decision-v3.js";
+import { decideServingV4 } from "./serving-decision-v4.js";
 import { SERVING_FEATURE_VERSION_V2 } from "./serving-evidence-v2.js";
 import {
   fuseHybrid,
@@ -292,6 +293,22 @@ export interface RecallV2Result {
     topBlockId?: string;
     lane: string;
     licenseReason: string;
+  };
+  /**
+   * Phase C.3 shadow ServingEvidenceV4 decision, populated ONLY when
+   * `evidenceMode === "shadow"` (computed alongside V3). V4 tightens the V3
+   * license with a contrastive applicability gap and is NEVER served. Carries
+   * the selected candidate's lane, license/ambiguity reason, and the bounded
+   * contrastive support vs its nearest sibling.
+   */
+  shadowV4?: {
+    action: "inject" | "abstain";
+    reason: string;
+    topBlockId?: string;
+    lane: string;
+    licenseReason: string;
+    discriminativeSupport?: number;
+    hasCompetitor?: boolean;
   };
 }
 
@@ -1171,12 +1188,13 @@ export class BlockServer {
       );
     }
 
-    // Phase C.2 ServingEvidenceV3 shadow comparison (evidenceMode=shadow).
+    // Phase C.2/C.3 ServingEvidenceV3 + V4 shadow comparison (evidenceMode=shadow).
     // Computed on the SAME served candidate slate (fusion provenance is present
     // on the hybrid path); NEVER served. Distinct, additive, local-only stream.
     let shadowV3: RecallV2Result["shadowV3"];
+    let shadowV4: RecallV2Result["shadowV4"];
     if (this.evidenceMode === "shadow") {
-      shadowV3 = this.emitEvidenceComparison(
+      const evidenceShadow = this.emitEvidenceComparison(
         queryId,
         query,
         servingQuery,
@@ -1186,6 +1204,8 @@ export class BlockServer {
         servingDecision,
         effectiveFeatureVersion,
       );
+      shadowV3 = evidenceShadow.shadowV3;
+      shadowV4 = evidenceShadow.shadowV4;
     }
 
     return {
@@ -1197,6 +1217,7 @@ export class BlockServer {
       shouldInject,
       servingDecision,
       ...(shadowV3 ? { shadowV3 } : {}),
+      ...(shadowV4 ? { shadowV4 } : {}),
     };
   }
 
@@ -1215,7 +1236,7 @@ export class BlockServer {
     calibrate: EvidenceCalibrator,
     servedDecision: ServingDecision,
     servedFeatureVersion: number,
-  ): NonNullable<RecallV2Result["shadowV3"]> {
+  ): { shadowV3: NonNullable<RecallV2Result["shadowV3"]>; shadowV4: NonNullable<RecallV2Result["shadowV4"]> } {
     const t0 = this.now();
     let fallback: EvidenceFallback = "none";
     let v3Action: "inject" | "abstain" = servedDecision.action;
@@ -1242,6 +1263,38 @@ export class BlockServer {
     } catch {
       fallback = "error";
     }
+
+    // Phase C.3 contrastive V4 — computed on the SAME slate, independently
+    // fail-open (a V4 error never disturbs the V3 summary or the served path).
+    let v4Action: "inject" | "abstain" = servedDecision.action;
+    let v4Reason = servedDecision.reason;
+    let v4Top = servedDecision.topCandidateId;
+    let v4Lane = "lexical";
+    let v4LicenseReason = "lexical";
+    let v4LicensedCandidates = 0;
+    let v4DiscriminativeSupport: number | undefined;
+    let v4HasCompetitor: boolean | undefined;
+    let v4FamilySeparation: number | undefined;
+    try {
+      const r4 = decideServingV4(servingQuery, servingCandidates, policy, calibrate);
+      v4Action = r4.decision.action;
+      v4Reason = r4.decision.reason;
+      v4Top = r4.decision.topCandidateId;
+      const sel4 = r4.evidenceV4.find((e) => e.blockId === r4.decision.topCandidateId) ?? r4.evidenceV4[0];
+      if (sel4) {
+        v4Lane = sel4.lane;
+        v4LicenseReason = sel4.licenseReason;
+        if (sel4.contrastive) {
+          v4DiscriminativeSupport = sel4.contrastive.discriminativeSupport;
+          v4HasCompetitor = sel4.contrastive.hasCompetitor;
+          v4FamilySeparation = sel4.contrastive.familySeparation;
+        }
+      }
+      v4LicensedCandidates = r4.evidenceV4.filter((e) => e.licenseReason === "structured-corroborated").length;
+    } catch {
+      fallback = "error";
+    }
+
     const semanticOnlyCandidates = servingCandidates.filter((c) => c.provenance?.semanticOnly).length;
     const event: ReasoningEvidenceComparisonEvent = {
       event: "reasoning.evidence_comparison",
@@ -1266,9 +1319,28 @@ export class BlockServer {
       redactedFieldCount,
       fallback,
       latencyMs: Math.max(0, this.now() - t0),
+      v4Action,
+      v4Reason,
+      ...(v4Top ? { v4TopBlockId: v4Top } : {}),
+      v4LicenseReason,
+      ...(v4DiscriminativeSupport !== undefined ? { v4DiscriminativeSupport } : {}),
+      ...(v4HasCompetitor !== undefined ? { v4HasCompetitor } : {}),
+      ...(v4FamilySeparation !== undefined ? { v4FamilySeparation } : {}),
+      v4LicensedCandidates,
     };
     this.emitter.emit(event, query.runId ? { runId: query.runId } : undefined);
-    return { action: v3Action, reason: v3Reason, ...(v3Top ? { topBlockId: v3Top } : {}), lane, licenseReason };
+    return {
+      shadowV3: { action: v3Action, reason: v3Reason, ...(v3Top ? { topBlockId: v3Top } : {}), lane, licenseReason },
+      shadowV4: {
+        action: v4Action,
+        reason: v4Reason,
+        ...(v4Top ? { topBlockId: v4Top } : {}),
+        lane: v4Lane,
+        licenseReason: v4LicenseReason,
+        ...(v4DiscriminativeSupport !== undefined ? { discriminativeSupport: v4DiscriminativeSupport } : {}),
+        ...(v4HasCompetitor !== undefined ? { hasCompetitor: v4HasCompetitor } : {}),
+      },
+    };
   }
 
   /**
