@@ -210,10 +210,11 @@ export function buildStructuredView(block: ReasoningBlock): StructuredMemoryView
   } as Record<ScorableField, Set<string>>;
   const allTokens = new Set<string>();
   const redactedFields: Array<{ field: ScorableField; pattern: string }> = [];
+  const memory = toReasoningMemoryV2(block);
 
   // Situation + curated keywords are the privacy-safe trigger (already scanned
   // at capture and used by FTS); include their meaningful tokens so the rarity
-  // model sees the full candidate vocabulary.
+  // model sees the candidate vocabulary.
   const situationTokens = new Set<string>();
   for (const t of tokenizeInformative(block.trigger?.situation ?? "")) {
     if (!isGenericToken(t)) situationTokens.add(t);
@@ -222,10 +223,15 @@ export function buildStructuredView(block: ReasoningBlock): StructuredMemoryView
     for (const t of tokenizeInformative(kw)) if (!isGenericToken(t)) situationTokens.add(t);
   }
   for (const t of situationTokens) allTokens.add(t);
+  // Structured invariant tokens are scored (the invariants overlap term), so
+  // they must participate in the rarity df too.
+  for (const t of memory.invariants) allTokens.add(t);
 
   for (const field of SCORABLE_FIELDS) {
     const text = rawField(block, field);
     if (!text) continue;
+    // Every scorable body field is privacy-scanned (defense in depth), including
+    // the observational-only ones, so a redaction audit covers them all.
     const leak = detectLeakageExtended(text);
     const inj = leak ? null : detectPromptInjectionPatterns(text);
     if (leak || inj) {
@@ -234,7 +240,12 @@ export function buildStructuredView(block: ReasoningBlock): StructuredMemoryView
     }
     const toks = meaningfulFieldTokens(text);
     fieldTokens[field] = toks;
-    for (const t of toks) allTokens.add(t);
+    // ONLY the confidence-bearing causal fields feed the rarity df + scoring.
+    // dead-ends and verification are excluded: dead-ends is observational
+    // (Step-2 contract — see computeEvidenceV2) and verification is boilerplate.
+    if (field === "mechanism" || field === "unlock") {
+      for (const t of toks) allTokens.add(t);
+    }
   }
 
   return {
@@ -243,7 +254,7 @@ export function buildStructuredView(block: ReasoningBlock): StructuredMemoryView
     fieldTokens,
     allTokens,
     redactedFields,
-    memory: toReasoningMemoryV2(block),
+    memory,
   };
 }
 
@@ -292,7 +303,11 @@ export function buildRarityModel(views: readonly StructuredMemoryView[]): Rarity
 // ServingEvidenceV2
 // ---------------------------------------------------------------------------
 
-/** Rarity-weighted query coverage per scored field, each ∈ [0,1]. */
+/**
+ * Query coverage per field, each ∈ [0,1]. situation/mechanism/unlock/invariants
+ * are rarity-weighted and feed the confidence; `deadEnds` is a plain
+ * OBSERVATIONAL overlap (Step-2 contract) that feeds nothing.
+ */
 export interface FieldOverlapV2 {
   situation: number;
   mechanism: number;
@@ -326,17 +341,18 @@ export interface ServingEvidenceV2 {
   blockId: string;
   /** V1 literal signals + coverage, reused verbatim (source of truth). */
   base: ServingEvidenceV1;
-  /** Rarity-weighted per-field overlap. */
+  /** Per-field overlap. situation/mechanism/unlock/invariants are rarity-weighted
+   *  (scored); `deadEnds` is a plain OBSERVATIONAL overlap (NOT scored). */
   fieldOverlap: FieldOverlapV2;
-  /** Overall meaningful, rarity-weighted query coverage across kept fields ∈ [0,1]. */
+  /** Overall meaningful, rarity-weighted query coverage across SCORED fields ∈ [0,1]. */
   rarityWeightedCoverage: number;
   /** Causal-field applicability ∈ [0,1] — the lift signal. */
   structuredApplicability: number;
   /** Body fields dropped by a privacy guard (audit; empty on a clean block). */
   redactedFields: Array<{ field: ScorableField; pattern: string }>;
-  /** V1 confidence, carried through for explainability. */
+  /** V1 confidence, carried through for explainability/comparison. */
   v1Confidence: number;
-  /** Blended V2 confidence ∈ [0,1] — never below v1Confidence. */
+  /** Blended V2 confidence ∈ [0,1] (lexical coverage conditionally amplified). */
   evidenceConfidence: number;
   family: FamilyEvidenceV2;
   rankScore: number;
@@ -345,10 +361,18 @@ export interface ServingEvidenceV2 {
 
 // Causal-leaning field weights for the applicability blend. Chosen on principle
 // (the mechanism + unlock are the transferable core of a lesson), NOT tuned to
-// any corpus. They sum to 1. `deadEnds` and `verification` are deliberately
-// EXCLUDED from the positive blend: a dead-end match is a CONTRADICTION signal
-// (the query resembles the wrong approach) handled by the family layer, and
-// `verification` is low-signal boilerplate.
+// any corpus. They sum to 1.
+//
+// dead-ends contract (Step 2): `deadEnds` overlap is computed and reported as
+// OBSERVATIONAL telemetry ONLY (`fieldOverlap.deadEnds`). It is deliberately NOT
+// a scoring input — neither positive (it is not in this blend nor in
+// `rarityWeightedCoverage`) nor negative (no penalty). A dead-end match is
+// genuinely ambiguous without outcomes (it can mean "this lesson warns about
+// exactly the wrong path you're on" = relevant, OR "you're describing the trap,
+// not the fix" = off-target), so introducing a penalty now would be an
+// unvalidated guess. Its tokens are excluded from the rarity df entirely, so it
+// cannot influence the decision even indirectly. `verification` is likewise not
+// scored (boilerplate). Revisit once attributed outcomes can adjudicate.
 const FIELD_WEIGHTS = { situation: 0.3, mechanism: 0.4, unlock: 0.2, invariants: 0.1 } as const;
 
 // Lexical-view sub-weights mirror V1's own coverage blend (0.7 query / 0.3
@@ -379,6 +403,19 @@ function rarityCoverage(
     if (fieldTokens.has(t)) num += w;
   }
   return denom > 0 ? clamp01(num / denom) : 0;
+}
+
+/**
+ * Plain (unweighted) coverage of `queryTokens` by `fieldTokens` ∈ [0,1]. Used
+ * ONLY for the observational `deadEnds` overlap, which is intentionally
+ * decoupled from the rarity model (its tokens are not in the rarity df) so it
+ * cannot influence any scored term.
+ */
+function plainCoverage(queryTokens: readonly string[], fieldTokens: Set<string>): number {
+  if (queryTokens.length === 0) return 0;
+  let num = 0;
+  for (const t of queryTokens) if (fieldTokens.has(t)) num++;
+  return clamp01(num / queryTokens.length);
 }
 
 /**
@@ -422,7 +459,9 @@ export function computeEvidenceV2(
     situation: rarityCoverage(queryMeaningful, situationTokens, rarity),
     mechanism: rarityCoverage(queryMeaningful, view.fieldTokens.mechanism, rarity),
     unlock: rarityCoverage(queryMeaningful, view.fieldTokens.unlock, rarity),
-    deadEnds: rarityCoverage(queryMeaningful, view.fieldTokens.deadEnds, rarity),
+    // Observational ONLY (Step-2 dead-ends contract): plain overlap, decoupled
+    // from the rarity model; never an input to any scored term below.
+    deadEnds: plainCoverage(queryMeaningful, view.fieldTokens.deadEnds),
     invariants: rarityCoverage(queryMeaningful, invariantTokens, rarity),
   };
 

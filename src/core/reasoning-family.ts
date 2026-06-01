@@ -77,6 +77,19 @@ export interface FamilyCandidate {
   evidence: ServingEvidenceV2;
 }
 
+/** Explainable evidence for one accepted family link (member → anchor). */
+export interface FamilyJoinEvidence {
+  /** Block id of the cluster anchor the member linked to. */
+  anchor: string;
+  /** Block id of the member that joined. */
+  member: string;
+  keywordJaccard: number;
+  errorTypeMatch: boolean;
+  apiOverlap: number;
+  /** Which linkage rule fired. */
+  rule: "strong-vocabulary" | "vocabulary+structured";
+}
+
 /**
  * Assignment of candidates to families. Extensible: a resolver only owns the
  * GROUPING decision (which blocks share a family). Confidence aggregation is
@@ -85,6 +98,14 @@ export interface FamilyCandidate {
 export interface FamilyAssignment {
   /** Family key per candidate, in the SAME order as the input candidates. */
   familyKeyByIndex: string[];
+  /** Explainable evidence for every accepted link (empty for singletons). */
+  joins: FamilyJoinEvidence[];
+  /**
+   * Count of links a single-link resolver WOULD have made but anchor-coherence
+   * rejected: a candidate that linked to a non-anchor member of an existing
+   * cluster but NOT to that cluster's anchor (a prevented transitive bridge).
+   */
+  bridgesPrevented: number;
 }
 
 /**
@@ -98,11 +119,21 @@ export interface FamilyResolver {
 }
 
 // ---------------------------------------------------------------------------
-// Default resolver: structured signature + discriminative-vocabulary union-find
+// Default resolver: multi-axis strong-link + anchor (leader) clustering
 // ---------------------------------------------------------------------------
 
-/** Min discriminative-keyword Jaccard to link two candidates into one family. */
-const FAMILY_JACCARD = 0.5;
+/**
+ * Vocabulary similarity above which two candidates link on mechanism vocabulary
+ * ALONE (a genuine paraphrase of the same mechanism). Principled, not tuned.
+ */
+const STRONG_JACCARD = 0.6;
+/**
+ * Vocabulary similarity that links ONLY when a structured axis (errorType or an
+ * apiSurface element) corroborates it. Below this, no link regardless of
+ * structured overlap — so a generic shared errorType or one shared API can
+ * never collapse two different mechanisms into one family.
+ */
+const MODERATE_JACCARD = 0.34;
 
 /** Discriminative (structured + meaningful) signature of a candidate's trigger. */
 function signatureOf(block: ReasoningBlock): {
@@ -133,71 +164,116 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   return union > 0 ? inter / union : 0;
 }
 
-/**
- * Two candidates belong to the same family when they share a hard structured
- * axis (same errorType, or an overlapping apiSurface) OR their discriminative
- * trigger vocabulary is substantially similar (Jaccard ≥ threshold). This is a
- * STRUCTURED contract, not the dogfood top-token hash: the structured axes are
- * load-bearing and the vocabulary similarity is graded and explainable.
- */
-function sameFamily(a: ReasoningBlock, b: ReasoningBlock): boolean {
-  const sa = signatureOf(a);
-  const sb = signatureOf(b);
-  if (sa.errorType && sb.errorType && sa.errorType === sb.errorType) return true;
-  for (const api of sa.apis) if (sb.apis.has(api)) return true;
-  return jaccard(sa.keywords, sb.keywords) >= FAMILY_JACCARD;
+interface PairEvidence {
+  keywordJaccard: number;
+  errorTypeMatch: boolean;
+  apiOverlap: number;
+  linked: boolean;
+  rule?: "strong-vocabulary" | "vocabulary+structured";
 }
 
 /**
- * Default deterministic resolver. Single-link union-find over a stable
- * (block-id-sorted) candidate order, linking pairs via `sameFamily`. The family
- * key is `fam:<smallest member block id>` — stable and hash-free.
+ * Multi-axis link evidence between two candidates. Mechanism VOCABULARY is the
+ * backbone; structured axes only CORROBORATE it. Two blocks link when:
+ *   - vocabulary alone is strongly similar (Jaccard ≥ STRONG_JACCARD), OR
+ *   - vocabulary is moderately similar (≥ MODERATE_JACCARD) AND a structured
+ *     axis (same errorType, or ≥1 shared apiSurface) corroborates.
+ * A structured axis ALONE (generic errorType / one shared API) with weak
+ * vocabulary does NOT link — that is the bridge/over-merge failure this fixes.
+ */
+function joinEvidence(a: ReasoningBlock, b: ReasoningBlock): PairEvidence {
+  const sa = signatureOf(a);
+  const sb = signatureOf(b);
+  const kw = jaccard(sa.keywords, sb.keywords);
+  const errorTypeMatch = !!sa.errorType && !!sb.errorType && sa.errorType === sb.errorType;
+  let apiOverlap = 0;
+  for (const api of sa.apis) if (sb.apis.has(api)) apiOverlap++;
+  const corroborated = errorTypeMatch || apiOverlap >= 1;
+  if (kw >= STRONG_JACCARD) {
+    return { keywordJaccard: kw, errorTypeMatch, apiOverlap, linked: true, rule: "strong-vocabulary" };
+  }
+  if (kw >= MODERATE_JACCARD && corroborated) {
+    return { keywordJaccard: kw, errorTypeMatch, apiOverlap, linked: true, rule: "vocabulary+structured" };
+  }
+  return { keywordJaccard: kw, errorTypeMatch, apiOverlap, linked: false };
+}
+
+/**
+ * Default deterministic resolver. Anchor (leader) clustering over a stable
+ * (block-id-sorted) candidate order: a candidate joins the existing cluster
+ * whose ANCHOR (lowest-id member) it strong-links to (lowest anchor id wins
+ * ties); otherwise it founds a new cluster as its own anchor.
+ *
+ * Why anchor clustering and not single-link union-find: requiring every member
+ * to link to a common anchor structurally prevents transitive bridge merges
+ * (A~B, B~C, A≁C never collapse into one family — C must link to A, not to B).
+ * It is deterministic, bounded over the candidate set, records explainable join
+ * evidence, and preserves duplicate-collapse (identical triggers link trivially
+ * via Jaccard 1.0). Swappable: any `FamilyResolver` can replace it later.
  */
 export class StructuredSignatureResolver implements FamilyResolver {
-  readonly name = "structured-signature.v1";
+  readonly name = "structured-signature.v2";
 
   resolve(candidates: readonly FamilyCandidate[]): FamilyAssignment {
     const n = candidates.length;
-    const parent = Array.from({ length: n }, (_, i) => i);
-    const find = (x: number): number => {
-      let r = x;
-      while (parent[r] !== r) r = parent[r]!;
-      while (parent[x] !== r) {
-        const next = parent[x]!;
-        parent[x] = r;
-        x = next;
-      }
-      return r;
-    };
-    const union = (a: number, b: number): void => {
-      const ra = find(a);
-      const rb = find(b);
-      if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb);
-    };
-
-    // Stable order: sort indices by block id so the union sequence is
-    // deterministic regardless of how retrieval ordered the candidates.
     const order = Array.from({ length: n }, (_, i) => i).sort((i, j) =>
       candidates[i]!.block.id < candidates[j]!.block.id ? -1 : candidates[i]!.block.id > candidates[j]!.block.id ? 1 : 0,
     );
-    for (let a = 0; a < order.length; a++) {
-      for (let b = a + 1; b < order.length; b++) {
-        const i = order[a]!;
-        const j = order[b]!;
-        if (sameFamily(candidates[i]!.block, candidates[j]!.block)) union(i, j);
+
+    interface Cluster { anchorIdx: number; members: number[] }
+    const clusters: Cluster[] = [];
+    const clusterByIdx = new Map<number, Cluster>();
+    const joins: FamilyJoinEvidence[] = [];
+    let bridgesPrevented = 0;
+
+    for (const idx of order) {
+      const block = candidates[idx]!.block;
+      let best: { cluster: Cluster; ev: PairEvidence; anchorId: string } | undefined;
+      let bridgedNonAnchor = false;
+
+      for (const cluster of clusters) {
+        const anchorBlock = candidates[cluster.anchorIdx]!.block;
+        const anchorEv = joinEvidence(block, anchorBlock);
+        if (anchorEv.linked) {
+          const anchorId = anchorBlock.id;
+          if (!best || anchorId < best.anchorId) best = { cluster, ev: anchorEv, anchorId };
+        } else {
+          // Linked to a non-anchor member but not the anchor → a bridge that
+          // single-link would have merged. Anchor clustering refuses it.
+          for (const m of cluster.members) {
+            if (m === cluster.anchorIdx) continue;
+            if (joinEvidence(block, candidates[m]!.block).linked) {
+              bridgedNonAnchor = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if (best) {
+        best.cluster.members.push(idx);
+        clusterByIdx.set(idx, best.cluster);
+        joins.push({
+          anchor: best.anchorId,
+          member: block.id,
+          keywordJaccard: round4(best.ev.keywordJaccard),
+          errorTypeMatch: best.ev.errorTypeMatch,
+          apiOverlap: best.ev.apiOverlap,
+          rule: best.ev.rule!,
+        });
+      } else {
+        const cluster: Cluster = { anchorIdx: idx, members: [idx] };
+        clusters.push(cluster);
+        clusterByIdx.set(idx, cluster);
+        if (bridgedNonAnchor) bridgesPrevented++;
       }
     }
 
-    // Map each root to a stable family key (smallest member block id).
-    const rootKey = new Map<number, string>();
-    for (let i = 0; i < n; i++) {
-      const r = find(i);
-      const id = candidates[i]!.block.id;
-      const cur = rootKey.get(r);
-      if (cur === undefined || id < cur) rootKey.set(r, id);
-    }
-    const familyKeyByIndex = candidates.map((_, i) => `fam:${rootKey.get(find(i))!}`);
-    return { familyKeyByIndex };
+    const familyKeyByIndex = candidates.map((_, i) => {
+      const cluster = clusterByIdx.get(i)!;
+      return `fam:${candidates[cluster.anchorIdx]!.block.id}`;
+    });
+    return { familyKeyByIndex, joins, bridgesPrevented };
   }
 }
 
@@ -220,6 +296,10 @@ export interface FamilyAggregation {
   families: ReasoningFamily[];
   /** blockId → familyId, for stamping per-candidate family evidence. */
   familyByBlockId: Map<string, string>;
+  /** Explainable evidence for every accepted family link. */
+  joins: FamilyJoinEvidence[];
+  /** Transitive bridge merges the anchor-coherence rule refused (see resolver). */
+  bridgesPrevented: number;
 }
 
 /**
@@ -240,7 +320,7 @@ export function aggregateFamilies(
   resolver: FamilyResolver = new StructuredSignatureResolver(),
 ): FamilyAggregation {
   if (candidates.length === 0) {
-    return { resolverName: resolver.name, families: [], familyByBlockId: new Map() };
+    return { resolverName: resolver.name, families: [], familyByBlockId: new Map(), joins: [], bridgesPrevented: 0 };
   }
   const assignment = resolver.resolve(candidates);
   const groups = new Map<string, FamilyCandidate[]>();
@@ -324,7 +404,13 @@ export function aggregateFamilies(
   const familyByBlockId = new Map<string, string>();
   for (const f of families) for (const bid of f.memberBlockIds) familyByBlockId.set(bid, f.id);
 
-  return { resolverName: resolver.name, families, familyByBlockId };
+  return {
+    resolverName: resolver.name,
+    families,
+    familyByBlockId,
+    joins: assignment.joins,
+    bridgesPrevented: assignment.bridgesPrevented,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -344,6 +430,8 @@ export interface FamilyDecisionTelemetry {
   topFamilySupport: number;
   topFamilyContradiction: number;
   topFamilySourceDiversity: number;
+  /** Transitive bridge merges the resolver refused on this candidate slate. */
+  bridgesPrevented: number;
 }
 
 /** Summarize the aggregation into the top-vs-runner-up family decision telemetry. */
@@ -361,6 +449,7 @@ export function summarizeFamilyDecision(agg: FamilyAggregation): FamilyDecisionT
     topFamilySupport: top ? top.distinctCaseIds.length : 0,
     topFamilyContradiction: top ? top.contradictionPenalty : 0,
     topFamilySourceDiversity: top ? top.sourceDiversity : 0,
+    bridgesPrevented: agg.bridgesPrevented,
   };
 }
 

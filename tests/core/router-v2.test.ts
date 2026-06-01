@@ -210,6 +210,25 @@ describe("router-v2 / structured evidence (Phase A)", () => {
     const lexical = 0.7 * ev.base.queryCoverage + 0.3 * ev.base.triggerCoverage;
     expect(ev.evidenceConfidence).toBeLessThanOrEqual(2 * lexical + 1e-9);
   });
+
+  it("dead-ends overlap is OBSERVATIONAL only — telemetry changes, confidence does not (Step-2 contract)", () => {
+    const q: ServingQuery = { text: "missing optional undefined dereferenced null guard during merge" };
+    const withDead = mkBlock({ id: "d1", ...NULL_GUARD, deadEnds: ["missing optional undefined dereferenced guard"] });
+    const noDead = mkBlock({ id: "d1", ...NULL_GUARD, deadEnds: [] });
+    const vWith = buildStructuredView(withDead);
+    const vNo = buildStructuredView(noDead);
+    const evWith = computeEvidenceV2(q, cand(withDead), vWith, buildRarityModel([vWith]));
+    const evNo = computeEvidenceV2(q, cand(noDead), vNo, buildRarityModel([vNo]));
+    // Telemetry reflects the dead-end overlap...
+    expect(evWith.fieldOverlap.deadEnds).toBeGreaterThan(0);
+    expect(evNo.fieldOverlap.deadEnds).toBe(0);
+    // ...but every SCORED quantity is identical — dead-ends feeds nothing.
+    expect(evWith.evidenceConfidence).toBeCloseTo(evNo.evidenceConfidence, 10);
+    expect(evWith.rarityWeightedCoverage).toBeCloseTo(evNo.rarityWeightedCoverage, 10);
+    expect(evWith.structuredApplicability).toBeCloseTo(evNo.structuredApplicability, 10);
+    // Dead-end tokens never enter the rarity df.
+    expect(vWith.allTokens).toEqual(vNo.allTokens);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -272,7 +291,7 @@ describe("router-v2 / privacy guard coverage", () => {
 describe("router-v2 / family aggregation (Phase B)", () => {
   it("the default resolver does NOT reuse the dogfood top-token hash", () => {
     const r = new StructuredSignatureResolver();
-    expect(r.name).toBe("structured-signature.v1");
+    expect(r.name).toBe("structured-signature.v2");
   });
 
   it("groups near-duplicate triggers into one family and keeps distinct ones apart", () => {
