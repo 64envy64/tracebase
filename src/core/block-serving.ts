@@ -57,9 +57,20 @@ import {
   type ServingDecision,
   type ServingEvidenceV1,
 } from "./serving-confidence.js";
+import { decideServingV2, type ServingModeV2 } from "./serving-decision-v2.js";
+import { SERVING_FEATURE_VERSION_V2 } from "./serving-evidence-v2.js";
 
 /** Numeric alias for the event field (the const is a literal-typed `1`). */
 const SERVING_FEATURE_VERSION_NUM: number = SERVING_FEATURE_VERSION;
+const SERVING_FEATURE_VERSION_V2_NUM: number = SERVING_FEATURE_VERSION_V2;
+
+/**
+ * Serving representation the BlockServer routes through. `"v1"` (default) is
+ * the production, byte-for-byte-unchanged path. The two `"v2-*"` modes opt into
+ * the Router V2 structured/family-aware decision; they are additive, gated, and
+ * fail open to V1 on any error.
+ */
+export type ServingMode = "v1" | ServingModeV2;
 
 /**
  * Cascade-internal candidate shape. `linearScore` is the BM25 +
@@ -382,6 +393,14 @@ export interface BlockServerOptions {
    * the over-fetch path (useful for benchmarks).
    */
   cascadeFetchMultiplier?: number;
+  /**
+   * Serving representation. Default `"v1"` — the production decision path is
+   * unchanged. `"v2-representation"` / `"v2-family"` opt into the Router V2
+   * structured + family-aware decision (additive; fails open to V1). The
+   * candidate-generation, retrieval, telemetry, holdout, and privacy paths are
+   * IDENTICAL across modes — only the FIRE-vs-ABSTAIN evidence + margin differ.
+   */
+  servingMode?: ServingMode;
 }
 
 // ---------------------------------------------------------------------------
@@ -426,6 +445,8 @@ export class BlockServer {
   private readonly rerankerTimeoutMs: number;
   private readonly mmrLambda: number;
   private readonly cascadeFetchMultiplier: number;
+  /** Serving representation (v1 default; v2-* opt-in, fail-open). */
+  private readonly servingMode: ServingMode;
 
   constructor(store: BlockStore, opts: BlockServerOptions = {}) {
     this.store = store;
@@ -453,6 +474,7 @@ export class BlockServer {
     this.rerankerTimeoutMs = opts.rerankerTimeoutMs ?? 300;
     this.mmrLambda = opts.mmrLambda ?? DEFAULT_MMR_LAMBDA;
     this.cascadeFetchMultiplier = Math.max(1, opts.cascadeFetchMultiplier ?? 4);
+    this.servingMode = opts.servingMode ?? "v1";
   }
 
   /**
@@ -716,12 +738,39 @@ export class BlockServer {
       : { ...this.policy, gateThreshold: effectiveGate };
     const evidenceCalibrate = (conf: number, block: ReasoningBlock): number =>
       clamp01(this.calibrator(conf, block));
-    const { decision: servingDecision, perCandidate } = decideServing(
-      { text: query.text, invariants: query.invariants },
-      blocks.map(({ block, score }) => ({ block, rankScore: score })),
-      policy,
-      evidenceCalibrate,
-    );
+    const servingQuery = { text: query.text, invariants: query.invariants };
+    const servingCandidates = blocks.map(({ block, score }) => ({ block, rankScore: score }));
+
+    // Mode dispatch. V1 is the production default. The V2 modes opt into the
+    // structured / family-aware decision but are wrapped so ANY failure falls
+    // back to the conservative V1 decision — Router V2 can never break a recall.
+    let servingDecision: ServingDecision;
+    let perCandidate: ServingEvidenceV1[];
+    let effectiveFeatureVersion = SERVING_FEATURE_VERSION_NUM;
+    if (this.servingMode === "v1") {
+      ({ decision: servingDecision, perCandidate } = decideServing(
+        servingQuery,
+        servingCandidates,
+        policy,
+        evidenceCalibrate,
+      ));
+    } else {
+      try {
+        const r = decideServingV2(servingQuery, servingCandidates, policy, evidenceCalibrate, {
+          mode: this.servingMode,
+        });
+        servingDecision = r.decision;
+        perCandidate = r.perCandidate;
+        effectiveFeatureVersion = SERVING_FEATURE_VERSION_V2_NUM;
+      } catch {
+        ({ decision: servingDecision, perCandidate } = decideServing(
+          servingQuery,
+          servingCandidates,
+          policy,
+          evidenceCalibrate,
+        ));
+      }
+    }
 
     // Calibrated probability keys off `evidenceConfidence` so telemetry,
     // holdout eligibility, and the gate all read the same number.
@@ -819,7 +868,7 @@ export class BlockServer {
       calibratedProb: servingDecision.calibratedProb ?? 0,
       decision: servingDecision.action,
       reason: servingDecision.reason,
-      featureVersion: SERVING_FEATURE_VERSION_NUM,
+      featureVersion: effectiveFeatureVersion,
       calibratorVersion: this.calibratorVersion,
       latencyMs: Math.max(0, this.now() - startedAt),
       injectedBlockIds: blockHits.filter((h) => h.passesGate).map((h) => h.block.id),
