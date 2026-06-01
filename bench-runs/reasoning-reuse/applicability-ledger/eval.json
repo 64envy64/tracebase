@@ -1,0 +1,165 @@
+{
+  "label": "Phase D.3 applicability ledger + replay eval — FROZEN disclosed-synthetic; exercises every join case; readiness is NOT READY by construction (synthetic, not organic).",
+  "corpusHash": "f21d66680b9b1b86",
+  "report": {
+    "trialVersion": 1,
+    "totalTrials": 9,
+    "observability": {
+      "observed_exposed": 5,
+      "observed_holdout": 1,
+      "counterfactual_unobserved": 1,
+      "incomplete": 2
+    },
+    "diagnostics": {
+      "orphans": 2,
+      "ambiguous": 0,
+      "crossRun": 1,
+      "featureVersionMismatch": 1
+    },
+    "policies": {
+      "baseline-v4": {
+        "policy": "baseline-v4",
+        "featureVersion": 1,
+        "totalTrials": 9,
+        "staleFeatureVersion": 1,
+        "observedTrials": 4,
+        "completeness": 0.5,
+        "identifiable": {
+          "applied": 4,
+          "helpfulFires": 3,
+          "precisionAtObservedFire": 0.75,
+          "wilsonLB": 0.301,
+          "withheld": 0,
+          "withholdCorrect": 0,
+          "withholdCorrectness": null,
+          "coverage": 1,
+          "abstention": 0,
+          "latencyMsP50": 2,
+          "latencyMsP95": 2
+        },
+        "unidentifiable": {
+          "applyOpportunities": 0,
+          "holdoutRows": 1,
+          "incompleteRows": 2
+        },
+        "corpus": {
+          "organic": 0,
+          "bootstrap": 0,
+          "synthetic": 4,
+          "unknown": 0
+        }
+      },
+      "reranker": {
+        "policy": "reranker",
+        "featureVersion": 1,
+        "totalTrials": 9,
+        "staleFeatureVersion": 1,
+        "observedTrials": 4,
+        "completeness": 0.5,
+        "identifiable": {
+          "applied": 3,
+          "helpfulFires": 3,
+          "precisionAtObservedFire": 1,
+          "wilsonLB": 0.438,
+          "withheld": 1,
+          "withholdCorrect": 1,
+          "withholdCorrectness": 1,
+          "coverage": 0.75,
+          "abstention": 0.25,
+          "latencyMsP50": 2,
+          "latencyMsP95": 2
+        },
+        "unidentifiable": {
+          "applyOpportunities": 1,
+          "holdoutRows": 1,
+          "incompleteRows": 2
+        },
+        "corpus": {
+          "organic": 0,
+          "bootstrap": 0,
+          "synthetic": 4,
+          "unknown": 0
+        }
+      },
+      "reranker-conservative": {
+        "policy": "reranker-conservative",
+        "featureVersion": 1,
+        "totalTrials": 9,
+        "staleFeatureVersion": 1,
+        "observedTrials": 4,
+        "completeness": 0.5,
+        "identifiable": {
+          "applied": 3,
+          "helpfulFires": 3,
+          "precisionAtObservedFire": 1,
+          "wilsonLB": 0.438,
+          "withheld": 1,
+          "withholdCorrect": 1,
+          "withholdCorrectness": 1,
+          "coverage": 0.75,
+          "abstention": 0.25,
+          "latencyMsP50": 2,
+          "latencyMsP95": 2
+        },
+        "unidentifiable": {
+          "applyOpportunities": 0,
+          "holdoutRows": 1,
+          "incompleteRows": 2
+        },
+        "corpus": {
+          "organic": 0,
+          "bootstrap": 0,
+          "synthetic": 4,
+          "unknown": 0
+        }
+      },
+      "reranker-or-v4": {
+        "policy": "reranker-or-v4",
+        "featureVersion": 1,
+        "totalTrials": 9,
+        "staleFeatureVersion": 1,
+        "observedTrials": 4,
+        "completeness": 0.5,
+        "identifiable": {
+          "applied": 4,
+          "helpfulFires": 3,
+          "precisionAtObservedFire": 0.75,
+          "wilsonLB": 0.301,
+          "withheld": 0,
+          "withholdCorrect": 0,
+          "withholdCorrectness": null,
+          "coverage": 1,
+          "abstention": 0,
+          "latencyMsP50": 2,
+          "latencyMsP95": 2
+        },
+        "unidentifiable": {
+          "applyOpportunities": 1,
+          "holdoutRows": 1,
+          "incompleteRows": 2
+        },
+        "corpus": {
+          "organic": 0,
+          "bootstrap": 0,
+          "synthetic": 4,
+          "unknown": 0
+        }
+      }
+    },
+    "corpus": {
+      "organic": 0,
+      "bootstrap": 0,
+      "synthetic": 4,
+      "unknown": 0
+    },
+    "counterfactualApplyOpportunities": 1,
+    "readiness": {
+      "ready": false,
+      "blockers": [
+        "only 0 observed-exposed ORGANIC trials (< 30); cannot evaluate a policy on organic evidence",
+        "data-quality issues: 1 cross-run, 0 ambiguous — fix attribution plumbing before trusting metrics",
+        "1 trials at a stale feature version — exclude or re-collect before comparing policies"
+      ]
+    }
+  }
+}
