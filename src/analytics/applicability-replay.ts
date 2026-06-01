@@ -64,6 +64,12 @@ export interface ApplicabilityReplayReport {
   };
   /** Composition of the OBSERVED corpus by provenance (organic gates readiness). */
   corpus: Record<TrialProvenanceClass, number>;
+  /**
+   * Phase D.4 canary exposures within the replayed trials. `observedViaCanary` is
+   * the count of formerly-counterfactual applies the canary treatment SERVED and
+   * thus made observable — the only path to identifiable apply (recall) evidence.
+   */
+  canary: { treatmentExposed: number; controlExposed: number; observedViaCanary: number };
 }
 
 function pct(sorted: number[], p: number): number {
@@ -109,11 +115,20 @@ export function replayApplicabilityPolicy(
   let applyOpportunities = 0;
   let holdoutRows = 0;
   let incompleteRows = 0;
+  let treatmentExposed = 0;
+  let controlExposed = 0;
+  let observedViaCanary = 0;
   const lat: number[] = [];
   const corpus: Record<TrialProvenanceClass, number> = { organic: 0, bootstrap: 0, synthetic: 0, unknown: 0 };
 
   for (const t of inVersion) {
     const action = policy(t);
+    if (t.canary?.arm === "treatment") {
+      treatmentExposed++;
+      if (t.observability === "observed_exposed") observedViaCanary++;
+    } else if (t.canary?.arm === "control") {
+      controlExposed++;
+    }
     switch (t.observability) {
       case "observed_exposed": {
         observedTrials++;
@@ -164,6 +179,7 @@ export function replayApplicabilityPolicy(
     },
     unidentifiable: { applyOpportunities, holdoutRows, incompleteRows },
     corpus,
+    canary: { treatmentExposed, controlExposed, observedViaCanary },
   };
 }
 

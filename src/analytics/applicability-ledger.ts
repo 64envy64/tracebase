@@ -31,6 +31,7 @@ import type {
   InjectionEvent,
   AgentUsedEvent,
   OutcomeEvent,
+  ApplicabilityCanaryExposureEvent,
 } from "../types.js";
 
 export const APPLICABILITY_TRIAL_VERSION = 1 as const;
@@ -76,6 +77,13 @@ export interface ApplicabilityTrialV1 {
   labelProvenance?: "explicit" | "inferred";
   /** Attribution strength of the agent_used evidence that closed the loop. */
   attributionStrength?: "explicit" | "strong" | "moderate" | "weak";
+  /**
+   * Phase D.4 — the explicit-opt-in canary exposure that drove this trial, when
+   * one matched. A `treatment` exposure SERVED the candidate (an injection event
+   * was emitted), so a previously-counterfactual `reranker_only_apply` becomes
+   * `observed_exposed`. `propensity` is logged for off-policy correction.
+   */
+  canary?: { arm: "treatment" | "control"; propensity: number };
   /** Reranker decision latency (ms), from the comparison event. */
   latencyMs: number;
 }
@@ -128,6 +136,7 @@ export function joinApplicabilityTrials(events: readonly AnalyticsEvent[], opts:
   const injectionsByQuery = new Map<string, InjectionEvent[]>();
   const agentUsedByQuery = new Map<string, AgentUsedEvent[]>();
   const outcomesByQuery = new Map<string, OutcomeEvent[]>();
+  const exposuresByQuery = new Map<string, ApplicabilityCanaryExposureEvent[]>();
   const push = <T>(m: Map<string, T[]>, k: string, v: T): void => {
     const arr = m.get(k);
     if (arr) arr.push(v);
@@ -146,6 +155,9 @@ export function joinApplicabilityTrials(events: readonly AnalyticsEvent[], opts:
         break;
       case "outcome":
         push(outcomesByQuery, e.queryId, e);
+        break;
+      case "reasoning.applicability_canary_exposure":
+        push(exposuresByQuery, e.queryId, e);
         break;
       default:
         break;
@@ -179,6 +191,11 @@ export function joinApplicabilityTrials(events: readonly AnalyticsEvent[], opts:
     const exposedInjection = candidateBlockId ? sameRunInjections.find((i) => i.blockId === candidateBlockId) : undefined;
     const baselineExposed = !!exposedInjection;
 
+    // Phase D.4: a matched canary exposure (same run) records the arm + propensity.
+    // A `treatment` exposure also emitted the injection joined above, so the trial
+    // is observed_exposed; `control` preserves the baseline abstain.
+    const canaryEvent = (exposuresByQuery.get(cmp.queryId) ?? []).find((e) => sameRun(cmp, e));
+
     // Outcome: must be exactly one in-run outcome to attribute.
     let outcome: OutcomeEvent | undefined;
     if (sameRunOutcomes.length === 1) outcome = sameRunOutcomes[0];
@@ -198,6 +215,7 @@ export function joinApplicabilityTrials(events: readonly AnalyticsEvent[], opts:
       baselineExposed,
       holdout: outcome?.control ?? false,
       ...(exposedInjection?.featureVersion !== undefined ? { servedFeatureVersion: exposedInjection.featureVersion } : {}),
+      ...(canaryEvent ? { canary: { arm: canaryEvent.arm, propensity: canaryEvent.propensity } } : {}),
       latencyMs: cmp.latencyMs,
     };
 

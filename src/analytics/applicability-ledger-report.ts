@@ -48,6 +48,8 @@ export interface ApplicabilityLedgerReport {
   corpus: Record<TrialProvenanceClass, number>;
   /** Counterfactual apply opportunities the reranker would create but shadow can't score. */
   counterfactualApplyOpportunities: number;
+  /** Formerly-counterfactual applies the canary treatment SERVED and made observable (Phase D.4). */
+  canaryObservedApplies: number;
   readiness: ApplicabilityReadiness;
 }
 
@@ -71,6 +73,7 @@ export function buildApplicabilityLedgerReport(events: readonly AnalyticsEvent[]
   // shadow data cannot score.
   const reranker = policies["reranker"];
   const counterfactualApplyOpportunities = reranker?.unidentifiable.applyOpportunities ?? 0;
+  const canaryObservedApplies = reranker?.canary.observedViaCanary ?? 0;
   const corpus = reranker?.corpus ?? { organic: 0, bootstrap: 0, synthetic: 0, unknown: 0 };
 
   const blockers: string[] = [];
@@ -80,7 +83,7 @@ export function buildApplicabilityLedgerReport(events: readonly AnalyticsEvent[]
   if (observability.observed_exposed === 0) {
     blockers.push("no observed-exposed trials at all — the ledger has nothing to score");
   }
-  if (counterfactualApplyOpportunities > 0 && (reranker?.identifiable.applied ?? 0) === 0) {
+  if (counterfactualApplyOpportunities > 0 && (reranker?.identifiable.applied ?? 0) === 0 && canaryObservedApplies === 0) {
     blockers.push(`the reranker's apply value is ENTIRELY counterfactual (${counterfactualApplyOpportunities} unserved apply opportunities, 0 served) — recall recovery is unidentifiable from shadow; a served canary is required`);
   }
   if (diagnostics.crossRun > 0 || diagnostics.ambiguous > 0) {
@@ -98,6 +101,7 @@ export function buildApplicabilityLedgerReport(events: readonly AnalyticsEvent[]
     policies,
     corpus,
     counterfactualApplyOpportunities,
+    canaryObservedApplies,
     readiness: { ready: blockers.length === 0, blockers },
   };
 }
