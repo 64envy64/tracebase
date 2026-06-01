@@ -2457,6 +2457,15 @@ export type RouterShadowAgreement =
   | "v2_only_inject";
 
 /**
+ * Closed-enum reason the shadow V2 decision fell open to V1. CLOSED on purpose:
+ * a raw exception message could embed an absolute path / secret / prompt
+ * fragment, which must never reach analytics_events, reports, cloud payloads,
+ * or committed fixtures. The raw message is surfaced (if at all) only on
+ * ephemeral stderr behind TRACEBASE_DEBUG.
+ */
+export type RouterShadowFallback = "error" | "validation" | "timeout" | "unknown";
+
+/**
  * Router V2 shadow comparison — emitted once per recall when
  * `TRACEBASE_REASONING_ROUTER=shadow`. Records the served V1 decision next to
  * the side-by-side V2-family decision computed on the SAME bounded candidate
@@ -2507,6 +2516,9 @@ export interface RouterShadowComparisonEvent extends EventBase {
   /** Body fields the V2 privacy guard redacted across the candidate slate. */
   redactedFieldCount: number;
 
-  /** Set only when the V2 decision threw and the comparison fell open to V1. */
-  v2FallbackReason?: string;
+  /**
+   * Closed-enum reason the V2 decision fell open to V1. Never a raw exception
+   * message (which could leak a path/secret/prompt). Set only on fallback.
+   */
+  v2FallbackReason?: RouterShadowFallback;
 }

@@ -41,6 +41,7 @@ import type {
   FactInjectionEvent,
   RouterShadowComparisonEvent,
   RouterShadowAgreement,
+  RouterShadowFallback,
 } from "../types.js";
 import {
   type Reranker,
@@ -983,7 +984,7 @@ export class BlockServer {
     let familyMargin = 0;
     let bridgesPrevented = 0;
     let redactedFieldCount = 0;
-    let v2FallbackReason: string | undefined;
+    let v2FallbackReason: RouterShadowFallback | undefined;
     try {
       const r = decideServingV2(servingQuery, servingCandidates, policy, calibrate, { mode });
       const d = r.decision;
@@ -1004,7 +1005,14 @@ export class BlockServer {
         bridgesPrevented = r.family.bridgesPrevented;
       }
     } catch (err) {
-      v2FallbackReason = (err instanceof Error ? err.message : String(err)).slice(0, 200);
+      // Persist ONLY a closed-enum class — never the raw message (which could
+      // embed a path/secret/prompt). The raw text is surfaced for LOCAL
+      // debugging only, on ephemeral stderr, behind the existing debug flag.
+      v2FallbackReason = classifyShadowFallback(err);
+      if (process.env.TRACEBASE_DEBUG) {
+        const raw = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`[tracebase] router-v2 shadow fallback (${v2FallbackReason}): ${raw}\n`);
+      }
     }
     const v2OverheadMs = Math.max(0, this.now() - t0);
 
@@ -1456,6 +1464,20 @@ function clamp01(x: number): number {
 
 function round4(x: number): number {
   return Math.round(x * 10000) / 10000;
+}
+
+/**
+ * Map a thrown value to a CLOSED fallback class. The message is read here only
+ * to classify; it is never returned or persisted, so no raw exception text
+ * (which could contain a path / secret / prompt fragment) can leak. Exported
+ * for the privacy regression test.
+ */
+export function classifyShadowFallback(err: unknown): RouterShadowFallback {
+  if (!(err instanceof Error)) return "unknown";
+  const hay = `${err.name} ${err.message}`.toLowerCase();
+  if (/\b(timeout|timed out|abort(ed)?|deadline)\b/.test(hay)) return "timeout";
+  if (/\b(valid|invalid|schema|assert|malformed)\b/.test(hay)) return "validation";
+  return "error";
 }
 
 /** Classify how the served V1 decision and the shadow V2 decision agreed. */

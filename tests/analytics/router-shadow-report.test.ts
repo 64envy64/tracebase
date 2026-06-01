@@ -86,7 +86,7 @@ describe("router shadow report aggregation", () => {
   it("aggregates bridges-prevented, redactions, fallbacks, and overhead percentiles", () => {
     const events: AnalyticsEvent[] = [
       mkShadow({ queryId: "1", bridgesPrevented: 2, redactedFieldCount: 1, v2OverheadMs: 1 }),
-      mkShadow({ queryId: "2", bridgesPrevented: 0, redactedFieldCount: 0, v2OverheadMs: 5, v2FallbackReason: "boom", v2Action: "abstain", v2Reason: "error" }),
+      mkShadow({ queryId: "2", bridgesPrevented: 0, redactedFieldCount: 0, v2OverheadMs: 5, v2FallbackReason: "error", v2Action: "abstain", v2Reason: "error" }),
     ];
     const r = aggregateRouterShadow(events);
     expect(r.bridgesPreventedTotal).toBe(2);
