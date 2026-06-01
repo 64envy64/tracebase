@@ -43,6 +43,7 @@ import { resolveReasoningRetrievalMode, REASONING_RETRIEVAL_ENV } from "../../ex
 import { resolveReasoningEvidenceMode, REASONING_EVIDENCE_ENV } from "../../experiments/reasoning-evidence-rollout.js";
 import { resolveReasoningQueryCompilerMode, REASONING_QUERY_COMPILER_ENV } from "../../experiments/reasoning-query-compiler-rollout.js";
 import { resolveReasoningApplicabilityMode, REASONING_APPLICABILITY_ENV } from "../../experiments/reasoning-applicability-rollout.js";
+import { resolveCanaryConfig, APPLICABILITY_CANARY_ENV } from "../../experiments/applicability-canary.js";
 
 /**
  * 0.6.0 — `info` added for purely diagnostic state that's
@@ -380,6 +381,8 @@ export function runDoctor(invocationPath: string): DoctorReport {
   checks.push(reasoningQueryCompilerDoctorCheck());
   // --- Phase D.2 applicability-reranker rollout (TRACEBASE_REASONING_APPLICABILITY).
   checks.push(reasoningApplicabilityDoctorCheck());
+  // --- Phase D.3 applicability canary readiness (TRACEBASE_APPLICABILITY_CANARY).
+  checks.push(applicabilityCanaryDoctorCheck());
 
   // --- Live MCP boot probe
   //
@@ -1415,6 +1418,29 @@ export function reasoningApplicabilityDoctorCheck(env: NodeJS.ProcessEnv = proce
     name: "reasoning-applicability",
     level: "info",
     message: "Applicability rollout: off (serving byte-identical; default)",
+  };
+}
+
+/**
+ * Phase D.3 applicability-canary readiness diagnostic. The canary is DORMANT in
+ * D.3 — it is never wired to serving. This check confirms the kill switch is
+ * engaged (default) and warns loudly if someone set an `on:<rate>` value, which
+ * D.3 still does NOT honour for serving. Static text; exported for tests.
+ */
+export function applicabilityCanaryDoctorCheck(env: NodeJS.ProcessEnv = process.env): DoctorCheck {
+  const { config, diagnostics } = resolveCanaryConfig(env);
+  if (config.enabled) {
+    return {
+      name: "applicability-canary",
+      level: "warn",
+      message: `Applicability canary: ${APPLICABILITY_CANARY_ENV} requests on:${config.rate} but the canary is DORMANT in this build — it is not wired to serving and changes nothing`,
+      fix: `Unset ${APPLICABILITY_CANARY_ENV} (or set off). Serving a canary requires a separately-reviewed opt-in.`,
+    };
+  }
+  return {
+    name: "applicability-canary",
+    level: "info",
+    message: `Applicability canary: disabled (kill switch engaged; dormant)${diagnostics.length ? ` — ${diagnostics[0]}` : ""}`,
   };
 }
 

@@ -1055,4 +1055,24 @@ describe("sanitizeForCloud — Router V2 shadow comparison never reaches the clo
     expect(serialized).not.toContain("reranker_only_apply");
     expect(serialized).not.toContain("deterministic-applicability");
   });
+
+  it("strips an applicability ledger / replay payload whole (Phase D.3, local-only)", () => {
+    const out = sanitizeForCloud({
+      installationId: "inst-1",
+      applicabilityLedger: {
+        trials: [{ queryHash: "q_d3hash", candidateBlockId: "block-uuid-l", observability: "counterfactual_unobserved", label: "helpful" }],
+        policies: { reranker: { identifiable: { precisionAtObservedFire: 1 } } },
+      },
+      applicabilityReplay: { policy: "reranker", corpus: { organic: 3 } },
+      metrics: { applicabilityLedger: { candidateBlockId: "block-uuid-m" } },
+    }) as { installationId?: string; applicabilityLedger?: unknown; applicabilityReplay?: unknown; metrics?: { applicabilityLedger?: unknown } };
+    expect(out.installationId).toBe("inst-1");
+    expect(out.applicabilityLedger).toBeUndefined();
+    expect(out.applicabilityReplay).toBeUndefined();
+    expect(out.metrics?.applicabilityLedger).toBeUndefined();
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain("block-uuid");
+    expect(serialized).not.toContain("q_d3hash");
+    expect(serialized).not.toContain("counterfactual_unobserved");
+  });
 });
