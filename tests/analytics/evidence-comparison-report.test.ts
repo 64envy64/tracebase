@@ -25,6 +25,11 @@ function mk(o: Partial<ReasoningEvidenceComparisonEvent> & { queryId: string }):
     redactedFieldCount: 0,
     fallback: "none",
     latencyMs: 2,
+    // Phase C.3 V4 defaults (mirror V3 unless overridden).
+    v4Action: "inject",
+    v4Reason: "injected",
+    v4LicenseReason: "structured-corroborated",
+    v4LicensedCandidates: 1,
     ...o,
   } as ReasoningEvidenceComparisonEvent;
 }
@@ -62,5 +67,31 @@ describe("evidence comparison report aggregation", () => {
     const r = aggregateEvidenceComparison([mk({ queryId: "1", v3TopBlockId: "boot-1", fallback: "error" })], () => "bootstrap");
     expect(r.readinessBlockers.some((b) => b.includes("no organic shadow traffic"))).toBe(true);
     expect(r.readinessBlockers.some((b) => b.includes("V3 fallback error"))).toBe(true);
+  });
+
+  it("aggregates the contrastive V4 lane: tightening, monotonicity, conservative abstains", () => {
+    const events: AnalyticsEvent[] = [
+      // V3 injected, V4 abstained on a same-domain collision (the tightening V4 exists for).
+      mk({ queryId: "1", v3Action: "inject", v3TopBlockId: "org-1", v4Action: "abstain", v4Reason: "weak_evidence", v4LicenseReason: "ambiguous-sibling", v4LicensedCandidates: 0, agreement: "v3_only_inject", v4TopBlockId: "org-1" }),
+      // V3 + V4 both license a discriminative paraphrase (recall retained).
+      mk({ queryId: "2", servedAction: "abstain", v3Action: "inject", v4Action: "inject", v4LicenseReason: "structured-corroborated", v4LicensedCandidates: 1, v4TopBlockId: "org-2", v3TopBlockId: "org-2" }),
+      // Singleton domain: V4 conservatively abstains (no competitor).
+      mk({ queryId: "3", v3Action: "inject", v4Action: "abstain", v4Reason: "weak_evidence", v4LicenseReason: "no-competitor", v4LicensedCandidates: 0, v4TopBlockId: "org-3" }),
+    ];
+    const r = aggregateEvidenceComparison(events, () => "organic");
+    expect(r.v4.traffic).toBe(3);
+    expect(r.v4.v3LicensedV4Abstained).toBe(2); // events 1 and 3 — V4 caught what V3 licensed
+    expect(r.v4.monotonicityViolations).toBe(0); // never inject where V3 abstained
+    expect(r.v4.ambiguousSibling).toBe(1);
+    expect(r.v4.noCompetitor).toBe(1);
+    expect(r.v4.byLicenseReason["structured-corroborated"]).toBe(1);
+    expect(r.v4.servedVsV4.v3_only_inject).toBe(1); // event 2: served abstained, V4 injected
+    expect(r.v4.byProvenance.organic.v4OnlyInject).toBe(1);
+  });
+
+  it("V4 summary is present but empty when events carry no V4 decision", () => {
+    const r = aggregateEvidenceComparison([mk({ queryId: "1", v4Action: undefined, v4LicenseReason: undefined, v4LicensedCandidates: undefined })]);
+    expect(r.v4.traffic).toBe(0);
+    expect(r.v4.readinessBlockers.some((b) => b.includes("no V4 shadow traffic"))).toBe(true);
   });
 });

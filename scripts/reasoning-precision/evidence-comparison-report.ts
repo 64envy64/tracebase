@@ -64,9 +64,32 @@ function main(): void {
     const s = report.byProvenance[cls];
     console.log(`  ${cls}: traffic=${s.traffic} v3Licensed=${s.v3Licensed} v3OnlyInject=${s.v3OnlyInject}`);
   }
-  console.log("\nreadiness blockers:");
+  console.log("\nreadiness blockers (V3):");
   if (report.readinessBlockers.length === 0) console.log("  (none)");
   for (const b of report.readinessBlockers) console.log(`  - ${b}`);
+
+  // Phase C.3 contrastive V4 lane.
+  const v4 = report.v4;
+  console.log(`\n── ServingEvidenceV4 (contrastive, Phase C.3) — traffic: ${v4.traffic} ──`);
+  if (v4.traffic > 0) {
+    console.log("lane:", JSON.stringify(v4.byLane));
+    console.log("license reason:", JSON.stringify(v4.byLicenseReason));
+    console.log("served-vs-V4 agreement:");
+    for (const k of evidenceAgreementKeys()) console.log(`  ${k}: ${v4.servedVsV4[k]}`);
+    console.log(`decision disagreement rate: ${v4.decisionDisagreementRate}`);
+    console.log(`recalls with a V4 license: ${v4.recallsWithLicense} (licensed candidates total: ${v4.licensedCandidatesTotal})`);
+    console.log(`contrastive tightening — V3 injected but V4 abstained: ${v4.v3LicensedV4Abstained} (caught leaks)`);
+    console.log(`monotonicity violations (V4 inject, V3 abstain — must be 0): ${v4.monotonicityViolations}`);
+    console.log(`conservative abstains — no-competitor: ${v4.noCompetitor}, ambiguous-sibling: ${v4.ambiguousSibling}`);
+    console.log("by provenance:");
+    for (const cls of ["organic", "bootstrap", "unknown"] as ProvenanceClass[]) {
+      const s = v4.byProvenance[cls];
+      console.log(`  ${cls}: v4Licensed=${s.v4Licensed} v4OnlyInject=${s.v4OnlyInject}`);
+    }
+  }
+  console.log("readiness blockers (V4):");
+  if (v4.readinessBlockers.length === 0) console.log("  (none)");
+  for (const b of v4.readinessBlockers) console.log(`  - ${b}`);
   console.log("");
 }
 

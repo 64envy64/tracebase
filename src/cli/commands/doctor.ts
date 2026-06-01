@@ -1324,7 +1324,7 @@ export function reasoningEvidenceDoctorCheck(env: NodeJS.ProcessEnv = process.en
     return {
       name: "reasoning-evidence",
       level: "info",
-      message: "Evidence V3 rollout: shadow (serving V1/V2; computing V3 semantic-license comparison)",
+      message: "Evidence rollout: shadow (serving V1/V2; computing V3 semantic-license + V4 contrastive comparison)",
     };
   }
   return {

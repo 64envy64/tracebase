@@ -983,4 +983,28 @@ describe("sanitizeForCloud — Router V2 shadow comparison never reaches the clo
     expect(serialized).not.toContain("q_evid42");
     expect(serialized).not.toContain("semantic-license");
   });
+
+  it("strips a V4 contrastive comparison-shaped object whole (Phase C.3, local-only)", () => {
+    const out = sanitizeForCloud({
+      installationId: "inst-1",
+      evidenceComparison: {
+        queryHash: "q_v4hash",
+        v3TopBlockId: "block-uuid-3",
+        v4TopBlockId: "block-uuid-4",
+        v4LicenseReason: "ambiguous-sibling",
+        v4DiscriminativeSupport: 0.4,
+        v4HasCompetitor: true,
+        v4FamilySeparation: 0.12,
+      },
+      metrics: { evidenceComparison: { v4LicenseReason: "no-competitor", v4TopBlockId: "block-uuid-5" } },
+    }) as { installationId?: string; evidenceComparison?: unknown; metrics?: { evidenceComparison?: unknown } };
+    expect(out.installationId).toBe("inst-1");
+    expect(out.evidenceComparison).toBeUndefined();
+    expect(out.metrics?.evidenceComparison).toBeUndefined();
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain("block-uuid");
+    expect(serialized).not.toContain("q_v4hash");
+    expect(serialized).not.toContain("ambiguous-sibling");
+    expect(serialized).not.toContain("no-competitor");
+  });
 });
