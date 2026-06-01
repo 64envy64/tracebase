@@ -1,0 +1,40 @@
+{
+  "label": "Phase C hybrid retrieval paraphrase eval — DISCLOSED hand-authored; NOT organic readiness; no gate tuning; no model/network.",
+  "corpusHash": "d5e4af5d2f3dad9a",
+  "frozenAt": 1780262013,
+  "corpus": {
+    "families": 5,
+    "paraphraseHoldouts": 10,
+    "hardNegatives": 5
+  },
+  "provider": "deterministic-local",
+  "fusion": "RRF (k=60)",
+  "operatingPoint": {
+    "gate": 0.4,
+    "note": "production gate DEFAULT_GATE_THRESHOLD (not tuned); V2-family decision both arms"
+  },
+  "organicReadiness": "N/A — bootstrap/paraphrase corpus only; never counts toward organic readiness",
+  "arms": {
+    "sparse": {
+      "candidateRecallAtUseful": 0.6,
+      "recallAtUseful": 0.1,
+      "precisionAtFire": 1,
+      "wilsonLB": 0.207,
+      "falsePositiveRateNegatives": 0,
+      "fireRate": 0.067,
+      "latencyMsP50": 1,
+      "latencyMsP95": 2
+    },
+    "hybrid": {
+      "candidateRecallAtUseful": 1,
+      "recallAtUseful": 0.1,
+      "precisionAtFire": 1,
+      "wilsonLB": 0.207,
+      "falsePositiveRateNegatives": 0,
+      "fireRate": 0.067,
+      "latencyMsP50": 1,
+      "latencyMsP95": 3
+    }
+  },
+  "fallbacks": 0
+}
