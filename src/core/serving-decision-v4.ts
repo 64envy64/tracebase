@@ -128,6 +128,13 @@ export interface ServingEvidenceV4 {
 
 export interface DecideServingV4Options {
   resolver?: FamilyResolver;
+  /**
+   * Override the discriminative-support majority floor. Exposed ONLY for the
+   * frozen sensitivity STUDY (scripts/reasoning-precision/adversarial-v4-eval.ts)
+   * to show the 0.5 choice sits in a stable region. The production server NEVER
+   * sets this — there is no env knob — so the shipped constant stays 0.5.
+   */
+  discriminativeSupportMin?: number;
 }
 
 export interface ServingDecisionV4Result {
@@ -211,9 +218,15 @@ export function decideServingV4(
     [...scored].sort((a, b) => b.conf - a.conf || a.i - b.i)[0]!;
 
   // ── Contrastive step (the V4 addition) ──────────────────────────────────
-  // Compare the SELECTED candidate with the strongest family that is NOT its
-  // own. The license is DOWNGRADED (never promoted) when the contrast fails.
+  // The discriminative gap is computed against the UNION of EVERY OTHER family's
+  // body in the slate — NOT a single runner-up. A token corroborates the chosen
+  // lesson discriminatively only if NO competing family shares it. This is
+  // order-invariant (a set union, immune to candidate ordering / id tie-breaks)
+  // and conservative. The license is DOWNGRADED (never promoted) when it fails.
+  // The strongest runner-up family is still surfaced (deterministically) for the
+  // per-field-gap / family-separation telemetry only.
   const selFamilyId = agg.familyByBlockId.get(selected.c.block.id);
+  const otherFamilyIdx = scored.filter((s) => agg.familyByBlockId.get(s.c.block.id) !== selFamilyId);
   const competitorFamily = agg.families.find((f) => f.id !== selFamilyId);
   const competitor = competitorFamily ? scored.find((s) => s.c.block.id === competitorFamily.prototypeBlockId) : undefined;
 
@@ -221,11 +234,13 @@ export function decideServingV4(
   let licenseReason: SemanticLicenseReasonV4 = selected.base.reason;
   if (selected.c.provenance?.semanticOnly) {
     const selMatched = matchedBodyTokens(views[selected.i]!, queryMeaningful);
-    const compUnion = competitor ? bodyUnion(views[competitor.i]!) : new Set<string>();
-    const discriminative = [...selMatched].filter((t) => !compUnion.has(t));
+    const otherUnion = new Set<string>();
+    for (const s of otherFamilyIdx) for (const t of bodyUnion(views[s.i]!)) otherUnion.add(t);
+    const discriminative = [...selMatched].filter((t) => !otherUnion.has(t));
     const discriminativeSupport = selMatched.size ? discriminative.length / selMatched.size : 0;
+    const hasCompetitor = otherFamilyIdx.length > 0;
     contrastive = {
-      hasCompetitor: !!competitor,
+      hasCompetitor,
       ...(competitor ? { competitorBlockId: competitor.c.block.id, competitorFamilyId: competitorFamily!.id } : {}),
       matchedBodyTokens: selMatched.size,
       discriminativeSupport: round4(discriminativeSupport),
@@ -238,9 +253,12 @@ export function decideServingV4(
       invariantAgreement: round4(selected.ev2.fieldOverlap.invariants - (competitor?.ev2.fieldOverlap.invariants ?? 0)),
     };
     if (selected.base.reason === "structured-corroborated") {
-      // Tighten V3's license with the contrastive gap.
-      if (!competitor) licenseReason = "no-competitor";
-      else if (discriminativeSupport < DISCRIMINATIVE_SUPPORT_MIN) licenseReason = "ambiguous-sibling";
+      // Tighten V3's license with the contrastive gap. The floor is the
+      // principled 0.5 majority; the study-only override never reaches here in
+      // production (the server passes no opts).
+      const floor = opts.discriminativeSupportMin ?? DISCRIMINATIVE_SUPPORT_MIN;
+      if (!hasCompetitor) licenseReason = "no-competitor";
+      else if (discriminativeSupport < floor) licenseReason = "ambiguous-sibling";
       // else: stays "structured-corroborated" (licensed).
     }
   }

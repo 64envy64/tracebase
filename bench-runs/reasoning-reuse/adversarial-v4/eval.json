@@ -1,0 +1,190 @@
+{
+  "label": "Phase C.3 adversarial eval — baseline V2 vs V3-shadow vs V4-shadow. DISCLOSED hand-authored; NOT organic readiness; no gate/constant tuning; no model/network.",
+  "corpusHash": "bfebdff7538b7a2d",
+  "frozenAt": 1780262013,
+  "acceptedFamilies": 6,
+  "corpus": {
+    "families": 6,
+    "anchors": 3,
+    "paraphraseHoldouts": 12,
+    "hardNegatives": 8,
+    "negativeTypes": [
+      "sibling-collision",
+      "lexically-rich-wrong",
+      "ambiguous-sibling",
+      "disjoint"
+    ]
+  },
+  "arms": {
+    "sparse-v2": {
+      "candidateRecallAtUseful": 0.833,
+      "recallAtUseful": 0,
+      "precisionAtFire": null,
+      "wilsonLB": null,
+      "falsePositiveRateNegatives": 0,
+      "fpByType": {
+        "sibling-collision": {
+          "fired": 0,
+          "total": 2
+        },
+        "lexically-rich-wrong": {
+          "fired": 0,
+          "total": 2
+        },
+        "ambiguous-sibling": {
+          "fired": 0,
+          "total": 2
+        },
+        "disjoint": {
+          "fired": 0,
+          "total": 2
+        }
+      },
+      "semanticLicenseLaneFP": 0,
+      "fireRate": 0,
+      "latencyMsP50": 1,
+      "latencyMsP95": 4
+    },
+    "hybrid-v3-shadow": {
+      "candidateRecallAtUseful": 1,
+      "recallAtUseful": 0.167,
+      "precisionAtFire": 0.667,
+      "wilsonLB": 0.208,
+      "falsePositiveRateNegatives": 0.125,
+      "fpByType": {
+        "sibling-collision": {
+          "fired": 1,
+          "total": 2
+        },
+        "lexically-rich-wrong": {
+          "fired": 0,
+          "total": 2
+        },
+        "ambiguous-sibling": {
+          "fired": 0,
+          "total": 2
+        },
+        "disjoint": {
+          "fired": 0,
+          "total": 2
+        }
+      },
+      "semanticLicenseLaneFP": 0.125,
+      "fireRate": 0.15,
+      "latencyMsP50": 2,
+      "latencyMsP95": 9
+    },
+    "hybrid-v4-shadow": {
+      "candidateRecallAtUseful": 1,
+      "recallAtUseful": 0.167,
+      "precisionAtFire": 1,
+      "wilsonLB": 0.342,
+      "falsePositiveRateNegatives": 0,
+      "fpByType": {
+        "sibling-collision": {
+          "fired": 0,
+          "total": 2
+        },
+        "lexically-rich-wrong": {
+          "fired": 0,
+          "total": 2
+        },
+        "ambiguous-sibling": {
+          "fired": 0,
+          "total": 2
+        },
+        "disjoint": {
+          "fired": 0,
+          "total": 2
+        }
+      },
+      "semanticLicenseLaneFP": 0,
+      "fireRate": 0.1,
+      "latencyMsP50": 2,
+      "latencyMsP95": 9
+    }
+  },
+  "contrastive": {
+    "v3FiredV4AbstainedNeg": 1,
+    "v3FiredV4AbstainedUseful": 0,
+    "v4RecallRetainedVsV3": 1
+  },
+  "probes": {
+    "rankInversion": {
+      "decoyBlock": "float-accumulation (pinned to provider rank #1)",
+      "trials": 10,
+      "decoyInjectionsV4": 0
+    },
+    "providerTimeout": {
+      "trials": 20,
+      "failOpenParityWithSparse": true
+    },
+    "remoteBoundary": {
+      "engagedWithOptIn": true,
+      "boundaryClean": true,
+      "engagedWithoutOptIn": false,
+      "scrubbed": [
+        "abs-path",
+        "bearer-token",
+        "api-key"
+      ]
+    },
+    "missingSibling": {
+      "v3Action": "inject (no sibling to contrast)",
+      "v4Action": "abstain",
+      "v4LicenseReason": "no-competitor"
+    }
+  },
+  "sensitivity": [
+    {
+      "discriminativeSupportMin": 0.3,
+      "usefulLicensed": 8,
+      "usefulTotal": 12,
+      "collisionLicensed": 1,
+      "collisionTotal": 2
+    },
+    {
+      "discriminativeSupportMin": 0.4,
+      "usefulLicensed": 8,
+      "usefulTotal": 12,
+      "collisionLicensed": 1,
+      "collisionTotal": 2
+    },
+    {
+      "discriminativeSupportMin": 0.5,
+      "usefulLicensed": 7,
+      "usefulTotal": 12,
+      "collisionLicensed": 0,
+      "collisionTotal": 2
+    },
+    {
+      "discriminativeSupportMin": 0.6,
+      "usefulLicensed": 7,
+      "usefulTotal": 12,
+      "collisionLicensed": 0,
+      "collisionTotal": 2
+    },
+    {
+      "discriminativeSupportMin": 0.7,
+      "usefulLicensed": 6,
+      "usefulTotal": 12,
+      "collisionLicensed": 0,
+      "collisionTotal": 2
+    }
+  ],
+  "targets": {
+    "semanticLaneFpCeiling": 0.05,
+    "materialRecallLift": 0.15,
+    "v3RecallRetentionFloor": 0.7,
+    "v4SemanticLaneFpMet": true,
+    "v4MaterialLiftMet": true,
+    "v4RetainsV3RecallMet": true,
+    "allMet": true
+  },
+  "verdict": {
+    "closesLeak": true,
+    "retainsRecall": true,
+    "note": "`on` is forbidden by the rollout. This eval evaluates promotion-readiness of the contrastive lane; the policy is reported as-is and never weakened to hit a target."
+  },
+  "organicReadiness": "N/A — bootstrap/adversarial corpus only; never counts toward organic readiness"
+}
