@@ -45,6 +45,9 @@ import type {
   RetrievalHybridComparisonEvent,
   RetrievalFallback,
   RetrievalDecisionAgreement,
+  ReasoningEvidenceComparisonEvent,
+  EvidenceComparisonAgreement,
+  EvidenceFallback,
 } from "../types.js";
 import {
   type Reranker,
@@ -67,6 +70,7 @@ import {
   type EvidenceCalibrator,
 } from "./serving-confidence.js";
 import { decideServingV2, type ServingModeV2 } from "./serving-decision-v2.js";
+import { decideServingV3 } from "./serving-decision-v3.js";
 import { SERVING_FEATURE_VERSION_V2 } from "./serving-evidence-v2.js";
 import {
   fuseHybrid,
@@ -276,6 +280,19 @@ export interface RecallV2Result {
    * only on legacy callers that pre-date the decision layer.
    */
   servingDecision?: ServingDecision;
+  /**
+   * Phase C.2 shadow ServingEvidenceV3 decision, populated ONLY when
+   * `evidenceMode === "shadow"`. The V3 decision is NEVER served (served stays
+   * V1/V2); this surfaces what V3 WOULD have decided, for evaluation. Carries
+   * the selected candidate's lane + license reason.
+   */
+  shadowV3?: {
+    action: "inject" | "abstain";
+    reason: string;
+    topBlockId?: string;
+    lane: string;
+    licenseReason: string;
+  };
 }
 
 export type Calibrator = (score: number, block: ReasoningBlock) => number;
@@ -446,6 +463,12 @@ export interface BlockServerOptions {
   retrievalProvider?: RetrievalProvider;
   /** Hard wall-clock budget for one semantic provider call. Default 250ms. */
   retrievalDeadlineMs?: number;
+  /**
+   * Phase C.2 ServingEvidenceV3 rollout. Default `"off"`. `"shadow"` computes
+   * the V3 semantic-license decision side-by-side and persists a comparison,
+   * WITHOUT serving it (served stays V1/V2). There is no production `"on"`.
+   */
+  evidenceMode?: "off" | "shadow";
 }
 
 // ---------------------------------------------------------------------------
@@ -498,6 +521,8 @@ export class BlockServer {
   private readonly retrievalMode: RetrievalRolloutMode;
   private readonly retrievalProvider: RetrievalProvider | undefined;
   private readonly retrievalDeadlineMs: number;
+  /** Phase C.2 ServingEvidenceV3 rollout (off default; shadow computes V3, never serves it). */
+  private readonly evidenceMode: "off" | "shadow";
 
   constructor(store: BlockStore, opts: BlockServerOptions = {}) {
     this.store = store;
@@ -530,10 +555,16 @@ export class BlockServer {
     this.retrievalMode = opts.retrievalMode ?? "off";
     this.retrievalProvider = opts.retrievalProvider;
     this.retrievalDeadlineMs = Math.max(1, opts.retrievalDeadlineMs ?? 250);
+    this.evidenceMode = opts.evidenceMode ?? "off";
   }
 
   /** Hybrid retrieval rollout mode (off default). The recall entry routes
    *  shadow/on through the async hybrid path; off stays on sync sparse. */
+  /** ServingEvidenceV3 rollout mode (off default; shadow computes V3, never serves it). */
+  get evidenceRollout(): "off" | "shadow" {
+    return this.evidenceMode;
+  }
+
   get retrievalRollout(): RetrievalRolloutMode {
     return this.retrievalMode;
   }
@@ -1140,6 +1171,23 @@ export class BlockServer {
       );
     }
 
+    // Phase C.2 ServingEvidenceV3 shadow comparison (evidenceMode=shadow).
+    // Computed on the SAME served candidate slate (fusion provenance is present
+    // on the hybrid path); NEVER served. Distinct, additive, local-only stream.
+    let shadowV3: RecallV2Result["shadowV3"];
+    if (this.evidenceMode === "shadow") {
+      shadowV3 = this.emitEvidenceComparison(
+        queryId,
+        query,
+        servingQuery,
+        servingCandidates,
+        policy,
+        evidenceCalibrate,
+        servingDecision,
+        effectiveFeatureVersion,
+      );
+    }
+
     return {
       queryId,
       shadow,
@@ -1148,7 +1196,79 @@ export class BlockServer {
       facts: factHits,
       shouldInject,
       servingDecision,
+      ...(shadowV3 ? { shadowV3 } : {}),
     };
+  }
+
+  /**
+   * Compute the shadow ServingEvidenceV3 decision on the served slate and emit a
+   * privacy-safe `reasoning.evidence_comparison` event. NEVER serves and NEVER
+   * throws — fails open (records fallback "error", returns the served decision
+   * as the V3 summary). Returns the shadow-V3 summary for the recall result.
+   */
+  private emitEvidenceComparison(
+    queryId: string,
+    query: BlockRecallQuery,
+    servingQuery: ServingQuery,
+    servingCandidates: readonly ServingCandidate[],
+    policy: ServingPolicy,
+    calibrate: EvidenceCalibrator,
+    servedDecision: ServingDecision,
+    servedFeatureVersion: number,
+  ): NonNullable<RecallV2Result["shadowV3"]> {
+    const t0 = this.now();
+    let fallback: EvidenceFallback = "none";
+    let v3Action: "inject" | "abstain" = servedDecision.action;
+    let v3Reason = servedDecision.reason;
+    let v3Top = servedDecision.topCandidateId;
+    let lane = "lexical";
+    let licenseReason = "lexical";
+    let licensedCandidates = 0;
+    let redactedFieldCount = 0;
+    try {
+      const r = decideServingV3(servingQuery, servingCandidates, policy, calibrate);
+      v3Action = r.decision.action;
+      v3Reason = r.decision.reason;
+      v3Top = r.decision.topCandidateId;
+      const sel = r.evidenceV3.find((e) => e.blockId === r.decision.topCandidateId) ?? r.evidenceV3[0];
+      if (sel) {
+        lane = sel.lane;
+        licenseReason = sel.licenseReason;
+      }
+      for (const e of r.evidenceV3) {
+        if (e.licenseReason === "structured-corroborated") licensedCandidates++;
+        redactedFieldCount += e.base.redactedFields.length;
+      }
+    } catch {
+      fallback = "error";
+    }
+    const semanticOnlyCandidates = servingCandidates.filter((c) => c.provenance?.semanticOnly).length;
+    const event: ReasoningEvidenceComparisonEvent = {
+      event: "reasoning.evidence_comparison",
+      ts: this.now(),
+      queryId,
+      ...(query.runId ? { runId: query.runId } : {}),
+      queryHash: queryHash(query.text),
+      corpusSize: this.store.countBlocks("active"),
+      candidateCount: servingCandidates.length,
+      servedAction: servedDecision.action,
+      servedReason: servedDecision.reason,
+      ...(servedDecision.topCandidateId ? { servedTopBlockId: servedDecision.topCandidateId } : {}),
+      servedFeatureVersion,
+      v3Action,
+      v3Reason,
+      ...(v3Top ? { v3TopBlockId: v3Top } : {}),
+      lane,
+      licenseReason,
+      agreement: evidenceComparisonAgreement(servedDecision.action, servedDecision.topCandidateId, v3Action, v3Top),
+      semanticOnlyCandidates,
+      licensedCandidates,
+      redactedFieldCount,
+      fallback,
+      latencyMs: Math.max(0, this.now() - t0),
+    };
+    this.emitter.emit(event, query.runId ? { runId: query.runId } : undefined);
+    return { action: v3Action, reason: v3Reason, ...(v3Top ? { topBlockId: v3Top } : {}), lane, licenseReason };
   }
 
   /**
@@ -1721,4 +1841,19 @@ function retrievalDecisionAgreement(
   if (si && !hi) return "sparse_only_inject";
   if (!si && hi) return "hybrid_only_inject";
   return sparseTop && hybridTop && sparseTop === hybridTop ? "agree_inject_same" : "agree_inject_diff";
+}
+
+/** Classify how the served V1/V2 decision compared to the shadow V3 decision. */
+function evidenceComparisonAgreement(
+  servedAction: "inject" | "abstain",
+  servedTop: string | undefined,
+  v3Action: "inject" | "abstain",
+  v3Top: string | undefined,
+): EvidenceComparisonAgreement {
+  const si = servedAction === "inject";
+  const vi = v3Action === "inject";
+  if (!si && !vi) return "agree_abstain";
+  if (si && !vi) return "v2_only_inject";
+  if (!si && vi) return "v3_only_inject";
+  return servedTop && v3Top && servedTop === v3Top ? "agree_inject_same" : "agree_inject_diff";
 }

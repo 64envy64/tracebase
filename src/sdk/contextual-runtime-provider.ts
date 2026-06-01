@@ -34,6 +34,7 @@ import { BlockStore } from "../core/block-store.js";
 import { BlockServer, resolveProductionGateThreshold } from "../core/block-serving.js";
 import { routerServingOptions } from "../experiments/reasoning-router-rollout.js";
 import { reasoningRetrievalOptions } from "../experiments/reasoning-retrieval-rollout.js";
+import { reasoningEvidenceOptions } from "../experiments/reasoning-evidence-rollout.js";
 import {
   EventEmitter,
   emitAgentUsed,
@@ -263,6 +264,8 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
       ...routerServingOptions(),
       // Phase C hybrid retrieval rollout (TRACEBASE_REASONING_RETRIEVAL=off|shadow|on); default off.
       ...reasoningRetrievalOptions(),
+      // Phase C.2 ServingEvidenceV3 rollout (TRACEBASE_REASONING_EVIDENCE=off|shadow); default off.
+      ...reasoningEvidenceOptions(),
     });
     this.eventEmitter = new EventEmitter(this.blockStore);
     if (opts.readHoldoutConfig) {

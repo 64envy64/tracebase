@@ -1697,7 +1697,11 @@ export type AnalyticsEvent =
   // Phase C hybrid retrieval (TRACEBASE_REASONING_RETRIEVAL=shadow) — one event
   // per recall comparing the sparse FTS slate with the fused sparse⊕semantic
   // slate (and the decision on each). Privacy-safe + local-only, same contract.
-  | RetrievalHybridComparisonEvent;
+  | RetrievalHybridComparisonEvent
+  // Phase C.2 ServingEvidenceV3 (TRACEBASE_REASONING_EVIDENCE=shadow) — one event
+  // per recall comparing the served V1/V2 decision with the shadow V3
+  // semantic-license decision. Privacy-safe + local-only, same contract.
+  | ReasoningEvidenceComparisonEvent;
 
 interface EventBase {
   ts: number;
@@ -2579,4 +2583,51 @@ export interface RetrievalHybridComparisonEvent extends EventBase {
   decisionAgreement: RetrievalDecisionAgreement;
   /** Serving feature version of the decision (1 = V1, 2 = V2-family). */
   featureVersion: number;
+}
+
+/** How the served V1/V2 decision compared to the shadow V3 decision. */
+export type EvidenceComparisonAgreement =
+  | "agree_abstain"
+  | "agree_inject_same"
+  | "agree_inject_diff"
+  | "v2_only_inject"
+  | "v3_only_inject";
+
+/** Closed-enum outcome of computing the shadow V3 decision (never a raw error). */
+export type EvidenceFallback = "none" | "error";
+
+/**
+ * Phase C.2 ServingEvidenceV3 comparison — emitted once per recall when
+ * `TRACEBASE_REASONING_EVIDENCE=shadow`. Compares the served V1/V2 decision with
+ * the shadow V3 semantic-license decision on the SAME candidate slate. Privacy-
+ * safe (queryHash + opaque ids + counts + closed enums; no raw query/body/path).
+ * LOCAL-ONLY: never part of the cloud `UsageMetrics` aggregate.
+ */
+export interface ReasoningEvidenceComparisonEvent extends EventBase {
+  event: "reasoning.evidence_comparison";
+  queryHash: string;
+  corpusSize: number;
+  candidateCount: number;
+  // Served decision (V1/V2).
+  servedAction: "inject" | "abstain";
+  servedReason: string;
+  servedTopBlockId?: string;
+  servedFeatureVersion: number;
+  // Shadow V3 decision.
+  v3Action: "inject" | "abstain";
+  v3Reason: string;
+  v3TopBlockId?: string;
+  /** Lane of the V3-selected candidate ("lexical" | "semantic-license"). */
+  lane: string;
+  /** License reason of the V3-selected candidate (closed enum, stored as string). */
+  licenseReason: string;
+  agreement: EvidenceComparisonAgreement;
+  /** Candidates the semantic provider surfaced (provenance.semanticOnly). */
+  semanticOnlyCandidates: number;
+  /** Candidates the V3 license made eligible (structured-corroborated). */
+  licensedCandidates: number;
+  /** Body fields redacted across the slate (privacy audit; 0 on a clean corpus). */
+  redactedFieldCount: number;
+  fallback: EvidenceFallback;
+  latencyMs: number;
 }

@@ -40,6 +40,7 @@ import {
 import { readHookHealth } from "../hook-self-heal.js";
 import { resolveReasoningRouterMode, REASONING_ROUTER_ENV } from "../../experiments/reasoning-router-rollout.js";
 import { resolveReasoningRetrievalMode, REASONING_RETRIEVAL_ENV } from "../../experiments/reasoning-retrieval-rollout.js";
+import { resolveReasoningEvidenceMode, REASONING_EVIDENCE_ENV } from "../../experiments/reasoning-evidence-rollout.js";
 
 /**
  * 0.6.0 — `info` added for purely diagnostic state that's
@@ -371,6 +372,8 @@ export function runDoctor(invocationPath: string): DoctorReport {
   checks.push(reasoningRouterDoctorCheck());
   // --- Phase C hybrid retrieval rollout (TRACEBASE_REASONING_RETRIEVAL).
   checks.push(reasoningRetrievalDoctorCheck());
+  // --- Phase C.2 ServingEvidenceV3 rollout (TRACEBASE_REASONING_EVIDENCE).
+  checks.push(reasoningEvidenceDoctorCheck());
 
   // --- Live MCP boot probe
   //
@@ -1289,6 +1292,45 @@ export function reasoningRetrievalDoctorCheck(env: NodeJS.ProcessEnv = process.e
     name: "reasoning-retrieval",
     level: "info",
     message: "Hybrid retrieval rollout: off (sparse FTS only; default)",
+  };
+}
+
+/**
+ * Phase C.2 ServingEvidenceV3 rollout diagnostic. off/shadow only — `on` is not
+ * permitted (V3 is shadow-only) and a typo fails safe to off. Static text;
+ * exported for tests.
+ */
+export function reasoningEvidenceDoctorCheck(env: NodeJS.ProcessEnv = process.env): DoctorCheck {
+  const { mode, diagnostics } = resolveReasoningEvidenceMode(env);
+  const refused = diagnostics.some((d) => d.includes("not permitted"));
+  const invalid = diagnostics.some((d) => d.includes("ignored"));
+  if (refused) {
+    return {
+      name: "reasoning-evidence",
+      level: "warn",
+      message: `Evidence V3 rollout: ${REASONING_EVIDENCE_ENV}=on is not permitted (V3 is shadow-only) — using off`,
+      fix: `Set ${REASONING_EVIDENCE_ENV} to off or shadow.`,
+    };
+  }
+  if (invalid) {
+    return {
+      name: "reasoning-evidence",
+      level: "warn",
+      message: `Evidence V3 rollout: invalid ${REASONING_EVIDENCE_ENV} value — defaulted to off`,
+      fix: `Set ${REASONING_EVIDENCE_ENV} to off or shadow.`,
+    };
+  }
+  if (mode === "shadow") {
+    return {
+      name: "reasoning-evidence",
+      level: "info",
+      message: "Evidence V3 rollout: shadow (serving V1/V2; computing V3 semantic-license comparison)",
+    };
+  }
+  return {
+    name: "reasoning-evidence",
+    level: "info",
+    message: "Evidence V3 rollout: off (serving V1/V2; default)",
   };
 }
 

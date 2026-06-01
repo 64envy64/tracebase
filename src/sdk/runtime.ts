@@ -53,6 +53,7 @@ import {
 } from "../experiments/cascade-rollout.js";
 import { routerServingOptions } from "../experiments/reasoning-router-rollout.js";
 import { reasoningRetrievalOptions } from "../experiments/reasoning-retrieval-rollout.js";
+import { reasoningEvidenceOptions } from "../experiments/reasoning-evidence-rollout.js";
 import {
   recallForPrompt,
   shouldQueryForPrompt,
@@ -208,6 +209,8 @@ export function createRuntime(
       ...routerServingOptions(),
       // Phase C hybrid retrieval rollout (TRACEBASE_REASONING_RETRIEVAL=off|shadow|on); default off.
       ...reasoningRetrievalOptions(),
+      // Phase C.2 ServingEvidenceV3 rollout (TRACEBASE_REASONING_EVIDENCE=off|shadow); default off.
+      ...reasoningEvidenceOptions(),
     });
     const holdoutLoader: HoldoutLoader = () => readHoldoutConfig(basePath);
     const cascadeLoader: CascadeLoader = () => readCascadeConfig(basePath);
