@@ -45,8 +45,8 @@ import {
 } from "../core/analytics.js";
 import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
 import { runReasoningPatternsRecall } from "../server/reasoning-patterns-entry.js";
-import { findProjectRoot, readHoldoutConfig } from "../core/config.js";
-import type { HoldoutConfig } from "../types.js";
+import { findProjectRoot, readHoldoutConfig, readApplicabilityCanaryConfig } from "../core/config.js";
+import type { HoldoutConfig, ApplicabilityCanaryConfig } from "../types.js";
 import {
   collectInjectedFromQuery,
   CONTEXTUAL_RUNTIME_PROTOCOL,
@@ -255,6 +255,8 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
   private readonly blockServer: BlockServer;
   private readonly eventEmitter: EventEmitter;
   private readonly readHoldoutConfig: () => HoldoutConfig | null;
+  /** Phase D.4.1 — fresh-per-task canary loader (default off; same boundary as MCP/hook). */
+  private readonly readCanaryConfig: () => ApplicabilityCanaryConfig | null;
   private closed = false;
 
   constructor(opts: CreateTracebaseRuntimeProviderOptions) {
@@ -274,13 +276,14 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
       ...reasoningApplicabilityOptions(),
     });
     this.eventEmitter = new EventEmitter(this.blockStore);
+    const projectBase = opts.basePath ?? findProjectRoot(process.cwd()) ?? process.cwd();
     if (opts.readHoldoutConfig) {
       this.readHoldoutConfig = opts.readHoldoutConfig;
     } else {
-      const projectBase =
-        opts.basePath ?? findProjectRoot(process.cwd()) ?? process.cwd();
       this.readHoldoutConfig = () => readHoldoutConfig(projectBase);
     }
+    // Canary is config-driven (no env-enable), so it always reads the project config.
+    this.readCanaryConfig = () => readApplicabilityCanaryConfig(projectBase);
   }
 
   async beforeTask(input: BeforeTaskInput): Promise<BeforeTaskResult> {
@@ -289,6 +292,7 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
     // recall() path internally — the await resolves on the same tick.
     const result = await runReasoningPatternsRecall(this.blockServer, input, {
       readHoldoutConfig: this.readHoldoutConfig,
+      readCanaryConfig: this.readCanaryConfig,
     });
     return toReasoningPatternsStructured(result);
   }

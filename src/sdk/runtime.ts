@@ -44,6 +44,7 @@ import {
   loadConfig,
   readCascadeConfig,
   readHoldoutConfig,
+  readApplicabilityCanaryConfig,
 } from "../core/config.js";
 import { boundField, detectLeakageExtended } from "../core/guard.js";
 import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
@@ -61,6 +62,7 @@ import {
   shouldQueryForPrompt,
   type CascadeLoader,
   type HoldoutLoader,
+  type CanaryLoader,
 } from "../runtime/recall.js";
 import { observeToolBatch } from "../runtime/observe-tools.js";
 import {
@@ -113,6 +115,8 @@ interface ConnectionBundle {
   holdoutLoader: HoldoutLoader;
   /** B1.2: hot cascade-config loader for the rollout gate. */
   cascadeLoader: CascadeLoader;
+  /** D.4.1: hot applicability-canary config loader (default off). */
+  canaryLoader: CanaryLoader;
 }
 
 const DIGEST_TTL_DAYS = 14;
@@ -220,7 +224,8 @@ export function createRuntime(
     });
     const holdoutLoader: HoldoutLoader = () => readHoldoutConfig(basePath);
     const cascadeLoader: CascadeLoader = () => readCascadeConfig(basePath);
-    connection = { db, store, server, basePath, holdoutLoader, cascadeLoader };
+    const canaryLoader: CanaryLoader = () => readApplicabilityCanaryConfig(basePath);
+    connection = { db, store, server, basePath, holdoutLoader, cascadeLoader, canaryLoader };
     return connection;
   }
 
@@ -454,6 +459,7 @@ export function createRuntime(
         servingProfile: input.servingProfile ?? options.servingProfile,
       },
       conn.cascadeLoader,
+      conn.canaryLoader,
     );
 
     const events: BadgeEvent[] = [];

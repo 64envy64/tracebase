@@ -28,7 +28,7 @@ import Database from "better-sqlite3";
 import { BlockStore } from "../../core/block-store.js";
 import { BlockServer, resolveProductionGateThreshold } from "../../core/block-serving.js";
 import { loadBlockCalibrator } from "../../lifecycle/calibrator.js";
-import { findProjectRoot, isInitialized, loadConfig, readCascadeConfig, readHoldoutConfig } from "../../core/config.js";
+import { findProjectRoot, isInitialized, loadConfig, readCascadeConfig, readHoldoutConfig, readApplicabilityCanaryConfig } from "../../core/config.js";
 import {
   buildRerankerFromCascadeConfig,
   extractCascadeKnobs,
@@ -261,6 +261,8 @@ export async function runInjectContext(
         // B1.2: hot-load cascade config per prompt so
         // `tracebase cascade set-rate` takes effect without restart.
         () => readCascadeConfig(basePath),
+        // D.4.1: hot-load the applicability-canary config per prompt (default off).
+        () => readApplicabilityCanaryConfig(basePath),
       ),
     );
 

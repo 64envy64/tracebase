@@ -139,13 +139,34 @@ export async function runReasoningPatternsRecall(
   //            hybrid comparison side-by-side and emit local-only telemetry.
   const retrievalMode = blockServer.retrievalRollout;
   if (retrievalMode === "on") {
-    return blockServer.recallHybrid(query);
+    const served = await blockServer.recallHybrid(query);
+    return applyShadowLanesAndCanary(blockServer, query, served, deps, problemFingerprint, retrievalMode);
   }
 
   const cascadeConfig = deps.readCascadeConfig ? deps.readCascadeConfig() : null;
   const served = shouldUseCascade(problemFingerprint, cascadeConfig)
     ? await blockServer.recallAsync(query)
     : blockServer.recall(query);
+  return applyShadowLanesAndCanary(blockServer, query, served, deps, problemFingerprint, retrievalMode);
+}
+
+/**
+ * The ONE shared post-recall orchestration boundary (Phase D.4.1). Runs the
+ * shadow lanes (hybrid comparison / query-compiler / applicability) and the
+ * explicit-opt-in canary on the served result, identically for EVERY transport
+ * (MCP, inject-context hook, SDK contextual runtime) and BOTH retrieval modes —
+ * so there is exactly one place eligibility + exposure are decided. Every lane
+ * is independently gated; when all are off this returns `served` untouched, so
+ * the disabled path is byte-identical.
+ */
+async function applyShadowLanesAndCanary(
+  blockServer: BlockServer,
+  query: BlockRecallQuery,
+  served: RecallV2Result,
+  deps: ReasoningPatternsDeps,
+  problemFingerprint: string,
+  retrievalMode: "off" | "shadow" | "on",
+): Promise<RecallV2Result> {
   if (retrievalMode === "shadow") {
     await blockServer.emitHybridComparison(query, served.queryId);
   }
