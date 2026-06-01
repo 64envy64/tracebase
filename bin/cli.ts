@@ -31,6 +31,7 @@ import { usageCommand } from "../src/cli/commands/usage.js";
 // (enable / disable / read) stay exported for programmatic use.
 import { memoryCommand } from "../src/cli/commands/memory.js";
 import { cascadeCommand } from "../src/cli/commands/cascade.js";
+import { canaryCommand } from "../src/cli/commands/canary.js";
 import { impactCommand } from "../src/cli/commands/impact.js";
 import { savingsCommand } from "../src/cli/commands/savings.js";
 import { distillCommand } from "../src/cli/commands/distill.js";
@@ -80,6 +81,7 @@ program.addCommand(captureToolUseCommand);
 program.addCommand(capturePreToolUseCommand);
 program.addCommand(memoryCommand);
 program.addCommand(cascadeCommand);
+program.addCommand(canaryCommand);
 program.addCommand(impactCommand);
 program.addCommand(savingsCommand);
 program.addCommand(distillCommand);

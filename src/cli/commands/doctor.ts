@@ -21,6 +21,9 @@ import {
   normalizeInstallAgents,
   readCascadeConfig,
   readHoldoutConfig,
+  readApplicabilityCanaryConfig,
+  resolveCanaryServingState,
+  APPLICABILITY_CANARY_KILL_ENV,
 } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
 import type { CascadeConfig, TraceBaseConfig } from "../../types.js";
@@ -43,7 +46,6 @@ import { resolveReasoningRetrievalMode, REASONING_RETRIEVAL_ENV } from "../../ex
 import { resolveReasoningEvidenceMode, REASONING_EVIDENCE_ENV } from "../../experiments/reasoning-evidence-rollout.js";
 import { resolveReasoningQueryCompilerMode, REASONING_QUERY_COMPILER_ENV } from "../../experiments/reasoning-query-compiler-rollout.js";
 import { resolveReasoningApplicabilityMode, REASONING_APPLICABILITY_ENV } from "../../experiments/reasoning-applicability-rollout.js";
-import { resolveCanaryConfig, APPLICABILITY_CANARY_ENV } from "../../experiments/applicability-canary.js";
 
 /**
  * 0.6.0 — `info` added for purely diagnostic state that's
@@ -381,8 +383,8 @@ export function runDoctor(invocationPath: string): DoctorReport {
   checks.push(reasoningQueryCompilerDoctorCheck());
   // --- Phase D.2 applicability-reranker rollout (TRACEBASE_REASONING_APPLICABILITY).
   checks.push(reasoningApplicabilityDoctorCheck());
-  // --- Phase D.3 applicability canary readiness (TRACEBASE_APPLICABILITY_CANARY).
-  checks.push(applicabilityCanaryDoctorCheck());
+  // --- Phase D.4 applicability canary serving state (persisted config + env kill).
+  checks.push(applicabilityCanaryDoctorCheck(projectRoot));
 
   // --- Live MCP boot probe
   //
@@ -1422,25 +1424,40 @@ export function reasoningApplicabilityDoctorCheck(env: NodeJS.ProcessEnv = proce
 }
 
 /**
- * Phase D.3 applicability-canary readiness diagnostic. The canary is DORMANT in
- * D.3 — it is never wired to serving. This check confirms the kill switch is
- * engaged (default) and warns loudly if someone set an `on:<rate>` value, which
- * D.3 still does NOT honour for serving. Static text; exported for tests.
+ * Phase D.4 applicability-canary serving diagnostic. Reads the PERSISTED config
+ * + the env kill switch + the shadow-rollout coherence and reports the EFFECTIVE
+ * state: a live canary serves a bounded sample, so an active canary is a `warn`
+ * (the operator must be aware). Default-off is `info`. Reads project config when
+ * `projectRoot` is given; env-only otherwise. Exported for tests.
  */
-export function applicabilityCanaryDoctorCheck(env: NodeJS.ProcessEnv = process.env): DoctorCheck {
-  const { config, diagnostics } = resolveCanaryConfig(env);
-  if (config.enabled) {
+export function applicabilityCanaryDoctorCheck(projectRoot?: string, env: NodeJS.ProcessEnv = process.env): DoctorCheck {
+  const persisted = projectRoot ? readApplicabilityCanaryConfig(projectRoot) : null;
+  const serving = resolveCanaryServingState(persisted, env);
+  if (!persisted?.enabled) {
+    return { name: "applicability-canary", level: "info", message: "Applicability canary: off (default; serving byte-identical)" };
+  }
+  if (!serving.enabled) {
+    return {
+      name: "applicability-canary",
+      level: "info",
+      message: `Applicability canary: configured (rate ${persisted.rate}) but DISABLED by ${serving.killReason ?? "kill switch"} — not exposing`,
+    };
+  }
+  // Persisted-enabled AND not killed → the rail is LIVE. It is inert without the
+  // shadow rollout (no reranker verdict), so flag that explicitly.
+  const shadowOn = (env.TRACEBASE_REASONING_APPLICABILITY ?? "").trim().toLowerCase() === "shadow";
+  if (!shadowOn) {
     return {
       name: "applicability-canary",
       level: "warn",
-      message: `Applicability canary: ${APPLICABILITY_CANARY_ENV} requests on:${config.rate} but the canary is DORMANT in this build — it is not wired to serving and changes nothing`,
-      fix: `Unset ${APPLICABILITY_CANARY_ENV} (or set off). Serving a canary requires a separately-reviewed opt-in.`,
+      message: `Applicability canary ENABLED (rate ${persisted.rate}) but TRACEBASE_REASONING_APPLICABILITY!=shadow — the canary is INERT (no reranker verdict to act on)`,
+      fix: "Set TRACEBASE_REASONING_APPLICABILITY=shadow, or run `tracebase canary disable` to stop the experiment.",
     };
   }
   return {
     name: "applicability-canary",
-    level: "info",
-    message: `Applicability canary: disabled (kill switch engaged; dormant)${diagnostics.length ? ` — ${diagnostics[0]}` : ""}`,
+    level: "warn",
+    message: `Applicability canary LIVE — exposing rate ${persisted.rate} (policy ${persisted.policyVersion}); emergency stop: \`tracebase canary disable\` or ${APPLICABILITY_CANARY_KILL_ENV}=off`,
   };
 }
 

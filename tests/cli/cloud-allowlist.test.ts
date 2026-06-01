@@ -1075,4 +1075,22 @@ describe("sanitizeForCloud — Router V2 shadow comparison never reaches the clo
     expect(serialized).not.toContain("q_d3hash");
     expect(serialized).not.toContain("counterfactual_unobserved");
   });
+
+  it("strips a canary exposure / config payload whole (Phase D.4, local-only)", () => {
+    const out = sanitizeForCloud({
+      installationId: "inst-1",
+      canaryExposure: { queryHash: "q_d4hash", unitHash: "u_abc123", blockId: "block-uuid-c", arm: "treatment", propensity: 0.05, policyVersion: "deterministic-applicability.v1" },
+      applicabilityCanary: { enabled: true, rate: 0.05, salt: "secret-salt-xyz", policyVersion: "deterministic-applicability.v1" },
+      metrics: { canaryExposure: { unitHash: "u_def456", blockId: "block-uuid-d" } },
+    }) as { installationId?: string; canaryExposure?: unknown; applicabilityCanary?: unknown; metrics?: { canaryExposure?: unknown } };
+    expect(out.installationId).toBe("inst-1");
+    expect(out.canaryExposure).toBeUndefined();
+    expect(out.applicabilityCanary).toBeUndefined();
+    expect(out.metrics?.canaryExposure).toBeUndefined();
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain("block-uuid");
+    expect(serialized).not.toContain("q_d4hash");
+    expect(serialized).not.toContain("u_abc123");
+    expect(serialized).not.toContain("secret-salt-xyz");
+  });
 });

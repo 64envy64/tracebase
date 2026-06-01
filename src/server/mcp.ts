@@ -1,4 +1,4 @@
-import type { CascadeConfig, HoldoutConfig, TraceBaseConfig } from "../types.js";
+import type { ApplicabilityCanaryConfig, CascadeConfig, HoldoutConfig, TraceBaseConfig } from "../types.js";
 import { ReasoningLayer } from "../core/engine.js";
 import Database from "better-sqlite3";
 import { BlockStore } from "../core/block-store.js";
@@ -34,7 +34,7 @@ import {
   type OutcomeStructured,
   type StorePatternStructured,
 } from "./mcp-v2-helpers.js";
-import { findProjectRoot, readCascadeConfig, readHoldoutConfig } from "../core/config.js";
+import { findProjectRoot, readCascadeConfig, readHoldoutConfig, readApplicabilityCanaryConfig } from "../core/config.js";
 import { runReasoningPatternsRecall } from "./reasoning-patterns-entry.js";
 
 /**
@@ -118,6 +118,9 @@ export async function startMcpServer(
     readHoldoutConfig(projectBasePath);
   const cascadeConfigLoader: () => CascadeConfig | null = () =>
     readCascadeConfig(projectBasePath);
+  // Phase D.4 — fresh-per-call canary config loader (default off; explicit opt-in).
+  const canaryConfigLoader: () => ApplicabilityCanaryConfig | null = () =>
+    readApplicabilityCanaryConfig(projectBasePath);
 
   // B1.2: construct the reranker ONCE at boot from the cascade config.
   // This is the only thing in the cascade pipeline that's process-
@@ -495,6 +498,7 @@ export async function startMcpServer(
       const result = await runReasoningPatternsRecall(blockServer, args, {
         readHoldoutConfig: holdoutConfigLoader,
         readCascadeConfig: cascadeConfigLoader,
+        readCanaryConfig: canaryConfigLoader,
       });
 
       const formatted = formatInjection(result, {
