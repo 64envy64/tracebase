@@ -17,6 +17,7 @@ import {
   findConfigDir,
   resolveProjectBase,
   DEFAULT_CANARY_RATE,
+  MAX_CANARY_RATE,
   CANARY_POLICY_VERSION,
   APPLICABILITY_CANARY_KILL_ENV,
 } from "../../core/config.js";
@@ -34,7 +35,9 @@ function assertInitialized(path: string): string {
 
 function parseRateArg(value: string): number {
   const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0 || n > 1) throw new Error(`--rate must be in (0, 1]; got ${value}`);
+  if (!Number.isFinite(n) || n <= 0 || n > MAX_CANARY_RATE) {
+    throw new Error(`--rate must be in (0, ${MAX_CANARY_RATE}] (pre-reg cap); got ${value}. Rates above the cap are rejected, never clamped.`);
+  }
   return n;
 }
 
@@ -53,7 +56,7 @@ export const canaryCommand = new Command("canary")
     new Command("enable")
       .description("ACTIVATE the canary — requires --ack of the policy version")
       .option("-p, --path <path>", "project root", process.cwd())
-      .option("--rate <rate>", `treatment rate in (0, 1]; default ${DEFAULT_CANARY_RATE}`, parseRateArg)
+      .option("--rate <rate>", `treatment rate in (0, ${MAX_CANARY_RATE}] (pre-reg cap); default ${DEFAULT_CANARY_RATE}`, parseRateArg)
       .requiredOption("--ack <policyVersion>", `acknowledge the policy being served (must equal ${CANARY_POLICY_VERSION})`)
       .action((opts: { path: string; rate?: number; ack: string }) => {
         const projectBase = assertInitialized(opts.path);

@@ -3,7 +3,7 @@
  * only (policy acknowledgement required); env may ONLY disable, never enable.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdirSync, rmSync, realpathSync } from "node:fs";
+import { mkdirSync, rmSync, realpathSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -15,6 +15,7 @@ import {
   resolveCanaryServingState,
   CANARY_POLICY_VERSION,
   DEFAULT_CANARY_RATE,
+  MAX_CANARY_RATE,
   APPLICABILITY_CANARY_KILL_ENV as KILL,
 } from "../../src/core/config.js";
 
@@ -39,9 +40,13 @@ describe("applicability canary config lifecycle", () => {
     expect(c!.policyVersion).toBe(CANARY_POLICY_VERSION);
   });
 
-  it("enable rejects out-of-range rates", () => {
+  it("enable REJECTS rates above the pre-reg cap (never clamps)", () => {
     expect(() => enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0 })).toThrow();
     expect(() => enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 1.5 })).toThrow();
+    expect(() => enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.06 })).toThrow(/0\.05|cap/);
+    expect(MAX_CANARY_RATE).toBe(0.05);
+    // The cap itself is allowed.
+    expect(enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.05 })!.rate).toBe(0.05);
   });
 
   it("preserves salt + createdAt across disable / re-enable (stable assignment)", () => {
@@ -49,10 +54,22 @@ describe("applicability canary config lifecycle", () => {
     const disabled = disableApplicabilityCanary(basePath)!;
     expect(disabled.enabled).toBe(false);
     expect(disabled.salt).toBe(first.salt);
-    const reenabled = enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.1 })!;
+    const reenabled = enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.03 })!;
     expect(reenabled.salt).toBe(first.salt); // stable
     expect(reenabled.createdAt).toBe(first.createdAt);
-    expect(reenabled.rate).toBe(0.1);
+    expect(reenabled.rate).toBe(0.03);
+  });
+
+  it("a persisted rate above the cap collapses to OFF (malformed/out-of-policy)", () => {
+    // Hand-edit the config to an out-of-policy rate (simulating tampering / a
+    // future version). extract must reject it rather than serve above the cap.
+    enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.05 });
+    const file = join(basePath, ".tracebase", "config.json");
+    const raw = JSON.parse(readFileSync(file, "utf8")) as { experiment: { applicabilityCanary: { rate: number } } };
+    raw.experiment.applicabilityCanary.rate = 0.5;
+    writeFileSync(file, JSON.stringify(raw));
+    expect(readApplicabilityCanaryConfig(basePath)).toBeNull(); // collapses to off
+    expect(resolveCanaryServingState(readApplicabilityCanaryConfig(basePath), {}).enabled).toBe(false);
   });
 
   it("resolveCanaryServingState: env may DISABLE but NEVER enable", () => {

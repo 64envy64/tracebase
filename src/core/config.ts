@@ -424,7 +424,14 @@ export function readHoldoutConfig(basePath: string): HoldoutConfig | null {
 // Phase D.4 — applicability canary configuration helpers (explicit opt-in)
 // ---------------------------------------------------------------------------
 
-/** Default canary rate on first explicit enable (small by design). */
+/**
+ * Hard ceiling on the canary treatment rate, matching the frozen pre-registration
+ * (docs/applicability-canary-prereg.md §3). Enforced in config, CLI, parsing AND
+ * extraction — a higher rate is REJECTED (never silently clamped), and a persisted
+ * config above the cap collapses to off (treated as malformed/out-of-policy).
+ */
+export const MAX_CANARY_RATE = 0.05;
+/** Default canary rate on first explicit enable (== the cap; small by design). */
 export const DEFAULT_CANARY_RATE = 0.05;
 /** The reranker policy version the operator must acknowledge to enable. */
 export const CANARY_POLICY_VERSION = "deterministic-applicability.v1";
@@ -453,8 +460,8 @@ export interface EnableCanaryInput {
  */
 export function enableApplicabilityCanary(basePath: string, input: EnableCanaryInput): ApplicabilityCanaryConfig | null {
   const rate = input.rate ?? DEFAULT_CANARY_RATE;
-  if (!Number.isFinite(rate) || rate <= 0 || rate > 1) {
-    throw new Error(`canary rate must be in (0, 1]; got ${rate}`);
+  if (!Number.isFinite(rate) || rate <= 0 || rate > MAX_CANARY_RATE) {
+    throw new Error(`canary rate must be in (0, ${MAX_CANARY_RATE}]; got ${rate} (the pre-reg cap is ${MAX_CANARY_RATE} — rates are never clamped)`);
   }
   if (input.policyAck !== CANARY_POLICY_VERSION) {
     throw new Error(`canary enable requires --ack ${CANARY_POLICY_VERSION} (got ${JSON.stringify(input.policyAck)}); refusing to activate without an explicit policy acknowledgement`);
@@ -805,6 +812,10 @@ function extractApplicabilityCanaryConfig(raw: Record<string, unknown>): Applica
   ) {
     return null;
   }
+  // Fail-safe: a persisted rate outside (0, MAX_CANARY_RATE] is out-of-policy
+  // (hand-edited / future-version) → collapse the whole config to off rather than
+  // silently serving above the pre-reg cap.
+  if (!Number.isFinite(o.rate) || o.rate <= 0 || o.rate > MAX_CANARY_RATE) return null;
   return { enabled: o.enabled, rate: o.rate, salt: o.salt, policyVersion: o.policyVersion, createdAt: o.createdAt, updatedAt: o.updatedAt };
 }
 
