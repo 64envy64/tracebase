@@ -9,6 +9,10 @@
  */
 import { Command } from "commander";
 import pc from "picocolors";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import Database from "better-sqlite3";
 import {
   enableApplicabilityCanary,
   disableApplicabilityCanary,
@@ -16,12 +20,65 @@ import {
   resolveCanaryServingState,
   findConfigDir,
   resolveProjectBase,
+  loadConfig,
   DEFAULT_CANARY_RATE,
   MAX_CANARY_RATE,
   CANARY_POLICY_VERSION,
   APPLICABILITY_CANARY_KILL_ENV,
 } from "../../core/config.js";
 import type { ApplicabilityCanaryConfig } from "../../types.js";
+import { BlockStore } from "../../core/block-store.js";
+import { APPLICABILITY_FEATURE_VERSION } from "../../core/applicability-reranker.js";
+import {
+  buildPreflightReceipt,
+  verifyReceiptForEnable,
+  preregHashOf,
+  CANARY_RECEIPT_FILE,
+  type CanaryPreflightReceipt,
+} from "../../experiments/canary-preflight.js";
+
+/** Resolve + read the frozen pre-registration doc (relative to this module). */
+function readPreregText(): string {
+  const here = fileURLToPath(import.meta.url);
+  // src/cli/commands/canary.(ts|js) → repo root is three levels up.
+  const candidate = join(here, "..", "..", "..", "..", "docs", "applicability-canary-prereg.md");
+  return readFileSync(candidate, "utf8");
+}
+
+function killEngaged(env: NodeJS.ProcessEnv): boolean {
+  const k = (env[APPLICABILITY_CANARY_KILL_ENV] ?? "").trim().toLowerCase();
+  return k === "off" || k === "0" || k === "false" || k === "disabled";
+}
+function shadowEnabled(env: NodeJS.ProcessEnv): boolean {
+  return (env.TRACEBASE_REASONING_APPLICABILITY ?? "").trim().toLowerCase() === "shadow";
+}
+
+/** Build a fresh preflight receipt from live project + env state. */
+function runPreflight(projectBase: string, env: NodeJS.ProcessEnv, nowMs: number): CanaryPreflightReceipt {
+  const cfg = loadConfig(projectBase);
+  const store = new BlockStore(new Database(cfg.storagePath, { readonly: true }));
+  try {
+    const events = store.readEvents({});
+    return buildPreflightReceipt({
+      preregText: readPreregText(),
+      events,
+      canaryConfig: readApplicabilityCanaryConfig(projectBase),
+      shadowEnabled: shadowEnabled(env),
+      killEngaged: killEngaged(env),
+      globalDisabled: env.TRACEBASE_DISABLED === "1",
+      policyVersion: CANARY_POLICY_VERSION,
+      currentPolicyVersion: CANARY_POLICY_VERSION,
+      applicabilityFeatureVersion: APPLICABILITY_FEATURE_VERSION,
+      currentApplicabilityFeatureVersion: APPLICABILITY_FEATURE_VERSION,
+      nowMs,
+    });
+  } finally {
+    store.close();
+  }
+}
+function receiptPath(projectBase: string): string {
+  return join(projectBase, ".tracebase", CANARY_RECEIPT_FILE);
+}
 
 function assertInitialized(path: string): string {
   const projectBase = resolveProjectBase(path);
@@ -53,14 +110,69 @@ function renderCanary(c: ApplicabilityCanaryConfig): void {
 export const canaryCommand = new Command("canary")
   .description("Operate the explicit opt-in applicability canary (apply-only; default OFF)")
   .addCommand(
+    new Command("preflight")
+      .description("Readiness audit — emits a local activation receipt (no content/secrets)")
+      .option("-p, --path <path>", "project root", process.cwd())
+      .option("--json", "machine-readable JSON output")
+      .action((opts: { path: string; json?: boolean }) => {
+        const projectBase = assertInitialized(opts.path);
+        let receipt: CanaryPreflightReceipt;
+        try {
+          receipt = runPreflight(projectBase, process.env, Date.now());
+        } catch (e) {
+          console.error(pc.red("Error: ") + (e instanceof Error ? e.message : String(e)));
+          process.exit(1);
+        }
+        writeFileSync(receiptPath(projectBase), JSON.stringify(receipt, null, 2) + "\n");
+        if (opts.json) {
+          process.stdout.write(JSON.stringify(receipt, null, 2) + "\n");
+          return;
+        }
+        console.log();
+        console.log(pc.bold(`Canary preflight — ${receipt.ok ? pc.green("READY") : pc.red("NOT READY")}`));
+        for (const [k, v] of Object.entries(receipt.checks)) console.log(`  ${v ? pc.green("✓") : pc.red("✗")} ${k}`);
+        console.log(pc.dim(`  attribution: crossRun=${receipt.attribution.crossRun} ambiguous=${receipt.attribution.ambiguous} trials=${receipt.attribution.trials}`));
+        console.log(pc.dim(`  prereg hash: ${receipt.preregHash}  (receipt written to .tracebase/${CANARY_RECEIPT_FILE})`));
+        console.log();
+        if (receipt.ok) {
+          console.log(pc.dim(`Within 30 min, to activate:  npx tracebase-ai canary enable --rate ${DEFAULT_CANARY_RATE} --ack ${CANARY_POLICY_VERSION} --prereg-ack ${receipt.preregHash}`));
+        } else {
+          console.log(pc.yellow("Resolve the ✗ checks, then re-run preflight."));
+        }
+        console.log();
+      }),
+  )
+  .addCommand(
     new Command("enable")
-      .description("ACTIVATE the canary — requires --ack of the policy version")
+      .description("ACTIVATE the canary — requires a fresh preflight receipt + --ack + --prereg-ack")
       .option("-p, --path <path>", "project root", process.cwd())
       .option("--rate <rate>", `treatment rate in (0, ${MAX_CANARY_RATE}] (pre-reg cap); default ${DEFAULT_CANARY_RATE}`, parseRateArg)
       .requiredOption("--ack <policyVersion>", `acknowledge the policy being served (must equal ${CANARY_POLICY_VERSION})`)
-      .action((opts: { path: string; rate?: number; ack: string }) => {
+      .requiredOption("--prereg-ack <preregHash>", "acknowledge the frozen pre-reg hash from `canary preflight`")
+      .action((opts: { path: string; rate?: number; ack: string; preregAck: string }) => {
         const projectBase = assertInitialized(opts.path);
         try {
+          // 1. A fresh preflight receipt must exist and still match live state.
+          const rp = receiptPath(projectBase);
+          if (!existsSync(rp)) {
+            console.error(pc.red("Refused: ") + "no preflight receipt. Run `npx tracebase-ai canary preflight` first.");
+            process.exit(1);
+          }
+          const stored: unknown = JSON.parse(readFileSync(rp, "utf8"));
+          // Re-derive the live prerequisite digest NOW; any drift since preflight refuses.
+          const live = runPreflight(projectBase, process.env, Date.now());
+          const verdict = verifyReceiptForEnable(stored, { prereqDigest: live.prereqDigest, nowMs: Date.now() });
+          if (!verdict.ok) {
+            console.error(pc.red("Refused: ") + `preflight receipt ${verdict.reason}. Re-run \`canary preflight\` and review the changed prerequisites.`);
+            process.exit(1);
+          }
+          // 2. The operator must acknowledge the EXACT frozen pre-reg they preflighted.
+          const currentPreregHash = preregHashOf(readPreregText());
+          if (opts.preregAck !== currentPreregHash) {
+            console.error(pc.red("Refused: ") + `--prereg-ack ${JSON.stringify(opts.preregAck)} != current pre-reg hash ${currentPreregHash}.`);
+            process.exit(1);
+          }
+          // 3. Persist (enableApplicabilityCanary enforces --ack + the rate cap).
           const next = enableApplicabilityCanary(projectBase, {
             policyAck: opts.ack,
             ...(opts.rate !== undefined ? { rate: opts.rate } : {}),

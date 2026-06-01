@@ -94,3 +94,25 @@ observable in shadow — D.3). One causal question, one rail.
 - It does not authorize *running* the canary — that is a separate reviewed step.
 - It does not authorize reranker *withholds*, a higher rate, non-organic readiness
   claims, a semantic-model adapter, or any cloud transmission of the local stream.
+
+## 11. Operational corrections (Phase D.4.1)
+These hardening corrections are part of the frozen plan; the receipt's `preregHash`
+covers this section too.
+- **Unified transport boundary.** The canary engages identically across MCP, the
+  inject-context hook, and the SDK contextual runtime — all funnel through one
+  post-recall boundary (`runReasoningPatternsRecall` → `applyShadowLanesAndCanary`),
+  on both retrieval modes. There is no transport where it silently differs, and
+  disabled is byte-identical everywhere.
+- **Rate cap enforced at every ingress.** `MAX_CANARY_RATE = 0.05` (§3) is enforced
+  in the config writer, the CLI `--rate` parser (`enable` + `preview`), and config
+  extraction. A higher rate is **rejected, never clamped**; a persisted rate above
+  the cap (hand-edit / future version) **collapses the config to off**.
+- **Preflight + receipt gate.** `canary enable` requires (1) a fresh
+  (`≤ 30 min`) preflight receipt whose checks all passed, (2) the live prerequisite
+  digest still matching the receipt's (any change — shadow off, this doc edited, a
+  version bump, the kill switch, the canary already on — refuses), (3) explicit
+  `--ack <policyVersion>`, and (4) `--prereg-ack <preregHash>` matching THIS
+  document's hash. **Emergency `disable` stays unconditional.**
+- **Receipt privacy.** The receipt holds only a timestamp, prerequisite hashes,
+  boolean check results, and bounded attribution counts — no prompt/body/path/token
+  text and no secrets; the salt is never written to it.
