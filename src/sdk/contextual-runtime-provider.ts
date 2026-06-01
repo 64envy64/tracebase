@@ -32,6 +32,7 @@
 
 import { BlockStore } from "../core/block-store.js";
 import { BlockServer, resolveProductionGateThreshold } from "../core/block-serving.js";
+import { routerServingOptions } from "../experiments/reasoning-router-rollout.js";
 import {
   EventEmitter,
   emitAgentUsed,
@@ -257,6 +258,8 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
     this.blockServer = new BlockServer(this.blockStore, {
       calibrator: loadBlockCalibrator(this.blockStore),
       gateThreshold: resolveProductionGateThreshold(),
+      // Router V2 rollout (TRACEBASE_REASONING_ROUTER=off|shadow|on); default off.
+      ...routerServingOptions(),
     });
     this.eventEmitter = new EventEmitter(this.blockStore);
     if (opts.readHoldoutConfig) {

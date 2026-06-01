@@ -39,6 +39,8 @@ import type {
   ServingTelemetry,
   InjectionEvent,
   FactInjectionEvent,
+  RouterShadowComparisonEvent,
+  RouterShadowAgreement,
 } from "../types.js";
 import {
   type Reranker,
@@ -56,6 +58,9 @@ import {
   type ServingPolicy,
   type ServingDecision,
   type ServingEvidenceV1,
+  type ServingQuery,
+  type ServingCandidate,
+  type EvidenceCalibrator,
 } from "./serving-confidence.js";
 import { decideServingV2, type ServingModeV2 } from "./serving-decision-v2.js";
 import { SERVING_FEATURE_VERSION_V2 } from "./serving-evidence-v2.js";
@@ -401,6 +406,15 @@ export interface BlockServerOptions {
    * IDENTICAL across modes — only the FIRE-vs-ABSTAIN evidence + margin differ.
    */
   servingMode?: ServingMode;
+  /**
+   * Router V2 SHADOW evaluation (rollout=shadow). When set, every recall
+   * ALSO computes this V2 decision side-by-side on the SAME candidate slate and
+   * emits a privacy-safe `router.shadow_comparison` event — WITHOUT affecting
+   * the injected context (which still follows `servingMode`). Undefined by
+   * default (no shadow work, no comparison event). The rollout resolver sets
+   * this to `"v2-family"` only in shadow mode.
+   */
+  shadowEvaluate?: ServingModeV2;
 }
 
 // ---------------------------------------------------------------------------
@@ -447,6 +461,8 @@ export class BlockServer {
   private readonly cascadeFetchMultiplier: number;
   /** Serving representation (v1 default; v2-* opt-in, fail-open). */
   private readonly servingMode: ServingMode;
+  /** Router V2 shadow evaluation (rollout=shadow); undefined = no shadow work. */
+  private readonly shadowEvaluate: ServingModeV2 | undefined;
 
   constructor(store: BlockStore, opts: BlockServerOptions = {}) {
     this.store = store;
@@ -475,6 +491,7 @@ export class BlockServer {
     this.mmrLambda = opts.mmrLambda ?? DEFAULT_MMR_LAMBDA;
     this.cascadeFetchMultiplier = Math.max(1, opts.cascadeFetchMultiplier ?? 4);
     this.servingMode = opts.servingMode ?? "v1";
+    this.shadowEvaluate = opts.shadowEvaluate;
   }
 
   /**
@@ -747,6 +764,7 @@ export class BlockServer {
     let servingDecision: ServingDecision;
     let perCandidate: ServingEvidenceV1[];
     let effectiveFeatureVersion = SERVING_FEATURE_VERSION_NUM;
+    const decideStartedAt = this.now();
     if (this.servingMode === "v1") {
       ({ decision: servingDecision, perCandidate } = decideServing(
         servingQuery,
@@ -771,6 +789,10 @@ export class BlockServer {
         ));
       }
     }
+
+    // Wall-clock of the SERVED decision (V1 in shadow mode) — recorded on the
+    // shadow comparison so V2 overhead can be measured against it.
+    const primaryDecisionMs = Math.max(0, this.now() - decideStartedAt);
 
     // Calibrated probability keys off `evidenceConfidence` so telemetry,
     // holdout eligibility, and the gate all read the same number.
@@ -895,6 +917,25 @@ export class BlockServer {
       }
     }
 
+    // Router V2 shadow comparison (rollout=shadow). Computed on the SAME
+    // candidate slate; NEVER alters the injected payload above. A distinct,
+    // additive, privacy-safe, LOCAL-ONLY telemetry stream — emitted whenever
+    // shadow evaluation is configured (independent of `emitEvents`, which
+    // governs the V1 retrieval/injection stream other paths may re-emit).
+    if (this.shadowEvaluate) {
+      this.emitShadowComparison(
+        queryId,
+        query,
+        servingQuery,
+        servingCandidates,
+        policy,
+        evidenceCalibrate,
+        servingDecision,
+        effectiveFeatureVersion,
+        primaryDecisionMs,
+      );
+    }
+
     return {
       queryId,
       shadow,
@@ -904,6 +945,107 @@ export class BlockServer {
       shouldInject,
       servingDecision,
     };
+  }
+
+  /**
+   * Compute the Router V2 shadow decision side-by-side with the served V1
+   * decision (same candidate slate) and emit a privacy-safe
+   * `router.shadow_comparison` event. Fails open: if the V2 decision throws,
+   * the comparison is emitted with `v2FallbackReason` and abstain defaults —
+   * shadow evaluation can never break a recall or alter injection.
+   */
+  private emitShadowComparison(
+    queryId: string,
+    query: BlockRecallQuery,
+    servingQuery: ServingQuery,
+    servingCandidates: readonly ServingCandidate[],
+    policy: ServingPolicy,
+    calibrate: EvidenceCalibrator,
+    v1Decision: ServingDecision,
+    v1FeatureVersion: number,
+    v1LatencyMs: number,
+  ): void {
+    const mode = this.shadowEvaluate;
+    if (!mode) return;
+
+    const t0 = this.now();
+    let v2Action: "inject" | "abstain" = "abstain";
+    let v2Reason = "error";
+    let v2TopBlockId: string | undefined;
+    let v2Confidence = 0;
+    let v2Margin = 0;
+    let resolverName = "n/a";
+    let familyCount = 0;
+    let topFamilySupport = 0;
+    let topFamilySourceDiversity = 0;
+    let topFamilyContradiction = 0;
+    let runnerUpFamilyConfidence = 0;
+    let familyMargin = 0;
+    let bridgesPrevented = 0;
+    let redactedFieldCount = 0;
+    let v2FallbackReason: string | undefined;
+    try {
+      const r = decideServingV2(servingQuery, servingCandidates, policy, calibrate, { mode });
+      const d = r.decision;
+      v2Action = d.action;
+      v2Reason = d.reason;
+      v2TopBlockId = d.topCandidateId;
+      v2Confidence = round4(d.calibratedProb ?? d.features?.evidenceConfidence ?? 0);
+      v2Margin = round4(d.features?.margin ?? 0);
+      for (const e of r.evidenceV2) redactedFieldCount += e.redactedFields.length;
+      if (r.family) {
+        resolverName = r.family.resolverName;
+        familyCount = r.family.familyCount;
+        topFamilySupport = r.family.topFamilySupport;
+        topFamilySourceDiversity = r.family.topFamilySourceDiversity;
+        topFamilyContradiction = round4(r.family.topFamilyContradiction);
+        runnerUpFamilyConfidence = round4(r.family.runnerUpFamilyConfidence);
+        familyMargin = round4(r.family.familyMargin);
+        bridgesPrevented = r.family.bridgesPrevented;
+      }
+    } catch (err) {
+      v2FallbackReason = (err instanceof Error ? err.message : String(err)).slice(0, 200);
+    }
+    const v2OverheadMs = Math.max(0, this.now() - t0);
+
+    const v1Action = v1Decision.action;
+    const v1TopBlockId = v1Decision.topCandidateId;
+    const event: RouterShadowComparisonEvent = {
+      event: "router.shadow_comparison",
+      ts: this.now(),
+      queryId,
+      ...(query.runId ? { runId: query.runId } : {}),
+      queryHash: queryHash(query.text),
+      corpusSize: this.store.countBlocks("active"),
+      candidateCount: servingCandidates.length,
+      v1Action,
+      v1Reason: v1Decision.reason,
+      ...(v1TopBlockId ? { v1TopBlockId } : {}),
+      v1Confidence: round4(v1Decision.calibratedProb ?? v1Decision.features?.evidenceConfidence ?? 0),
+      v1Margin: round4(v1Decision.features?.margin ?? 0),
+      v1FeatureVersion,
+      v1LatencyMs,
+      v2Action,
+      v2Reason,
+      ...(v2TopBlockId ? { v2TopBlockId } : {}),
+      v2Confidence,
+      v2Margin,
+      v2FeatureVersion: SERVING_FEATURE_VERSION_V2_NUM,
+      v2LatencyMs: v2OverheadMs,
+      v2OverheadMs,
+      agreement: shadowAgreement(v1Action, v1TopBlockId, v2Action, v2TopBlockId),
+      resolverName,
+      familyCount,
+      topFamilySupport,
+      topFamilySourceDiversity,
+      topFamilyContradiction,
+      runnerUpFamilyConfidence,
+      familyMargin,
+      bridgesPrevented,
+      redactedFieldCount,
+      ...(v2FallbackReason ? { v2FallbackReason } : {}),
+    };
+    this.emitter.emit(event, query.runId ? { runId: query.runId } : undefined);
   }
 
   // -------------------------------------------------------------------------
@@ -1310,4 +1452,23 @@ function clamp01(x: number): number {
   if (x < 0) return 0;
   if (x > 1) return 1;
   return x;
+}
+
+function round4(x: number): number {
+  return Math.round(x * 10000) / 10000;
+}
+
+/** Classify how the served V1 decision and the shadow V2 decision agreed. */
+function shadowAgreement(
+  v1Action: "inject" | "abstain",
+  v1Top: string | undefined,
+  v2Action: "inject" | "abstain",
+  v2Top: string | undefined,
+): RouterShadowAgreement {
+  const v1Inj = v1Action === "inject";
+  const v2Inj = v2Action === "inject";
+  if (!v1Inj && !v2Inj) return "agree_abstain";
+  if (v1Inj && !v2Inj) return "v1_only_inject";
+  if (!v1Inj && v2Inj) return "v2_only_inject";
+  return v1Top && v2Top && v1Top === v2Top ? "agree_inject_same" : "agree_inject_diff";
 }

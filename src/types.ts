@@ -1688,7 +1688,12 @@ export type AnalyticsEvent =
   // behaviour so the dashboard can show *why* captures fail
   // (validation, leakage, store error) instead of pretending nothing
   // went wrong.
-  | CaptureErrorEvent;
+  | CaptureErrorEvent
+  // Router V2 (rollout=shadow) — one event per recall comparing the served V1
+  // decision with the side-by-side V2-family decision on the SAME candidate
+  // slate. Privacy-safe (queryHash + opaque block ids + counts; no prompt /
+  // body / path). Local-only: never part of the cloud UsageMetrics aggregate.
+  | RouterShadowComparisonEvent;
 
 interface EventBase {
   ts: number;
@@ -2441,4 +2446,67 @@ export interface CaptureErrorEvent extends EventBase {
   reason: "validation" | "unknown";
   /** Bounded to 200 chars to keep payload size predictable. */
   message: string;
+}
+
+/** How the served V1 decision and the shadow V2-family decision compared. */
+export type RouterShadowAgreement =
+  | "agree_abstain"
+  | "agree_inject_same"
+  | "agree_inject_diff"
+  | "v1_only_inject"
+  | "v2_only_inject";
+
+/**
+ * Router V2 shadow comparison — emitted once per recall when
+ * `TRACEBASE_REASONING_ROUTER=shadow`. Records the served V1 decision next to
+ * the side-by-side V2-family decision computed on the SAME bounded candidate
+ * slate. Privacy-safe by construction: a non-reversible `queryHash`, opaque
+ * block ids, and counts only — no prompt, body, code, or path. LOCAL-ONLY:
+ * this event is never part of the cloud `UsageMetrics` aggregate (the cloud
+ * allowlist drops anything shaped like it; see tests/cli/cloud-allowlist.test).
+ */
+export interface RouterShadowComparisonEvent extends EventBase {
+  event: "router.shadow_comparison";
+  queryHash: string;
+  corpusSize: number;
+  candidateCount: number;
+
+  // Served decision (V1 in shadow mode).
+  v1Action: "inject" | "abstain";
+  v1Reason: string;
+  v1TopBlockId?: string;
+  v1Confidence: number;
+  v1Margin: number;
+  v1FeatureVersion: number;
+  v1LatencyMs: number;
+
+  // Side-by-side V2-family decision (computed, never served in shadow mode).
+  v2Action: "inject" | "abstain";
+  v2Reason: string;
+  v2TopBlockId?: string;
+  v2Confidence: number;
+  v2Margin: number;
+  v2FeatureVersion: number;
+  v2LatencyMs: number;
+  /** Extra wall-clock the shadow V2 decision added (the overhead of shadow mode). */
+  v2OverheadMs: number;
+
+  agreement: RouterShadowAgreement;
+
+  // Family signals from the V2 decision.
+  resolverName: string;
+  familyCount: number;
+  topFamilySupport: number;
+  topFamilySourceDiversity: number;
+  topFamilyContradiction: number;
+  runnerUpFamilyConfidence: number;
+  familyMargin: number;
+  /** Transitive bridge merges the resolver refused on this slate. */
+  bridgesPrevented: number;
+
+  /** Body fields the V2 privacy guard redacted across the candidate slate. */
+  redactedFieldCount: number;
+
+  /** Set only when the V2 decision threw and the comparison fell open to V1. */
+  v2FallbackReason?: string;
 }

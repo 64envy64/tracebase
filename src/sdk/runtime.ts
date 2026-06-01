@@ -51,6 +51,7 @@ import {
   buildRerankerFromCascadeConfig,
   extractCascadeKnobs,
 } from "../experiments/cascade-rollout.js";
+import { routerServingOptions } from "../experiments/reasoning-router-rollout.js";
 import {
   recallForPrompt,
   shouldQueryForPrompt,
@@ -202,6 +203,8 @@ export function createRuntime(
       gateThreshold: resolveProductionGateThreshold(),
       reranker,
       ...cascadeKnobs,
+      // Router V2 rollout (TRACEBASE_REASONING_ROUTER=off|shadow|on); default off.
+      ...routerServingOptions(),
     });
     const holdoutLoader: HoldoutLoader = () => readHoldoutConfig(basePath);
     const cascadeLoader: CascadeLoader = () => readCascadeConfig(basePath);

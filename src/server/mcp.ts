@@ -10,6 +10,7 @@ import {
   buildRerankerFromCascadeConfig,
   extractCascadeKnobs,
 } from "../experiments/cascade-rollout.js";
+import { routerServingOptions } from "../experiments/reasoning-router-rollout.js";
 import {
   computeCascadeComparison,
   type CascadeComparison,
@@ -130,6 +131,8 @@ export async function startMcpServer(
     gateThreshold: resolveProductionGateThreshold(),
     reranker,
     ...cascadeKnobs,
+    // Router V2 rollout (TRACEBASE_REASONING_ROUTER=off|shadow|on); default off.
+    ...routerServingOptions(),
   });
   const eventEmitter = new EventEmitter(blockStore);
 
