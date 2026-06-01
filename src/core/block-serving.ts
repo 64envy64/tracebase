@@ -50,6 +50,9 @@ import type {
   EvidenceFallback,
   ReasoningQueryCompilerComparisonEvent,
   QueryCompilerFallback,
+  ReasoningApplicabilityComparisonEvent,
+  ApplicabilityFallback,
+  ApplicabilityChangedDecision,
 } from "../types.js";
 import {
   type Reranker,
@@ -80,7 +83,15 @@ import {
   type CompiledQuery,
 } from "./runtime-query-compiler.js";
 import type { QueryCompilerRolloutMode } from "../experiments/reasoning-query-compiler-rollout.js";
-import { SERVING_FEATURE_VERSION_V2 } from "./serving-evidence-v2.js";
+import type { ApplicabilityRolloutMode } from "../experiments/reasoning-applicability-rollout.js";
+import {
+  DeterministicApplicabilityReranker,
+  type ApplicabilityProvider,
+  type ApplicabilityCandidate,
+  type ApplicabilityResult,
+} from "./applicability-reranker.js";
+import { StructuredSignatureResolver, type FamilyCandidate } from "./reasoning-family.js";
+import { SERVING_FEATURE_VERSION_V2, buildStructuredView } from "./serving-evidence-v2.js";
 import {
   fuseHybrid,
   RETRIEVAL_INTENT_VERSION,
@@ -334,6 +345,18 @@ export interface RecallV2Result {
     causalAddedDecision: boolean;
     causalSemanticOnly: number;
   };
+  /**
+   * Phase D.2 shadow applicability-reranker comparison, populated ONLY when
+   * `applicabilityMode === "shadow"`. Surfaces the served V4 action vs the
+   * reranker verdict on the top-N prototypes; NEVER served.
+   */
+  shadowApplicability?: {
+    v4Action: "inject" | "abstain";
+    verdict: "applicable" | "uncertain" | "inapplicable" | "none";
+    topBlockId?: string;
+    changedDecision: "none" | "reranker_only_apply" | "reranker_withholds";
+    fallback: "none" | "timeout" | "error";
+  };
 }
 
 export type Calibrator = (score: number, block: ReasoningBlock) => number;
@@ -523,6 +546,17 @@ export interface BlockServerOptions {
    * deterministic. Defaults to `StructuredQueryCompiler`.
    */
   queryCompiler?: RuntimeQueryCompiler;
+  /**
+   * Phase D.2 memory-applicability reranker rollout. Default `"off"` — the
+   * reranker is never invoked and serving is byte-identical. `"shadow"` runs the
+   * reranker over the top-N prototypes after candidate generation and records a
+   * V4-vs-reranker comparison, WITHOUT serving it. There is no production `"on"`.
+   */
+  applicabilityMode?: ApplicabilityRolloutMode;
+  /** The applicability reranker used in `applicabilityMode="shadow"`. Defaults to the deterministic baseline. */
+  applicabilityProvider?: ApplicabilityProvider;
+  /** Hard wall-clock budget for one reranker call. Default 250ms. */
+  applicabilityDeadlineMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -580,6 +614,10 @@ export class BlockServer {
   /** Phase D.1 two-view query-compiler rollout (off default; shadow compares candidate slates). */
   private readonly queryCompilerMode: QueryCompilerRolloutMode;
   private readonly queryCompiler: RuntimeQueryCompiler;
+  /** Phase D.2 applicability-reranker rollout (off default; shadow compares V4 vs reranker). */
+  private readonly applicabilityMode: ApplicabilityRolloutMode;
+  private readonly applicabilityProvider: ApplicabilityProvider;
+  private readonly applicabilityDeadlineMs: number;
 
   constructor(store: BlockStore, opts: BlockServerOptions = {}) {
     this.store = store;
@@ -615,6 +653,9 @@ export class BlockServer {
     this.evidenceMode = opts.evidenceMode ?? "off";
     this.queryCompilerMode = opts.queryCompilerMode ?? "off";
     this.queryCompiler = opts.queryCompiler ?? new StructuredQueryCompiler();
+    this.applicabilityMode = opts.applicabilityMode ?? "off";
+    this.applicabilityProvider = opts.applicabilityProvider ?? new DeterministicApplicabilityReranker();
+    this.applicabilityDeadlineMs = Math.max(1, opts.applicabilityDeadlineMs ?? 250);
   }
 
   /** Hybrid retrieval rollout mode (off default). The recall entry routes
@@ -631,6 +672,11 @@ export class BlockServer {
   /** Phase D.1 query-compiler rollout mode (off default; shadow compares candidate slates). */
   get queryCompilerRollout(): QueryCompilerRolloutMode {
     return this.queryCompilerMode;
+  }
+
+  /** Phase D.2 applicability-reranker rollout mode (off default; shadow compares V4 vs reranker). */
+  get applicabilityRollout(): ApplicabilityRolloutMode {
+    return this.applicabilityMode;
   }
 
   /**
@@ -950,6 +996,152 @@ export class BlockServer {
       fallback = "error";
       return undefined; // shadow telemetry must never break or alter a recall.
     }
+  }
+
+  /**
+   * Phase D.2 memory-applicability reranker comparison (applicabilityMode=shadow).
+   * Runs AFTER candidate generation: builds the hybrid slate, takes the served V4
+   * decision as the baseline, then runs the applicability reranker over the top-N
+   * family prototypes (bounded, async, strict timeout) and emits a privacy-safe
+   * `reasoning.applicability_comparison` event. NEVER serves, NEVER throws — fails
+   * open to the unchanged V4 decision. Returns the shadow summary. Off ⇒ never
+   * called (serving byte-identical).
+   */
+  async emitApplicabilityComparison(
+    query: BlockRecallQuery,
+    queryId: string,
+  ): Promise<NonNullable<RecallV2Result["shadowApplicability"]> | undefined> {
+    if (this.applicabilityMode !== "shadow") return undefined;
+    const t0 = this.now();
+    let fallback: ApplicabilityFallback = "none";
+    try {
+      const limit = query.limit ?? 5;
+      const fetchLimit = limit * this.cascadeFetchMultiplier;
+      const lookup = (id: string): ReasoningBlock | null => this.store.getBlock(id);
+
+      // Build the same bounded slate V4 sees (sparse ⊕ optional semantic).
+      const sparse = this.searchBlocks(query.text, query.invariants, fetchLimit);
+      const sem = await this.semanticSlate(query, fetchLimit);
+      const slate = fuseHybrid(sparse, sem.candidates, lookup, limit, sem.providerClass).slate;
+
+      // Baseline: the served V4 decision on this slate.
+      const v4 = this.decideV4OnSlate(query.text, query.invariants, slate);
+
+      // Reranker candidates: top-N prototypes with privacy-scanned tokens + family
+      // / outcome signals. Family support/diversity from a cheap signature group.
+      const blocks = slate.map((s) => s.block);
+      const familyByIdx = this.familyGrouping(blocks);
+      const candidates: ApplicabilityCandidate[] = blocks.map((b, i) => {
+        const view = buildStructuredView(b);
+        const fam = familyByIdx[i]!;
+        const s = b.stats;
+        const helpful = s?.timesHelpful ?? 0;
+        const harmful = s?.timesCounterproductive ?? 0;
+        return {
+          blockId: b.id,
+          tokens: {
+            situation: [...view.situationTokens],
+            mechanism: [...view.fieldTokens.mechanism],
+            unlock: [...view.fieldTokens.unlock],
+            invariants: view.memory.invariants,
+          },
+          signals: {
+            isPitfall: (b.kind ?? "success") === "pitfall",
+            helpful,
+            harmful,
+            unresolved: Math.max(0, (s?.timesAgentUsed ?? 0) - helpful - harmful),
+            familySupport: fam.support,
+            sourceDiversity: fam.sourceDiversity,
+          },
+        };
+      });
+
+      const compiled: CompiledQuery = this.queryCompiler.compile(query.text, query.invariants);
+      const views = { literalText: compiled.literal.text, ...(compiled.causal ? { causalText: compiled.causal.text } : {}) };
+
+      // Bounded, strict-timeout reranker call; null ⇒ fail open to V4.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<typeof APPLICABILITY_TIMEOUT>((res) => {
+        timer = setTimeout(() => res(APPLICABILITY_TIMEOUT), this.applicabilityDeadlineMs);
+        timer.unref?.();
+      });
+      const ctx = { deadlineMs: this.applicabilityDeadlineMs, now: this.now };
+      const raced = await Promise.race([this.applicabilityProvider.rank(views, candidates, ctx), timeout]);
+      if (timer) clearTimeout(timer);
+
+      let results: ApplicabilityResult[] | null = null;
+      if (raced === APPLICABILITY_TIMEOUT) fallback = "timeout";
+      else results = raced;
+
+      const top = results && results.length > 0 ? results[0]! : undefined;
+      const verdict: "applicable" | "uncertain" | "inapplicable" | "none" = top ? top.verdict : "none";
+      const rerankerInjects = verdict === "applicable";
+      const v4Injects = v4.action === "inject";
+      const changedDecision: ApplicabilityChangedDecision =
+        rerankerInjects && !v4Injects ? "reranker_only_apply" : !rerankerInjects && v4Injects ? "reranker_withholds" : "none";
+
+      const verdictCounts = { applicable: 0, uncertain: 0, inapplicable: 0 };
+      const reasonCounts: Record<string, number> = {};
+      for (const r of results ?? []) {
+        verdictCounts[r.verdict]++;
+        for (const reason of r.reasons) reasonCounts[reason] = (reasonCounts[reason] ?? 0) + 1;
+      }
+
+      const event: ReasoningApplicabilityComparisonEvent = {
+        event: "reasoning.applicability_comparison",
+        ts: this.now(),
+        queryId,
+        ...(query.runId ? { runId: query.runId } : {}),
+        queryHash: queryHash(query.text),
+        corpusSize: this.store.countBlocks("active"),
+        candidateCount: candidates.length,
+        v4Action: v4.action,
+        ...(v4.topCandidateId ? { v4TopBlockId: v4.topCandidateId } : {}),
+        applicabilityProvider: this.applicabilityProvider.name,
+        applicabilityFeatureVersion: this.applicabilityProvider.featureVersion,
+        applicabilityVerdict: verdict,
+        ...(top ? { applicabilityTopBlockId: top.blockId, applicabilityConfidence: top.confidence } : {}),
+        changedDecision,
+        verdictCounts,
+        reasonCounts,
+        fallback,
+        latencyMs: Math.max(0, this.now() - t0),
+      };
+      this.emitter.emit(event, query.runId ? { runId: query.runId } : undefined);
+      return {
+        v4Action: v4.action,
+        verdict,
+        ...(top ? { topBlockId: top.blockId } : {}),
+        changedDecision,
+        fallback,
+      };
+    } catch {
+      fallback = "error";
+      return undefined; // shadow telemetry must never break or alter a recall.
+    }
+  }
+
+  /**
+   * Cheap, deterministic family grouping of a slate (distinct-case support +
+   * source diversity per block) using the structured-signature resolver — which
+   * reads only the trigger, no evidence. Used to feed the reranker's family axis.
+   */
+  private familyGrouping(blocks: readonly ReasoningBlock[]): Array<{ support: number; sourceDiversity: number }> {
+    if (blocks.length === 0) return [];
+    const famCands = blocks.map((b) => ({ block: b }) as unknown as FamilyCandidate);
+    const { familyKeyByIndex } = new StructuredSignatureResolver().resolve(famCands);
+    const fingerprints = new Map<string, Set<string>>();
+    const sources = new Map<string, Set<string>>();
+    blocks.forEach((b, i) => {
+      const key = familyKeyByIndex[i]!;
+      (fingerprints.get(key) ?? fingerprints.set(key, new Set()).get(key)!).add(b.trigger.fingerprint);
+      const src = b.provenance?.parentTraceId ?? b.provenance?.sourceTaskId ?? b.id;
+      (sources.get(key) ?? sources.set(key, new Set()).get(key)!).add(src);
+    });
+    return blocks.map((_, i) => {
+      const key = familyKeyByIndex[i]!;
+      return { support: fingerprints.get(key)?.size ?? 1, sourceDiversity: sources.get(key)?.size ?? 1 };
+    });
   }
 
   /**
@@ -2113,6 +2305,9 @@ const HYBRID_SCAN_CAP = 2000;
 
 /** Sentinel for a provider call that blew the wall-clock deadline. */
 const RETRIEVAL_TIMEOUT: unique symbol = Symbol("retrieval-timeout");
+
+/** Sentinel for an applicability-reranker call that blew the wall-clock deadline (Phase D.2). */
+const APPLICABILITY_TIMEOUT: unique symbol = Symbol("applicability-timeout");
 
 /** Classify how the sparse-slate decision compared to the hybrid-slate decision. */
 function retrievalDecisionAgreement(

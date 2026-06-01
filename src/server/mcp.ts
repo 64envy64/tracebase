@@ -14,6 +14,7 @@ import { routerServingOptions } from "../experiments/reasoning-router-rollout.js
 import { reasoningRetrievalOptions } from "../experiments/reasoning-retrieval-rollout.js";
 import { reasoningEvidenceOptions } from "../experiments/reasoning-evidence-rollout.js";
 import { reasoningQueryCompilerOptions } from "../experiments/reasoning-query-compiler-rollout.js";
+import { reasoningApplicabilityOptions } from "../experiments/reasoning-applicability-rollout.js";
 import {
   computeCascadeComparison,
   type CascadeComparison,
@@ -142,6 +143,8 @@ export async function startMcpServer(
     ...reasoningEvidenceOptions(),
     // Phase D.1 two-view query-compiler rollout (TRACEBASE_REASONING_QUERY_COMPILER=off|shadow); default off.
     ...reasoningQueryCompilerOptions(),
+    // Phase D.2 applicability-reranker rollout (TRACEBASE_REASONING_APPLICABILITY=off|shadow); default off.
+    ...reasoningApplicabilityOptions(),
   });
   const eventEmitter = new EventEmitter(blockStore);
 

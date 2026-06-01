@@ -1702,7 +1702,8 @@ export type AnalyticsEvent =
   // per recall comparing the served V1/V2 decision with the shadow V3
   // semantic-license decision. Privacy-safe + local-only, same contract.
   | ReasoningEvidenceComparisonEvent
-  | ReasoningQueryCompilerComparisonEvent;
+  | ReasoningQueryCompilerComparisonEvent
+  | ReasoningApplicabilityComparisonEvent;
 
 interface EventBase {
   ts: number;
@@ -2690,4 +2691,41 @@ export interface ReasoningQueryCompilerComparisonEvent extends EventBase {
   fallback: QueryCompilerFallback;
   /** Incremental wall-clock cost of compiling + the causal lane (ms). */
   incrementalLatencyMs: number;
+}
+
+/** Closed-enum outcome of running the applicability reranker (never a raw error). */
+export type ApplicabilityFallback = "none" | "timeout" | "error";
+/** How the reranker's verdict would change the V4 decision (shadow only). */
+export type ApplicabilityChangedDecision = "none" | "reranker_only_apply" | "reranker_withholds";
+
+/**
+ * Phase D.2 memory-applicability reranker comparison — emitted once per recall
+ * when `TRACEBASE_REASONING_APPLICABILITY=shadow`. Compares the served V4 action
+ * with the shadow reranker verdict over the top-N family prototypes. Privacy-safe
+ * (queryHash + opaque block ids + counts + closed enums + bounded numerics; NO
+ * raw query/body/path/token text). LOCAL-ONLY: never part of cloud UsageMetrics.
+ */
+export interface ReasoningApplicabilityComparisonEvent extends EventBase {
+  event: "reasoning.applicability_comparison";
+  queryHash: string;
+  corpusSize: number;
+  candidateCount: number;
+  // Served V4 decision (the baseline).
+  v4Action: "inject" | "abstain";
+  v4TopBlockId?: string;
+  // Shadow reranker verdict on the top-ranked prototype.
+  applicabilityProvider: string;
+  applicabilityFeatureVersion: number;
+  applicabilityVerdict: "applicable" | "uncertain" | "inapplicable" | "none";
+  applicabilityTopBlockId?: string;
+  /** Bounded reranker confidence (NOT a serving confidence). */
+  applicabilityConfidence?: number;
+  /** Whether the reranker verdict would have changed the V4 decision (shadow). */
+  changedDecision: ApplicabilityChangedDecision;
+  /** Verdict distribution across all scored prototypes. */
+  verdictCounts: { applicable: number; uncertain: number; inapplicable: number };
+  /** Reason-enum distribution across all scored prototypes. */
+  reasonCounts: Record<string, number>;
+  fallback: ApplicabilityFallback;
+  latencyMs: number;
 }

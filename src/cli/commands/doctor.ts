@@ -42,6 +42,7 @@ import { resolveReasoningRouterMode, REASONING_ROUTER_ENV } from "../../experime
 import { resolveReasoningRetrievalMode, REASONING_RETRIEVAL_ENV } from "../../experiments/reasoning-retrieval-rollout.js";
 import { resolveReasoningEvidenceMode, REASONING_EVIDENCE_ENV } from "../../experiments/reasoning-evidence-rollout.js";
 import { resolveReasoningQueryCompilerMode, REASONING_QUERY_COMPILER_ENV } from "../../experiments/reasoning-query-compiler-rollout.js";
+import { resolveReasoningApplicabilityMode, REASONING_APPLICABILITY_ENV } from "../../experiments/reasoning-applicability-rollout.js";
 
 /**
  * 0.6.0 — `info` added for purely diagnostic state that's
@@ -377,6 +378,8 @@ export function runDoctor(invocationPath: string): DoctorReport {
   checks.push(reasoningEvidenceDoctorCheck());
   // --- Phase D.1 two-view query-compiler rollout (TRACEBASE_REASONING_QUERY_COMPILER).
   checks.push(reasoningQueryCompilerDoctorCheck());
+  // --- Phase D.2 applicability-reranker rollout (TRACEBASE_REASONING_APPLICABILITY).
+  checks.push(reasoningApplicabilityDoctorCheck());
 
   // --- Live MCP boot probe
   //
@@ -1373,6 +1376,45 @@ export function reasoningQueryCompilerDoctorCheck(env: NodeJS.ProcessEnv = proce
     name: "reasoning-query-compiler",
     level: "info",
     message: "Query-compiler rollout: off (candidate generation byte-identical; default)",
+  };
+}
+
+/**
+ * Phase D.2 applicability-reranker rollout diagnostic. off/shadow only — `on` is
+ * not permitted (the §4.5 reranker is shadow-only) and a typo fails safe to off.
+ * Static text; exported for tests.
+ */
+export function reasoningApplicabilityDoctorCheck(env: NodeJS.ProcessEnv = process.env): DoctorCheck {
+  const { mode, diagnostics } = resolveReasoningApplicabilityMode(env);
+  const refused = diagnostics.some((d) => d.includes("not permitted"));
+  const invalid = diagnostics.some((d) => d.includes("ignored"));
+  if (refused) {
+    return {
+      name: "reasoning-applicability",
+      level: "warn",
+      message: `Applicability rollout: ${REASONING_APPLICABILITY_ENV}=on is not permitted (reranker is shadow-only) — using off`,
+      fix: `Set ${REASONING_APPLICABILITY_ENV} to off or shadow.`,
+    };
+  }
+  if (invalid) {
+    return {
+      name: "reasoning-applicability",
+      level: "warn",
+      message: `Applicability rollout: invalid ${REASONING_APPLICABILITY_ENV} value — defaulted to off`,
+      fix: `Set ${REASONING_APPLICABILITY_ENV} to off or shadow.`,
+    };
+  }
+  if (mode === "shadow") {
+    return {
+      name: "reasoning-applicability",
+      level: "info",
+      message: "Applicability rollout: shadow (serving unchanged; comparing V4 action vs the memory-applicability reranker verdict)",
+    };
+  }
+  return {
+    name: "reasoning-applicability",
+    level: "info",
+    message: "Applicability rollout: off (serving byte-identical; default)",
   };
 }
 

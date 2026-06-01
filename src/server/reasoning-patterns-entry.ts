@@ -147,5 +147,10 @@ export async function runReasoningPatternsRecall(
     const summary = await blockServer.emitQueryCompilerComparison(query, served.queryId);
     if (summary) served.shadowQueryCompiler = summary;
   }
+  // Phase D.2 — applicability-reranker comparison (orthogonal shadow lane).
+  if (blockServer.applicabilityRollout === "shadow") {
+    const summary = await blockServer.emitApplicabilityComparison(query, served.queryId);
+    if (summary) served.shadowApplicability = summary;
+  }
   return served;
 }
