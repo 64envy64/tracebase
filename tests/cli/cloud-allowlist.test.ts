@@ -940,4 +940,25 @@ describe("sanitizeForCloud — Router V2 shadow comparison never reaches the clo
     expect(serialized).not.toContain("block-uuid"); // no opaque ids reach the wire
     expect(serialized).not.toContain("q_abc123"); // no query hash reaches the wire
   });
+
+  it("strips a retrieval.hybrid_comparison-shaped object whole (Phase C, local-only)", () => {
+    const out = sanitizeForCloud({
+      installationId: "inst-1",
+      retrievalHybrid: {
+        queryHash: "q_xyz789",
+        provider: "deterministic-local",
+        sparseTopBlockId: "block-uuid-1",
+        hybridTopBlockId: "block-uuid-2",
+        semanticOnly: 2,
+        rankMovement: 3,
+      },
+      metrics: { retrievalHybrid: { provider: "deterministic-local", hybridTopBlockId: "block-uuid-3" } },
+    }) as { installationId?: string; retrievalHybrid?: unknown; metrics?: { retrievalHybrid?: unknown } };
+    expect(out.installationId).toBe("inst-1");
+    expect(out.retrievalHybrid).toBeUndefined();
+    expect(out.metrics?.retrievalHybrid).toBeUndefined();
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain("block-uuid");
+    expect(serialized).not.toContain("q_xyz789");
+  });
 });
