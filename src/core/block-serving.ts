@@ -91,6 +91,8 @@ import {
   type ApplicabilityResult,
 } from "./applicability-reranker.js";
 import { StructuredSignatureResolver, type FamilyCandidate } from "./reasoning-family.js";
+import { evaluateApplicabilityCanaryExposure } from "../experiments/applicability-canary.js";
+import type { ApplicabilityCanaryConfig, ApplicabilityCanaryExposureEvent } from "../types.js";
 import { SERVING_FEATURE_VERSION_V2, buildStructuredView } from "./serving-evidence-v2.js";
 import {
   fuseHybrid,
@@ -356,6 +358,19 @@ export interface RecallV2Result {
     topBlockId?: string;
     changedDecision: "none" | "reranker_only_apply" | "reranker_withholds";
     fallback: "none" | "timeout" | "error";
+  };
+  /**
+   * Phase D.4 — applicability canary exposure, populated ONLY when the explicit-
+   * opt-in canary is enabled AND the query was eligible. `treatment` means the
+   * reranker block was injected (and an injection event emitted); `control`
+   * preserves the baseline abstain. Absent when the canary is off — serving is
+   * then byte-identical.
+   */
+  canaryExposure?: {
+    arm: "treatment" | "control";
+    blockId: string;
+    propensity: number;
+    unitHash: string;
   };
 }
 
@@ -1118,6 +1133,77 @@ export class BlockServer {
     } catch {
       fallback = "error";
       return undefined; // shadow telemetry must never break or alter a recall.
+    }
+  }
+
+  /**
+   * Phase D.4 — apply the explicit-opt-in applicability canary AFTER recall +
+   * the D.2 shadow evaluation. Reads the served `shadowApplicability` verdict;
+   * eligible ONLY when V4 abstained AND the reranker says `applicable`. On the
+   * treatment arm it injects the reranker-selected block (emitting a real
+   * `injection` event so the apply becomes observable in the D.3 ledger) and
+   * augments the served result; control preserves the baseline abstain. Always
+   * emits a privacy-safe exposure event for an eligible query (both arms).
+   *
+   * NEVER throws and is a strict NO-OP when the canary is disabled, the query is
+   * in the global holdout, or it is ineligible — so disabled serving is
+   * byte-identical. Precedence (holdout / disabled) is enforced here AND by the
+   * caller's `resolveCanaryServingState`.
+   */
+  applyApplicabilityCanary(
+    query: BlockRecallQuery,
+    served: RecallV2Result,
+    fingerprint: string,
+    config: ApplicabilityCanaryConfig,
+  ): RecallV2Result {
+    try {
+      const shadow = served.shadowApplicability;
+      const decision = evaluateApplicabilityCanaryExposure({
+        servingEnabled: config.enabled,
+        config: { salt: config.salt, rate: config.rate, policyVersion: config.policyVersion, enabled: config.enabled },
+        fingerprint,
+        holdout: served.controlReason === "holdout" || served.shadow,
+        shadow,
+        applicabilityFeatureVersion: this.applicabilityProvider.featureVersion,
+        currentFeatureVersion: this.applicabilityProvider.featureVersion,
+      });
+      if (!decision.exposed) return served; // disabled / holdout / ineligible → no-op (byte-identical)
+
+      const exposure: ApplicabilityCanaryExposureEvent = {
+        event: "reasoning.applicability_canary_exposure",
+        ts: this.now(),
+        queryId: served.queryId,
+        ...(query.runId ? { runId: query.runId } : {}),
+        queryHash: queryHash(query.text),
+        unitHash: decision.unitHash,
+        arm: decision.arm,
+        propensity: decision.propensity,
+        policyVersion: decision.policyVersion,
+        applicabilityFeatureVersion: this.applicabilityProvider.featureVersion,
+        blockId: decision.blockId,
+        eligibilityReason: decision.eligibilityReason,
+        outcomeCompatible: decision.outcomeCompatible,
+      };
+      this.emitter.emit(exposure, query.runId ? { runId: query.runId } : undefined);
+
+      if (decision.arm !== "treatment") {
+        // Control: preserve the baseline abstain; record the (non-injecting) exposure.
+        return { ...served, canaryExposure: { arm: "control", blockId: decision.blockId, propensity: decision.propensity, unitHash: decision.unitHash } };
+      }
+
+      // Treatment: inject the reranker-selected block (if it still resolves).
+      const block = this.store.getBlock(decision.blockId);
+      if (!block) return { ...served, canaryExposure: { arm: "treatment", blockId: decision.blockId, propensity: decision.propensity, unitHash: decision.unitHash } };
+      const hit: BlockHit = { block, score: 1, calibratedProb: 1, evidenceConfidence: 1, passesGate: true, refs: [] };
+      this.emitInjection(served.queryId, hit, query.runId); // authoritative — the apply is now observable
+      return {
+        ...served,
+        shouldInject: true,
+        blocks: [hit, ...served.blocks.filter((h) => h.block.id !== block.id)],
+        canaryExposure: { arm: "treatment", blockId: decision.blockId, propensity: decision.propensity, unitHash: decision.unitHash },
+      };
+    } catch {
+      return served; // a canary failure must never break or alter the served recall.
     }
   }
 

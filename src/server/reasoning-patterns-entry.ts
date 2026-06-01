@@ -17,9 +17,10 @@ import type {
   BlockServer,
   RecallV2Result,
 } from "../core/block-serving.js";
-import type { HoldoutConfig, CascadeConfig, BlockInvariants } from "../types.js";
+import type { HoldoutConfig, CascadeConfig, BlockInvariants, ApplicabilityCanaryConfig } from "../types.js";
 import { buildHoldoutInput } from "../experiments/serving.js";
 import { shouldUseCascade } from "../experiments/cascade-rollout.js";
+import { resolveCanaryServingState } from "../core/config.js";
 
 export interface ReasoningPatternsArgs {
   /** Free-text problem description. */
@@ -62,6 +63,12 @@ export interface ReasoningPatternsDeps {
    * in once B1.2 ships; test fixtures can stub it.
    */
   readCascadeConfig?: () => CascadeConfig | null;
+  /**
+   * Phase D.4 — fresh-per-task loader for the persisted applicability-canary
+   * config, so `tracebase canary enable|disable` takes effect without restart.
+   * Optional/absent → the canary rail is never engaged (byte-identical serving).
+   */
+  readCanaryConfig?: () => ApplicabilityCanaryConfig | null;
   /** Deterministic fingerprint factory. Overridable for tests. */
   fingerprintFactory?: (
     problem: string,
@@ -151,6 +158,16 @@ export async function runReasoningPatternsRecall(
   if (blockServer.applicabilityRollout === "shadow") {
     const summary = await blockServer.emitApplicabilityComparison(query, served.queryId);
     if (summary) served.shadowApplicability = summary;
+  }
+  // Phase D.4 — explicit opt-in applicability canary (apply-only). Default OFF:
+  // the rail engages ONLY when a persisted config is enabled AND no env/global
+  // kill switch is set. It reads the D.2 shadow verdict above; eligible only when
+  // V4 abstained and the reranker said `applicable`. Disabled ⇒ byte-identical.
+  if (deps.readCanaryConfig) {
+    const serving = resolveCanaryServingState(deps.readCanaryConfig());
+    if (serving.enabled && serving.config) {
+      return blockServer.applyApplicabilityCanary(query, served, problemFingerprint, serving.config);
+    }
   }
   return served;
 }

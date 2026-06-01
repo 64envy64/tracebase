@@ -1732,7 +1732,8 @@ export type AnalyticsEvent =
   // semantic-license decision. Privacy-safe + local-only, same contract.
   | ReasoningEvidenceComparisonEvent
   | ReasoningQueryCompilerComparisonEvent
-  | ReasoningApplicabilityComparisonEvent;
+  | ReasoningApplicabilityComparisonEvent
+  | ApplicabilityCanaryExposureEvent;
 
 interface EventBase {
   ts: number;
@@ -2757,4 +2758,30 @@ export interface ReasoningApplicabilityComparisonEvent extends EventBase {
   reasonCounts: Record<string, number>;
   fallback: ApplicabilityFallback;
   latencyMs: number;
+}
+
+/**
+ * Phase D.4 — applicability canary exposure event. Emitted once per ELIGIBLE
+ * query when the explicit-opt-in canary is enabled (both arms). Records the
+ * deterministic assignment so the D.3 ledger can off-policy-correct. Privacy-
+ * safe (queryHash + opaque unit/block ids + closed enums + bounded numbers; NO
+ * raw query/body/path/token). LOCAL-ONLY: never part of cloud UsageMetrics.
+ */
+export interface ApplicabilityCanaryExposureEvent extends EventBase {
+  event: "reasoning.applicability_canary_exposure";
+  queryHash: string;
+  /** Opaque hash of the assignment unit (problem fingerprint) — never the raw fp. */
+  unitHash: string;
+  arm: "treatment" | "control";
+  /** P(treatment) for this unit under the active rate (logged for off-policy correction). */
+  propensity: number;
+  policyVersion: string;
+  applicabilityFeatureVersion: number;
+  servedFeatureVersion?: number;
+  /** The reranker-selected block (opaque). Injected only in the treatment arm. */
+  blockId?: string;
+  /** Why the query was eligible for the canary (closed enum, stored as string). */
+  eligibilityReason: string;
+  /** True iff this exposure produces an attributable per-block outcome (treatment). */
+  outcomeCompatible: boolean;
 }
