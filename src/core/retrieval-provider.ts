@@ -51,7 +51,19 @@ export interface RetrievalIntent {
   invariants?: BlockInvariants;
   /** Soft cap on how many candidates the provider should return. */
   limit: number;
+  /**
+   * Additive, versioned fields (Phase D.1 two-view query compiler). Default
+   * intents omit them; a compiler-produced intent tags which VIEW it carries so
+   * fusion can attribute which lane surfaced a candidate. Existing adapters read
+   * only `text`/`invariants`/`limit`, so they are unaffected.
+   */
+  intentVersion?: number;
+  /** Which compiled view this intent carries (`undefined` ⇒ a plain, un-compiled query). */
+  view?: "literal" | "causal";
 }
+
+/** Current `RetrievalIntent` schema version. Bump on any field-shape change. */
+export const RETRIEVAL_INTENT_VERSION = 1 as const;
 
 /** Approved, privacy-scanned structured token sets of a candidate document. */
 export interface RetrievalDocumentTokens {
