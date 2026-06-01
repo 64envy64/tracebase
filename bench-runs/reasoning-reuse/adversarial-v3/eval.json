@@ -1,0 +1,191 @@
+{
+  "label": "Phase C.2 adversarial eval — sparse-V2 vs hybrid-V2 vs hybrid-V3-shadow. DISCLOSED hand-authored; NOT organic readiness; no gate tuning; no model/network.",
+  "corpusHash": "590e0d724fa64628",
+  "frozenAt": 1780262013,
+  "acceptedFamilies": 5,
+  "corpus": {
+    "families": 5,
+    "anchors": 4,
+    "paraphraseHoldouts": 10,
+    "hardNegatives": 8,
+    "negativeTypes": [
+      "body-token-collision",
+      "wrong-mechanism",
+      "sibling-family",
+      "disjoint"
+    ]
+  },
+  "provider": "deterministic-local (+ adversarial decoy/timeout/remote probes)",
+  "fusion": "RRF (k=60)",
+  "operatingPoint": {
+    "gate": 0.4,
+    "note": "production gate DEFAULT_GATE_THRESHOLD (not tuned); V2-family decision; V3 shadow on the same slate"
+  },
+  "organicReadiness": "N/A — bootstrap/adversarial corpus only; never counts toward organic readiness",
+  "arms": {
+    "sparse-v2": {
+      "candidateRecallAtUseful": 0.8,
+      "recallAtUseful": 0.1,
+      "precisionAtFire": 1,
+      "wilsonLB": 0.207,
+      "falsePositiveRateNegatives": 0,
+      "fpByType": {
+        "body-token-collision": {
+          "fired": 0,
+          "total": 2
+        },
+        "wrong-mechanism": {
+          "fired": 0,
+          "total": 2
+        },
+        "sibling-family": {
+          "fired": 0,
+          "total": 2
+        },
+        "disjoint": {
+          "fired": 0,
+          "total": 2
+        }
+      },
+      "fpByLane": {
+        "lexical": 0,
+        "semantic-license": 0,
+        "ofNegatives": 8
+      },
+      "semanticLicenseLaneFP": 0,
+      "fireRate": 0.056,
+      "firedCount": 1,
+      "correctFires": 1,
+      "latencyMsP50": 1,
+      "latencyMsP95": 5
+    },
+    "hybrid-v2": {
+      "candidateRecallAtUseful": 1,
+      "recallAtUseful": 0.1,
+      "precisionAtFire": 1,
+      "wilsonLB": 0.207,
+      "falsePositiveRateNegatives": 0,
+      "fpByType": {
+        "body-token-collision": {
+          "fired": 0,
+          "total": 2
+        },
+        "wrong-mechanism": {
+          "fired": 0,
+          "total": 2
+        },
+        "sibling-family": {
+          "fired": 0,
+          "total": 2
+        },
+        "disjoint": {
+          "fired": 0,
+          "total": 2
+        }
+      },
+      "fpByLane": {
+        "lexical": 0,
+        "semantic-license": 0,
+        "ofNegatives": 8
+      },
+      "semanticLicenseLaneFP": 0,
+      "fireRate": 0.056,
+      "firedCount": 1,
+      "correctFires": 1,
+      "latencyMsP50": 2,
+      "latencyMsP95": 6
+    },
+    "hybrid-v3-shadow": {
+      "candidateRecallAtUseful": 1,
+      "recallAtUseful": 0.3,
+      "precisionAtFire": 0.75,
+      "wilsonLB": 0.301,
+      "falsePositiveRateNegatives": 0.125,
+      "fpByType": {
+        "body-token-collision": {
+          "fired": 1,
+          "total": 2
+        },
+        "wrong-mechanism": {
+          "fired": 0,
+          "total": 2
+        },
+        "sibling-family": {
+          "fired": 0,
+          "total": 2
+        },
+        "disjoint": {
+          "fired": 0,
+          "total": 2
+        }
+      },
+      "fpByLane": {
+        "lexical": 0,
+        "semantic-license": 1,
+        "ofNegatives": 8
+      },
+      "semanticLicenseLaneFP": 0.125,
+      "fireRate": 0.222,
+      "firedCount": 4,
+      "correctFires": 3,
+      "latencyMsP50": 2,
+      "latencyMsP95": 5
+    }
+  },
+  "conversion": {
+    "semanticOnlyUseful": 2,
+    "convertedByV3": 2,
+    "conversionRate": 1,
+    "v2RecallOnThose": 0
+  },
+  "lexicalLaneInvariant": true,
+  "probes": {
+    "misleadingProviderRank": {
+      "decoyBlock": "float-accumulation (pinned to provider rank #1)",
+      "trials": 8,
+      "decoyInjections": 0,
+      "candidateRecallUnderDecoy": 1
+    },
+    "providerTimeout": {
+      "trials": 18,
+      "failOpenParityWithSparse": true
+    },
+    "remoteBoundaryPrivacy": {
+      "engagedWithOptIn": true,
+      "boundaryClean": true,
+      "engagedWithoutOptIn": false,
+      "noOptInParityWithSparse": true,
+      "scrubbed": [
+        "abs-path",
+        "bearer-token",
+        "api-key"
+      ]
+    },
+    "lexicalBullseye": {
+      "firesSparseV2": true,
+      "firesHybridV2": true,
+      "firesV3": true,
+      "v3Lane": "lexical",
+      "armInvariant": true
+    }
+  },
+  "targets": {
+    "precisionFloor": 0.9,
+    "fpCeiling": 0.05,
+    "v3": {
+      "precisionMet": false,
+      "semanticLaneFpMet": false,
+      "recallNotBelowV2": true
+    },
+    "safetyProbesPass": true
+  },
+  "promotion": {
+    "readyForOn": false,
+    "blockers": [
+      "semantic-license lane FP 0.125 > 0.05 ceiling (same-domain body-token collision corroborates; e.g. floating-point rounding vocabulary)",
+      "V3 precision@fire 0.75 < 0.9 floor"
+    ],
+    "note": "Promotion is gated by this eval. `on` is not permitted by the rollout regardless; the default-off/shadow posture is the safe state these blockers validate."
+  },
+  "fallbacks": 0
+}
