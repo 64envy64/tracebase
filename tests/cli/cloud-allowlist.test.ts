@@ -910,3 +910,34 @@ describe("sanitizeForCloud — unknown mechanisms families are dropped", () => {
     expect(serialized).not.toContain("\"secret\"");
   });
 });
+
+describe("sanitizeForCloud — Router V2 shadow comparison never reaches the cloud", () => {
+  it("strips a router.shadow_comparison-shaped object whole (local-only stream)", () => {
+    // The shadow comparison stream is intentionally NOT part of UsageMetrics.
+    // Even if a future refactor accidentally bubbled one into a cloud sample,
+    // the allowlist has no entry for it → it is dropped entirely. This locks
+    // that block ids, query hashes, and family stats stay on the machine.
+    const out = sanitizeForCloud({
+      installationId: "inst-1",
+      routerShadow: {
+        queryHash: "q_abc123",
+        v1TopBlockId: "block-uuid-1",
+        v2TopBlockId: "block-uuid-2",
+        familyCount: 3,
+        topFamilySupport: 2,
+        v2OverheadMs: 2,
+      },
+      metrics: {
+        // Also reject it if it tries to ride inside metrics.
+        routerShadow: { v2TopBlockId: "block-uuid-3", redactedFieldCount: 0 },
+      },
+    }) as { installationId?: string; routerShadow?: unknown; metrics?: { routerShadow?: unknown } };
+
+    expect(out.installationId).toBe("inst-1"); // allowlisted envelope field survives
+    expect(out.routerShadow).toBeUndefined(); // whole shadow object dropped
+    expect(out.metrics?.routerShadow).toBeUndefined();
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain("block-uuid"); // no opaque ids reach the wire
+    expect(serialized).not.toContain("q_abc123"); // no query hash reaches the wire
+  });
+});
