@@ -1,0 +1,200 @@
+{
+  "label": "Router V2 frozen $0 offline ablation — reuses bootstrap corpus; no gate tuning; no paid agents.",
+  "corpusHash": "de94b5202715edbd",
+  "frozenHashVerified": true,
+  "corpus": {
+    "families": 10,
+    "importedPatterns": 10,
+    "usefulHoldouts": 20,
+    "controls": 10
+  },
+  "operatingPoint": {
+    "headlineGate": 0,
+    "marginThreshold": 0.15,
+    "minEvidenceConfidence": 0.35,
+    "calibrator": "identity",
+    "note": "gate 0 matches the Phase-1 baseline; precision is enforced by margin+floor guards, NOT a calibrated gate. Gates unchanged across arms."
+  },
+  "privacy": {
+    "redactionsInCorpus": 0,
+    "note": "no privacy regression — clean corpus, zero structured-field redactions"
+  },
+  "targets": {
+    "precisionAtFire": 0.9,
+    "falsePositiveRate": 0.05,
+    "withinFamilyRecall": 0.3
+  },
+  "arms": {
+    "v1": {
+      "precisionAtFire": 1,
+      "precisionWilsonLB": 0.207,
+      "falsePositiveRateOverall": 0,
+      "falsePositiveRateControls": 0,
+      "withinFamilyRecall": 0.05,
+      "fireRate": 0.033,
+      "firedUsefulHoldouts": 1,
+      "firedControls": 0,
+      "abstentionByReason": {
+        "ambiguous_margin": 28,
+        "no_candidates": 1
+      },
+      "latencyMsP50": 1,
+      "latencyMsP95": 3,
+      "featureVersionBreakdown": {
+        "1": 30
+      }
+    },
+    "v2-representation": {
+      "precisionAtFire": 1,
+      "precisionWilsonLB": 0.832,
+      "falsePositiveRateOverall": 0,
+      "falsePositiveRateControls": 0,
+      "withinFamilyRecall": 0.95,
+      "fireRate": 0.633,
+      "firedUsefulHoldouts": 19,
+      "firedControls": 0,
+      "abstentionByReason": {
+        "ambiguous_margin": 1,
+        "weak_evidence": 9,
+        "no_candidates": 1
+      },
+      "latencyMsP50": 2,
+      "latencyMsP95": 3,
+      "featureVersionBreakdown": {
+        "2": 30
+      }
+    },
+    "v2-family": {
+      "precisionAtFire": 1,
+      "precisionWilsonLB": 0.832,
+      "falsePositiveRateOverall": 0,
+      "falsePositiveRateControls": 0,
+      "withinFamilyRecall": 0.95,
+      "fireRate": 0.633,
+      "firedUsefulHoldouts": 19,
+      "firedControls": 0,
+      "abstentionByReason": {
+        "ambiguous_sibling_family": 1,
+        "weak_evidence": 9,
+        "no_candidates": 1
+      },
+      "latencyMsP50": 1,
+      "latencyMsP95": 3,
+      "featureVersionBreakdown": {
+        "2": 30
+      }
+    }
+  },
+  "verdict": {
+    "v1": {
+      "precisionOk": true,
+      "fpOk": true,
+      "recallOk": false,
+      "meetsTarget": false
+    },
+    "v2-representation": {
+      "precisionOk": true,
+      "fpOk": true,
+      "recallOk": true,
+      "meetsTarget": true
+    },
+    "v2-family": {
+      "precisionOk": true,
+      "fpOk": true,
+      "recallOk": true,
+      "meetsTarget": true
+    }
+  },
+  "coverageRisk": {
+    "v1": [
+      {
+        "gate": 0,
+        "fireRate": 0.033,
+        "precisionAtFire": 1,
+        "withinFamilyRecall": 0.05,
+        "falsePositiveRateControls": 0
+      },
+      {
+        "gate": 0.2,
+        "fireRate": 0.033,
+        "precisionAtFire": 1,
+        "withinFamilyRecall": 0.05,
+        "falsePositiveRateControls": 0
+      },
+      {
+        "gate": 0.4,
+        "fireRate": 0.033,
+        "precisionAtFire": 1,
+        "withinFamilyRecall": 0.05,
+        "falsePositiveRateControls": 0
+      },
+      {
+        "gate": 0.6,
+        "fireRate": 0.033,
+        "precisionAtFire": 1,
+        "withinFamilyRecall": 0.05,
+        "falsePositiveRateControls": 0
+      }
+    ],
+    "v2-representation": [
+      {
+        "gate": 0,
+        "fireRate": 0.633,
+        "precisionAtFire": 1,
+        "withinFamilyRecall": 0.95,
+        "falsePositiveRateControls": 0
+      },
+      {
+        "gate": 0.2,
+        "fireRate": 0.633,
+        "precisionAtFire": 1,
+        "withinFamilyRecall": 0.95,
+        "falsePositiveRateControls": 0
+      },
+      {
+        "gate": 0.4,
+        "fireRate": 0.6,
+        "precisionAtFire": 1,
+        "withinFamilyRecall": 0.9,
+        "falsePositiveRateControls": 0
+      },
+      {
+        "gate": 0.6,
+        "fireRate": 0.467,
+        "precisionAtFire": 1,
+        "withinFamilyRecall": 0.7,
+        "falsePositiveRateControls": 0
+      }
+    ],
+    "v2-family": [
+      {
+        "gate": 0,
+        "fireRate": 0.633,
+        "precisionAtFire": 1,
+        "withinFamilyRecall": 0.95,
+        "falsePositiveRateControls": 0
+      },
+      {
+        "gate": 0.2,
+        "fireRate": 0.633,
+        "precisionAtFire": 1,
+        "withinFamilyRecall": 0.95,
+        "falsePositiveRateControls": 0
+      },
+      {
+        "gate": 0.4,
+        "fireRate": 0.6,
+        "precisionAtFire": 1,
+        "withinFamilyRecall": 0.9,
+        "falsePositiveRateControls": 0
+      },
+      {
+        "gate": 0.6,
+        "fireRate": 0.467,
+        "precisionAtFire": 1,
+        "withinFamilyRecall": 0.7,
+        "falsePositiveRateControls": 0
+      }
+    ]
+  }
+}

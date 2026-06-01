@@ -26,10 +26,12 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const OUT_DIR = join(ROOT, "bench-runs", "reasoning-reuse", "bootstrap");
 const FROZEN_AT = parseInt(process.env.TB_FROZEN_AT ?? "0", 10);
 
-interface Family { id: string; canonical: { situation: string; mechanism: string; unlock: string }; holdouts: string[]; }
+export interface Family { id: string; canonical: { situation: string; mechanism: string; unlock: string }; holdouts: string[]; }
 // Each canonical.situation + its holdouts share the class's concept vocabulary
 // (the recurring root-cause terms) but describe DIFFERENT concrete instances.
-const FAMILIES: Family[] = [
+// EXPORTED so the Router V2 ablation reuses the SAME frozen source — no retyped
+// corpus data (which would risk drifting the frozen hash de94b5202715edbd).
+export const FAMILIES: Family[] = [
   { id: "null-guard", canonical: { situation: "A config merge crashes when an optional key is absent: the undefined value is dereferenced during reduce because no null/undefined guard precedes the access.", mechanism: "An absent optional key yields undefined; the code dereferences it without a null/undefined guard, so the absent case is never distinguished from a present one.", unlock: "Guard the access: skip or default undefined/null before dereferencing, treating absent as inherit-default." }, holdouts: ["A request handler throws on missing optional header because the undefined value is dereferenced with no null guard before access.", "A serializer crashes when an optional nested field is absent: undefined is dereferenced during traversal because the null/undefined guard is missing."] },
   { id: "off-by-one", canonical: { situation: "A slice drops the last element because an inclusive boundary is treated as exclusive: the range index is off by one at the upper bound.", mechanism: "The upper boundary is inclusive but the loop/slice uses an exclusive index, so the last element of the range is skipped — a classic off-by-one at the bound.", unlock: "Align the boundary: use inclusive end (index <= last) or adjust the exclusive slice end by one." }, holdouts: ["Pagination omits the final row because the range upper bound is exclusive while the boundary should be inclusive — an off-by-one index error.", "A windowed average is wrong at the edges because the slice boundary is off by one, dropping the last index of the range."] },
   { id: "unawaited-async", canonical: { situation: "A test flakes because a promise is not awaited: the async write races the assertion since the pending promise resolves after the check.", mechanism: "The async call returns a pending promise that is never awaited, so subsequent code races the unresolved promise instead of sequencing after it resolves.", unlock: "Await the promise (or chain .then) so execution sequences after it resolves; do not fire-and-forget." }, holdouts: ["A cache write is lost because the async persist promise is not awaited, so the read races the still-pending resolve.", "An integration test intermittently fails: the async teardown promise is unawaited and races the next test's setup before it resolves."] },
@@ -42,7 +44,7 @@ const FAMILIES: Family[] = [
   { id: "float-precision", canonical: { situation: "A money total is off by a cent because floating-point arithmetic accumulates rounding error; integer minor-units or a decimal type is needed.", mechanism: "Currency is summed in binary floating point, so repeated rounding error accumulates and the total drifts from the exact decimal value.", unlock: "Compute in integer minor units (cents) or a decimal type; never accumulate money in binary floating point." }, holdouts: ["An invoice line-sum disagrees with the displayed total because amounts are added as floats, accumulating binary rounding error.", "A tax calculation is a cent short because percentages are applied in floating point instead of integer minor units or decimals."] },
 ];
 // 10 UNRELATED negative controls — distinct concepts NOT in the imported corpus.
-const CONTROLS: string[] = [
+export const CONTROLS: string[] = [
   "A flexbox row overflows its container because the child has no min-width, so long content refuses to shrink.",
   "A regex causes catastrophic backtracking on certain inputs due to nested quantifiers in the pattern.",
   "A CORS preflight is rejected because the server omits the Access-Control-Allow-Headers response header.",
@@ -55,7 +57,7 @@ const CONTROLS: string[] = [
   "A keyboard trap occurs in a modal because focus is not returned to the trigger on close, breaking accessibility.",
 ];
 
-function buildImportDtos(): unknown[] {
+export function buildImportDtos(): unknown[] {
   return FAMILIES.map((f) => ({
     schemaVersion: PATTERN_DTO_SCHEMA_VERSION,
     pattern: { situation: f.canonical.situation, mechanism: f.canonical.mechanism, unlock: f.canonical.unlock, verification: "Re-run the failing scenario and confirm the class-specific symptom is gone." },
@@ -140,4 +142,8 @@ function main() {
   store.close();
 }
 function round(x: number | null): number | null { return x === null ? null : Math.round(x * 1000) / 1000; }
-main();
+// Run only when invoked directly (`tsx bootstrap-phase1.ts`). When imported by
+// the Router V2 ablation for its FAMILIES/CONTROLS, main() must NOT fire.
+// Compare resolved filesystem paths (robust across Windows path/URL encoding).
+const isDirectRun = !!process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isDirectRun) main();
