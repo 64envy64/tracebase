@@ -31,18 +31,67 @@ import type { ReasoningBlock, BlockInvariants } from "../types.js";
  */
 export type RetrievalRolloutMode = "off" | "shadow" | "on";
 
-/** The query a provider sees. No raw transcript — text + structured invariants. */
-export interface RetrievalQuery {
+// ---------------------------------------------------------------------------
+// Privacy-hardened DTO boundary (Phase C.2)
+// ---------------------------------------------------------------------------
+//
+// A provider receives ONLY bounded, privacy-scanned DTOs — never raw query
+// text, raw ReasoningBlock objects, bodies, or filesystem paths. This is the
+// generic boundary a future REMOTE (hosted) adapter would cross, so it is
+// safe by construction: there is no API surface through which raw content can
+// reach a provider implicitly.
+
+/**
+ * Sanitized, bounded retrieval intent handed to a provider. The text has been
+ * leakage/injection-scrubbed and length-bounded by `buildRetrievalIntent`
+ * (src/core/retrieval-dto.ts); a remote adapter never sees the raw prompt.
+ */
+export interface RetrievalIntent {
   text: string;
   invariants?: BlockInvariants;
   /** Soft cap on how many candidates the provider should return. */
   limit: number;
 }
 
-/** Bounded context a provider may read. Keeps providers off global state. */
+/** Approved, privacy-scanned structured token sets of a candidate document. */
+export interface RetrievalDocumentTokens {
+  situation: readonly string[];
+  mechanism: readonly string[];
+  unlock: readonly string[];
+  invariants: readonly string[];
+}
+
+/**
+ * One candidate document a provider may score. Carries an OPAQUE block id plus
+ * either approved scanned token sets (sanitized-text providers) or an opaque
+ * vector reference (vector-only providers). Never the raw block, body, or path.
+ */
+export interface RetrievalDocument {
+  blockId: string;
+  /** Privacy-scanned token sets. Present for `sanitized-text` payload providers. */
+  tokens?: RetrievalDocumentTokens;
+  /** Opaque vector reference for `vector-only` providers; the floats stay local. */
+  vectorRef?: { model: string; dims: number };
+}
+
+export type ProviderLocation = "local" | "remote";
+export type ProviderPayload = "sanitized-text" | "vector-only";
+
+/** What a provider IS and what payload it is allowed to receive. */
+export interface RetrievalProviderCapabilities {
+  location: ProviderLocation;
+  payload: ProviderPayload;
+  /**
+   * A `remote` provider is invoked ONLY when this is true — remote adapters are
+   * never engaged implicitly. The caller refuses a remote provider without it.
+   */
+  explicitOptIn: boolean;
+}
+
+/** Bounded, DTO-only context a provider may read. No raw blocks, no global state. */
 export interface RetrievalContext {
-  /** The active blocks the provider may consider (already bounded by the caller). */
-  activeBlocks: readonly ReasoningBlock[];
+  /** Privacy-scanned candidate documents (already bounded by the caller). */
+  documents: readonly RetrievalDocument[];
   /** Wall-clock budget for the provider; it MUST return (or null) within this. */
   deadlineMs: number;
   /** Injectable clock for deterministic tests. */
@@ -58,19 +107,44 @@ export interface RetrievalCandidate {
 
 /**
  * A retrieval provider. MUST be deterministic for fixed inputs and MUST return
- * `null` (not throw) on any failure so the caller can fall back to sparse.
+ * `null` (not throw) on any failure so the caller can fall back to sparse. It
+ * declares its capabilities so the boundary can enforce the remote opt-in.
  */
 export interface RetrievalProvider {
   readonly name: string;
-  retrieve(query: RetrievalQuery, ctx: RetrievalContext): Promise<RetrievalCandidate[] | null>;
+  readonly capabilities: RetrievalProviderCapabilities;
+  retrieve(intent: RetrievalIntent, ctx: RetrievalContext): Promise<RetrievalCandidate[] | null>;
 }
 
 /** The absolute fallback: never contributes candidates. Used for `off`. */
 export class NoopRetrievalProvider implements RetrievalProvider {
   readonly name = "noop";
+  readonly capabilities: RetrievalProviderCapabilities = {
+    location: "local",
+    payload: "sanitized-text",
+    explicitOptIn: false,
+  };
   async retrieve(): Promise<RetrievalCandidate[] | null> {
     return null;
   }
+}
+
+/**
+ * Fusion provenance for one served candidate — threaded into the serving slate
+ * so V3 (and telemetry) can reason about WHERE a candidate came from. RRF score
+ * is ordering-only; provider-native scores never become confidence.
+ */
+export interface RetrievalProvenance {
+  /** 1-based rank in the sparse FTS list (absent ⇒ not retrieved by FTS). */
+  sparseRank?: number;
+  /** 1-based rank in the semantic provider list (absent ⇒ not proposed). */
+  semanticRank?: number;
+  /** 1-based rank in the served fused slate. */
+  fusedRank: number;
+  /** True iff the semantic provider surfaced this block and FTS did not. */
+  semanticOnly: boolean;
+  /** Class of the contributing semantic provider (`none` ⇒ sparse-only). */
+  providerClass: ProviderLocation | "none";
 }
 
 // ---------------------------------------------------------------------------
@@ -144,9 +218,16 @@ export interface HybridFusionTelemetry {
   rankMovement: number;
 }
 
+/** A fused, served candidate with its block, ordering score, and provenance. */
+export interface HybridSlateItem {
+  block: ReasoningBlock;
+  /** RRF score — ORDERING ONLY. serving-confidence derives its own evidence. */
+  score: number;
+  provenance: RetrievalProvenance;
+}
+
 export interface HybridSlate {
-  /** Fused, deduped, top-N slate in `{block, score}` shape for finalizeRecall. */
-  slate: Array<{ block: ReasoningBlock; score: number }>;
+  slate: HybridSlateItem[];
   telemetry: HybridFusionTelemetry;
 }
 
@@ -155,26 +236,31 @@ export interface HybridSlate {
  * list. `semantic` is `null` (provider unavailable) ⇒ returns the sparse slate
  * verbatim (the fail-open identity). `lookup` resolves a semantic-only blockId
  * to its block; unresolvable ids are dropped. The fused slate is bounded to
- * `topN`. `score` carries the RRF score (ORDERING ONLY — serving-confidence
- * derives its own evidence and never reads it as confidence).
+ * `topN`. Each item carries fusion provenance (sparse/semantic/fused ranks,
+ * semanticOnly, providerClass). RRF score is ORDERING ONLY.
  */
 export function fuseHybrid(
   sparse: ReadonlyArray<{ block: ReasoningBlock; score: number }>,
   semantic: readonly RetrievalCandidate[] | null,
   lookup: (blockId: string) => ReasoningBlock | null,
   topN: number,
+  providerClass: ProviderLocation | "none" = "none",
 ): HybridSlate {
   const sparseIds = sparse.map((s) => s.block.id);
   const sparseRank = new Map<string, number>();
   sparseIds.forEach((id, i) => sparseRank.set(id, i + 1));
 
   if (!semantic || semantic.length === 0) {
-    // Fail-open identity: sparse only, no movement.
+    // Fail-open identity: sparse only, no movement, provider class "none".
     return {
-      slate: sparse.slice(0, topN).map((s) => ({ block: s.block, score: s.score })),
+      slate: sparse.slice(0, topN).map((s, i) => ({
+        block: s.block,
+        score: s.score,
+        provenance: { sparseRank: i + 1, fusedRank: i + 1, semanticOnly: false, providerClass: "none" as const },
+      })),
       telemetry: {
         sparseSlateSize: sparse.length,
-        semanticSlateSize: semantic ? 0 : 0,
+        semanticSlateSize: 0,
         fusedSlateSize: sparse.length,
         overlap: 0,
         semanticOnly: 0,
@@ -187,6 +273,8 @@ export function fuseHybrid(
     .sort((a, b) => b.score - a.score || (a.blockId < b.blockId ? -1 : a.blockId > b.blockId ? 1 : 0))
     .map((c) => c.blockId);
   const semanticSet = new Set(semanticRanked);
+  const semanticRankMap = new Map<string, number>();
+  semanticRanked.forEach((id, i) => semanticRankMap.set(id, i + 1));
 
   const fused = rrfFuse([
     { source: "sparse", blockIds: sparseIds },
@@ -205,16 +293,29 @@ export function fuseHybrid(
 
   const servedSlate = resolved.slice(0, topN);
   let rankMovement = 0;
-  servedSlate.forEach((r, i) => {
-    const prev = sparseRank.get(r.block.id);
-    if (prev !== undefined) rankMovement += Math.abs(i + 1 - prev);
+  const slate: HybridSlateItem[] = servedSlate.map((r, i) => {
+    const id = r.block.id;
+    const sRank = sparseRank.get(id);
+    const semRank = semanticRankMap.get(id);
+    if (sRank !== undefined) rankMovement += Math.abs(i + 1 - sRank);
+    return {
+      block: r.block,
+      score: r.rrfScore,
+      provenance: {
+        ...(sRank !== undefined ? { sparseRank: sRank } : {}),
+        ...(semRank !== undefined ? { semanticRank: semRank } : {}),
+        fusedRank: i + 1,
+        semanticOnly: sRank === undefined,
+        providerClass,
+      },
+    };
   });
 
   const overlap = sparseIds.filter((id) => semanticSet.has(id)).length;
   const semanticOnly = semanticRanked.filter((id) => !sparseRank.has(id)).length;
 
   return {
-    slate: servedSlate.map((r) => ({ block: r.block, score: r.rrfScore })),
+    slate,
     telemetry: {
       sparseSlateSize: sparse.length,
       semanticSlateSize: semanticRanked.length,

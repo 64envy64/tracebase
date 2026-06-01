@@ -25,8 +25,13 @@
  *   • Reads only privacy-scanned fields; never raw bodies, paths, or vectors.
  */
 import { tokenizeInformative, isGenericToken } from "./serving-tokenizer.js";
-import { buildStructuredView } from "./serving-evidence-v2.js";
-import type { RetrievalProvider, RetrievalQuery, RetrievalContext, RetrievalCandidate } from "./retrieval-provider.js";
+import type {
+  RetrievalProvider,
+  RetrievalIntent,
+  RetrievalContext,
+  RetrievalCandidate,
+  RetrievalProviderCapabilities,
+} from "./retrieval-provider.js";
 
 /** Meaningful (non-generic) token set of free text. */
 function meaningfulSet(text: string): Set<string> {
@@ -46,6 +51,12 @@ function setCosine(a: Set<string>, b: Set<string>): number {
 
 export class DeterministicLocalProvider implements RetrievalProvider {
   readonly name = "deterministic-local";
+  /** Local, sanitized-text, no opt-in required (runs in-process on scanned DTOs). */
+  readonly capabilities: RetrievalProviderCapabilities = {
+    location: "local",
+    payload: "sanitized-text",
+    explicitOptIn: false,
+  };
 
   /** Minimum cosine to be a candidate at all (drops near-zero noise). */
   private readonly minScore: number;
@@ -56,20 +67,26 @@ export class DeterministicLocalProvider implements RetrievalProvider {
     this.minScore = opts.minScore ?? 0.05;
   }
 
-  async retrieve(query: RetrievalQuery, ctx: RetrievalContext): Promise<RetrievalCandidate[] | null> {
+  async retrieve(intent: RetrievalIntent, ctx: RetrievalContext): Promise<RetrievalCandidate[] | null> {
     const start = ctx.now();
-    const q = meaningfulSet(query.text);
+    const q = meaningfulSet(intent.text);
     if (q.size === 0) return [];
     const scored: RetrievalCandidate[] = [];
-    for (const block of ctx.activeBlocks) {
+    for (const doc of ctx.documents) {
       if (ctx.now() - start > ctx.deadlineMs) return null; // budget blown → fail open to sparse
-      const view = buildStructuredView(block);
-      // Body-aware token universe (situation + mechanism + unlock + invariants;
-      // dead-ends/verification excluded, mirroring the V2 scored fields).
-      const sim = setCosine(q, view.allTokens);
-      if (sim >= this.minScore) scored.push({ blockId: block.id, score: sim });
+      if (!doc.tokens) continue; // vector-only doc — this provider needs token DTOs
+      // Body-aware token universe from the SCANNED document (situation +
+      // mechanism + unlock + invariants), mirroring the V2 scored fields.
+      const docSet = new Set<string>([
+        ...doc.tokens.situation,
+        ...doc.tokens.mechanism,
+        ...doc.tokens.unlock,
+        ...doc.tokens.invariants,
+      ]);
+      const sim = setCosine(q, docSet);
+      if (sim >= this.minScore) scored.push({ blockId: doc.blockId, score: sim });
     }
     scored.sort((a, b) => b.score - a.score || (a.blockId < b.blockId ? -1 : a.blockId > b.blockId ? 1 : 0));
-    return scored.slice(0, Math.max(1, query.limit));
+    return scored.slice(0, Math.max(1, intent.limit));
   }
 }

@@ -33,6 +33,7 @@
  */
 import type { ReasoningBlock, BlockInvariants } from "../types.js";
 import { tokenizeInformative, isGenericToken } from "./serving-tokenizer.js";
+import type { RetrievalProvenance } from "./retrieval-provider.js";
 
 // ---------------------------------------------------------------------------
 // Feature vector (versioned)
@@ -224,8 +225,14 @@ export const identityEvidenceCalibrator: EvidenceCalibrator = (c) => clamp01(c);
 
 export interface ServingCandidate {
   block: ReasoningBlock;
-  /** Ranker score (BM25/cascade). ORDERING ONLY. */
+  /** Ranker score (BM25/cascade/RRF). ORDERING ONLY. */
   rankScore: number;
+  /**
+   * Phase C.2 fusion provenance (present only on the hybrid path). V1/V2 ignore
+   * it; the experimental V3 semantic-license lane reads `semanticOnly`. Provider
+   * native scores never become confidence.
+   */
+  provenance?: RetrievalProvenance;
 }
 
 export interface ServingQuery {

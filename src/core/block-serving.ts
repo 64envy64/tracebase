@@ -73,7 +73,10 @@ import {
   type RetrievalProvider,
   type RetrievalCandidate,
   type RetrievalRolloutMode,
+  type RetrievalProvenance,
+  type ProviderLocation,
 } from "./retrieval-provider.js";
+import { buildRetrievalIntent, buildRetrievalDocument, buildVectorOnlyDocument } from "./retrieval-dto.js";
 
 /** Numeric alias for the event field (the const is a literal-typed `1`). */
 const SERVING_FEATURE_VERSION_NUM: number = SERVING_FEATURE_VERSION;
@@ -672,12 +675,12 @@ export class BlockServer {
     const fetchLimit = limit * this.cascadeFetchMultiplier;
 
     const sparse = this.searchBlocks(query.text, query.invariants, fetchLimit);
-    let slate: Array<{ block: ReasoningBlock; score: number }> = sparse.slice(0, limit);
+    let slate = fuseHybrid(sparse, null, (id) => this.store.getBlock(id), limit, "none").slate;
     try {
       const sem = await this.semanticSlate(query, fetchLimit);
-      slate = fuseHybrid(sparse, sem.candidates, (id) => this.store.getBlock(id), limit).slate;
+      slate = fuseHybrid(sparse, sem.candidates, (id) => this.store.getBlock(id), limit, sem.providerClass).slate;
     } catch {
-      // fail open to sparse (slate already set to sparse top-N).
+      // fail open to the sparse-with-provenance slate already set above.
     }
     const rawFacts = this.searchFacts(query.text, query.invariants, query.scope, factLimit);
     return this.finalizeRecall(query, queryId, manualShadow, refLimit, slate, rawFacts, startedAt);
@@ -698,7 +701,7 @@ export class BlockServer {
       const sparse = this.searchBlocks(query.text, query.invariants, fetchLimit);
       const sparseTop = sparse.slice(0, limit);
       const sem = await this.semanticSlate(query, fetchLimit);
-      const fused = fuseHybrid(sparse, sem.candidates, (id) => this.store.getBlock(id), limit);
+      const fused = fuseHybrid(sparse, sem.candidates, (id) => this.store.getBlock(id), limit, sem.providerClass);
       const sparseDecision = this.decideOnSlate(query, sparseTop);
       const hybridDecision = this.decideOnSlate(query, fused.slate);
       const event: RetrievalHybridComparisonEvent = {
@@ -771,16 +774,23 @@ export class BlockServer {
   private async semanticSlate(
     query: BlockRecallQuery,
     limit: number,
-  ): Promise<{ candidates: RetrievalCandidate[] | null; provider: string; fallback: RetrievalFallback; latencyMs: number }> {
+  ): Promise<{ candidates: RetrievalCandidate[] | null; provider: string; fallback: RetrievalFallback; latencyMs: number; providerClass: ProviderLocation | "none" }> {
     const provider = this.retrievalProvider;
-    if (!provider) return { candidates: null, provider: "none", fallback: "unavailable", latencyMs: 0 };
+    if (!provider) return { candidates: null, provider: "none", fallback: "unavailable", latencyMs: 0, providerClass: "none" };
+    // Remote opt-in guard: a remote-capable adapter is NEVER engaged implicitly.
+    if (provider.capabilities.location === "remote" && !provider.capabilities.explicitOptIn) {
+      return { candidates: null, provider: provider.name, fallback: "unavailable", latencyMs: 0, providerClass: "none" };
+    }
     const t0 = this.now();
-    const rq = { text: query.text, ...(query.invariants ? { invariants: query.invariants } : {}), limit };
-    const ctx = {
-      activeBlocks: this.store.listBlocks({ status: "active" }).slice(0, HYBRID_SCAN_CAP),
-      deadlineMs: this.retrievalDeadlineMs,
-      now: this.now,
-    };
+    // Build the privacy-hardened DTOs HERE — the provider never sees raw query
+    // text or raw blocks. Vector-only adapters get opaque vector refs only.
+    const intent = buildRetrievalIntent(query.text, query.invariants, limit);
+    const active = this.store.listBlocks({ status: "active" }).slice(0, HYBRID_SCAN_CAP);
+    const documents =
+      provider.capabilities.payload === "vector-only"
+        ? active.map((b) => buildVectorOnlyDocument(b))
+        : active.map((b) => buildRetrievalDocument(b));
+    const ctx = { documents, deadlineMs: this.retrievalDeadlineMs, now: this.now };
     let candidates: RetrievalCandidate[] | null = null;
     let fallback: RetrievalFallback = "none";
     try {
@@ -789,7 +799,7 @@ export class BlockServer {
         timer = setTimeout(() => res(RETRIEVAL_TIMEOUT), this.retrievalDeadlineMs);
         timer.unref?.();
       });
-      const raced = await Promise.race([provider.retrieve(rq, ctx), timeout]);
+      const raced = await Promise.race([provider.retrieve(intent, ctx), timeout]);
       if (timer) clearTimeout(timer);
       if (raced === RETRIEVAL_TIMEOUT) fallback = "timeout";
       else if (raced === null) fallback = "unavailable";
@@ -800,7 +810,8 @@ export class BlockServer {
     } catch {
       fallback = "error";
     }
-    return { candidates, provider: provider.name, fallback, latencyMs: Math.max(0, this.now() - t0) };
+    const providerClass: ProviderLocation | "none" = candidates ? provider.capabilities.location : "none";
+    return { candidates, provider: provider.name, fallback, latencyMs: Math.max(0, this.now() - t0), providerClass };
   }
 
   /**
@@ -908,7 +919,7 @@ export class BlockServer {
     queryId: string,
     manualShadow: boolean,
     refLimit: number,
-    blocks: Array<{ block: ReasoningBlock; score: number }>,
+    blocks: Array<{ block: ReasoningBlock; score: number; provenance?: RetrievalProvenance }>,
     rawFacts: Array<{ fact: ProjectFact; score: number }>,
     startedAt: number,
     cascadeInfo?: { cascade: CascadeCandidate[]; telemetry: CascadeTelemetry },
@@ -949,7 +960,7 @@ export class BlockServer {
     const evidenceCalibrate = (conf: number, block: ReasoningBlock): number =>
       clamp01(this.calibrator(conf, block));
     const servingQuery = { text: query.text, invariants: query.invariants };
-    const servingCandidates = blocks.map(({ block, score }) => ({ block, rankScore: score }));
+    const servingCandidates = blocks.map(({ block, score, provenance }) => ({ block, rankScore: score, ...(provenance ? { provenance } : {}) }));
 
     // Mode dispatch. V1 is the production default. The V2 modes opt into the
     // structured / family-aware decision but are wrapped so ANY failure falls
