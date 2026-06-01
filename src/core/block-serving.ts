@@ -48,6 +48,8 @@ import type {
   ReasoningEvidenceComparisonEvent,
   EvidenceComparisonAgreement,
   EvidenceFallback,
+  ReasoningQueryCompilerComparisonEvent,
+  QueryCompilerFallback,
 } from "../types.js";
 import {
   type Reranker,
@@ -72,13 +74,22 @@ import {
 import { decideServingV2, type ServingModeV2 } from "./serving-decision-v2.js";
 import { decideServingV3 } from "./serving-decision-v3.js";
 import { decideServingV4 } from "./serving-decision-v4.js";
+import {
+  StructuredQueryCompiler,
+  type RuntimeQueryCompiler,
+  type CompiledQuery,
+} from "./runtime-query-compiler.js";
+import type { QueryCompilerRolloutMode } from "../experiments/reasoning-query-compiler-rollout.js";
 import { SERVING_FEATURE_VERSION_V2 } from "./serving-evidence-v2.js";
 import {
   fuseHybrid,
+  RETRIEVAL_INTENT_VERSION,
   type RetrievalProvider,
   type RetrievalCandidate,
+  type RetrievalIntent,
   type RetrievalRolloutMode,
   type RetrievalProvenance,
+  type HybridSlateItem,
   type ProviderLocation,
 } from "./retrieval-provider.js";
 import { buildRetrievalIntent, buildRetrievalDocument, buildVectorOnlyDocument } from "./retrieval-dto.js";
@@ -310,6 +321,19 @@ export interface RecallV2Result {
     discriminativeSupport?: number;
     hasCompetitor?: boolean;
   };
+  /**
+   * Phase D.1 shadow two-view query-compiler comparison, populated ONLY when
+   * `queryCompilerMode === "shadow"`. Surfaces the per-arm V4 actions on the
+   * sparse / literal-hybrid / literal+causal candidate slates; NEVER served.
+   */
+  shadowQueryCompiler?: {
+    sparseAction: "inject" | "abstain";
+    literalAction: "inject" | "abstain";
+    causalAction: "inject" | "abstain";
+    causalLaneInvoked: boolean;
+    causalAddedDecision: boolean;
+    causalSemanticOnly: number;
+  };
 }
 
 export type Calibrator = (score: number, block: ReasoningBlock) => number;
@@ -486,6 +510,19 @@ export interface BlockServerOptions {
    * WITHOUT serving it (served stays V1/V2). There is no production `"on"`.
    */
   evidenceMode?: "off" | "shadow";
+  /**
+   * Phase D.1 two-view query-compiler rollout. Default `"off"` — candidate
+   * generation is byte-identical and the compiler is never invoked. `"shadow"`
+   * serves the existing path unchanged but compiles the literal/causal views and
+   * records a sparse / literal-hybrid / literal+causal candidate comparison
+   * (V4 over each), local-only. There is no production `"on"`.
+   */
+  queryCompilerMode?: QueryCompilerRolloutMode;
+  /**
+   * The runtime query compiler used in `queryCompilerMode="shadow"`. Pure +
+   * deterministic. Defaults to `StructuredQueryCompiler`.
+   */
+  queryCompiler?: RuntimeQueryCompiler;
 }
 
 // ---------------------------------------------------------------------------
@@ -540,6 +577,9 @@ export class BlockServer {
   private readonly retrievalDeadlineMs: number;
   /** Phase C.2 ServingEvidenceV3 rollout (off default; shadow computes V3, never serves it). */
   private readonly evidenceMode: "off" | "shadow";
+  /** Phase D.1 two-view query-compiler rollout (off default; shadow compares candidate slates). */
+  private readonly queryCompilerMode: QueryCompilerRolloutMode;
+  private readonly queryCompiler: RuntimeQueryCompiler;
 
   constructor(store: BlockStore, opts: BlockServerOptions = {}) {
     this.store = store;
@@ -573,6 +613,8 @@ export class BlockServer {
     this.retrievalProvider = opts.retrievalProvider;
     this.retrievalDeadlineMs = Math.max(1, opts.retrievalDeadlineMs ?? 250);
     this.evidenceMode = opts.evidenceMode ?? "off";
+    this.queryCompilerMode = opts.queryCompilerMode ?? "off";
+    this.queryCompiler = opts.queryCompiler ?? new StructuredQueryCompiler();
   }
 
   /** Hybrid retrieval rollout mode (off default). The recall entry routes
@@ -584,6 +626,11 @@ export class BlockServer {
 
   get retrievalRollout(): RetrievalRolloutMode {
     return this.retrievalMode;
+  }
+
+  /** Phase D.1 query-compiler rollout mode (off default; shadow compares candidate slates). */
+  get queryCompilerRollout(): QueryCompilerRolloutMode {
+    return this.queryCompilerMode;
   }
 
   /**
@@ -788,6 +835,150 @@ export class BlockServer {
   }
 
   /**
+   * Phase D.1 two-view query-compiler comparison (queryCompilerMode=shadow).
+   * Compiles the literal/causal views, builds three candidate slates —
+   *   sparse baseline      = FTS over the raw query;
+   *   literal-hybrid       = FTS(literal view) ⊕ semantic(literal view);
+   *   literal+causal       = literal-hybrid ⊕ semantic(causal view), invoked by
+   *                          the cascade ONLY when the literal arm abstained;
+   * adjudicates each with the shadow V4 decision, and emits a privacy-safe
+   * `reasoning.query_compiler_comparison` event. NEVER serves, NEVER throws —
+   * the served result is whatever the caller already produced. Returns the
+   * shadow summary for the recall result. Off ⇒ never called (byte-identical).
+   */
+  async emitQueryCompilerComparison(
+    query: BlockRecallQuery,
+    queryId: string,
+  ): Promise<NonNullable<RecallV2Result["shadowQueryCompiler"]> | undefined> {
+    if (this.queryCompilerMode !== "shadow") return undefined;
+    const t0 = this.now();
+    let fallback: QueryCompilerFallback = "none";
+    let providerFallback: RetrievalFallback = "none";
+    try {
+      const limit = query.limit ?? 5;
+      const fetchLimit = limit * this.cascadeFetchMultiplier;
+      const lookup = (id: string): ReasoningBlock | null => this.store.getBlock(id);
+
+      const compiled: CompiledQuery = this.queryCompiler.compile(query.text, query.invariants);
+
+      // Arm 1 — sparse baseline: FTS over the raw query (current behaviour).
+      const sparseRaw = this.searchBlocks(query.text, query.invariants, fetchLimit);
+      const sparseSlate = fuseHybrid(sparseRaw, null, lookup, limit, "none").slate;
+
+      // Arm 2 — literal-hybrid: FTS(literal view) ⊕ semantic(literal view).
+      const sparseLiteral = this.searchBlocks(compiled.literal.text, compiled.literal.invariants, fetchLimit);
+      const litIntent: RetrievalIntent = {
+        ...buildRetrievalIntent(compiled.literal.text, compiled.literal.invariants, fetchLimit),
+        view: "literal",
+        intentVersion: RETRIEVAL_INTENT_VERSION,
+      };
+      const semLit = await this.semanticSlate(query, fetchLimit, litIntent);
+      if (semLit.fallback !== "none") providerFallback = semLit.fallback;
+      const literalFused = fuseHybrid(sparseLiteral, semLit.candidates, lookup, limit, semLit.providerClass);
+      const literalSlate = literalFused.slate;
+      const literalDecision = this.decideV4OnSlate(compiled.literal.text, compiled.literal.invariants, literalSlate);
+
+      // Arm 3 — literal+causal: add semantic(causal view) — cascade-gated: only
+      // when the literal arm abstained (the fast slate was insufficient) AND the
+      // compiler produced a causal view.
+      let causalSlate = literalSlate;
+      let causalLaneInvoked = false;
+      let causalSemanticOnly = 0;
+      if (compiled.causal && literalDecision.action === "abstain") {
+        causalLaneInvoked = true;
+        const causIntent: RetrievalIntent = {
+          ...buildRetrievalIntent(compiled.causal.text, undefined, fetchLimit),
+          view: "causal",
+          intentVersion: RETRIEVAL_INTENT_VERSION,
+        };
+        const semCau = await this.semanticSlate(query, fetchLimit, causIntent);
+        if (semCau.fallback !== "none" && providerFallback === "none") providerFallback = semCau.fallback;
+        // Union the two semantic candidate lists (literal ⊕ causal), keeping the
+        // best per-block score, then fuse with the literal FTS slate.
+        const merged = mergeCandidates(semLit.candidates, semCau.candidates);
+        const causalFused = fuseHybrid(sparseLiteral, merged, lookup, limit, semCau.providerClass);
+        causalSlate = causalFused.slate;
+        causalSemanticOnly = causalFused.telemetry.semanticOnly;
+      }
+
+      const sparseDecision = this.decideV4OnSlate(query.text, query.invariants, sparseSlate);
+      // The causal arm is adjudicated on the causal view when the cascade ran it;
+      // otherwise it mirrors the literal arm (same slate + view).
+      const causalServingText = causalLaneInvoked && compiled.causal ? compiled.causal.text : compiled.literal.text;
+      const causalServingInv = causalLaneInvoked && compiled.causal ? undefined : compiled.literal.invariants;
+      const causalDecision = this.decideV4OnSlate(causalServingText, causalServingInv, causalSlate);
+      const causalAddedDecision =
+        causalDecision.action === "inject" && sparseDecision.action === "abstain" && literalDecision.action === "abstain";
+
+      const event: ReasoningQueryCompilerComparisonEvent = {
+        event: "reasoning.query_compiler_comparison",
+        ts: this.now(),
+        queryId,
+        ...(query.runId ? { runId: query.runId } : {}),
+        queryHash: queryHash(query.text),
+        compiler: compiled.compiler,
+        literalViewHash: compiled.literal.viewHash,
+        ...(compiled.causal ? { causalViewHash: compiled.causal.viewHash } : {}),
+        corpusSize: this.store.countBlocks("active"),
+        sparseSlateSize: sparseSlate.length,
+        literalSlateSize: literalSlate.length,
+        causalSlateSize: causalSlate.length,
+        literalSemanticOnly: literalFused.telemetry.semanticOnly,
+        causalSemanticOnly,
+        causalLaneInvoked,
+        sparseV4Action: sparseDecision.action,
+        literalV4Action: literalDecision.action,
+        causalV4Action: causalDecision.action,
+        ...(sparseDecision.topCandidateId ? { sparseV4TopBlockId: sparseDecision.topCandidateId } : {}),
+        ...(literalDecision.topCandidateId ? { literalV4TopBlockId: literalDecision.topCandidateId } : {}),
+        ...(causalDecision.topCandidateId ? { causalV4TopBlockId: causalDecision.topCandidateId } : {}),
+        causalAddedDecision,
+        providerFallback,
+        fallback,
+        incrementalLatencyMs: Math.max(0, this.now() - t0),
+      };
+      this.emitter.emit(event, query.runId ? { runId: query.runId } : undefined);
+      return {
+        sparseAction: sparseDecision.action,
+        literalAction: literalDecision.action,
+        causalAction: causalDecision.action,
+        causalLaneInvoked,
+        causalAddedDecision,
+        causalSemanticOnly,
+      };
+    } catch {
+      fallback = "error";
+      return undefined; // shadow telemetry must never break or alter a recall.
+    }
+  }
+
+  /**
+   * Adjudicate a hybrid slate with the shadow V4 contrastive decision. The slate
+   * carries fusion provenance (semanticOnly), which V4's semantic-license lane
+   * needs. Fails open to abstain — shadow comparison can never break a recall.
+   */
+  private decideV4OnSlate(
+    servingText: string,
+    invariants: BlockInvariants | undefined,
+    slate: readonly HybridSlateItem[],
+  ): { action: "inject" | "abstain"; topCandidateId?: string } {
+    try {
+      const policy: ServingPolicy = { ...this.policy, gateThreshold: this.gateThreshold };
+      const calibrate = (conf: number, block: ReasoningBlock): number => clamp01(this.calibrator(conf, block));
+      // Each arm is adjudicated on the VIEW that generated its slate — the
+      // literal arm on the literal view, the causal arm on the distilled
+      // mechanism intent — so the serving evidence sees the same focused signal
+      // the retrieval lane used (not the symbol-diluted original).
+      const sq: ServingQuery = { text: servingText, ...(invariants ? { invariants } : {}) };
+      const candidates: ServingCandidate[] = slate.map((it) => ({ block: it.block, rankScore: it.score, provenance: it.provenance }));
+      const { decision } = decideServingV4(sq, candidates, policy, calibrate);
+      return { action: decision.action, ...(decision.topCandidateId ? { topCandidateId: decision.topCandidateId } : {}) };
+    } catch {
+      return { action: "abstain" };
+    }
+  }
+
+  /**
    * Run the configured serving decision on a candidate slate WITHOUT emitting
    * any event (used by the shadow comparison). Mirrors `finalizeRecall`'s
    * dispatch; fails open to V1 like the served path.
@@ -822,6 +1013,12 @@ export class BlockServer {
   private async semanticSlate(
     query: BlockRecallQuery,
     limit: number,
+    /**
+     * Phase D.1: an explicit, pre-built intent (a compiled literal/causal view).
+     * Defaults to the plain whole-query intent — so the existing hybrid path is
+     * byte-identical. Either way the provider sees ONLY the scrubbed DTO.
+     */
+    intentOverride?: RetrievalIntent,
   ): Promise<{ candidates: RetrievalCandidate[] | null; provider: string; fallback: RetrievalFallback; latencyMs: number; providerClass: ProviderLocation | "none" }> {
     const provider = this.retrievalProvider;
     if (!provider) return { candidates: null, provider: "none", fallback: "unavailable", latencyMs: 0, providerClass: "none" };
@@ -832,7 +1029,7 @@ export class BlockServer {
     const t0 = this.now();
     // Build the privacy-hardened DTOs HERE — the provider never sees raw query
     // text or raw blocks. Vector-only adapters get opaque vector refs only.
-    const intent = buildRetrievalIntent(query.text, query.invariants, limit);
+    const intent = intentOverride ?? buildRetrievalIntent(query.text, query.invariants, limit);
     const active = this.store.listBlocks({ status: "active" }).slice(0, HYBRID_SCAN_CAP);
     const documents =
       provider.capabilities.payload === "vector-only"
@@ -1859,6 +2056,23 @@ function clamp01(x: number): number {
 
 function round4(x: number): number {
   return Math.round(x * 10000) / 10000;
+}
+
+/**
+ * Union two semantic candidate lists (Phase D.1 literal ⊕ causal lanes), keeping
+ * the BEST score per blockId. `null` inputs are treated as empty; returns `null`
+ * only when both are null (so fuseHybrid sees the fail-open identity). Pure +
+ * deterministic (no ordering dependence — the caller re-sorts by score).
+ */
+function mergeCandidates(
+  a: RetrievalCandidate[] | null,
+  b: RetrievalCandidate[] | null,
+): RetrievalCandidate[] | null {
+  if (!a && !b) return null;
+  const best = new Map<string, number>();
+  for (const c of a ?? []) best.set(c.blockId, Math.max(best.get(c.blockId) ?? -Infinity, c.score));
+  for (const c of b ?? []) best.set(c.blockId, Math.max(best.get(c.blockId) ?? -Infinity, c.score));
+  return [...best.entries()].map(([blockId, score]) => ({ blockId, score }));
 }
 
 /**

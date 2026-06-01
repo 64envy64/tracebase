@@ -142,5 +142,10 @@ export async function runReasoningPatternsRecall(
   if (retrievalMode === "shadow") {
     await blockServer.emitHybridComparison(query, served.queryId);
   }
+  // Phase D.1 — two-view query-compiler comparison (orthogonal shadow lane).
+  if (blockServer.queryCompilerRollout === "shadow") {
+    const summary = await blockServer.emitQueryCompilerComparison(query, served.queryId);
+    if (summary) served.shadowQueryCompiler = summary;
+  }
   return served;
 }

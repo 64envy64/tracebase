@@ -54,6 +54,7 @@ import {
 import { routerServingOptions } from "../experiments/reasoning-router-rollout.js";
 import { reasoningRetrievalOptions } from "../experiments/reasoning-retrieval-rollout.js";
 import { reasoningEvidenceOptions } from "../experiments/reasoning-evidence-rollout.js";
+import { reasoningQueryCompilerOptions } from "../experiments/reasoning-query-compiler-rollout.js";
 import {
   recallForPrompt,
   shouldQueryForPrompt,
@@ -211,6 +212,8 @@ export function createRuntime(
       ...reasoningRetrievalOptions(),
       // Phase C.2 ServingEvidenceV3 rollout (TRACEBASE_REASONING_EVIDENCE=off|shadow); default off.
       ...reasoningEvidenceOptions(),
+      // Phase D.1 two-view query-compiler rollout (TRACEBASE_REASONING_QUERY_COMPILER=off|shadow); default off.
+      ...reasoningQueryCompilerOptions(),
     });
     const holdoutLoader: HoldoutLoader = () => readHoldoutConfig(basePath);
     const cascadeLoader: CascadeLoader = () => readCascadeConfig(basePath);

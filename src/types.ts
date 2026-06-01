@@ -1701,7 +1701,8 @@ export type AnalyticsEvent =
   // Phase C.2 ServingEvidenceV3 (TRACEBASE_REASONING_EVIDENCE=shadow) — one event
   // per recall comparing the served V1/V2 decision with the shadow V3
   // semantic-license decision. Privacy-safe + local-only, same contract.
-  | ReasoningEvidenceComparisonEvent;
+  | ReasoningEvidenceComparisonEvent
+  | ReasoningQueryCompilerComparisonEvent;
 
 interface EventBase {
   ts: number;
@@ -2645,4 +2646,48 @@ export interface ReasoningEvidenceComparisonEvent extends EventBase {
   v4FamilySeparation?: number;
   /** Candidates V4 contrastively licensed (structured-corroborated after the gap). */
   v4LicensedCandidates?: number;
+}
+
+/** Closed-enum outcome of the query-compiler comparison (never a raw error). */
+export type QueryCompilerFallback = "none" | "error";
+
+/**
+ * Phase D.1 two-view query-compiler comparison — emitted once per recall when
+ * `TRACEBASE_REASONING_QUERY_COMPILER=shadow`. Compares candidate generation
+ * across three slates (sparse baseline / literal-hybrid / literal+causal), each
+ * adjudicated by the shadow V4 decision. Privacy-safe (queryHash + view hashes +
+ * opaque block ids + counts + closed enums; NO raw query/body/path/tokens).
+ * LOCAL-ONLY: never part of the cloud `UsageMetrics` aggregate.
+ */
+export interface ReasoningQueryCompilerComparisonEvent extends EventBase {
+  event: "reasoning.query_compiler_comparison";
+  queryHash: string;
+  compiler: string;
+  literalViewHash: string;
+  causalViewHash?: string;
+  corpusSize: number;
+  // Candidate slate sizes per arm.
+  sparseSlateSize: number;
+  literalSlateSize: number;
+  causalSlateSize: number;
+  /** Candidates the literal-view semantic lane surfaced that FTS missed. */
+  literalSemanticOnly: number;
+  /** Candidates the causal-view semantic lane surfaced that FTS+literal missed. */
+  causalSemanticOnly: number;
+  /** Did the cascade actually invoke the causal lane (fast slate insufficient)? */
+  causalLaneInvoked: boolean;
+  // Shadow V4 decision per arm.
+  sparseV4Action: "inject" | "abstain";
+  literalV4Action: "inject" | "abstain";
+  causalV4Action: "inject" | "abstain";
+  sparseV4TopBlockId?: string;
+  literalV4TopBlockId?: string;
+  causalV4TopBlockId?: string;
+  /** True when the causal arm injected where BOTH sparse and literal abstained (the lift). */
+  causalAddedDecision: boolean;
+  /** Closed retrieval-provider fallback class for the causal lane. */
+  providerFallback: string;
+  fallback: QueryCompilerFallback;
+  /** Incremental wall-clock cost of compiling + the causal lane (ms). */
+  incrementalLatencyMs: number;
 }

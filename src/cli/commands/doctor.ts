@@ -41,6 +41,7 @@ import { readHookHealth } from "../hook-self-heal.js";
 import { resolveReasoningRouterMode, REASONING_ROUTER_ENV } from "../../experiments/reasoning-router-rollout.js";
 import { resolveReasoningRetrievalMode, REASONING_RETRIEVAL_ENV } from "../../experiments/reasoning-retrieval-rollout.js";
 import { resolveReasoningEvidenceMode, REASONING_EVIDENCE_ENV } from "../../experiments/reasoning-evidence-rollout.js";
+import { resolveReasoningQueryCompilerMode, REASONING_QUERY_COMPILER_ENV } from "../../experiments/reasoning-query-compiler-rollout.js";
 
 /**
  * 0.6.0 — `info` added for purely diagnostic state that's
@@ -374,6 +375,8 @@ export function runDoctor(invocationPath: string): DoctorReport {
   checks.push(reasoningRetrievalDoctorCheck());
   // --- Phase C.2 ServingEvidenceV3 rollout (TRACEBASE_REASONING_EVIDENCE).
   checks.push(reasoningEvidenceDoctorCheck());
+  // --- Phase D.1 two-view query-compiler rollout (TRACEBASE_REASONING_QUERY_COMPILER).
+  checks.push(reasoningQueryCompilerDoctorCheck());
 
   // --- Live MCP boot probe
   //
@@ -1331,6 +1334,45 @@ export function reasoningEvidenceDoctorCheck(env: NodeJS.ProcessEnv = process.en
     name: "reasoning-evidence",
     level: "info",
     message: "Evidence V3 rollout: off (serving V1/V2; default)",
+  };
+}
+
+/**
+ * Phase D.1 two-view query-compiler rollout diagnostic. off/shadow only — `on`
+ * is not permitted (the causal candidate lane is shadow-only) and a typo fails
+ * safe to off. Static text; exported for tests.
+ */
+export function reasoningQueryCompilerDoctorCheck(env: NodeJS.ProcessEnv = process.env): DoctorCheck {
+  const { mode, diagnostics } = resolveReasoningQueryCompilerMode(env);
+  const refused = diagnostics.some((d) => d.includes("not permitted"));
+  const invalid = diagnostics.some((d) => d.includes("ignored"));
+  if (refused) {
+    return {
+      name: "reasoning-query-compiler",
+      level: "warn",
+      message: `Query-compiler rollout: ${REASONING_QUERY_COMPILER_ENV}=on is not permitted (causal lane is shadow-only) — using off`,
+      fix: `Set ${REASONING_QUERY_COMPILER_ENV} to off or shadow.`,
+    };
+  }
+  if (invalid) {
+    return {
+      name: "reasoning-query-compiler",
+      level: "warn",
+      message: `Query-compiler rollout: invalid ${REASONING_QUERY_COMPILER_ENV} value — defaulted to off`,
+      fix: `Set ${REASONING_QUERY_COMPILER_ENV} to off or shadow.`,
+    };
+  }
+  if (mode === "shadow") {
+    return {
+      name: "reasoning-query-compiler",
+      level: "info",
+      message: "Query-compiler rollout: shadow (serving unchanged; comparing sparse / literal-hybrid / literal+causal candidate slates)",
+    };
+  }
+  return {
+    name: "reasoning-query-compiler",
+    level: "info",
+    message: "Query-compiler rollout: off (candidate generation byte-identical; default)",
   };
 }
 
