@@ -38,6 +38,7 @@ import {
   type InstallAgent,
 } from "../install-targets.js";
 import { readHookHealth } from "../hook-self-heal.js";
+import { resolveReasoningRouterMode, REASONING_ROUTER_ENV } from "../../experiments/reasoning-router-rollout.js";
 
 /**
  * 0.6.0 — `info` added for purely diagnostic state that's
@@ -359,6 +360,14 @@ export function runDoctor(invocationPath: string): DoctorReport {
   // download via @xenova/transformers cache). We NEVER auto-`npm
   // install` native deps; missing-dep FAIL emits the exact command.
   appendCascadeRerankerCheck(checks, projectRoot);
+
+  // --- Router V2 rollout (TRACEBASE_REASONING_ROUTER) — diagnostic surface.
+  //
+  // resolveReasoningRouterMode() returns diagnostics that the runtime
+  // construction path (routerServingOptions) intentionally does not log on the
+  // hot path; doctor is the operator-facing surface for them. A typo'd env value
+  // fails safe to `off`, and is reported here as a WARN so it isn't silent.
+  checks.push(reasoningRouterDoctorCheck());
 
   // --- Live MCP boot probe
   //
@@ -1202,6 +1211,44 @@ function appendAgentIntegrationChecks(
 
 function stateAbbrev(s: HookEventState): string {
   return s === "canonical" ? "ok" : s;
+}
+
+/**
+ * Router V2 rollout diagnostic check. Reads TRACEBASE_REASONING_ROUTER and
+ * reports the effective mode; a typo fails safe to `off` and is surfaced as a
+ * WARN (never silent). The message is static operator-facing text — no prompt,
+ * path, or the raw (possibly-arbitrary) env value is echoed. Exported for tests.
+ */
+export function reasoningRouterDoctorCheck(env: NodeJS.ProcessEnv = process.env): DoctorCheck {
+  const { mode, diagnostics } = resolveReasoningRouterMode(env);
+  const invalid = diagnostics.some((d) => d.includes("ignored"));
+  if (invalid) {
+    return {
+      name: "reasoning-router",
+      level: "warn",
+      message: `Router V2 rollout: invalid ${REASONING_ROUTER_ENV} value — defaulted to off (serving V1 only)`,
+      fix: `Set ${REASONING_ROUTER_ENV} to one of: off | shadow | on.`,
+    };
+  }
+  if (mode === "shadow") {
+    return {
+      name: "reasoning-router",
+      level: "info",
+      message: "Router V2 rollout: shadow (serving V1; computing V2 side-by-side for comparison telemetry)",
+    };
+  }
+  if (mode === "on") {
+    return {
+      name: "reasoning-router",
+      level: "pass",
+      message: "Router V2 rollout: on (serving V2-family; fails open to V1)",
+    };
+  }
+  return {
+    name: "reasoning-router",
+    level: "info",
+    message: "Router V2 rollout: off (serving V1 only; default)",
+  };
 }
 
 // ============================================================================
