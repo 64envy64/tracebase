@@ -26,6 +26,7 @@ import {
   APPLICABILITY_CANARY_KILL_ENV,
 } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
+import { readBreakerSnapshot } from "../../experiments/canary-breaker.js";
 import type { CascadeConfig, TraceBaseConfig } from "../../types.js";
 import { MiniLMReranker } from "../../core/rerankers/minilm.js";
 import {
@@ -1432,6 +1433,18 @@ export function reasoningApplicabilityDoctorCheck(env: NodeJS.ProcessEnv = proce
  */
 export function applicabilityCanaryDoctorCheck(projectRoot?: string, env: NodeJS.ProcessEnv = process.env): DoctorCheck {
   const persisted = projectRoot ? readApplicabilityCanaryConfig(projectRoot) : null;
+  // D.4.2 — a latched (or malformed → fail-off) circuit breaker is reported FIRST
+  // and distinctly as TRIPPED: the canary has auto-halted on a frozen kill rule.
+  const breaker = projectRoot ? readBreakerSnapshot(projectRoot) : { tripped: false, reasons: [] };
+  if (breaker.tripped) {
+    const why = breaker.reasons.join(", ") || "latched";
+    return {
+      name: "applicability-canary",
+      level: "warn",
+      message: `Applicability canary TRIPPED by circuit breaker (${why}) — not exposing`,
+      fix: "Review `tracebase canary health`; after addressing the cause, run `tracebase canary reset-breaker --ack reset-breaker.v1`.",
+    };
+  }
   const serving = resolveCanaryServingState(persisted, env);
   if (!persisted?.enabled) {
     return { name: "applicability-canary", level: "info", message: "Applicability canary: off (default; serving byte-identical)" };

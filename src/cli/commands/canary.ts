@@ -36,6 +36,13 @@ import {
   CANARY_RECEIPT_FILE,
   type CanaryPreflightReceipt,
 } from "../../experiments/canary-preflight.js";
+import {
+  readBreakerState,
+  resetBreaker,
+  canaryEffectiveStatus,
+  BREAKER_RESET_ACK,
+  type CanaryEffectiveStatus,
+} from "../../experiments/canary-breaker.js";
 
 /** Resolve + read the frozen pre-registration doc (relative to this module). */
 function readPreregText(): string {
@@ -225,9 +232,10 @@ export const canaryCommand = new Command("canary")
       .action((opts: { path: string; json?: boolean }) => {
         const projectBase = assertInitialized(opts.path);
         const current = readApplicabilityCanaryConfig(projectBase);
-        const serving = resolveCanaryServingState(current);
+        const eff = canaryEffectiveStatus(projectBase, process.env);
+        const serving = resolveCanaryServingState(current, process.env, eff.snapshot);
         if (opts.json) {
-          process.stdout.write(JSON.stringify({ canary: current, effective: { enabled: serving.enabled, killReason: serving.killReason ?? null } }, null, 2) + "\n");
+          process.stdout.write(JSON.stringify({ canary: current, effective: { status: eff.status, enabled: serving.enabled, killReason: serving.killReason ?? null } }, null, 2) + "\n");
           return;
         }
         console.log();
@@ -240,6 +248,9 @@ export const canaryCommand = new Command("canary")
           return;
         }
         renderCanary(current);
+        if (eff.status === "TRIPPED") {
+          console.log(pc.red(`  ⚠ circuit breaker TRIPPED (${eff.snapshot.reasons.join(", ") || "latched"}) — NOT exposing. See \`canary health\`; clear with \`canary reset-breaker --ack ${BREAKER_RESET_ACK}\`.`));
+        }
         console.log();
       }),
   )
@@ -260,4 +271,72 @@ export const canaryCommand = new Command("canary")
         console.log(pc.dim(`  to apply:  npx tracebase-ai canary enable --rate ${rate} --ack ${CANARY_POLICY_VERSION}`));
         console.log();
       }),
+  )
+  .addCommand(
+    new Command("health")
+      .description("Show the circuit-breaker health — latched state, bounded counters, kill reasons")
+      .option("-p, --path <path>", "project root", process.cwd())
+      .option("--json", "machine-readable JSON output")
+      .action((opts: { path: string; json?: boolean }) => {
+        const projectBase = assertInitialized(opts.path);
+        const state = readBreakerState(projectBase);
+        const eff = canaryEffectiveStatus(projectBase, process.env);
+        if (opts.json) {
+          process.stdout.write(JSON.stringify({ status: eff.status, killReason: eff.killReason ?? null, breaker: state === "malformed" ? { malformed: true } : state }, null, 2) + "\n");
+          return;
+        }
+        console.log();
+        console.log(pc.bold(`Applicability canary health — ${renderStatus(eff.status)}`));
+        if (state === null) {
+          console.log(pc.dim("  breaker    inert — the canary has not exposed yet (no state)"));
+          console.log();
+          return;
+        }
+        if (state === "malformed") {
+          console.log(pc.red("  breaker    MALFORMED state — failing OFF. Review, then `canary reset-breaker --ack " + BREAKER_RESET_ACK + "`."));
+          console.log();
+          return;
+        }
+        const c = state.counters;
+        const m = state.lastVerdict.metrics;
+        console.log(`  tripped    ${state.tripped ? pc.red("YES — " + (state.reasons.join(", ") || "latched")) : pc.green("no")}`);
+        if (state.trippedAtMs) console.log(pc.dim(`  trippedAt  ${new Date(state.trippedAtMs).toISOString()}`));
+        if (state.resetAtMs) console.log(pc.dim(`  resetAt    ${new Date(state.resetAtMs).toISOString()}`));
+        console.log(pc.dim(`  treatment  exposed=${c.treatmentExposed} observed=${c.treatmentObservedOutcomes} helpful=${c.treatmentHelpful} harmful=${c.treatmentHarmful}`));
+        console.log(pc.dim(`  attrib     control=${c.controlExposed} trials=${c.trials} crossRun=${c.crossRun} ambiguous=${c.ambiguous} privacy=${c.privacyViolations}`));
+        console.log(pc.dim(`  metrics    precision=${fmtRate(m.precision)} harmRate=${fmtRate(m.harmfulRate)} attrRate=${fmtRate(m.attributionDiagnosticRate)} latencyP95=${m.railLatencyP95Ms ?? "n/a"}ms`));
+        console.log();
+      }),
+  )
+  .addCommand(
+    new Command("reset-breaker")
+      .description("Clear a TRIPPED circuit breaker after review (guarded; serving resumes per config)")
+      .option("-p, --path <path>", "project root", process.cwd())
+      .requiredOption("--ack <token>", `acknowledge the reviewed reset (must equal ${BREAKER_RESET_ACK})`)
+      .action((opts: { path: string; ack: string }) => {
+        const projectBase = assertInitialized(opts.path);
+        if (opts.ack !== BREAKER_RESET_ACK) {
+          console.error(pc.red("Refused: ") + `--ack must equal ${BREAKER_RESET_ACK}; refusing to clear the breaker without an explicit reviewed acknowledgement.`);
+          process.exit(1);
+        }
+        const next = resetBreaker(projectBase);
+        console.log();
+        console.log(pc.bold("Circuit breaker RESET"));
+        console.log(pc.dim(`  tripped: no · resetAt ${new Date(next.resetAtMs ?? Date.now()).toISOString()}`));
+        console.log(pc.dim("  Serving resumes per the persisted config + env; a re-derive ignores the pre-reset rows."));
+        console.log(pc.dim("  (Emergency stop remains `canary disable` or " + APPLICABILITY_CANARY_KILL_ENV + "=off.)"));
+        console.log();
+      }),
   );
+
+/** Colorise the three effective canary states for the health/status surfaces. */
+function renderStatus(status: CanaryEffectiveStatus): string {
+  if (status === "TRIPPED") return pc.red("TRIPPED");
+  if (status === "LIVE") return pc.red("LIVE — exposing");
+  return pc.dim("INERT");
+}
+
+/** Format a rate metric (0..1) or null as a short string. */
+function fmtRate(n: number | null): string {
+  return n === null ? "n/a" : n.toFixed(3);
+}

@@ -27,6 +27,7 @@ import type { AnalyticsEvent } from "../types.js";
 import { joinApplicabilityTrials } from "../analytics/applicability-ledger.js";
 import { detectLeakageExtended } from "../core/guard.js";
 import { APPLICABILITY_FEATURE_VERSION } from "../core/applicability-reranker.js";
+import { readApplicabilityCanaryConfig, resolveCanaryServingState } from "../core/config.js";
 import {
   emptyHealthCounters,
   evaluateCanaryHealth,
@@ -38,6 +39,8 @@ import {
 
 export const CANARY_BREAKER_VERSION = 1 as const;
 export const CANARY_BREAKER_FILE = "canary-breaker.json";
+/** Explicit acknowledgement token required by `canary reset-breaker --ack`. */
+export const BREAKER_RESET_ACK = "reset-breaker.v1";
 /** Bounded recompute window. The pre-reg max run is 14 days; +1 day margin. NOT the hot path. */
 export const BREAKER_WINDOW_MS = 15 * 24 * 60 * 60 * 1000;
 /** Hard cap on events pulled per recompute — bounds the (cold) ingestion read. */
@@ -214,4 +217,26 @@ export function noteCanaryActivityIfActive(basePath: string, store: BlockStore, 
   } catch {
     // A breaker refresh must never break the outcome-recording surface.
   }
+}
+
+/** The three distinct canary states the CLI/doctor surface. */
+export type CanaryEffectiveStatus = "LIVE" | "INERT" | "TRIPPED";
+
+/**
+ * Combine persisted config + env kills + breaker snapshot into ONE effective
+ * status, shared by `canary status|health` and `doctor` so they never disagree:
+ *   • TRIPPED — the breaker is latched (or its state is malformed → fail-off).
+ *   • LIVE    — config enabled AND no env/global kill AND breaker clear: exposing.
+ *   • INERT   — configured-off / env-killed (but not tripped): not exposing.
+ */
+export function canaryEffectiveStatus(
+  basePath: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { status: CanaryEffectiveStatus; snapshot: CanaryBreakerSnapshot; killReason?: string } {
+  const snapshot = readBreakerSnapshot(basePath);
+  if (snapshot.tripped) return { status: "TRIPPED", snapshot, killReason: `breaker_tripped:${snapshot.reasons.join(",") || "latched"}` };
+  const serving = resolveCanaryServingState(readApplicabilityCanaryConfig(basePath), env);
+  return serving.killReason
+    ? { status: "INERT", snapshot, killReason: serving.killReason }
+    : { status: serving.enabled ? "LIVE" : "INERT", snapshot };
 }
