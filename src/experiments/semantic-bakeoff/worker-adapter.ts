@@ -96,6 +96,8 @@ export class PersistentWorkerProvider implements ApplicabilityProvider {
   private child: ChildProcessWithoutNullStreams | null = null;
   private rl: Interface | null = null;
   private readyPromise: Promise<boolean> | null = null;
+  private settleHandshake: ((ok: boolean) => void) | null = null;
+  private handshakeTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly pending = new Map<string, Pending>();
   /** Requests whose deadline fired; the worker still holds the GPU until it frees them. */
   private readonly awaitingCancel = new Set<string>();
@@ -128,8 +130,10 @@ export class PersistentWorkerProvider implements ApplicabilityProvider {
       const done = (ok: boolean): void => {
         if (settled) return;
         settled = true;
+        this.settleHandshake = null;
         resolve(ok);
       };
+      this.settleHandshake = done;
       try {
         const child = spawn(this.opts.command, this.opts.args, {
           stdio: ["pipe", "pipe", "pipe"],
@@ -138,25 +142,53 @@ export class PersistentWorkerProvider implements ApplicabilityProvider {
         this.child = child;
         this.rl = createInterface({ input: child.stdout });
         this.rl.on("line", (line) => this.onLine(line));
-        child.on("exit", () => this.onCrash());
-        child.on("error", () => this.onCrash());
+        child.on("exit", () => this.onCrash(child));
+        child.on("error", () => this.onCrash(child));
+        // `stdin.write()` can fail asynchronously after returning true. Without
+        // a listener Node raises an uncaught EPIPE during teardown/crash races.
+        // Treat it exactly like a child crash: fail open and let the next rank
+        // spawn a fresh generation.
+        child.stdin.on("error", () => this.onCrash(child));
         // Handshake.
         const helloId = this.nextId();
-        const hsTimer = setTimeout(() => {
+        this.handshakeTimer = setTimeout(() => {
           this.health.state = "handshake_failed";
+          this.pendingHandshake = null;
           done(false);
+          try {
+            child.kill();
+          } catch {
+            /* already gone */
+          }
         }, this.opts.handshakeTimeoutMs ?? 3000);
         this.pendingHandshake = (model, fv) => {
-          clearTimeout(hsTimer);
+          if (this.handshakeTimer) {
+            clearTimeout(this.handshakeTimer);
+            this.handshakeTimer = undefined;
+          }
           this._featureVersion = fv;
           this.health.state = "ready";
           this.health.model = model;
           this.health.featureVersion = fv;
           done(true);
         };
-        this.write({ v: WORKER_PROTOCOL_VERSION, id: helloId, type: "hello" });
+        if (!this.write({ v: WORKER_PROTOCOL_VERSION, id: helloId, type: "hello" })) {
+          if (this.handshakeTimer) {
+            clearTimeout(this.handshakeTimer);
+            this.handshakeTimer = undefined;
+          }
+          this.health.state = "handshake_failed";
+          this.pendingHandshake = null;
+          done(false);
+          child.kill();
+        }
       } catch {
+        if (this.handshakeTimer) {
+          clearTimeout(this.handshakeTimer);
+          this.handshakeTimer = undefined;
+        }
         this.health.state = "handshake_failed";
+        this.pendingHandshake = null;
         done(false);
       }
     });
@@ -201,9 +233,18 @@ export class PersistentWorkerProvider implements ApplicabilityProvider {
     }
   }
 
-  private onCrash(): void {
+  private onCrash(sourceChild: ChildProcessWithoutNullStreams): void {
+    // A recycled generation may exit after its replacement is already alive.
+    // Never let a stale process tear down the current worker.
+    if (this.child !== sourceChild) return;
+    if (this.handshakeTimer) {
+      clearTimeout(this.handshakeTimer);
+      this.handshakeTimer = undefined;
+    }
+    this.settleHandshake?.(false);
+    this.settleHandshake = null;
     if (this.health.state === "ready") this.health.crashes++;
-    this.health.state = "crashed";
+    if (this.health.state !== "handshake_failed") this.health.state = "crashed";
     this.child = null;
     this.rl = null;
     this.readyPromise = null; // allow a restart on next rank
@@ -348,15 +389,35 @@ export class PersistentWorkerProvider implements ApplicabilityProvider {
   }
 
   async close(): Promise<void> {
+    if (this.handshakeTimer) {
+      clearTimeout(this.handshakeTimer);
+      this.handshakeTimer = undefined;
+    }
+    this.settleHandshake?.(false);
+    this.settleHandshake = null;
+    this.pendingHandshake = null;
+    if (this.recycleTimer) {
+      clearTimeout(this.recycleTimer);
+      this.recycleTimer = undefined;
+    }
+    for (const [, p] of this.pending) {
+      clearTimeout(p.timer);
+      p.detach?.();
+      p.resolve(null);
+    }
+    this.pending.clear();
+    this.awaitingCancel.clear();
     try {
       this.write({ v: WORKER_PROTOCOL_VERSION, id: this.nextId(), type: "shutdown" });
     } catch {
       /* ignore */
     }
     this.rl?.close();
-    this.child?.kill();
+    const child = this.child;
     this.child = null;
+    this.rl = null;
     this.readyPromise = null;
+    child?.kill();
   }
 }
 
