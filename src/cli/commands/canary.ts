@@ -7,7 +7,7 @@
  * acknowledgement (`--ack <policyVersion>`) — there is no accidental path on.
  * `disable` is the crash-safe emergency stop; `preview` is a read-only dry run.
  */
-import { Command } from "commander";
+import { Command, InvalidArgumentError } from "commander";
 import pc from "picocolors";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -93,7 +93,10 @@ function assertInitialized(path: string): string {
 function parseRateArg(value: string): number {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0 || n > MAX_CANARY_RATE) {
-    throw new Error(`--rate must be in (0, ${MAX_CANARY_RATE}] (pre-reg cap); got ${value}. Rates above the cap are rejected, never clamped.`);
+    // InvalidArgumentError → commander prints a clean one-line refusal and
+    // exits 1 (no stack trace): a rate above the pre-reg cap is REJECTED here,
+    // at parse time, never clamped down to the cap.
+    throw new InvalidArgumentError(`must be in (0, ${MAX_CANARY_RATE}] (pre-reg cap); got ${value}. Rates above the cap are rejected, never clamped.`);
   }
   return n;
 }
