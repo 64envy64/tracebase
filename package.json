@@ -42,6 +42,8 @@
     "eval:retrieval": "tsx eval/retrieval/runner.ts",
     "smoke:agent": "tsx scripts/agent-smoke.ts",
     "smoke:capabilities": "tsx scripts/capability-matrix-smoke.ts",
+    "smoke:semantic-ops": "tsx scripts/semantic-bakeoff/semantic-ops-smoke.ts",
+    "semantic:sidecar": "tsx scripts/semantic-bakeoff/serve-sidecar.ts",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

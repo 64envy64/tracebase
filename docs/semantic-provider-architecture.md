@@ -136,10 +136,37 @@ It is **not** a client install path. No customer is required to download a model
 the default is the hosted data plane (A), enterprise self-hosts the sidecar (B),
 and local (C) is an advanced opt-in.
 
-## 7. Next approval boundary
+## 7. Shadow operations contract (E.2.6)
 
-Mode A/B require building the inference service (HTTP transport behind the same
-DTO contract) — a separate, explicitly-approved step. Promotion of any semantic
-verdict to served output remains gated on: a successful offline bakeoff (quality),
-a warm p95 ≤ 50 ms validation on the target hardware, the canary, and the breaker —
-never auto-promoted, never on the hot path's critical section.
+The mode-B customer-managed HTTP process contract now exists in shadow-only
+form. It is intentionally separate from the local MCP process and the hosted
+control plane:
+
+```bash
+npm run semantic:sidecar
+npx tracebase-ai semantic doctor
+npx tracebase-ai semantic export-observations --path . --out ./semantic-observations.json
+```
+
+The sidecar requires explicit bearer auth, derives its tenant from that verified
+principal, verifies the pinned Qwen artifact before startup, handshakes the
+worker before listening, exposes only minimal public liveness, and keeps full
+health behind auth. The doctor is an explicit operator probe. The observation
+export is a privacy-safe labeling queue: IDs, hashes, enums, and numeric metadata
+only; never raw prompts, candidate tokens, bodies, paths, credentials, or cache
+content.
+
+The zero-cost fake backend exists only behind an explicit opt-in for tests and
+smokes. It is not a production mode.
+
+## 8. Next approval boundary
+
+Publishing a mode-B CUDA image remains a separate supply-chain step: pin and
+review the base image, Python lock, model mount, GPU runtime, and registry
+provenance rather than guessing them in R&D. Mode A hosted deployment remains a
+separate service-operations decision.
+
+Promotion of any semantic verdict to served output remains gated on: a
+successful offline bakeoff (quality), a warm p95 ≤ 50 ms validation on the target
+hardware, the canary, and the breaker — never auto-promoted, never on the hot
+path's critical section.

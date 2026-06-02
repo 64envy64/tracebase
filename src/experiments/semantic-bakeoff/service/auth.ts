@@ -4,6 +4,8 @@
  * body — a body-supplied tenant would be a trivial spoof. Real deployments plug a
  * JWT/mTLS authenticator here; tests use FakeAuthenticator only.
  */
+import { createHash, timingSafeEqual } from "node:crypto";
+
 export interface Principal {
   tenant: string;
 }
@@ -23,6 +25,32 @@ export class FakeAuthenticator implements Authenticator {
     if (!m) return null;
     const tenant = this.tokenToTenant[m[1]!];
     return tenant ? { tenant } : null;
+  }
+}
+
+/**
+ * Single-tenant sidecar auth. Stores only a one-way digest of the configured
+ * bearer token and compares fixed-size digests in constant time. Hosted mode
+ * plugs in JWT/mTLS separately; this class is for a customer-managed endpoint.
+ */
+export class StaticBearerAuthenticator implements Authenticator {
+  private readonly expectedDigest: Buffer;
+  private readonly tenant: string;
+
+  constructor(token: string, tenant: string) {
+    if (token.length < 16) throw new Error("semantic sidecar bearer token must be at least 16 characters");
+    if (!tenant.trim()) throw new Error("semantic sidecar tenant must be non-empty");
+    this.expectedDigest = createHash("sha256").update(token).digest();
+    this.tenant = tenant.trim();
+  }
+
+  authenticate(headers: Record<string, string | string[] | undefined>): Principal | null {
+    const raw = headers["authorization"];
+    const auth = Array.isArray(raw) ? raw[0] : raw;
+    const match = /^Bearer (.+)$/.exec(String(auth ?? ""));
+    if (!match) return null;
+    const actual = createHash("sha256").update(match[1]!).digest();
+    return timingSafeEqual(actual, this.expectedDigest) ? { tenant: this.tenant } : null;
   }
 }
 

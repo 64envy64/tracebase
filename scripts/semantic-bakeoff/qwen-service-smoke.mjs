@@ -31,7 +31,7 @@ const C = [cand("b-kahan", ["floating point rounding"], ["kahan summation"]), ca
 try {
   const t0 = Date.now();
   const cache = new InMemorySemanticCache({ ttlMs: 1e6, swrMs: 0, maxEntries: 50 });
-  const p = new HttpRerankProvider({ baseUrl: url, tenant: "t1", authToken: "tok", cache, warmDeadlineMs: 30_000, pinnedAttestation: { model: "Qwen/Qwen3-Reranker-0.6B", revision: REV, featureVersion: 1, backend: "qwen-local" } });
+  const p = new HttpRerankProvider({ baseUrl: url, authToken: "tok", cache, warmDeadlineMs: 30_000, pinnedAttestation: { model: "Qwen/Qwen3-Reranker-0.6B", revision: REV, featureVersion: 1, backend: "qwen-local" } });
 
   const r1 = await p.rank(Q, C, { deadlineMs: 30_000, now: Date.now });
   console.log(`rank#1 (MISS)  : overlay=${JSON.stringify(r1)} → baseline; warm scheduled=${p.warmStats().scheduled}`);

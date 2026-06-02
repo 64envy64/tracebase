@@ -59,11 +59,19 @@ export interface HealthDTO {
   };
 }
 
+export interface LivenessDTO {
+  ok: true;
+  protocolVersion: typeof RERANK_PROTOCOL_VERSION;
+}
+
 function isStr(x: unknown): x is string {
   return typeof x === "string";
 }
 function isFiniteNum(x: unknown): x is number {
   return typeof x === "number" && Number.isFinite(x);
+}
+function isNonNegativeInt(x: unknown): x is number {
+  return Number.isInteger(x) && (x as number) >= 0;
 }
 function isTokens(x: unknown, maxTokenChars: number): x is string[] {
   // Bound BOTH the array length AND each token STRING's length (E.2.3).
@@ -130,6 +138,51 @@ const sha16 = (s: string): string => createHash("sha256").update(s).digest("hex"
 /** Privacy-safe stable model identity for telemetry/manifests. Never contains credentials. */
 export function attestationHash(att: ModelAttestation): string {
   return sha16(JSON.stringify([att.model, att.revision, att.backend, att.featureVersion]));
+}
+
+/** Strict public liveness decoder. The public endpoint intentionally exposes no attestation or telemetry. */
+export function decodeLivenessResponse(raw: unknown): LivenessDTO | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (Object.keys(r).some((key) => key !== "ok" && key !== "protocolVersion")) return null;
+  return r.ok === true && r.protocolVersion === RERANK_PROTOCOL_VERSION
+    ? { ok: true, protocolVersion: RERANK_PROTOCOL_VERSION }
+    : null;
+}
+
+/** Strict authenticated admin-health decoder for operator diagnostics. */
+export function decodeHealthResponse(raw: unknown): HealthDTO | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const att = r.attestation as Record<string, unknown> | undefined;
+  const telemetry = r.telemetry as Record<string, unknown> | undefined;
+  if (
+    r.ok !== true ||
+    !att ||
+    !isStr(att.model) || !att.model ||
+    !isStr(att.revision) || !att.revision ||
+    !isStr(att.backend) || !att.backend ||
+    !isNonNegativeInt(att.featureVersion) || att.featureVersion < 1 ||
+    !isNonNegativeInt(r.inFlight) ||
+    !telemetry
+  ) return null;
+  const fields = [
+    "served", "rejectedAuth", "rejectedLeak", "rejectedMalformed",
+    "rejectedTooLarge", "rejectedExpired", "quotaExceeded", "timeouts",
+    "overloads", "backendErrors",
+  ] as const;
+  if (fields.some((field) => !isNonNegativeInt(telemetry[field]))) return null;
+  return {
+    ok: true,
+    attestation: {
+      model: att.model,
+      revision: att.revision,
+      backend: att.backend,
+      featureVersion: att.featureVersion,
+    },
+    inFlight: r.inFlight,
+    telemetry: Object.fromEntries(fields.map((field) => [field, telemetry[field]])) as unknown as HealthDTO["telemetry"],
+  };
 }
 
 /** Stable hash of the query views (never the raw text leaves in the key). */

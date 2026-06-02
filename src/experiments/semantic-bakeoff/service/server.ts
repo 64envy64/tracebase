@@ -27,7 +27,7 @@ export interface ServiceOptions {
 
 export interface RerankService {
   server: Server;
-  listen(port?: number): Promise<number>;
+  listen(port?: number, host?: string): Promise<number>;
   close(): Promise<void>;
   telemetry: HealthDTO["telemetry"];
 }
@@ -140,7 +140,20 @@ export function createRerankService(backend: RerankBackend, opts: ServiceOptions
   return {
     server,
     telemetry,
-    listen: (port = 0) => new Promise<number>((resolve) => server.listen(port, "127.0.0.1", () => { const a = server.address(); resolve(typeof a === "object" && a ? a.port : port); })),
+    listen: (port = 0, host = "127.0.0.1") => new Promise<number>((resolve, reject) => {
+      const onError = (error: Error): void => {
+        server.off("listening", onListening);
+        reject(error);
+      };
+      const onListening = (): void => {
+        server.off("error", onError);
+        const address = server.address();
+        resolve(typeof address === "object" && address ? address.port : port);
+      };
+      server.once("error", onError);
+      server.once("listening", onListening);
+      server.listen(port, host);
+    }),
     close: async () => {
       try {
         await backend.close?.(); // graceful backend shutdown (release worker/GPU)

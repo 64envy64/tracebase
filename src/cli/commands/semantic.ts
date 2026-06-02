@@ -10,6 +10,7 @@ import Database from "better-sqlite3";
 import { dirname } from "node:path";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import pc from "picocolors";
+import { collectSemanticShadowObservations, type SemanticShadowObservationSkeleton } from "../../analytics/semantic-shadow-observations.js";
 import { aggregateSemanticShadow, type SemanticShadowReport } from "../../analytics/semantic-shadow-report.js";
 import { BlockStore } from "../../core/block-store.js";
 import { findConfigDir, loadConfig } from "../../core/config.js";
@@ -19,6 +20,7 @@ import {
   parseSemanticOrganicLabels,
   type FrozenOrganicCalibrationExport,
 } from "../../experiments/semantic-bakeoff/calibration/organic-export.js";
+import { probeSemanticShadow, type SemanticShadowDoctorReport } from "../../experiments/semantic-bakeoff/service/doctor.js";
 import { parseSince } from "./events.js";
 
 interface BaseOptions {
@@ -33,9 +35,17 @@ interface ExportOptions extends BaseOptions {
   frozenAt?: string;
 }
 
+interface ObservationExportOptions extends BaseOptions {
+  out: string;
+}
+
 export interface RunSemanticShadowReportOptions {
   path: string;
   since?: string;
+}
+
+export interface RunSemanticObservationExportOptions extends RunSemanticShadowReportOptions {
+  outPath: string;
 }
 
 export interface RunSemanticRegistryExportOptions extends RunSemanticShadowReportOptions {
@@ -94,6 +104,20 @@ export function runSemanticRegistryExport(
   return frozen;
 }
 
+export function runSemanticObservationExport(
+  options: RunSemanticObservationExportOptions,
+): SemanticShadowObservationSkeleton[] {
+  const observations = collectSemanticShadowObservations(readSemanticEvents(options.path, options.since));
+  writeJsonAtomic(options.outPath, observations);
+  return observations;
+}
+
+export function runSemanticShadowDoctor(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<SemanticShadowDoctorReport> {
+  return probeSemanticShadow(env);
+}
+
 function printReport(report: SemanticShadowReport): void {
   console.log(pc.bold("Semantic shadow report"));
   console.log(pc.dim("  traffic:             ") + report.traffic);
@@ -135,6 +159,31 @@ function fail(error: unknown): void {
 export const semanticCommand = new Command("semantic")
   .description("Inspect and freeze the shadow-only semantic applicability lane")
   .addCommand(
+    new Command("doctor")
+      .description("Probe configured shadow endpoint liveness, auth, and pinned attestation")
+      .option("--json", "machine-readable JSON output")
+      .action(async (opts: Pick<BaseOptions, "json">) => {
+        try {
+          const report = await runSemanticShadowDoctor();
+          if (opts.json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+          else {
+            console.log(pc.bold("Semantic shadow doctor"));
+            console.log(pc.dim("  status: ") + report.status);
+            if ("endpoint" in report) console.log(pc.dim("  endpoint: ") + report.endpoint);
+            if (report.status === "ready") {
+              console.log(pc.dim("  attestation: ") + report.attestationId);
+              console.log(pc.dim("  in-flight: ") + report.inFlight);
+            } else if ("reason" in report) {
+              console.log(pc.dim("  reason: ") + report.reason);
+            }
+          }
+          if (report.status !== "ready" && report.status !== "off") process.exitCode = 1;
+        } catch (error) {
+          fail(error);
+        }
+      }),
+  )
+  .addCommand(
     new Command("shadow-report")
       .description("Aggregate local privacy-safe semantic comparison events")
       .option("-p, --path <path>", "project root", process.cwd())
@@ -145,6 +194,28 @@ export const semanticCommand = new Command("semantic")
           const report = runSemanticShadowReport(opts);
           if (opts.json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
           else printReport(report);
+        } catch (error) {
+          fail(error);
+        }
+      }),
+  )
+  .addCommand(
+    new Command("export-observations")
+      .description("Export privacy-safe local shadow observation skeletons for operator labeling")
+      .requiredOption("--out <path>", "output observation JSON path")
+      .option("-p, --path <path>", "project root", process.cwd())
+      .option("--since <when>", "window start: relative (7d / 1h / 30m) or ISO / epoch ms")
+      .option("--json", "machine-readable JSON output")
+      .action((opts: ObservationExportOptions) => {
+        try {
+          const observations = runSemanticObservationExport({
+            path: opts.path,
+            outPath: opts.out,
+            ...(opts.since ? { since: opts.since } : {}),
+          });
+          const summary = { out: opts.out, observations: observations.length };
+          if (opts.json) process.stdout.write(JSON.stringify(summary, null, 2) + "\n");
+          else console.log(pc.green("Exported.") + ` ${summary.observations} privacy-safe semantic observation skeletons`);
         } catch (error) {
           fail(error);
         }

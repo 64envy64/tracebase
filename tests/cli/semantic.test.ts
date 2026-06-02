@@ -4,8 +4,9 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BlockStore } from "../../src/core/block-store.js";
-import { initConfig } from "../../src/core/config.js";
+import { initConfig, loadConfig } from "../../src/core/config.js";
 import {
+  runSemanticObservationExport,
   runSemanticRegistryExport,
   runSemanticShadowReport,
 } from "../../src/cli/commands/semantic.js";
@@ -50,6 +51,47 @@ describe("semantic operator CLI helpers", () => {
     expect(report.traffic).toBe(1);
     expect(report.residual.recoveryRate).toBe(1);
     expect(report.providers).toEqual(["http"]);
+  });
+
+  it("exports privacy-safe observation skeletons without payload content", () => {
+    const outPath = join(projectDir, "out", "observations.json");
+    const observations = runSemanticObservationExport({ path: projectDir, outPath });
+    expect(observations).toEqual([
+      {
+        queryId: "semantic-cli-q1",
+        queryHash: "semantic-cli-hash",
+        observedAt: 42,
+        v4Action: "abstain",
+        semanticProvider: "http",
+        semanticFeatureVersion: 1,
+        semanticVerdict: "applicable",
+        semanticTopBlockId: "semantic-cli-block",
+        semanticConfidence: 0.9,
+        changedDecision: "reranker_only_apply",
+        fallback: "none",
+      },
+    ]);
+    const exported = readFileSync(outPath, "utf8");
+    expect(exported).not.toContain("literalText");
+    expect(exported).not.toContain("candidate");
+    expect(exported).not.toContain("tokens");
+    expect(exported).not.toContain("credential");
+  });
+
+  it("fails closed when an event contains a path-like winner id", () => {
+    const cfg = loadConfig(projectDir);
+    const store = new BlockStore(new Database(cfg.storagePath));
+    store.appendEvent({
+      ...observed,
+      queryId: "semantic-cli-q2",
+      semanticTopBlockId: "/home/alice/private-block",
+    });
+    store.close();
+    const outPath = join(projectDir, "out", "unsafe-observations.json");
+    expect(() => runSemanticObservationExport({ path: projectDir, outPath })).toThrow(
+      "unsafe semantic observation identifier: semanticTopBlockId",
+    );
+    expect(() => readFileSync(outPath, "utf8")).toThrow();
   });
 
   it("freezes an explicitly labeled observed winner to an auditable registry", () => {

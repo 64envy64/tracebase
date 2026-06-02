@@ -85,6 +85,9 @@ export class QwenRerankBackend implements RerankBackend {
     );
     return r ? r.map((x) => ({ blockId: x.blockId, verdict: x.verdict, confidence: x.confidence })) : null;
   }
+  async start(): Promise<void> {
+    if (!(await this.provider.start())) throw new Error("qwen worker failed its startup handshake");
+  }
   async close(): Promise<void> {
     await this.provider.close();
   }

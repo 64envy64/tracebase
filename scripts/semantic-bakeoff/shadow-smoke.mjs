@@ -24,7 +24,7 @@ try {
   console.log("liveness        :", JSON.stringify(liveness), "(public, no telemetry)");
 
   const cache = new InMemorySemanticCache({ ttlMs: 1e6, swrMs: 0, maxEntries: 50 });
-  const p = new HttpRerankProvider({ baseUrl: url, tenant: "t1", authToken: "tok", cache, pinnedAttestation: { model: "fake", revision: REV, featureVersion: 1, backend: "fake" } });
+  const p = new HttpRerankProvider({ baseUrl: url, authToken: "tok", cache, pinnedAttestation: { model: "fake", revision: REV, featureVersion: 1, backend: "fake" } });
 
   const r1 = await p.rank(Q, C, { deadlineMs: 2000, now: Date.now });
   console.log("rank#1  (MISS)  : overlay=", JSON.stringify(r1), "→ baseline; cacheMiss=", p.healthSnapshot().cacheMiss, "warm=", p.warmStats().scheduled);

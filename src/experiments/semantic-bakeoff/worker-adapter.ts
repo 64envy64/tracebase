@@ -122,6 +122,11 @@ export class PersistentWorkerProvider implements ApplicabilityProvider {
     return { ...this.health, latenciesMs: [...this.health.latenciesMs] };
   }
 
+  /** Eager startup probe for long-lived services. Runtime callers may stay lazy. */
+  start(): Promise<boolean> {
+    return this.ensureStarted();
+  }
+
   /** Spawn + handshake exactly once (memoised). Resolves false on any failure. */
   private ensureStarted(): Promise<boolean> {
     if (this.readyPromise) return this.readyPromise;
