@@ -88,3 +88,40 @@ dogfood traffic, with **zero** served-output change — to measure cache hit rat
 shadow precision/recall on organic data, and warm-rate sizing. Promotion to served
 output remains a later, separately-gated decision (canary + breaker + precision
 gate). Cloud Run deploy is a further boundary beyond that.
+
+## Addendum — E.2.1 implementation status + calibration boundary
+
+The **two-plane overlay is now implemented** in R&D (`service/`), matching this
+ADR by construction — not just by intent:
+- **lookupCached()** is synchronous, local, network-free; **scheduleWarm()** is
+  async, bounded, single-flight (stampede-coalescing). A **cache miss returns the
+  baseline immediately**; the network only ever happens inside `scheduleWarm`, so
+  remote inference can never block the served path or be required for correctness.
+- **Content-free persistent cache** (in-memory + SQLite) keyed by tenant + model
+  revision + featureVersion + queryHash + **candidate-content digest** + blockId —
+  a model-version *or* candidate-content change invalidates automatically.
+- **Protocol v2** with strict runtime decoders, unique echoed+verified requestId,
+  requested deadline + absolute expiry, server `min(client, cap)`, verdict enum +
+  confidence bounds, result-id subset+uniqueness, and attestation verification.
+- **Hosted auth**: the server derives tenant from a **verified principal**, never
+  the request body (a body `tenant` is ignored); per-tenant quota; bounded warm
+  queue. (Fake auth is test-only.)
+- Privacy boundary unchanged: bounded **scanned** DTOs (client + server re-scan),
+  **no payload persistence**, inference plane ≠ control plane.
+
+**Measured GPU facts (carried, unchanged):** production shape (4 cand, med) warm
+p95 **95.6 ms — OVER** the 50 ms rail on a 4070 fp16; only a 2-short-candidate
+shape (48.6 ms) fits; cold load 1.4 s; VRAM 3.3 GB. Adversarial quality: recall
+0.286→**1.000** but precision 1.000→**0.778** (2 FP) on the 18-fixture set.
+
+**Calibration boundary — do NOT tune the confidence threshold on the 18 fixtures.**
+That set is tiny and was authored to *expose* failure modes, not to fit a decision
+boundary; tuning the `applicable`/`uncertain`/`inapplicable` thresholds on it would
+overfit and launder the adversarial FPs away. Threshold calibration must use a
+**separate, larger, frozen calibration/validation manifest** — proposed (not built
+here): (a) ≥ N families × M holdouts + adversarial/hard negatives drawn from
+*organic* recurring families (no synthetic counted), (b) a frozen train/validation
+split fixed before any tuning, (c) the pre-reg precision gate (Wilson LB) applied
+on the held-out validation split only. This manifest, and any threshold fit on it,
+is a **future, separately-approved** R&D step that gates promotion — distinct from
+this ADR and from the shadow-only build decision above.
