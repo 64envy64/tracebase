@@ -1,26 +1,28 @@
 /**
- * Provider-agnostic semantic inference data plane (R&D). HTTP `/v1/health` +
- * `/v1/rerank`. Backend-agnostic (fake or Qwen-local behind RerankBackend).
+ * Semantic inference data plane — HTTP service v2 (R&D, E.2.1).
  *
- * Guarantees: scanned bounded DTO (re-scanned server-side — never trust the
- * client), strict per-request deadline, concurrency cap (overflow → 503),
- * cancellation on client disconnect, model/revision attestation on every response,
- * structured PRIVACY-SAFE telemetry (counts only), and NO persistence of
- * query/snippet payloads — the body is parsed in memory, used, and dropped; only
- * counters survive. Separate from the Next.js control plane.
+ * `GET /v1/health` + `POST /v1/rerank`. Backend-agnostic. Hardening:
+ *   - TENANT from a verified PRINCIPAL (auth), never the request body (401 on fail);
+ *   - per-tenant QUOTA (429); body size cap → clean 413; strict v2 DECODE → 400;
+ *   - absolute expiry drop (410); server-side leak re-scan (422); concurrency cap (503);
+ *   - deadline = min(client, server cap); AbortSignal to the backend on deadline OR
+ *     client DISCONNECT (cancellation); attestation + echoed requestId on success;
+ *   - NO persistence of query/snippet payloads (counters only). Separate from the
+ *     Next.js control plane.
  */
-import { createServer, type Server } from "node:http";
+import { createServer, type Server, type ServerResponse } from "node:http";
 import { detectLeakageExtended } from "../../../core/guard.js";
 import type { RerankBackend } from "./backend.js";
-import { RERANK_PROTOCOL_VERSION, type RerankRequestDTO, type RerankResponseDTO, type HealthDTO } from "./protocol.js";
+import type { Authenticator, TenantQuota } from "./auth.js";
+import { RERANK_PROTOCOL_VERSION, decodeRerankRequest, type RerankResponseDTO, type HealthDTO } from "./protocol.js";
 
 export interface ServiceOptions {
-  /** Max in-flight rerank requests; overflow → 503. */
+  authenticator: Authenticator;
+  quota?: TenantQuota;
   concurrency?: number;
-  /** Server-side deadline cap (ms); the request may ask for less. */
   maxDeadlineMs?: number;
-  /** Max request body bytes. */
   maxBodyBytes?: number;
+  now?: () => number;
 }
 
 export interface RerankService {
@@ -30,16 +32,17 @@ export interface RerankService {
   telemetry: HealthDTO["telemetry"];
 }
 
-const BOUNDS = { maxCandidates: 32, maxTokensPerField: 128, maxQueryChars: 8000 };
+const MAX_CANDIDATES = 32;
 
-export function createRerankService(backend: RerankBackend, opts: ServiceOptions = {}): RerankService {
+export function createRerankService(backend: RerankBackend, opts: ServiceOptions): RerankService {
   const concurrency = opts.concurrency ?? 8;
   const maxDeadlineMs = opts.maxDeadlineMs ?? 2000;
   const maxBodyBytes = opts.maxBodyBytes ?? 256 * 1024;
-  const telemetry: HealthDTO["telemetry"] = { served: 0, rejectedLeak: 0, rejectedMalformed: 0, timeouts: 0, overloads: 0, backendErrors: 0 };
+  const now = opts.now ?? Date.now;
+  const telemetry: HealthDTO["telemetry"] = { served: 0, rejectedAuth: 0, rejectedLeak: 0, rejectedMalformed: 0, rejectedTooLarge: 0, rejectedExpired: 0, quotaExceeded: 0, timeouts: 0, overloads: 0, backendErrors: 0 };
   let inFlight = 0;
 
-  const send = (res: import("node:http").ServerResponse, code: number, body: unknown): void => {
+  const send = (res: ServerResponse, code: number, body: unknown): void => {
     const s = JSON.stringify(body);
     res.writeHead(code, { "content-type": "application/json", "content-length": Buffer.byteLength(s) });
     res.end(s);
@@ -47,70 +50,73 @@ export function createRerankService(backend: RerankBackend, opts: ServiceOptions
 
   const server = createServer((req, res) => {
     if (req.method === "GET" && req.url === "/v1/health") {
-      const h: HealthDTO = { ok: true, attestation: backend.attestation, inFlight, telemetry };
-      return send(res, 200, h);
+      return send(res, 200, { ok: true, attestation: backend.attestation, inFlight, telemetry } satisfies HealthDTO);
     }
     if (req.method !== "POST" || req.url !== "/v1/rerank") return send(res, 404, { error: "not_found" });
 
-    // Read body with a hard size cap. Never logged, never persisted.
+    // Auth FIRST — tenant from the verified principal, never the body.
+    const principal = opts.authenticator.authenticate(req.headers);
+    if (!principal) {
+      telemetry.rejectedAuth++;
+      return send(res, 401, { error: "unauthorized" });
+    }
+    if (opts.quota && !opts.quota.allow(principal.tenant)) {
+      telemetry.quotaExceeded++;
+      return send(res, 429, { error: "quota_exceeded" });
+    }
+
     let size = 0;
     const chunks: Buffer[] = [];
-    let aborted = false;
-    req.on("aborted", () => { aborted = true; });
+    let tooLarge = false;
+    let disconnected = false;
+    const ac = new AbortController();
+    req.on("aborted", () => { disconnected = true; ac.abort(); });
+    res.on("close", () => { if (!res.writableEnded) { disconnected = true; ac.abort(); } });
     req.on("data", (c: Buffer) => {
       size += c.length;
-      if (size > maxBodyBytes) { req.destroy(); return; }
+      if (size > maxBodyBytes) { tooLarge = true; return; } // stop buffering (bound memory) but drain → clean 413 on `end`
       chunks.push(c);
     });
-    req.on("end", () => {
-      void handle();
-    });
+    req.on("end", () => void handle());
 
     async function handle(): Promise<void> {
-      if (aborted) return; // client cancelled before we could process
-      let dto: RerankRequestDTO;
+      if (tooLarge) { telemetry.rejectedTooLarge++; return send(res, 413, { error: "payload_too_large" }); }
+      if (disconnected) return;
+      let parsed: unknown;
       try {
-        dto = JSON.parse(Buffer.concat(chunks).toString("utf8")) as RerankRequestDTO;
+        parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       } catch {
         telemetry.rejectedMalformed++;
         return send(res, 400, { error: "malformed_json" });
       }
-      if (dto?.v !== RERANK_PROTOCOL_VERSION || typeof dto.tenant !== "string" || !dto.query || !Array.isArray(dto.candidates)) {
-        telemetry.rejectedMalformed++;
-        return send(res, 400, { error: "bad_request" });
-      }
-      // Bound + SCAN server-side (defence in depth — never trust the client).
-      const q = { literalText: String(dto.query.literalText ?? "").slice(0, BOUNDS.maxQueryChars), ...(dto.query.causalText ? { causalText: String(dto.query.causalText).slice(0, BOUNDS.maxQueryChars) } : {}) };
-      const candidates = dto.candidates.slice(0, BOUNDS.maxCandidates).map((c) => ({
-        blockId: String(c.blockId),
-        mechanism: (c.mechanism ?? []).slice(0, BOUNDS.maxTokensPerField),
-        situation: (c.situation ?? []).slice(0, BOUNDS.maxTokensPerField),
-        unlock: (c.unlock ?? []).slice(0, BOUNDS.maxTokensPerField),
-      }));
+      const dto = decodeRerankRequest(parsed, { maxCandidates: MAX_CANDIDATES });
+      if (!dto) { telemetry.rejectedMalformed++; return send(res, 400, { error: "bad_request" }); }
+      if (dto.expiresAtMs < now()) { telemetry.rejectedExpired++; return send(res, 410, { error: "expired" }); }
+
+      const q = { literalText: dto.query.literalText, ...(dto.query.causalText ? { causalText: dto.query.causalText } : {}) };
+      const candidates = dto.candidates.map((c) => ({ blockId: c.blockId, mechanism: c.mechanism, situation: c.situation, unlock: c.unlock }));
       if (detectLeakageExtended(JSON.stringify({ q, candidates })) !== null) {
         telemetry.rejectedLeak++;
-        return send(res, 422, { error: "leak_rejected" }); // a leak is never forwarded to the backend
+        return send(res, 422, { error: "leak_rejected" });
       }
-      if (inFlight >= concurrency) {
-        telemetry.overloads++;
-        return send(res, 503, { error: "overloaded" });
-      }
-      const deadlineMs = Math.min(maxDeadlineMs, Math.max(1, Number(dto.featureVersion ? maxDeadlineMs : maxDeadlineMs)));
+      if (inFlight >= concurrency) { telemetry.overloads++; return send(res, 503, { error: "overloaded" }); }
+
+      const deadlineMs = Math.min(maxDeadlineMs, dto.deadlineMs); // server min(client, cap)
       inFlight++;
       const TIMEOUT = Symbol("t");
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const raced = await Promise.race([
-          backend.rerank(q, candidates, deadlineMs),
-          new Promise<typeof TIMEOUT>((r) => { timer = setTimeout(() => r(TIMEOUT), deadlineMs); }),
+          backend.rerank(q, candidates, deadlineMs, ac.signal),
+          new Promise<typeof TIMEOUT>((r) => { timer = setTimeout(() => { ac.abort(); r(TIMEOUT); }, deadlineMs); }),
         ]);
+        if (disconnected) return; // client gone → cancelled; persist nothing, send nothing
         if (raced === TIMEOUT) { telemetry.timeouts++; return send(res, 504, { error: "deadline_exceeded" }); }
         if (raced === null) { telemetry.backendErrors++; return send(res, 502, { error: "backend_unavailable" }); }
-        if (aborted) return; // client gone — drop the (already-computed) result, persist nothing
-        const out: RerankResponseDTO = { v: RERANK_PROTOCOL_VERSION, requestId: String(dto.requestId ?? ""), attestation: backend.attestation, results: raced };
         telemetry.served++;
-        return send(res, 200, out);
+        return send(res, 200, { v: RERANK_PROTOCOL_VERSION, requestId: dto.requestId, attestation: backend.attestation, results: raced } satisfies RerankResponseDTO);
       } catch {
+        if (disconnected) return;
         telemetry.backendErrors++;
         return send(res, 502, { error: "backend_error" });
       } finally {
@@ -123,16 +129,7 @@ export function createRerankService(backend: RerankBackend, opts: ServiceOptions
   return {
     server,
     telemetry,
-    listen: (port = 0) =>
-      new Promise<number>((resolve) => {
-        server.listen(port, "127.0.0.1", () => {
-          const addr = server.address();
-          resolve(typeof addr === "object" && addr ? addr.port : port);
-        });
-      }),
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.close(() => resolve());
-      }),
+    listen: (port = 0) => new Promise<number>((resolve) => server.listen(port, "127.0.0.1", () => { const a = server.address(); resolve(typeof a === "object" && a ? a.port : port); })),
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }

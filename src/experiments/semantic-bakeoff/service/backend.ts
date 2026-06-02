@@ -10,8 +10,9 @@ import type { ModelAttestation } from "./protocol.js";
 export interface RerankBackend {
   readonly attestation: ModelAttestation;
   start?(): Promise<void>;
-  /** Return verdicts, or null on any failure/timeout (the service maps null → 502/503). */
-  rerank(query: WireQuery, candidates: WireCandidate[], deadlineMs: number): Promise<WireResult[] | null>;
+  /** Return verdicts, or null on any failure/timeout. `signal` aborts on the
+   *  server deadline OR client disconnect — backends should honour it. */
+  rerank(query: WireQuery, candidates: WireCandidate[], deadlineMs: number, signal?: AbortSignal): Promise<WireResult[] | null>;
   close?(): Promise<void>;
 }
 
@@ -38,8 +39,13 @@ export class FakeRerankBackend implements RerankBackend {
   constructor(private readonly opts: FakeBackendOptions = {}) {
     this.attestation = { model: "fake", revision: opts.revision ?? "fake-rev-1", featureVersion: opts.featureVersion ?? 1, backend: "fake" };
   }
-  async rerank(_q: WireQuery, candidates: WireCandidate[], _deadlineMs: number): Promise<WireResult[] | null> {
-    if (this.opts.delayMs) await new Promise((r) => setTimeout(r, this.opts.delayMs));
+  async rerank(_q: WireQuery, candidates: WireCandidate[], _deadlineMs: number, signal?: AbortSignal): Promise<WireResult[] | null> {
+    if (this.opts.delayMs) {
+      await new Promise<void>((resolve, reject) => {
+        const t = setTimeout(resolve, this.opts.delayMs);
+        signal?.addEventListener("abort", () => { clearTimeout(t); reject(new Error("aborted")); }, { once: true });
+      });
+    }
     if (this.opts.throwErr) throw new Error("fake backend crash");
     if (this.opts.returnNull) return null;
     return candidates.map((c) => {
@@ -68,7 +74,7 @@ export class QwenRerankBackend implements RerankBackend {
       env: { TB_QWEN_MODEL_DIR: opts.modelDir },
     });
   }
-  async rerank(query: WireQuery, candidates: WireCandidate[], deadlineMs: number): Promise<WireResult[] | null> {
+  async rerank(query: WireQuery, candidates: WireCandidate[], deadlineMs: number, _signal?: AbortSignal): Promise<WireResult[] | null> {
     const r = await this.provider.rank(
       { literalText: query.literalText, ...(query.causalText ? { causalText: query.causalText } : {}) },
       candidates.map((c) => ({ blockId: c.blockId, tokens: { situation: c.situation, mechanism: c.mechanism, unlock: c.unlock, invariants: [] }, signals: { isPitfall: false, helpful: 0, harmful: 0, unresolved: 0, familySupport: 0, sourceDiversity: 0 } })),

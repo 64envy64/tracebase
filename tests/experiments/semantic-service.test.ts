@@ -1,18 +1,25 @@
 /**
- * Phase E.2 Track B — semantic inference data plane ($0, fake backend).
+ * Phase E.2.1 — semantic data plane v2 ($0, fake backend). Two-plane overlay:
+ * lookupCached (sync, network-free) + scheduleWarm (async, bounded, single-flight).
+ * Cache MISS returns baseline immediately; warming never affects served output.
  *
- * Covers the service + client + SWR cache invariants over real HTTP (127.0.0.1):
- * cache fresh/stale/miss, deadline→fail-open, malformed→fail-open, crash→fail-open,
- * overload→503, leak rejection (client-before-transport AND server-side), and
- * model-version invalidation. No model, no GPU, no network egress.
+ * Covers: first-miss no-network serving, async warming, stampede coalescing,
+ * SQLite restart persistence, timeout cancellation, forged tenant, attestation/
+ * requestId mismatch, extra/duplicate block IDs, malformed payload, 413, overload,
+ * leak rejection (client + server).
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { createServer } from "node:http";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createRerankService, type RerankService } from "../../src/experiments/semantic-bakeoff/service/server.js";
 import { FakeRerankBackend, type FakeBackendOptions } from "../../src/experiments/semantic-bakeoff/service/backend.js";
 import { HttpRerankProvider } from "../../src/experiments/semantic-bakeoff/service/client.js";
-import { SwrCache } from "../../src/experiments/semantic-bakeoff/service/cache.js";
-import { RERANK_PROTOCOL_VERSION } from "../../src/experiments/semantic-bakeoff/service/protocol.js";
+import { InMemorySemanticCache, SqliteSemanticCache, type SemanticCache } from "../../src/experiments/semantic-bakeoff/service/cache.js";
+import { FakeAuthenticator, TenantQuota } from "../../src/experiments/semantic-bakeoff/service/auth.js";
+import { WarmQueue } from "../../src/experiments/semantic-bakeoff/service/warm-queue.js";
+import { decodeRerankResponse, decodeRerankRequest, RERANK_PROTOCOL_VERSION } from "../../src/experiments/semantic-bakeoff/service/protocol.js";
 import type { ApplicabilityCandidate, ApplicabilityContext } from "../../src/core/applicability-reranker.js";
 
 const cand = (id: string, mech: string[] = ["rounding", "error"]): ApplicabilityCandidate => ({
@@ -20,16 +27,22 @@ const cand = (id: string, mech: string[] = ["rounding", "error"]): Applicability
   tokens: { situation: ["balance"], mechanism: mech, unlock: ["kahan"], invariants: [] },
   signals: { isPitfall: false, helpful: 1, harmful: 0, unresolved: 0, familySupport: 1, sourceDiversity: 1 },
 });
-const QUERY = { literalText: "running balance off by a tiny fraction", causalText: "fp rounding accumulates" };
-const ctx = (deadlineMs: number): ApplicabilityContext => ({ deadlineMs, now: Date.now });
+const QUERY = { literalText: "running balance off by a tiny fraction", causalText: "fp rounding" };
+const ctx = (deadlineMs = 2000): ApplicabilityContext => ({ deadlineMs, now: Date.now });
+const AUTH = new FakeAuthenticator({ "tok-t1": "t1", "tok-t2": "t2" });
 
 const svcs: RerankService[] = [];
 const raws: import("node:http").Server[] = [];
-const start = async (o: FakeBackendOptions = {}, opts = {}): Promise<{ url: string; svc: RerankService }> => {
-  const svc = createRerankService(new FakeRerankBackend(o), opts);
+const start = async (o: FakeBackendOptions = {}, opts: Record<string, unknown> = {}): Promise<{ url: string; svc: RerankService }> => {
+  const svc = createRerankService(new FakeRerankBackend(o), { authenticator: AUTH, ...opts });
   svcs.push(svc);
-  const port = await svc.listen(0);
-  return { url: `http://127.0.0.1:${port}`, svc };
+  return { url: `http://127.0.0.1:${await svc.listen(0)}`, svc };
+};
+const startRaw = async (handler: (url: string, res: import("node:http").ServerResponse) => void): Promise<string> => {
+  const s = createServer((req, res) => handler(req.url ?? "", res));
+  raws.push(s);
+  const port = await new Promise<number>((r) => s.listen(0, "127.0.0.1", () => r((s.address() as { port: number }).port)));
+  return `http://127.0.0.1:${port}`;
 };
 afterEach(async () => {
   await Promise.all(svcs.map((s) => s.close().catch(() => {})));
@@ -38,126 +51,174 @@ afterEach(async () => {
   raws.length = 0;
 });
 
-function client(url: string, clock: { t: number }, cache?: SwrCache, tenant = "t1"): HttpRerankProvider {
-  const c = cache ?? new SwrCache({ ttlMs: 1000, swrMs: 1000, maxEntries: 100, now: () => clock.t });
-  return new HttpRerankProvider({ baseUrl: url, tenant, cache: c, attestationTtlMs: 0, now: () => clock.t });
-}
+const mkClient = (url: string, cache: SemanticCache, o: Partial<{ tenant: string; token: string; warm: WarmQueue }> = {}): HttpRerankProvider =>
+  new HttpRerankProvider({ baseUrl: url, tenant: o.tenant ?? "t1", authToken: o.token ?? "tok-t1", cache, ...(o.warm ? { warmQueue: o.warm } : {}) });
 
-describe("semantic data plane — cache fresh/stale/miss", () => {
-  it("miss → fetch → fresh (second call serves from cache, no new server hit)", async () => {
+describe("two-plane overlay — miss serves baseline immediately, warms async", () => {
+  it("first call MISS → no overlay (baseline), network happens only in the async warm; second call FRESH", async () => {
     const { url, svc } = await start();
-    const clock = { t: 1000 };
-    const cache = new SwrCache({ ttlMs: 1000, swrMs: 1000, maxEntries: 100, now: () => clock.t });
-    const p = client(url, clock, cache);
-    const r1 = await p.rank(QUERY, [cand("b1")], ctx(2000));
-    expect(r1).not.toBeNull();
-    expect(svc.telemetry.served).toBe(1);
-    expect(p.healthSnapshot().cacheMiss).toBe(1);
-    const r2 = await p.rank(QUERY, [cand("b1")], ctx(2000)); // clock unchanged → fresh
-    expect(r2).not.toBeNull();
-    expect(svc.telemetry.served).toBe(1); // NO new server hit
+    const cache = new InMemorySemanticCache({ ttlMs: 100000, swrMs: 0, maxEntries: 100 });
+    const p = mkClient(url, cache);
+    const r1 = await p.rank(QUERY, [cand("b1")], ctx());
+    expect(r1).toEqual([]); // miss → baseline (no overlay) immediately
+    expect(svc.telemetry.served).toBe(0); // the served path made NO network call
+    await p.drainWarm(); // async warm completes
+    expect(svc.telemetry.served).toBe(1); // warm did the network
+    expect(cache.size()).toBe(1);
+    const r2 = await p.rank(QUERY, [cand("b1")], ctx());
+    expect(r2).toHaveLength(1); // now served from cache
     expect(p.healthSnapshot().cacheFresh).toBe(1);
+    expect(svc.telemetry.served).toBe(1); // no new network on the served path
   });
 
-  it("stale → serve cached NOW + async revalidate", async () => {
-    const { url, svc } = await start();
-    const clock = { t: 1000 };
-    const cache = new SwrCache({ ttlMs: 1000, swrMs: 1000, maxEntries: 100, now: () => clock.t });
-    const p = client(url, clock, cache);
-    await p.rank(QUERY, [cand("b1")], ctx(2000)); // miss → cached @1000
-    clock.t = 2500; // age 1500: ttl<age<=ttl+swr → stale
-    const r = await p.rank(QUERY, [cand("b1")], ctx(2000));
-    expect(r).not.toBeNull();
-    expect(p.healthSnapshot().cacheStale).toBe(1);
-    expect(p.healthSnapshot().revalidations).toBe(1);
-    await new Promise((res) => setTimeout(res, 150)); // let the async revalidation land
-    expect(svc.telemetry.served).toBe(2); // revalidation hit the server
-  });
-
-  it("miss past the SWR window → refetch", async () => {
-    const { url, svc } = await start();
-    const clock = { t: 1000 };
-    const cache = new SwrCache({ ttlMs: 1000, swrMs: 1000, maxEntries: 100, now: () => clock.t });
-    const p = client(url, clock, cache);
-    await p.rank(QUERY, [cand("b1")], ctx(2000)); // @1000
-    clock.t = 1000 + 1000 + 1000 + 1; // past ttl+swr
-    await p.rank(QUERY, [cand("b1")], ctx(2000));
-    expect(svc.telemetry.served).toBe(2); // refetched
+  it("stampede coalescing — many concurrent misses share ONE warm flight", async () => {
+    const { url, svc } = await start({ delayMs: 40 });
+    const warm = new WarmQueue({ maxConcurrent: 4, maxQueued: 64 });
+    const cache = new InMemorySemanticCache({ ttlMs: 100000, swrMs: 0, maxEntries: 100 });
+    const p = mkClient(url, cache, { warm });
+    await Promise.all(Array.from({ length: 8 }, () => p.rank(QUERY, [cand("b1")], ctx())));
+    await p.drainWarm();
+    expect(warm.stats().coalesced).toBeGreaterThanOrEqual(1); // duplicates coalesced
+    expect(svc.telemetry.served).toBe(1); // only one actual rerank hit the backend
   });
 });
 
-describe("semantic data plane — total fail-open", () => {
-  it("deadline exceeded → null (fail open)", async () => {
-    const { url } = await start({ delayMs: 300 });
-    const clock = { t: 1000 };
-    const r = await client(url, clock).rank(QUERY, [cand("b1")], ctx(30)); // client deadline << backend delay
-    expect(r).toBeNull();
+describe("persistent cache — SQLite restart persistence", () => {
+  it("a verdict cached before 'restart' is served (fresh) by a new cache on the same file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tb-cache-"));
+    const dbPath = join(dir, "cache.db");
+    const { url } = await start();
+    try {
+      const c1 = new SqliteSemanticCache(dbPath, { ttlMs: 100000, swrMs: 0, maxEntries: 100 });
+      const p1 = mkClient(url, c1);
+      await p1.rank(QUERY, [cand("b1")], ctx());
+      await p1.drainWarm();
+      expect(c1.size()).toBe(1);
+      c1.close(); // "restart"
+      const c2 = new SqliteSemanticCache(dbPath, { ttlMs: 100000, swrMs: 0, maxEntries: 100 });
+      expect(c2.size()).toBe(1); // persisted
+      const p2 = mkClient(url, c2);
+      // warm the attestation first (a fresh client has no attestation), then the prior entry is reused
+      await p2.rank(QUERY, [cand("b1")], ctx());
+      await p2.drainWarm();
+      const r = await p2.rank(QUERY, [cand("b1")], ctx());
+      expect(r).toHaveLength(1);
+      c2.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("auth — tenant from verified principal, never the body", () => {
+  it("no/invalid credentials → 401; forged body tenant is irrelevant (no tenant field in v2)", async () => {
+    const { url } = await start();
+    const body = JSON.stringify({ v: RERANK_PROTOCOL_VERSION, requestId: "x", deadlineMs: 100, expiresAtMs: Date.now() + 100000, featureVersion: 1, query: QUERY, candidates: [{ blockId: "b1", mechanism: ["m"], situation: [], unlock: [] }], tenant: "victim" });
+    const noAuth = await fetch(`${url}/v1/rerank`, { method: "POST", headers: { "content-type": "application/json" }, body });
+    expect(noAuth.status).toBe(401);
+    const ok = await fetch(`${url}/v1/rerank`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer tok-t1" }, body });
+    expect(ok.status).toBe(200); // tenant derived from token; the body's "tenant":"victim" is ignored
   });
 
-  it("backend crash → 502 → null (fail open)", async () => {
-    const { url, svc } = await start({ throwErr: true });
-    const clock = { t: 1000 };
-    const r = await client(url, clock).rank(QUERY, [cand("b1")], ctx(2000));
-    expect(r).toBeNull();
-    expect(svc.telemetry.backendErrors).toBeGreaterThanOrEqual(1);
+  it("tenant isolation — a t2 client cannot read t1's cached verdicts", async () => {
+    const { url } = await start();
+    const shared = new InMemorySemanticCache({ ttlMs: 100000, swrMs: 0, maxEntries: 100 });
+    const pT1 = mkClient(url, shared, { tenant: "t1", token: "tok-t1" });
+    await pT1.rank(QUERY, [cand("b1")], ctx());
+    await pT1.drainWarm();
+    const pT2 = mkClient(url, shared, { tenant: "t2", token: "tok-t2" });
+    const r = await pT2.rank(QUERY, [cand("b1")], ctx());
+    expect(r).toEqual([]); // different tenant in the key → miss
+    expect(pT2.healthSnapshot().cacheFresh).toBe(0);
   });
 
-  it("malformed response → null (fail open)", async () => {
-    const raw = createServer((_req, res) => {
-      if (_req.url === "/v1/health") return res.end(JSON.stringify({ attestation: { model: "x", revision: "r", featureVersion: 1, backend: "x" } }));
-      res.end("this is not json");
+  it("quota → 429", async () => {
+    const { url } = await start({}, { quota: new TenantQuota(0, 1) }); // burst 1, no refill
+    const post = () => fetch(`${url}/v1/rerank`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer tok-t1" }, body: JSON.stringify({ v: RERANK_PROTOCOL_VERSION, requestId: "x", deadlineMs: 100, expiresAtMs: Date.now() + 100000, featureVersion: 1, query: QUERY, candidates: [{ blockId: "b1", mechanism: ["m"], situation: [], unlock: [] }] }) });
+    expect((await post()).status).toBe(200);
+    expect((await post()).status).toBe(429); // burst exhausted
+  });
+});
+
+describe("strict v2 decoders — protocol verification", () => {
+  const reqIds = new Set(["b1", "b2"]);
+  it("response: requestId mismatch / extra id / duplicate id / bad verdict / out-of-range confidence → null", () => {
+    const base = (results: unknown[], rid = "r1") => ({ v: RERANK_PROTOCOL_VERSION, requestId: rid, attestation: { model: "m", revision: "rev", featureVersion: 1, backend: "fake" }, results });
+    const exp = { requestId: "r1", requestedBlockIds: reqIds };
+    expect(decodeRerankResponse(base([{ blockId: "b1", verdict: "applicable", confidence: 0.5 }], "WRONG"), exp)).toBeNull(); // requestId mismatch
+    expect(decodeRerankResponse(base([{ blockId: "EXTRA", verdict: "applicable", confidence: 0.5 }]), exp)).toBeNull(); // extra id (not subset)
+    expect(decodeRerankResponse(base([{ blockId: "b1", verdict: "applicable", confidence: 0.5 }, { blockId: "b1", verdict: "uncertain", confidence: 0.4 }]), exp)).toBeNull(); // duplicate id
+    expect(decodeRerankResponse(base([{ blockId: "b1", verdict: "maybe", confidence: 0.5 }]), exp)).toBeNull(); // bad verdict enum
+    expect(decodeRerankResponse(base([{ blockId: "b1", verdict: "applicable", confidence: 1.5 }]), exp)).toBeNull(); // confidence > 1
+    expect(decodeRerankResponse(base([{ blockId: "b1", verdict: "applicable", confidence: 0.5 }]), exp)).not.toBeNull(); // valid subset
+  });
+
+  it("request: duplicate candidate ids / missing fields / bad version → null", () => {
+    const b = (o: Record<string, unknown>) => decodeRerankRequest({ v: RERANK_PROTOCOL_VERSION, requestId: "r", deadlineMs: 50, expiresAtMs: 1, featureVersion: 1, query: QUERY, candidates: [{ blockId: "b1", mechanism: [], situation: [], unlock: [] }], ...o }, { maxCandidates: 8 });
+    expect(b({ candidates: [{ blockId: "b1", mechanism: [], situation: [], unlock: [] }, { blockId: "b1", mechanism: [], situation: [], unlock: [] }] })).toBeNull(); // dup
+    expect(b({ v: 1 })).toBeNull(); // wrong version
+    expect(b({ requestId: "" })).toBeNull(); // empty requestId
+    expect(b({ candidates: [] })).toBeNull(); // no candidates
+    expect(b({})).not.toBeNull();
+  });
+
+  it("client warm caches NOTHING when the server returns a mismatched requestId", async () => {
+    const url = await startRaw((u, res) => {
+      if (u === "/v1/rerank") return res.end(JSON.stringify({ v: RERANK_PROTOCOL_VERSION, requestId: "TOTALLY-WRONG", attestation: { model: "m", revision: "r", featureVersion: 1, backend: "x" }, results: [{ blockId: "b1", verdict: "applicable", confidence: 0.9 }] }));
+      res.end("{}");
     });
-    raws.push(raw);
-    const port = await new Promise<number>((r) => raw.listen(0, "127.0.0.1", () => r((raw.address() as { port: number }).port)));
-    const clock = { t: 1000 };
-    const r = await client(`http://127.0.0.1:${port}`, clock).rank(QUERY, [cand("b1")], ctx(2000));
-    expect(r).toBeNull();
-  });
-
-  it("overload → 503 (server-level)", async () => {
-    const { url } = await start({ delayMs: 150 }, { concurrency: 1 });
-    const body = JSON.stringify({ v: RERANK_PROTOCOL_VERSION, requestId: "x", tenant: "t", featureVersion: 1, query: QUERY, candidates: [{ blockId: "b1", mechanism: ["m"], situation: [], unlock: [] }] });
-    const post = () => fetch(`${url}/v1/rerank`, { method: "POST", headers: { "content-type": "application/json" }, body });
-    const [a, b, c] = await Promise.all([post(), post(), post()]);
-    const codes = [a.status, b.status, c.status];
-    expect(codes).toContain(503); // at least one shed
+    const cache = new InMemorySemanticCache({ ttlMs: 100000, swrMs: 0, maxEntries: 100 });
+    const p = mkClient(url, cache);
+    await p.rank(QUERY, [cand("b1")], ctx());
+    await p.drainWarm();
+    expect(cache.size()).toBe(0); // verification failed → nothing cached
   });
 });
 
-describe("semantic data plane — leak rejection", () => {
-  it("client SCANS before transport — a leak never hits the server", async () => {
-    const { url, svc } = await start();
-    const clock = { t: 1000 };
-    const p = client(url, clock);
-    const r = await p.rank(QUERY, [cand("b1", ["see", "/Users/secret/leak.ts"])], ctx(2000));
-    expect(r).toBeNull();
-    expect(p.healthSnapshot().scannerBlocked).toBe(1);
-    expect(svc.telemetry.served).toBe(0); // server never saw it
+describe("server hardening — fail-open / 413 / overload / leak / timeout", () => {
+  it("malformed JSON → 400; oversized body → clean 413", async () => {
+    const { url } = await start({}, { maxBodyBytes: 64 });
+    const h = { "content-type": "application/json", authorization: "Bearer tok-t1" };
+    expect((await fetch(`${url}/v1/rerank`, { method: "POST", headers: h, body: "not json" })).status).toBe(400);
+    const big = JSON.stringify({ v: RERANK_PROTOCOL_VERSION, requestId: "x".repeat(500), deadlineMs: 1, expiresAtMs: Date.now() + 1e6, featureVersion: 1, query: { literalText: "x".repeat(2000) }, candidates: [{ blockId: "b", mechanism: [], situation: [], unlock: [] }] });
+    expect((await fetch(`${url}/v1/rerank`, { method: "POST", headers: h, body: big })).status).toBe(413);
   });
 
-  it("server re-scans (defence in depth) → 422", async () => {
+  it("overload → 503", async () => {
+    const { url } = await start({ delayMs: 120 }, { concurrency: 1 });
+    const post = () => fetch(`${url}/v1/rerank`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer tok-t1" }, body: JSON.stringify({ v: RERANK_PROTOCOL_VERSION, requestId: "x", deadlineMs: 1000, expiresAtMs: Date.now() + 1e6, featureVersion: 1, query: QUERY, candidates: [{ blockId: "b1", mechanism: ["m"], situation: [], unlock: [] }] }) });
+    const codes = (await Promise.all([post(), post(), post()])).map((r) => r.status);
+    expect(codes).toContain(503);
+  });
+
+  it("server-side leak re-scan → 422", async () => {
     const { url, svc } = await start();
-    const body = JSON.stringify({ v: RERANK_PROTOCOL_VERSION, requestId: "x", tenant: "t", featureVersion: 1, query: QUERY, candidates: [{ blockId: "b1", mechanism: ["C:\\Users\\me\\secret.txt"], situation: [], unlock: [] }] });
-    const res = await fetch(`${url}/v1/rerank`, { method: "POST", headers: { "content-type": "application/json" }, body });
+    const res = await fetch(`${url}/v1/rerank`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer tok-t1" }, body: JSON.stringify({ v: RERANK_PROTOCOL_VERSION, requestId: "x", deadlineMs: 100, expiresAtMs: Date.now() + 1e6, featureVersion: 1, query: QUERY, candidates: [{ blockId: "b1", mechanism: ["C:\\Users\\me\\secret.txt"], situation: [], unlock: [] }] }) });
     expect(res.status).toBe(422);
     expect(svc.telemetry.rejectedLeak).toBe(1);
   });
-});
 
-describe("semantic data plane — model-version invalidation", () => {
-  it("a revision change yields different cache keys → miss (old entries don't serve new version)", async () => {
-    const clock = { t: 1000 };
-    const cache = new SwrCache({ ttlMs: 100000, swrMs: 0, maxEntries: 100, now: () => clock.t });
-    const a = await start({ revision: "revA" });
-    const pA = client(a.url, clock, cache);
-    await pA.rank(QUERY, [cand("b1")], ctx(2000)); // caches under revA
-    expect(cache.size).toBe(1);
-    // New service at revB; a client pointed at it must MISS (key embeds the revision).
-    const b = await start({ revision: "revB" });
-    const pB = client(b.url, clock, cache);
-    await pB.rank(QUERY, [cand("b1")], ctx(2000));
-    expect(pB.healthSnapshot().cacheMiss).toBe(1); // revA entry did not serve the revB request
-    expect(b.svc.telemetry.served).toBe(1);
-    expect(cache.size).toBe(2); // both revisions coexist; old ages out under LRU/TTL
+  it("client scans before transport → leak never hits the server (baseline)", async () => {
+    const { url, svc } = await start();
+    const p = mkClient(url, new InMemorySemanticCache({ ttlMs: 1000, swrMs: 0, maxEntries: 10 }));
+    const r = await p.rank(QUERY, [cand("b1", ["see", "/Users/secret/leak.ts"])], ctx());
+    expect(r).toBeNull();
+    expect(p.healthSnapshot().scannerBlocked).toBe(1);
+    await p.drainWarm();
+    expect(svc.telemetry.served).toBe(0);
+  });
+
+  it("server deadline → 504 (backend aborted via signal)", async () => {
+    const { url, svc } = await start({ delayMs: 400 }, { maxDeadlineMs: 40 });
+    const res = await fetch(`${url}/v1/rerank`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer tok-t1" }, body: JSON.stringify({ v: RERANK_PROTOCOL_VERSION, requestId: "x", deadlineMs: 1000, expiresAtMs: Date.now() + 1e6, featureVersion: 1, query: QUERY, candidates: [{ blockId: "b1", mechanism: ["m"], situation: [], unlock: [] }] }) });
+    expect(res.status).toBe(504);
+    expect(svc.telemetry.timeouts).toBe(1);
+  });
+
+  it("expired request → 410", async () => {
+    const { url, svc } = await start();
+    const res = await fetch(`${url}/v1/rerank`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer tok-t1" }, body: JSON.stringify({ v: RERANK_PROTOCOL_VERSION, requestId: "x", deadlineMs: 100, expiresAtMs: 1, featureVersion: 1, query: QUERY, candidates: [{ blockId: "b1", mechanism: ["m"], situation: [], unlock: [] }] }) });
+    expect(res.status).toBe(410);
+    expect(svc.telemetry.rejectedExpired).toBe(1);
   });
 });
