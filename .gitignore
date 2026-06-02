@@ -80,3 +80,6 @@ bench-runs/file-memory-real-repos/repos/
 bench-runs/file-memory-real-repos/workspaces/
 bench-runs/file-memory-real-repos/venvs/
 bench-runs/file-memory-real-repos/transcripts/**/*.jsonl
+
+# E.1 R&D — local model weights (never committed)
+.models/
