@@ -20,13 +20,17 @@ import type {
   ApplicabilityResult,
 } from "../../../core/applicability-reranker.js";
 import type { WireCandidate, WireQuery } from "../worker-protocol.js";
-import { RERANK_PROTOCOL_VERSION, queryHash, candidateDigest, cacheKey, decodeRerankResponse, type RerankRequestDTO, type ModelAttestation } from "./protocol.js";
+import { RERANK_PROTOCOL_VERSION, queryHash, candidateDigest, cacheKey, credentialPartition, decodeRerankResponse, type RerankRequestDTO, type ModelAttestation } from "./protocol.js";
 import type { SemanticCache } from "./cache.js";
 import { WarmQueue } from "./warm-queue.js";
 
 export interface HttpRerankClientOptions {
   baseUrl: string;
-  tenant: string; // used for cache keying; the server independently derives it from the token
+  /**
+   * Bearer credential. The cache PARTITION is DERIVED from this (credentialPartition)
+   * — there is no separately-settable tenant, so the client's cache namespace can
+   * never diverge from the principal the server derives from the same token (E.2.3).
+   */
   authToken: string;
   cache: SemanticCache;
   warmQueue?: WarmQueue;
@@ -60,6 +64,8 @@ export class HttpRerankProvider implements ApplicabilityProvider {
   private readonly warm: WarmQueue;
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
+  /** Cache partition DERIVED from the credential — never independently settable. */
+  private readonly partition: string;
   private reqSeq = 0;
   private readonly health: HttpClientHealth = { servedCalls: 0, cacheFresh: 0, cacheStale: 0, cacheMiss: 0, warmsScheduled: 0, scannerBlocked: 0, attestationRejected: 0 };
 
@@ -68,6 +74,7 @@ export class HttpRerankProvider implements ApplicabilityProvider {
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.now = opts.now ?? Date.now;
     this.att = opts.pinnedAttestation ?? null; // pinned → cache keys work offline immediately
+    this.partition = credentialPartition(opts.authToken); // cache namespace bound to the credential
   }
   get featureVersion(): number {
     return this.att?.featureVersion ?? 0;
@@ -97,7 +104,7 @@ export class HttpRerankProvider implements ApplicabilityProvider {
     if (!this.att) return { results, toWarm: [...wire] }; // no attestation yet → everything must warm
     const qh = queryHash(q);
     for (const c of wire) {
-      const key = cacheKey({ tenant: this.opts.tenant, revision: this.att.revision, featureVersion: this.att.featureVersion, queryHash: qh, candidateDigest: candidateDigest(c), blockId: c.blockId });
+      const key = cacheKey({ partition: this.partition, revision: this.att.revision, featureVersion: this.att.featureVersion, queryHash: qh, candidateDigest: candidateDigest(c), blockId: c.blockId });
       const { state, value } = this.opts.cache.get(key);
       if (state === "miss" || !value) {
         this.health.cacheMiss++;
@@ -123,7 +130,7 @@ export class HttpRerankProvider implements ApplicabilityProvider {
     // content change yields a different flight key (no wrong coalescing).
     const ver = this.att ? `${this.att.revision}@${this.att.featureVersion}` : "unpinned";
     const sig = candidates.map((c) => `${c.blockId}:${candidateDigest(c)}`).sort().join(",");
-    const flightKey = `${this.opts.tenant} ${ver} ${qh} ${sig}`;
+    const flightKey = `${this.partition} ${ver} ${qh} ${sig}`;
     this.health.warmsScheduled++;
     this.warm.schedule(flightKey, () => this.fetchAndCache(q, qh, candidates));
   }
@@ -151,7 +158,7 @@ export class HttpRerankProvider implements ApplicabilityProvider {
       for (const res of resp.results) {
         const c = byId.get(res.blockId);
         if (!c) continue;
-        this.opts.cache.set(cacheKey({ tenant: this.opts.tenant, revision: resp.attestation.revision, featureVersion: resp.attestation.featureVersion, queryHash: qh, candidateDigest: candidateDigest(c), blockId: res.blockId }), { verdict: res.verdict, confidence: res.confidence });
+        this.opts.cache.set(cacheKey({ partition: this.partition, revision: resp.attestation.revision, featureVersion: resp.attestation.featureVersion, queryHash: qh, candidateDigest: candidateDigest(c), blockId: res.blockId }), { verdict: res.verdict, confidence: res.confidence });
       }
     } catch {
       // warm failures are invisible to serving

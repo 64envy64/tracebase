@@ -80,7 +80,7 @@ describe("pinned attestation — immediate cache after restart + mismatch reject
     const { url } = await start({ revision: "rev-pin" });
     try {
       const c1 = new SqliteSemanticCache(dbPath, { ttlMs: 100000, swrMs: 0, maxEntries: 100 });
-      const p1 = new HttpRerankProvider({ baseUrl: url, tenant: "t1", authToken: "tok-t1", cache: c1, pinnedAttestation: pin("rev-pin") });
+      const p1 = new HttpRerankProvider({ baseUrl: url, authToken: "tok-t1", cache: c1, pinnedAttestation: pin("rev-pin") });
       await p1.rank(QUERY, [cand("b1")], ctx());
       await p1.drainWarm();
       expect(c1.size()).toBe(1);
@@ -88,7 +88,7 @@ describe("pinned attestation — immediate cache after restart + mismatch reject
       // New cache + client on the SAME db, with a fetchImpl that THROWS → proves no network.
       const c2 = new SqliteSemanticCache(dbPath, { ttlMs: 100000, swrMs: 0, maxEntries: 100 });
       const noNet = (() => { throw new Error("no network allowed after restart"); }) as unknown as typeof fetch;
-      const p2 = new HttpRerankProvider({ baseUrl: url, tenant: "t1", authToken: "tok-t1", cache: c2, pinnedAttestation: pin("rev-pin"), fetchImpl: noNet });
+      const p2 = new HttpRerankProvider({ baseUrl: url, authToken: "tok-t1", cache: c2, pinnedAttestation: pin("rev-pin"), fetchImpl: noNet });
       const r = await p2.rank(QUERY, [cand("b1")], ctx());
       expect(r).toHaveLength(1); // served from persisted cache — no warm-up needed
       expect(p2.healthSnapshot().cacheFresh).toBe(1);
@@ -101,7 +101,7 @@ describe("pinned attestation — immediate cache after restart + mismatch reject
   it("a response whose attestation mismatches the pin caches NOTHING", async () => {
     const { url } = await start({ revision: "rev-B" }); // server speaks rev-B
     const cache = inMem();
-    const p = new HttpRerankProvider({ baseUrl: url, tenant: "t1", authToken: "tok-t1", cache, pinnedAttestation: pin("rev-A") }); // client pins rev-A
+    const p = new HttpRerankProvider({ baseUrl: url, authToken: "tok-t1", cache, pinnedAttestation: pin("rev-A") }); // client pins rev-A
     await p.rank(QUERY, [cand("b1")], ctx());
     await p.drainWarm();
     expect(cache.size()).toBe(0);

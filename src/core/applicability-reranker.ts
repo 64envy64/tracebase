@@ -108,6 +108,13 @@ export interface ApplicabilityResult {
 export interface ApplicabilityContext {
   deadlineMs: number;
   now: () => number;
+  /**
+   * Optional cancellation signal (E.2.3). When it aborts (e.g. the hosted server's
+   * client DISCONNECTED), a process-backed provider should cancel + recycle the
+   * busy worker to release capacity, rather than wait for the deadline. Synchronous,
+   * in-process providers ignore it. NEVER affects served output (already failed open).
+   */
+  signal?: AbortSignal;
 }
 
 /**

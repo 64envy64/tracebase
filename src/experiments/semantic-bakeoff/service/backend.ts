@@ -74,11 +74,14 @@ export class QwenRerankBackend implements RerankBackend {
       env: { TB_QWEN_MODEL_DIR: opts.modelDir },
     });
   }
-  async rerank(query: WireQuery, candidates: WireCandidate[], deadlineMs: number, _signal?: AbortSignal): Promise<WireResult[] | null> {
+  async rerank(query: WireQuery, candidates: WireCandidate[], deadlineMs: number, signal?: AbortSignal): Promise<WireResult[] | null> {
+    // E.2.3 — propagate the AbortSignal into the worker provider so a client
+    // disconnect (the server aborts on `res.close`) triggers cancel→grace→recycle,
+    // releasing the GPU instead of waiting for the deadline.
     const r = await this.provider.rank(
       { literalText: query.literalText, ...(query.causalText ? { causalText: query.causalText } : {}) },
       candidates.map((c) => ({ blockId: c.blockId, tokens: { situation: c.situation, mechanism: c.mechanism, unlock: c.unlock, invariants: [] }, signals: { isPitfall: false, helpful: 0, harmful: 0, unresolved: 0, familySupport: 0, sourceDiversity: 0 } })),
-      { deadlineMs, now: Date.now },
+      { deadlineMs, now: Date.now, ...(signal ? { signal } : {}) },
     );
     return r ? r.map((x) => ({ blockId: x.blockId, verdict: x.verdict, confidence: x.confidence })) : null;
   }

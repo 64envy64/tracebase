@@ -47,6 +47,7 @@ import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
 import { runReasoningPatternsRecall } from "../server/reasoning-patterns-entry.js";
 import { findProjectRoot, readHoldoutConfig, readApplicabilityCanaryConfig } from "../core/config.js";
 import { readBreakerSnapshot, noteCanaryActivityIfActive, noteCanaryExposure, admitCanaryExposure } from "../experiments/canary-breaker.js";
+import { createSemanticShadowProvider, type SemanticShadowHandle } from "../experiments/semantic-bakeoff/semantic-shadow.js";
 import type { HoldoutConfig, ApplicabilityCanaryConfig } from "../types.js";
 import {
   collectInjectedFromQuery,
@@ -266,6 +267,8 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
   private readonly readCanaryConfig: () => ApplicabilityCanaryConfig | null;
   /** Phase D.4.2 — project root for the circuit-breaker snapshot/refresh. */
   private readonly projectBase: string;
+  /** E.2.3 — semantic shadow overlay handle (null ⇒ lane off; telemetry-only). */
+  private readonly semanticShadow: SemanticShadowHandle | null;
   private closed = false;
 
   constructor(opts: CreateTracebaseRuntimeProviderOptions) {
@@ -295,6 +298,9 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
     // test injects an override (e.g. to force a deterministic treatment).
     this.readCanaryConfig = opts.readCanaryConfig ?? (() => readApplicabilityCanaryConfig(projectBase));
     this.projectBase = projectBase;
+    // E.2.3 — build the semantic shadow overlay ONCE (null unless the explicit env
+    // config is set). Telemetry-only; never affects served output.
+    this.semanticShadow = createSemanticShadowProvider(projectBase);
   }
 
   async beforeTask(input: BeforeTaskInput): Promise<BeforeTaskResult> {
@@ -309,6 +315,8 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
       readBreakerSnapshot: () => readBreakerSnapshot(this.projectBase),
       admitCanaryTreatment: () => admitCanaryExposure(this.projectBase, this.blockStore),
       noteCanaryActivity: () => noteCanaryExposure(this.projectBase, this.blockStore),
+      // E.2.3 — semantic shadow overlay (telemetry-only; absent ⇒ no lane).
+      ...(this.semanticShadow ? { semanticShadowProvider: this.semanticShadow.provider } : {}),
     });
     return toReasoningPatternsStructured(result);
   }
@@ -421,6 +429,7 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.semanticShadow?.close(); // close the SWR cache handle (no-op when lane off)
     this.blockStore.close();
   }
 

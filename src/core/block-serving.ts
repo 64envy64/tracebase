@@ -51,6 +51,7 @@ import type {
   ReasoningQueryCompilerComparisonEvent,
   QueryCompilerFallback,
   ReasoningApplicabilityComparisonEvent,
+  ReasoningSemanticComparisonEvent,
   ApplicabilityFallback,
   ApplicabilityChangedDecision,
 } from "../types.js";
@@ -89,6 +90,7 @@ import {
   type ApplicabilityProvider,
   type ApplicabilityCandidate,
   type ApplicabilityResult,
+  type ApplicabilityQueryViews,
 } from "./applicability-reranker.js";
 import { StructuredSignatureResolver, type FamilyCandidate } from "./reasoning-family.js";
 import { evaluateApplicabilityCanaryExposure } from "../experiments/applicability-canary.js";
@@ -1030,49 +1032,7 @@ export class BlockServer {
     const t0 = this.now();
     let fallback: ApplicabilityFallback = "none";
     try {
-      const limit = query.limit ?? 5;
-      const fetchLimit = limit * this.cascadeFetchMultiplier;
-      const lookup = (id: string): ReasoningBlock | null => this.store.getBlock(id);
-
-      // Build the same bounded slate V4 sees (sparse ⊕ optional semantic).
-      const sparse = this.searchBlocks(query.text, query.invariants, fetchLimit);
-      const sem = await this.semanticSlate(query, fetchLimit);
-      const slate = fuseHybrid(sparse, sem.candidates, lookup, limit, sem.providerClass).slate;
-
-      // Baseline: the served V4 decision on this slate.
-      const v4 = this.decideV4OnSlate(query.text, query.invariants, slate);
-
-      // Reranker candidates: top-N prototypes with privacy-scanned tokens + family
-      // / outcome signals. Family support/diversity from a cheap signature group.
-      const blocks = slate.map((s) => s.block);
-      const familyByIdx = this.familyGrouping(blocks);
-      const candidates: ApplicabilityCandidate[] = blocks.map((b, i) => {
-        const view = buildStructuredView(b);
-        const fam = familyByIdx[i]!;
-        const s = b.stats;
-        const helpful = s?.timesHelpful ?? 0;
-        const harmful = s?.timesCounterproductive ?? 0;
-        return {
-          blockId: b.id,
-          tokens: {
-            situation: [...view.situationTokens],
-            mechanism: [...view.fieldTokens.mechanism],
-            unlock: [...view.fieldTokens.unlock],
-            invariants: view.memory.invariants,
-          },
-          signals: {
-            isPitfall: (b.kind ?? "success") === "pitfall",
-            helpful,
-            harmful,
-            unresolved: Math.max(0, (s?.timesAgentUsed ?? 0) - helpful - harmful),
-            familySupport: fam.support,
-            sourceDiversity: fam.sourceDiversity,
-          },
-        };
-      });
-
-      const compiled: CompiledQuery = this.queryCompiler.compile(query.text, query.invariants);
-      const views = { literalText: compiled.literal.text, ...(compiled.causal ? { causalText: compiled.causal.text } : {}) };
+      const { candidates, views, v4, corpusSize } = await this.buildShadowSlate(query);
 
       // Bounded, strict-timeout reranker call; null ⇒ fail open to V4.
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1108,7 +1068,7 @@ export class BlockServer {
         queryId,
         ...(query.runId ? { runId: query.runId } : {}),
         queryHash: queryHash(query.text),
-        corpusSize: this.store.countBlocks("active"),
+        corpusSize,
         candidateCount: candidates.length,
         v4Action: v4.action,
         ...(v4.topCandidateId ? { v4TopBlockId: v4.topCandidateId } : {}),
@@ -1133,6 +1093,122 @@ export class BlockServer {
     } catch {
       fallback = "error";
       return undefined; // shadow telemetry must never break or alter a recall.
+    }
+  }
+
+  /**
+   * Build the bounded shadow slate + reranker candidates + the served V4 baseline —
+   * shared by the applicability and semantic shadow lanes so both score the SAME
+   * slate V4 sees. Async (the semantic slate may be). Privacy-scanned tokens; never serves.
+   */
+  private async buildShadowSlate(query: BlockRecallQuery): Promise<{
+    candidates: ApplicabilityCandidate[];
+    views: ApplicabilityQueryViews;
+    v4: { action: "inject" | "abstain"; topCandidateId?: string };
+    corpusSize: number;
+  }> {
+    const limit = query.limit ?? 5;
+    const fetchLimit = limit * this.cascadeFetchMultiplier;
+    const lookup = (id: string): ReasoningBlock | null => this.store.getBlock(id);
+    // Build the same bounded slate V4 sees (sparse ⊕ optional semantic).
+    const sparse = this.searchBlocks(query.text, query.invariants, fetchLimit);
+    const sem = await this.semanticSlate(query, fetchLimit);
+    const slate = fuseHybrid(sparse, sem.candidates, lookup, limit, sem.providerClass).slate;
+    const v4 = this.decideV4OnSlate(query.text, query.invariants, slate);
+    // Reranker candidates: prototypes with privacy-scanned tokens + family/outcome signals.
+    const blocks = slate.map((s) => s.block);
+    const familyByIdx = this.familyGrouping(blocks);
+    const candidates: ApplicabilityCandidate[] = blocks.map((b, i) => {
+      const view = buildStructuredView(b);
+      const fam = familyByIdx[i]!;
+      const s = b.stats;
+      const helpful = s?.timesHelpful ?? 0;
+      const harmful = s?.timesCounterproductive ?? 0;
+      return {
+        blockId: b.id,
+        tokens: {
+          situation: [...view.situationTokens],
+          mechanism: [...view.fieldTokens.mechanism],
+          unlock: [...view.fieldTokens.unlock],
+          invariants: view.memory.invariants,
+        },
+        signals: {
+          isPitfall: (b.kind ?? "success") === "pitfall",
+          helpful,
+          harmful,
+          unresolved: Math.max(0, (s?.timesAgentUsed ?? 0) - helpful - harmful),
+          familySupport: fam.support,
+          sourceDiversity: fam.sourceDiversity,
+        },
+      };
+    });
+    const compiled: CompiledQuery = this.queryCompiler.compile(query.text, query.invariants);
+    const views = { literalText: compiled.literal.text, ...(compiled.causal ? { causalText: compiled.causal.text } : {}) };
+    return { candidates, views, v4, corpusSize: this.store.countBlocks("active") };
+  }
+
+  /**
+   * E.2.3 — the SEMANTIC shadow lane. Scores the served slate with a SEMANTIC
+   * provider and emits a `reasoning.semantic_comparison` telemetry event ONLY. The
+   * semantic verdict NEVER alters the served result and NEVER feeds the canary —
+   * this returns void and the caller discards it, so served output is byte-identical
+   * whether the lane is on or off. A cache MISS (no verdict) records fallback="miss"
+   * and leaves the baseline untouched (a warm is scheduled inside the provider); a
+   * leak/timeout/error fails open the same way. NEVER throws.
+   */
+  async emitSemanticShadowComparison(query: BlockRecallQuery, queryId: string, provider: ApplicabilityProvider): Promise<void> {
+    const t0 = this.now();
+    let fallback: ReasoningSemanticComparisonEvent["fallback"] = "none";
+    try {
+      const { candidates, views, v4, corpusSize } = await this.buildShadowSlate(query);
+      if (candidates.length === 0) return; // nothing to compare; baseline already served
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<typeof APPLICABILITY_TIMEOUT>((res) => {
+        timer = setTimeout(() => res(APPLICABILITY_TIMEOUT), this.applicabilityDeadlineMs);
+        timer.unref?.();
+      });
+      const ctx = { deadlineMs: this.applicabilityDeadlineMs, now: this.now };
+      const raced = await Promise.race([provider.rank(views, candidates, ctx), timeout]);
+      if (timer) clearTimeout(timer);
+
+      let results: ApplicabilityResult[] | null = null;
+      if (raced === APPLICABILITY_TIMEOUT) fallback = "timeout";
+      else if (raced === null) fallback = "error"; // leak-blocked / provider failure → fail open
+      else {
+        results = raced;
+        if (results.length === 0) fallback = "miss"; // cache miss → baseline served, warm scheduled
+      }
+      const top = results && results.length > 0 ? results[0]! : undefined;
+      const verdict: "applicable" | "uncertain" | "inapplicable" | "none" = top ? top.verdict : "none";
+      const semanticInjects = verdict === "applicable";
+      const v4Injects = v4.action === "inject";
+      const changedDecision: ApplicabilityChangedDecision =
+        semanticInjects && !v4Injects ? "reranker_only_apply" : !semanticInjects && v4Injects ? "reranker_withholds" : "none";
+      const verdictCounts = { applicable: 0, uncertain: 0, inapplicable: 0 };
+      for (const r of results ?? []) verdictCounts[r.verdict]++;
+
+      const event: ReasoningSemanticComparisonEvent = {
+        event: "reasoning.semantic_comparison",
+        ts: this.now(),
+        queryId,
+        ...(query.runId ? { runId: query.runId } : {}),
+        queryHash: queryHash(query.text),
+        corpusSize,
+        candidateCount: candidates.length,
+        v4Action: v4.action,
+        ...(v4.topCandidateId ? { v4TopBlockId: v4.topCandidateId } : {}),
+        semanticProvider: provider.name,
+        semanticFeatureVersion: provider.featureVersion,
+        semanticVerdict: verdict,
+        ...(top ? { semanticTopBlockId: top.blockId, semanticConfidence: top.confidence } : {}),
+        changedDecision,
+        verdictCounts,
+        fallback,
+        latencyMs: Math.max(0, this.now() - t0),
+      };
+      this.emitter.emit(event, query.runId ? { runId: query.runId } : undefined);
+    } catch {
+      // Shadow telemetry must never break or alter a recall — baseline already served.
     }
   }
 

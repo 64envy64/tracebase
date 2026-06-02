@@ -51,8 +51,8 @@ afterEach(async () => {
   raws.length = 0;
 });
 
-const mkClient = (url: string, cache: SemanticCache, o: Partial<{ tenant: string; token: string; warm: WarmQueue }> = {}): HttpRerankProvider =>
-  new HttpRerankProvider({ baseUrl: url, tenant: o.tenant ?? "t1", authToken: o.token ?? "tok-t1", cache, ...(o.warm ? { warmQueue: o.warm } : {}) });
+const mkClient = (url: string, cache: SemanticCache, o: Partial<{ token: string; warm: WarmQueue }> = {}): HttpRerankProvider =>
+  new HttpRerankProvider({ baseUrl: url, authToken: o.token ?? "tok-t1", cache, ...(o.warm ? { warmQueue: o.warm } : {}) }); // cache partition derived from the token
 
 describe("two-plane overlay — miss serves baseline immediately, warms async", () => {
   it("first call MISS → no overlay (baseline), network happens only in the async warm; second call FRESH", async () => {
@@ -120,15 +120,15 @@ describe("auth — tenant from verified principal, never the body", () => {
     expect(ok.status).toBe(200); // tenant derived from token; the body's "tenant":"victim" is ignored
   });
 
-  it("tenant isolation — a t2 client cannot read t1's cached verdicts", async () => {
+  it("credential isolation — a different-token client cannot read another's cached verdicts", async () => {
     const { url } = await start();
     const shared = new InMemorySemanticCache({ ttlMs: 100000, swrMs: 0, maxEntries: 100 });
-    const pT1 = mkClient(url, shared, { tenant: "t1", token: "tok-t1" });
+    const pT1 = mkClient(url, shared, { token: "tok-t1" }); // partition = credentialPartition(tok-t1)
     await pT1.rank(QUERY, [cand("b1")], ctx());
     await pT1.drainWarm();
-    const pT2 = mkClient(url, shared, { tenant: "t2", token: "tok-t2" });
+    const pT2 = mkClient(url, shared, { token: "tok-t2" }); // different credential → different partition
     const r = await pT2.rank(QUERY, [cand("b1")], ctx());
-    expect(r).toEqual([]); // different tenant in the key → miss
+    expect(r).toEqual([]); // different credential partition in the key → miss (cannot be forged independently of the token)
     expect(pT2.healthSnapshot().cacheFresh).toBe(0);
   });
 

@@ -1733,6 +1733,7 @@ export type AnalyticsEvent =
   | ReasoningEvidenceComparisonEvent
   | ReasoningQueryCompilerComparisonEvent
   | ReasoningApplicabilityComparisonEvent
+  | ReasoningSemanticComparisonEvent
   | ApplicabilityCanaryExposureEvent;
 
 interface EventBase {
@@ -2757,6 +2758,42 @@ export interface ReasoningApplicabilityComparisonEvent extends EventBase {
   /** Reason-enum distribution across all scored prototypes. */
   reasonCounts: Record<string, number>;
   fallback: ApplicabilityFallback;
+  latencyMs: number;
+}
+
+/**
+ * E.2.3 — SEMANTIC shadow-overlay comparison. Emitted once per recall when the
+ * semantic shadow lane is EXPLICITLY configured (TRACEBASE_SEMANTIC_SHADOW_URL).
+ * Compares the served V4 action with the SEMANTIC reranker verdict over the served
+ * slate — TELEMETRY ONLY: the semantic verdict is NEVER injected and NEVER feeds
+ * the canary, so served output is byte-identical whether this lane is on or off.
+ * Privacy-safe (queryHash + opaque block ids + counts + closed enums + bounded
+ * numerics; NO raw query/body/token text). LOCAL-ONLY: never part of cloud metrics.
+ */
+export interface ReasoningSemanticComparisonEvent extends EventBase {
+  event: "reasoning.semantic_comparison";
+  queryHash: string;
+  corpusSize: number;
+  candidateCount: number;
+  // Served V4 decision (the baseline that is actually served).
+  v4Action: "inject" | "abstain";
+  v4TopBlockId?: string;
+  // Semantic reranker verdict on the top-ranked candidate (observation only).
+  semanticProvider: string;
+  semanticFeatureVersion: number;
+  semanticVerdict: "applicable" | "uncertain" | "inapplicable" | "none";
+  semanticTopBlockId?: string;
+  semanticConfidence?: number;
+  /** Whether the semantic verdict WOULD have changed the V4 decision (shadow only). */
+  changedDecision: ApplicabilityChangedDecision;
+  verdictCounts: { applicable: number; uncertain: number; inapplicable: number };
+  /**
+   * "none"   → a cache HIT produced a verdict (compared above);
+   * "miss"   → cache MISS: no verdict, baseline served, a warm was scheduled;
+   * "timeout"/"error" → fail-open. In every non-"none" case the served output is
+   * the deterministic baseline, byte-for-byte.
+   */
+  fallback: "none" | "miss" | "timeout" | "error";
   latencyMs: number;
 }
 

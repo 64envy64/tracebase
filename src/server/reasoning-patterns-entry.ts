@@ -17,6 +17,7 @@ import type {
   BlockServer,
   RecallV2Result,
 } from "../core/block-serving.js";
+import type { ApplicabilityProvider } from "../core/applicability-reranker.js";
 import type { HoldoutConfig, CascadeConfig, BlockInvariants, ApplicabilityCanaryConfig } from "../types.js";
 import { buildHoldoutInput } from "../experiments/serving.js";
 import { shouldUseCascade } from "../experiments/cascade-rollout.js";
@@ -88,6 +89,14 @@ export interface ReasoningPatternsDeps {
    * transport. Absent ⇒ no admission gate (legacy/tests).
    */
   admitCanaryTreatment?: () => boolean;
+  /**
+   * E.2.3 — SEMANTIC shadow overlay (R&D, explicit-opt-in). When present (the
+   * composition root built it from TRACEBASE_SEMANTIC_SHADOW_URL), the served slate
+   * is also scored by this provider and a `reasoning.semantic_comparison` telemetry
+   * event is emitted. TELEMETRY ONLY: the result is discarded, so served output is
+   * byte-identical to the lane being absent; the verdict never feeds the canary.
+   */
+  semanticShadowProvider?: ApplicabilityProvider;
   /** Deterministic fingerprint factory. Overridable for tests. */
   fingerprintFactory?: (
     problem: string,
@@ -198,6 +207,13 @@ async function applyShadowLanesAndCanary(
   if (blockServer.applicabilityRollout === "shadow") {
     const summary = await blockServer.emitApplicabilityComparison(query, served.queryId);
     if (summary) served.shadowApplicability = summary;
+  }
+  // E.2.3 — SEMANTIC shadow overlay (orthogonal, explicit-opt-in R&D). Observes the
+  // served slate and emits `reasoning.semantic_comparison` telemetry ONLY; the
+  // result is discarded so served output is byte-identical, and it runs BEFORE the
+  // canary block (which may early-return) so the semantic verdict NEVER feeds it.
+  if (deps.semanticShadowProvider) {
+    await blockServer.emitSemanticShadowComparison(query, served.queryId, deps.semanticShadowProvider);
   }
   // Phase D.4 — explicit opt-in applicability canary (apply-only). Default OFF:
   // the rail engages ONLY when a persisted config is enabled AND no env/global

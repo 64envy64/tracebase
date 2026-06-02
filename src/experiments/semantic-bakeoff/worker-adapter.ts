@@ -84,6 +84,8 @@ interface Pending {
   resolve: (r: ApplicabilityResult[] | null) => void;
   timer: ReturnType<typeof setTimeout>;
   startedAt: number;
+  /** Remove the abort-signal listener (if any) — called when the request settles. */
+  detach?: () => void;
 }
 
 const LAT_RING = 256;
@@ -178,6 +180,7 @@ export class PersistentWorkerProvider implements ApplicabilityProvider {
     if (!p) return;
     this.pending.delete(msg.id);
     clearTimeout(p.timer);
+    p.detach?.(); // drop the abort listener — the request settled
     if (msg.type === "result") {
       this.health.results++;
       pushRing(this.health.latenciesMs, this.now() - p.startedAt);
@@ -207,6 +210,7 @@ export class PersistentWorkerProvider implements ApplicabilityProvider {
     this.pendingHandshake = null;
     for (const [, p] of this.pending) {
       clearTimeout(p.timer);
+      p.detach?.();
       p.resolve(null); // every in-flight request fails open
     }
     this.pending.clear();
@@ -238,6 +242,28 @@ export class PersistentWorkerProvider implements ApplicabilityProvider {
     }, this.opts.recycleGraceMs ?? 1000);
   }
 
+  /**
+   * Cancel an in-flight request — shared by the deadline timer AND an aborted
+   * AbortSignal (client disconnect, E.2.3). Fails the request open immediately,
+   * sends the cooperative `cancel`, and arms the recycle so a worker that stays
+   * stuck on the GPU past the grace window is killed (capacity released). No-op if
+   * the request already settled.
+   */
+  private cancelPending(id: string, kind: "timeout" | "abort"): void {
+    const p = this.pending.get(id);
+    if (!p) return;
+    this.pending.delete(id);
+    clearTimeout(p.timer);
+    p.detach?.();
+    if (kind === "timeout") this.health.timeouts++;
+    this.write({ v: WORKER_PROTOCOL_VERSION, id: this.nextId(), type: "cancel", cancelId: id }); // cooperative cancel first
+    p.resolve(null); // fail open immediately (served path unblocked)
+    // Honest cancellation: the worker may still hold the GPU. If it doesn't free
+    // this request within the grace window, RECYCLE it (kill → respawn).
+    this.awaitingCancel.add(id);
+    this.armRecycle();
+  }
+
   async rank(
     query: ApplicabilityQueryViews,
     candidates: readonly ApplicabilityCandidate[],
@@ -266,25 +292,31 @@ export class PersistentWorkerProvider implements ApplicabilityProvider {
       return null;
     }
 
+    // Already cancelled before dispatch → fail open, send nothing (the worker never
+    // received it, so there is nothing to cancel or recycle).
+    if (ctx.signal?.aborted) return null;
+
     const id = this.nextId();
     const req: WorkerRequest = { v: WORKER_PROTOCOL_VERSION, id, type: "rank", query: q, candidates: wire };
     return new Promise<ApplicabilityResult[] | null>((resolve) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        this.health.timeouts++;
-        this.write({ v: WORKER_PROTOCOL_VERSION, id: this.nextId(), type: "cancel", cancelId: id }); // cooperative cancel first
-        resolve(null); // strict deadline → fail open immediately (served path unblocked)
-        // Honest cancellation: the worker still holds the GPU. If it doesn't free
-        // this request within the grace window, RECYCLE it (kill → respawn).
-        this.awaitingCancel.add(id);
-        this.armRecycle();
-      }, Math.max(1, ctx.deadlineMs));
-      this.pending.set(id, { resolve, timer, startedAt: this.now() });
+      // Strict deadline → cancel + recycle (E.2.2).
+      const timer = setTimeout(() => this.cancelPending(id, "timeout"), Math.max(1, ctx.deadlineMs));
+      const pending: Pending = { resolve, timer, startedAt: this.now() };
+      this.pending.set(id, pending); // register BEFORE wiring abort so an immediate abort is handled
+      // E.2.3 — a client DISCONNECT (AbortSignal) cancels + recycles too, not only
+      // the deadline: a stuck GPU forward shouldn't hold capacity until its deadline.
+      const signal = ctx.signal;
+      if (signal) {
+        const onAbort = (): void => this.cancelPending(id, "abort");
+        signal.addEventListener("abort", onAbort, { once: true });
+        pending.detach = () => signal.removeEventListener("abort", onAbort);
+      }
       if (!this.write(req)) {
         // write failed (worker gone) → clear + fail open
         const p = this.pending.get(id);
         if (p) {
           clearTimeout(p.timer);
+          p.detach?.();
           this.pending.delete(id);
         }
         resolve(null);

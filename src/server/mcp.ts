@@ -37,6 +37,7 @@ import {
 import { findProjectRoot, readCascadeConfig, readHoldoutConfig, readApplicabilityCanaryConfig } from "../core/config.js";
 import { runReasoningPatternsRecall } from "./reasoning-patterns-entry.js";
 import { readBreakerSnapshot, noteCanaryActivityIfActive, noteCanaryExposure, admitCanaryExposure } from "../experiments/canary-breaker.js";
+import { createSemanticShadowProvider } from "../experiments/semantic-bakeoff/semantic-shadow.js";
 
 /**
  * Options bag for `startMcpServer`. Keeps the signature open for
@@ -122,6 +123,10 @@ export async function startMcpServer(
   // Phase D.4 — fresh-per-call canary config loader (default off; explicit opt-in).
   const canaryConfigLoader: () => ApplicabilityCanaryConfig | null = () =>
     readApplicabilityCanaryConfig(projectBasePath);
+  // E.2.3 — SEMANTIC shadow overlay (R&D, $0 by default). Built ONCE at boot, only
+  // when TRACEBASE_SEMANTIC_SHADOW_URL+TOKEN are set; otherwise null → lane off →
+  // byte-identical serving. Telemetry-only; the verdict never affects served output.
+  const semanticShadow = createSemanticShadowProvider(projectBasePath);
 
   // B1.2: construct the reranker ONCE at boot from the cascade config.
   // This is the only thing in the cascade pipeline that's process-
@@ -506,6 +511,8 @@ export async function startMcpServer(
         readBreakerSnapshot: () => readBreakerSnapshot(projectBasePath),
         admitCanaryTreatment: () => admitCanaryExposure(projectBasePath, blockStore),
         noteCanaryActivity: () => noteCanaryExposure(projectBasePath, blockStore),
+        // E.2.3 — semantic shadow overlay (telemetry-only; absent ⇒ no lane).
+        ...(semanticShadow ? { semanticShadowProvider: semanticShadow.provider } : {}),
       });
 
       const formatted = formatInjection(result, {
@@ -1039,6 +1046,7 @@ export async function startMcpServer(
   // Graceful shutdown — use once() to avoid listener accumulation
   const cleanup = () => {
     layer.close();
+    semanticShadow?.close(); // close the SWR cache handle (no-op when lane off)
     blockStore.close();
     process.exit(0);
   };
@@ -1056,6 +1064,7 @@ export async function startMcpServer(
     // path hands it off to the transport, but selftest exits
     // immediately, and a dangling SQLite handle would look like a
     // leak in long-running test runners.
+    semanticShadow?.close();
     blockStore.close();
     process.stdout.write("READY\n");
     return;

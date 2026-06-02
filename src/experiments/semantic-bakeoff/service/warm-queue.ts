@@ -22,7 +22,17 @@ export class WarmQueue {
   private coalesced = 0;
   private scheduled = 0;
 
-  constructor(private readonly opts: WarmQueueOptions) {}
+  constructor(private readonly opts: WarmQueueOptions) {
+    // Validate bounds (E.2.3): maxConcurrent < 1 would make drain() hang forever
+    // (pump can never start a task, yet pending never empties); maxQueued < 0 makes
+    // every task drop. Reject both up front rather than fail mysteriously at runtime.
+    if (!Number.isInteger(opts.maxConcurrent) || opts.maxConcurrent < 1) {
+      throw new RangeError(`WarmQueue: maxConcurrent must be an integer >= 1 (got ${opts.maxConcurrent})`);
+    }
+    if (!Number.isInteger(opts.maxQueued) || opts.maxQueued < 0) {
+      throw new RangeError(`WarmQueue: maxQueued must be an integer >= 0 (got ${opts.maxQueued})`);
+    }
+  }
 
   schedule(key: string, task: () => Promise<void>): void {
     if (this.active.has(key) || this.pendingKeys.has(key)) {
