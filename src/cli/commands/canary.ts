@@ -240,17 +240,23 @@ export const canaryCommand = new Command("canary")
         }
         console.log();
         console.log(pc.bold("TraceBase applicability canary"));
+        // A TRIPPED breaker is always surfaced — even if the config key is absent
+        // or disabled (the breaker file means the canary DID run and auto-halted).
+        const trippedNote = (): void => {
+          if (eff.status === "TRIPPED") {
+            console.log(pc.red(`  ⚠ circuit breaker TRIPPED (${eff.snapshot.reasons.join(", ") || "latched"}) — NOT exposing. See \`canary health\`; clear with \`canary reset-breaker --ack ${BREAKER_RESET_ACK}\`.`));
+          }
+        };
         if (!current) {
           console.log(pc.dim("  canary     not configured (off)"));
+          trippedNote();
           console.log();
           console.log(pc.dim(`  Activate with \`npx tracebase-ai canary enable --rate 0.05 --ack ${CANARY_POLICY_VERSION}\`.`));
           console.log();
           return;
         }
         renderCanary(current);
-        if (eff.status === "TRIPPED") {
-          console.log(pc.red(`  ⚠ circuit breaker TRIPPED (${eff.snapshot.reasons.join(", ") || "latched"}) — NOT exposing. See \`canary health\`; clear with \`canary reset-breaker --ack ${BREAKER_RESET_ACK}\`.`));
-        }
+        trippedNote();
         console.log();
       }),
   )
