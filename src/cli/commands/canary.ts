@@ -63,7 +63,14 @@ function shadowEnabled(env: NodeJS.ProcessEnv): boolean {
 /** Build a fresh preflight receipt from live project + env state. */
 function runPreflight(projectBase: string, env: NodeJS.ProcessEnv, nowMs: number): CanaryPreflightReceipt {
   const cfg = loadConfig(projectBase);
-  const store = new BlockStore(new Database(cfg.storagePath, { readonly: true }));
+  // Open read-WRITE: this is a single-process CLI audit that only READS events.
+  // A read-only handle is unreliable cross-process on WAL-mode stores — the -shm
+  // needs write access and BlockStore.configure() sets journal_mode=WAL — so a
+  // fresh `canary preflight` process fails to open a cold WAL store readonly
+  // ("unable to open database file"). Opening RW attaches the WAL/shm normally;
+  // preflight writes no events and no config, and migrate() is a no-op on the
+  // current-schema store the reviewed runtime owns.
+  const store = new BlockStore(new Database(cfg.storagePath));
   try {
     const events = store.readEvents({});
     return buildPreflightReceipt({
