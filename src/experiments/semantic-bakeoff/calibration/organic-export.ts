@@ -40,6 +40,36 @@ export interface FrozenOrganicCalibrationExport {
   provenanceHash: string;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Fail closed at the operator boundary. The shared registry validator performs
+ * the deep DTO validation after provenance is attached; this first pass keeps a
+ * malformed JSON file from failing later as an opaque property-access error.
+ */
+export function parseSemanticOrganicLabels(value: unknown): SemanticOrganicLabel[] {
+  const labels = Array.isArray(value)
+    ? value
+    : isRecord(value) && Array.isArray(value.labels)
+      ? value.labels
+      : null;
+  if (!labels) throw new Error("labels file must be a JSON array or an object with a labels array");
+  return labels.map((label, index) => {
+    if (!isRecord(label)) throw new Error(`label #${index} must be an object`);
+    const rowRef = typeof label.rowId === "string" && label.rowId ? label.rowId : `#${index}`;
+    if (typeof label.rowId !== "string" || !label.rowId) throw new Error(`label ${rowRef} rowId must be non-empty`);
+    if (typeof label.queryId !== "string" || !label.queryId) throw new Error(`label ${rowRef} queryId must be non-empty`);
+    if (!isRecord(label.query)) throw new Error(`label ${rowRef} query must be an object`);
+    if (!isRecord(label.candidate)) throw new Error(`label ${rowRef} candidate must be an object`);
+    if (typeof label.candidate.blockId !== "string" || !label.candidate.blockId) {
+      throw new Error(`label ${rowRef} candidate.blockId must be non-empty`);
+    }
+    return label as unknown as SemanticOrganicLabel;
+  });
+}
+
 function semanticObservations(
   events: readonly AnalyticsEvent[],
 ): Map<string, ReasoningSemanticComparisonEvent> {
@@ -56,11 +86,11 @@ function semanticObservations(
 
 export function freezeOrganicCalibrationRegistry(
   events: readonly AnalyticsEvent[],
-  labels: readonly SemanticOrganicLabel[],
+  labels: unknown,
   options: FreezeOrganicCalibrationOptions = {},
 ): FrozenOrganicCalibrationExport {
   const observations = semanticObservations(events);
-  const rows = labels.map((label) => {
+  const rows = parseSemanticOrganicLabels(labels).map((label) => {
     const observation = observations.get(label.queryId);
     if (!observation) {
       throw new Error(`label ${label.rowId} has no observed semantic shadow event`);

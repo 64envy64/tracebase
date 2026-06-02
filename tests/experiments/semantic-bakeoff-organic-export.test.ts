@@ -90,4 +90,10 @@ describe("freezeOrganicCalibrationRegistry", () => {
       ),
     ).toThrow("organic calibration export rejected");
   });
+
+  it("rejects malformed operator labels with an actionable error", () => {
+    expect(() =>
+      freezeOrganicCalibrationRegistry([observed], [{ rowId: "row-1", queryId: "q1", candidate: { blockId: "b1" } }]),
+    ).toThrow("label row-1 query must be an object");
+  });
 });

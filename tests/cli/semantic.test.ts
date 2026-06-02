@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -96,5 +96,22 @@ describe("semantic operator CLI helpers", () => {
     expect(frozen.registry.rows).toHaveLength(1);
     expect(frozen.datasetHash).toMatch(/^[a-f0-9]{64}$/);
     expect(JSON.parse(readFileSync(outPath, "utf8"))).toEqual(frozen.registry);
+    runSemanticRegistryExport({
+      path: projectDir,
+      labelsPath,
+      outPath,
+      frozenAt: "2026-06-02T00:00:00.000Z",
+    });
+    expect(readdirSync(join(projectDir, "out"))).toEqual(["registry.json"]);
+  });
+
+  it("rejects malformed label JSON before writing an output file", () => {
+    const labelsPath = join(projectDir, "labels.json");
+    const outPath = join(projectDir, "out", "registry.json");
+    writeFileSync(labelsPath, JSON.stringify([{ rowId: "row", queryId: "semantic-cli-q1", candidate: { blockId: "semantic-cli-block" } }]), "utf8");
+    expect(() => runSemanticRegistryExport({ path: projectDir, labelsPath, outPath })).toThrow(
+      "label row query must be an object",
+    );
+    expect(() => readFileSync(outPath, "utf8")).toThrow();
   });
 });

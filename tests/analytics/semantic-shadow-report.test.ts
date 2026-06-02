@@ -59,7 +59,7 @@ describe("aggregateSemanticShadow", () => {
       recoveryRate: 1,
     });
     expect(report.fallback.timeout).toBe(1);
-    expect(report.latencyMs).toEqual({ p50: 30, p95: 30 });
+    expect(report.latencyMs).toEqual({ p50: 10, p95: 30 });
     expect(report.providers).toEqual(["http"]);
     expect(report.attestationIds).toEqual(["att-1"]);
     expect(report.latestWarmQueue?.pending).toBe(2);
@@ -77,5 +77,32 @@ describe("aggregateSemanticShadow", () => {
       "no V4-abstain residual observed",
       "no semantic residual recovery observed",
     ]);
+  });
+
+  it("keeps an observed health incident blocking after a later clean snapshot", () => {
+    const report = aggregateSemanticShadow([
+      event({
+        semanticHealth: {
+          status: "degraded",
+          observedAt: 1,
+          scannerBlocked: 1,
+          attestationRejected: 2,
+        },
+      }),
+      event({
+        ts: 2,
+        queryId: "q2",
+        semanticHealth: {
+          status: "ok",
+          observedAt: 2,
+          scannerBlocked: 0,
+          attestationRejected: 0,
+        },
+      }),
+    ]);
+    expect(report.latestHealth?.status).toBe("ok");
+    expect(report.observedHealthMax).toEqual({ scannerBlocked: 1, attestationRejected: 2 });
+    expect(report.readinessBlockers).toContain("scanner blocked one or more semantic payloads");
+    expect(report.readinessBlockers).toContain("semantic attestation mismatch observed");
   });
 });

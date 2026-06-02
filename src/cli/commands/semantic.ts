@@ -8,7 +8,7 @@
 import { Command } from "commander";
 import Database from "better-sqlite3";
 import { dirname } from "node:path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import pc from "picocolors";
 import { aggregateSemanticShadow, type SemanticShadowReport } from "../../analytics/semantic-shadow-report.js";
 import { BlockStore } from "../../core/block-store.js";
@@ -16,8 +16,8 @@ import { findConfigDir, loadConfig } from "../../core/config.js";
 import type { AnalyticsEvent } from "../../types.js";
 import {
   freezeOrganicCalibrationRegistry,
+  parseSemanticOrganicLabels,
   type FrozenOrganicCalibrationExport,
-  type SemanticOrganicLabel,
 } from "../../experiments/semantic-bakeoff/calibration/organic-export.js";
 import { parseSince } from "./events.js";
 
@@ -62,15 +62,20 @@ function readSemanticEvents(path: string, since?: string): AnalyticsEvent[] {
   }
 }
 
-function parseLabels(path: string): SemanticOrganicLabel[] {
+function parseLabels(path: string): ReturnType<typeof parseSemanticOrganicLabels> {
   const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-  const labels = Array.isArray(parsed)
-    ? parsed
-    : typeof parsed === "object" && parsed !== null && Array.isArray((parsed as { labels?: unknown }).labels)
-      ? (parsed as { labels: unknown[] }).labels
-      : null;
-  if (!labels) throw new Error("labels file must be a JSON array or an object with a labels array");
-  return labels as SemanticOrganicLabel[];
+  return parseSemanticOrganicLabels(parsed);
+}
+
+function writeJsonAtomic(path: string, value: unknown): void {
+  const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+  mkdirSync(dirname(path), { recursive: true });
+  try {
+    writeFileSync(tempPath, JSON.stringify(value, null, 2) + "\n", "utf8");
+    renameSync(tempPath, path);
+  } finally {
+    rmSync(tempPath, { force: true });
+  }
 }
 
 export function runSemanticShadowReport(options: RunSemanticShadowReportOptions): SemanticShadowReport {
@@ -85,8 +90,7 @@ export function runSemanticRegistryExport(
     parseLabels(options.labelsPath),
     { ...(options.frozenAt ? { frozenAt: options.frozenAt } : {}) },
   );
-  mkdirSync(dirname(options.outPath), { recursive: true });
-  writeFileSync(options.outPath, JSON.stringify(frozen.registry, null, 2) + "\n", "utf8");
+  writeJsonAtomic(options.outPath, frozen.registry);
   return frozen;
 }
 

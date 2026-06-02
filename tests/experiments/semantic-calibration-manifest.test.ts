@@ -138,6 +138,32 @@ describe("auditable calibration registry + manifest", () => {
     expect(violations).toContain("leakage");
     expect(datasetHashOf(registry())).toBe(datasetHashOf(registry()));
   });
+
+  it("registry validation rejects malformed JSON without throwing", () => {
+    expect(validateCalibrationRegistry(null)).toEqual({ ok: false, violations: ["registry must be an object"] });
+    expect(validateCalibrationRegistry({ datasetVersion: 1, kind: "organic-calibration", frozenAt: "bad", rows: null }).violations).toContain("rows must be an array");
+    const malformed = registry() as unknown as { rows: unknown[] };
+    malformed.rows = [{
+      rowId: "malformed",
+      familyKey: "fam",
+      query: {},
+      candidate: { blockId: "b1", tokens: {}, signals: {} },
+      label: "applicable",
+      hardNegative: false,
+      provenance: null,
+    }];
+    const violations = validateCalibrationRegistry(malformed).violations.join(" ");
+    expect(violations).toContain("query.literalText");
+    expect(violations).toContain("candidate.tokens.situation");
+    expect(violations).toContain("candidate.signals.isPitfall");
+    expect(violations).toContain("provenance must be an object");
+  });
+
+  it("manifest validation fails closed when its embedded registry is malformed", () => {
+    const manifest = build() as unknown as { registry: unknown };
+    manifest.registry = { datasetVersion: 1, kind: "organic-calibration", frozenAt: "2026-06-02T00:00:00.000Z", rows: null };
+    expect(validateCalibrationManifest(manifest as CalibrationManifest).violations).toContain("registry: rows must be an array");
+  });
 });
 describe("deterministic offline runner", () => {
   it("keeps families indivisible and emits a validator-clean manifest", async () => {

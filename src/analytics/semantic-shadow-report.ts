@@ -32,13 +32,14 @@ export interface SemanticShadowReport {
   providers: string[];
   attestationIds: string[];
   latestHealth: ReasoningSemanticComparisonEvent["semanticHealth"] | null;
+  observedHealthMax: { scannerBlocked: number; attestationRejected: number };
   latestWarmQueue: ReasoningSemanticComparisonEvent["warmQueue"] | null;
   readinessBlockers: string[];
 }
 
 function percentile(sorted: readonly number[], p: number): number {
   if (sorted.length === 0) return 0;
-  return sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]!;
+  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1))]!;
 }
 
 function round(x: number): number {
@@ -60,6 +61,7 @@ export function aggregateSemanticShadow(events: readonly AnalyticsEvent[]): Sema
   let residualSemanticApplicable = 0;
   let residualFallback = 0;
   let latestHealth: ReasoningSemanticComparisonEvent["semanticHealth"] | null = null;
+  const observedHealthMax = { scannerBlocked: 0, attestationRejected: 0 };
   let latestWarmQueue: ReasoningSemanticComparisonEvent["warmQueue"] | null = null;
 
   for (const e of comparisons) {
@@ -72,7 +74,11 @@ export function aggregateSemanticShadow(events: readonly AnalyticsEvent[]): Sema
     providers.add(e.semanticProvider);
     if (e.semanticAttestationId) attestationIds.add(e.semanticAttestationId);
     latencies.push(Math.max(0, e.latencyMs));
-    if (e.semanticHealth) latestHealth = e.semanticHealth;
+    if (e.semanticHealth) {
+      latestHealth = e.semanticHealth;
+      observedHealthMax.scannerBlocked = Math.max(observedHealthMax.scannerBlocked, e.semanticHealth.scannerBlocked);
+      observedHealthMax.attestationRejected = Math.max(observedHealthMax.attestationRejected, e.semanticHealth.attestationRejected);
+    }
     if (e.warmQueue) latestWarmQueue = e.warmQueue;
     if (e.v4Action === "abstain") {
       residualV4Abstain++;
@@ -86,8 +92,8 @@ export function aggregateSemanticShadow(events: readonly AnalyticsEvent[]): Sema
   if (residualV4Abstain === 0) readinessBlockers.push("no V4-abstain residual observed");
   if (residualSemanticApplicable === 0) readinessBlockers.push("no semantic residual recovery observed");
   if (fallback.timeout > 0 || fallback.error > 0) readinessBlockers.push("semantic provider timeout/error observed");
-  if ((latestHealth?.scannerBlocked ?? 0) > 0) readinessBlockers.push("scanner blocked one or more semantic payloads");
-  if ((latestHealth?.attestationRejected ?? 0) > 0) readinessBlockers.push("semantic attestation mismatch observed");
+  if (observedHealthMax.scannerBlocked > 0) readinessBlockers.push("scanner blocked one or more semantic payloads");
+  if (observedHealthMax.attestationRejected > 0) readinessBlockers.push("semantic attestation mismatch observed");
 
   const sortedLatencies = latencies.sort((a, b) => a - b);
   return {
@@ -106,6 +112,7 @@ export function aggregateSemanticShadow(events: readonly AnalyticsEvent[]): Sema
     providers: [...providers].sort(),
     attestationIds: [...attestationIds].sort(),
     latestHealth,
+    observedHealthMax,
     latestWarmQueue,
     readinessBlockers,
   };

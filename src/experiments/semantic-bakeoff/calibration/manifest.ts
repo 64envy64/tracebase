@@ -221,6 +221,10 @@ export function validateCalibrationManifest(m: CalibrationManifest): { ok: boole
   if (!m.preregHash || m.preregHash.length !== 64) v.push("preregHash must be a sha256 digest");
   const registry = validateCalibrationRegistry(m.registry);
   v.push(...registry.violations.map((x) => `registry: ${x}`));
+  // Every derived check below assumes a structurally valid registry. Fail
+  // closed with the actionable boundary violations instead of throwing while
+  // validating an operator-supplied or persisted JSON artifact.
+  if (!registry.ok) return { ok: false, violations: v };
   if (datasetHashOf(m.registry) !== m.datasetHash) v.push("datasetHash does not match frozen rows");
   if (provenanceHashOf(m.registry) !== m.provenanceHash) v.push("provenanceHash does not match frozen rows");
   if (m.frozenAt !== m.registry.frozenAt) v.push("frozenAt does not match registry");
