@@ -10,7 +10,7 @@
 import { Command, InvalidArgumentError } from "commander";
 import pc from "picocolors";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import {
@@ -44,12 +44,37 @@ import {
   type CanaryEffectiveStatus,
 } from "../../experiments/canary-breaker.js";
 
-/** Resolve + read the frozen pre-registration doc (relative to this module). */
+/**
+ * Base dir of THIS module, robust across packaging. The CJS bundle (dist/cli.js)
+ * exposes `__dirname`; the ESM source path (tsx / .mjs) exposes `import.meta.url`
+ * instead — and `import.meta.url` is `undefined` in some CJS bundles, which is the
+ * exact bug this guards (`fileURLToPath(undefined)` threw in the built CLI).
+ */
+function moduleBaseDir(): string {
+  // typeof on an undeclared identifier is safe (returns "undefined", never throws).
+  if (typeof __dirname !== "undefined") return __dirname; // CJS bundle
+  try {
+    return dirname(fileURLToPath(import.meta.url)); // ESM source / tsx
+  } catch {
+    return process.cwd();
+  }
+}
+
+/**
+ * Resolve + read the frozen pre-registration doc. Walks UP from this module's dir
+ * looking for `docs/applicability-canary-prereg.md` so it resolves whether running
+ * from source (`src/cli/commands/`) or the flattened bundle (`dist/`).
+ */
 function readPreregText(): string {
-  const here = fileURLToPath(import.meta.url);
-  // src/cli/commands/canary.(ts|js) → repo root is three levels up.
-  const candidate = join(here, "..", "..", "..", "..", "docs", "applicability-canary-prereg.md");
-  return readFileSync(candidate, "utf8");
+  let dir = moduleBaseDir();
+  for (let i = 0; i < 10; i++) {
+    const candidate = join(dir, "docs", "applicability-canary-prereg.md");
+    if (existsSync(candidate)) return readFileSync(candidate, "utf8");
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error("applicability-canary-prereg.md not found (walked up from " + moduleBaseDir() + ")");
 }
 
 function killEngaged(env: NodeJS.ProcessEnv): boolean {
