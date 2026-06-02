@@ -1,12 +1,14 @@
 # Semantic reranker calibration — FROZEN pre-registration (E.2.3)
 
-**Status:** frozen scaffold. No thresholds are fit and nothing is promoted by this
+**Status:** frozen protocol with an auditable runner. Nothing is promoted by this
 document. It defines, *before any results are seen*, the dataset protocol, metrics,
 gate, and stop conditions for deciding whether the semantic reranker may graduate
 from shadow to apply. The machine-checkable form is
 [`manifest.ts`](../src/experiments/semantic-bakeoff/calibration/manifest.ts);
 a calibration run must emit a `CalibrationManifest` that `validateCalibrationManifest`
-accepts and that commits to this doc's hash (`preregHashOf`).
+accepts and that commits to this doc's hash (`preregHashOf`). The runner is
+[`runner.ts`](../src/experiments/semantic-bakeoff/calibration/runner.ts); its `$0`
+plumbing proof is `npx tsx scripts/semantic-bakeoff/run-calibration-smoke.ts`.
 
 This pre-registration exists so the eventual promotion decision cannot be rationalised
 after the fact. Edit it only *before* a run; an edit changes its hash and invalidates
@@ -36,8 +38,15 @@ and rarely enough wrongly, to be worth serving?*
 4. **Hard negatives required.** Validation must contain ≥ `MIN_HARD_NEGATIVES` (20)
    *near-miss* candidates — superficially similar but genuinely inapplicable — so
    precision is measured against the cases that actually matter, not easy negatives.
-5. **Deterministic split.** A recorded `splitSeed` makes the family assignment
-   reproducible.
+5. **Deterministic split.** A recorded `splitSeed` plus `trainRatio` makes the
+   family assignment reproducible.
+6. **Content-addressed rows.** The manifest embeds frozen rows and hashes the
+   complete registry, provenance and row-level split assignment. The validator
+   recomputes all three hashes and every reported metric. Declared counts alone
+   are never trusted.
+7. **Pinned execution identity.** Every scored run records runner version,
+   algorithm version, git SHA, threshold grid, TRAIN precision floor, chosen threshold and a
+   privacy-safe hash of model/revision/backend/featureVersion attestation.
 
 ## 3. Metrics (reported post-run in `CalibrationMetrics`)
 
@@ -64,14 +73,16 @@ Promote **only if** the Wilson-LB precision on the leakage-safe validation set i
 - Harmful-apply rate > `maxHarmfulApplyRate`.
 - Cache hit-rate < `minCacheHitRate`.
 - Warm P95 latency > `maxWarmLatencyP95Ms`.
+- Any of the 18 viability-only adversarial fixtures fires.
 
 If the gate is not met but no stop condition trips, the decision is **hold** (collect
 more validation or improve the model), never a soft promote.
 
-## 6. What this scaffold deliberately does NOT do
+## 6. What this protocol deliberately does NOT do
 
-- It does not fit thresholds, run inference, or read the corpus.
-- It does not promote: `evaluatePromotion` returns `hold` for a frozen (metrics-less)
-  manifest and `reject` for any invalid one.
+- It does not turn fixture smoke data into evidence: `fixture-smoke` registries
+  always return `hold`, even when their plumbing run is perfect.
+- It does not quietly mutate thresholds after validation is observed: the grid is
+  frozen and the selected threshold is fit on TRAIN rows only.
 - Promotion remains a separate, explicit, reviewed step gated on a passing manifest —
   outside this document.

@@ -1,109 +1,116 @@
 /**
- * E.2.3 — FROZEN calibration manifest schema + gate (R&D scaffold; NO fitting here).
+ * E.2.4 auditable semantic-calibration manifest.
  *
- * This module encodes the calibration PRE-REGISTRATION as machine-checkable
- * invariants (see docs/semantic-calibration-prereg.md). It does NOT fit thresholds
- * and does NOT promote anything — it (1) defines the manifest a calibration run must
- * produce, (2) provides the Wilson lower-bound precision gate, and (3) validates a
- * manifest against the frozen protocol so an over-fit / leaky / fixture-contaminated
- * run is REJECTED before any promotion decision.
- *
- * Hard rules enforced (all must hold or the manifest is invalid):
- *   - Thresholds are NEVER fit on the 18 adversarial viability fixtures
- *     (`usesAdversarialFixturesForFitting` MUST be false). Those fixtures are
- *     regression/viability only; fitting on them overfits the known cases.
- *   - The split is FAMILY-GROUPED and LEAKAGE-SAFE: no family key may appear in both
- *     train and validation (otherwise val precision is inflated by memorisation).
- *   - Validation must include HARD NEGATIVES (near-miss candidates that must be
- *     judged inapplicable) — at least `MIN_HARD_NEGATIVES`.
- *   - The promotion gate is the Wilson 95% LOWER BOUND on validation precision, not
- *     the point estimate (small-sample honest).
- *   - Cache + warm metrics are reported (the overlay's value depends on hit-rate).
- *   - Explicit STOP conditions are declared and block promotion when tripped.
+ * A manifest is self-contained: frozen rows, row-level split assignments,
+ * provider outcomes, model attestation, threshold grid and runner identity are
+ * all content-addressed. Validation recomputes hashes, counts and metrics from
+ * rows instead of trusting report fields.
  */
 import { createHash } from "node:crypto";
+import { attestationHash, type ModelAttestation } from "../service/protocol.js";
+import {
+  datasetHashOf,
+  provenanceHashOf,
+  validateCalibrationRegistry,
+  type CalibrationDatasetRegistry,
+} from "./registry.js";
 
-export const CALIBRATION_MANIFEST_VERSION = 1 as const;
-/** Minimum hard negatives required in validation (leakage-safe near-misses). */
+export const CALIBRATION_MANIFEST_VERSION = 2 as const;
 export const MIN_HARD_NEGATIVES = 20;
-/** The viability fixture set is OFF-LIMITS for threshold fitting. */
 export const ADVERSARIAL_FIXTURE_COUNT = 18;
+export const CALIBRATION_RUNNER_VERSION = "semantic-calibration-runner.v1";
+export const CALIBRATION_ALGORITHM_VERSION = "train-precision-then-recall.v1";
+export const CALIBRATION_TRAIN_RATIO = 0.7;
 
-export interface CalibrationModel {
-  name: string;
-  revision: string;
-  featureVersion: number;
-  backend: string;
+export interface CalibrationModel extends ModelAttestation {}
+
+export interface CalibrationAssignment {
+  rowId: string;
+  familyKey: string;
+  cohort: "train" | "validation" | "adversarial-regression";
 }
 
-/** Family-grouped, leakage-safe split descriptor (attested by the run). */
 export interface CalibrationSplit {
-  /** Distinct family keys assigned to TRAIN (threshold fitting). */
   trainFamilies: string[];
-  /** Distinct family keys assigned to VALIDATION (gate evaluation). DISJOINT from train. */
   valFamilies: string[];
-  /** # hard-negative (near-miss → must be inapplicable) examples in validation. */
   hardNegativeCount: number;
-  /** MUST be false: the 18 adversarial viability fixtures are never used to FIT. */
   usesAdversarialFixturesForFitting: boolean;
-  /** Deterministic split seed (so the family assignment is reproducible). */
   splitSeed: number;
+  trainRatio: number;
+  assignments: CalibrationAssignment[];
+  splitHash: string;
 }
 
-/** Promotion gate + explicit stop conditions — frozen BEFORE results are seen. */
 export interface PromotionGate {
-  /** Promote only if Wilson-LB(validation precision) ≥ this. */
   minWilsonLbPrecision: number;
-  /** STOP: harmful-apply rate on validation must stay ≤ this. */
   maxHarmfulApplyRate: number;
-  /** STOP: the overlay is worthless if the cache hit-rate is below this. */
   minCacheHitRate: number;
-  /** STOP: warm revalidation P95 latency must stay ≤ this (capacity guard). */
   maxWarmLatencyP95Ms: number;
-  /** STOP: minimum validation sample size (no promotion on a thin val set). */
   minValidationN: number;
 }
 
-/** Measured outcomes — ABSENT in the pre-registered (frozen) manifest; filled post-run. */
+export interface CalibrationOutcome {
+  rowId: string;
+  verdict: "applicable" | "uncertain" | "inapplicable";
+  confidence: number;
+  latencyMs: number;
+  cacheState: "fresh" | "stale" | "miss";
+  warmCompleted: boolean;
+  warmLatencyMs?: number;
+  v4Action?: "inject" | "abstain";
+}
+
 export interface CalibrationMetrics {
   validation: {
     n: number;
-    /** Applies the model judged `applicable` that were truly applicable. */
     truePositives: number;
-    /** Applies the model judged `applicable` that were NOT applicable (harmful applies). */
     falsePositives: number;
-    /** Wilson 95% lower bound on precision = TP/(TP+FP). Computed via wilsonLowerBound. */
     wilsonLbPrecision: number;
     harmfulApplyRate: number;
   };
   cache: { hitRate: number; warmCompletionRate: number; warmLatencyP95Ms: number };
-  /** Fraction of shadow comparisons where the semantic verdict agreed with V4. */
   shadowAgreementRate: number;
+  adversarialRegression: { n: number; fired: number; passed: boolean };
+}
+
+export interface CalibrationRun {
+  runnerVersion: string;
+  algorithmVersion: string;
+  gitSha: string;
+  thresholdCandidates: number[];
+  selectedThreshold: number;
+  minTrainPrecision: number;
+  modelAttestationHash: string;
+  outcomes: CalibrationOutcome[];
 }
 
 export interface CalibrationManifest {
   manifestVersion: typeof CALIBRATION_MANIFEST_VERSION;
-  /** ISO timestamp the protocol was FROZEN (pre-registration; before results). */
   frozenAt: string;
-  /** Hash of the frozen pre-reg doc the run commits to (preregHashOf). */
   preregHash: string;
+  datasetHash: string;
+  provenanceHash: string;
+  registry: CalibrationDatasetRegistry;
   model: CalibrationModel;
   split: CalibrationSplit;
   gate: PromotionGate;
-  /** Filled AFTER the run; absent in the pre-registered manifest. */
+  /** Filled after scoring. A pre-registration may omit this whole block. */
+  run?: CalibrationRun;
   metrics?: CalibrationMetrics;
 }
 
-/** Stable hash of the frozen pre-reg text — the manifest commits to an exact doc. */
-export function preregHashOf(text: string): string {
-  return createHash("sha256").update(text.trim()).digest("hex").slice(0, 16);
+function hashJson(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
-/**
- * Wilson score interval LOWER bound for a binomial proportion. Honest on small
- * samples (unlike the naive p ± z·√(p(1-p)/n)). z defaults to 1.96 (95%).
- * Returns 0 for n=0.
- */
+export function preregHashOf(text: string): string {
+  return createHash("sha256").update(text.trim()).digest("hex");
+}
+
+export function splitHashOf(assignments: readonly CalibrationAssignment[], splitSeed: number, trainRatio: number): string {
+  return hashJson([splitSeed, trainRatio, [...assignments].sort((a, b) => a.rowId.localeCompare(b.rowId))]);
+}
+
 export function wilsonLowerBound(successes: number, n: number, z = 1.96): number {
   if (n <= 0) return 0;
   const p = Math.min(1, Math.max(0, successes / n));
@@ -114,63 +121,203 @@ export function wilsonLowerBound(successes: number, n: number, z = 1.96): number
   return Math.max(0, center - margin);
 }
 
-/**
- * Validate a manifest against the FROZEN pre-reg invariants. Returns every violation
- * (does not throw). A manifest with any violation MUST NOT be used to promote.
- */
+function percentile(xs: number[], fraction: number): number {
+  if (xs.length === 0) return 0;
+  const sorted = [...xs].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1)]!;
+}
+
+export function computeCalibrationMetrics(m: CalibrationManifest): CalibrationMetrics {
+  if (!m.run) throw new Error("run outcomes required");
+  const rows = new Map(m.registry.rows.map((row) => [row.rowId, row]));
+  const cohorts = new Map(m.split.assignments.map((a) => [a.rowId, a.cohort]));
+  const validation = m.run.outcomes.filter((o) => cohorts.get(o.rowId) === "validation");
+  const fired = validation.filter((o) => o.verdict === "applicable" && o.confidence >= m.run!.selectedThreshold);
+  const tp = fired.filter((o) => rows.get(o.rowId)?.label === "applicable").length;
+  const fp = fired.filter((o) => rows.get(o.rowId)?.label === "inapplicable").length;
+  const hit = validation.filter((o) => o.cacheState !== "miss").length;
+  const warm = validation.filter((o) => o.warmCompleted);
+  const comparable = validation.filter((o) => o.v4Action !== undefined);
+  const agreement = comparable.filter((o) => (o.v4Action === "inject") === (o.verdict === "applicable" && o.confidence >= m.run!.selectedThreshold)).length;
+  const adversarial = m.run.outcomes.filter((o) => cohorts.get(o.rowId) === "adversarial-regression");
+  const adversarialFired = adversarial.filter((o) => o.verdict === "applicable" && o.confidence >= m.run!.selectedThreshold).length;
+  return {
+    validation: {
+      n: validation.length,
+      truePositives: tp,
+      falsePositives: fp,
+      wilsonLbPrecision: wilsonLowerBound(tp, tp + fp),
+      harmfulApplyRate: validation.length === 0 ? 0 : fp / validation.length,
+    },
+    cache: {
+      hitRate: validation.length === 0 ? 0 : hit / validation.length,
+      warmCompletionRate: validation.length === 0 ? 0 : warm.length / validation.length,
+      warmLatencyP95Ms: percentile(warm.map((o) => o.warmLatencyMs ?? 0), 0.95),
+    },
+    shadowAgreementRate: comparable.length === 0 ? 0 : agreement / comparable.length,
+    adversarialRegression: { n: adversarial.length, fired: adversarialFired, passed: adversarialFired === 0 },
+  };
+}
+
+export function buildCalibrationManifest(opts: {
+  registry: CalibrationDatasetRegistry;
+  preregText: string;
+  model: CalibrationModel;
+  gate: PromotionGate;
+  gitSha: string;
+  splitSeed: number;
+  trainRatio: number;
+  thresholdCandidates: number[];
+  selectedThreshold: number;
+  minTrainPrecision: number;
+  runnerVersion: string;
+  algorithmVersion: string;
+  assignments: CalibrationAssignment[];
+  outcomes: CalibrationOutcome[];
+}): CalibrationManifest {
+  const trainFamilies = [...new Set(opts.assignments.filter((a) => a.cohort === "train").map((a) => a.familyKey))].sort();
+  const valFamilies = [...new Set(opts.assignments.filter((a) => a.cohort === "validation").map((a) => a.familyKey))].sort();
+  const byId = new Map(opts.registry.rows.map((row) => [row.rowId, row]));
+  const hardNegativeCount = opts.assignments.filter((a) => a.cohort === "validation" && byId.get(a.rowId)?.hardNegative).length;
+  return {
+    manifestVersion: CALIBRATION_MANIFEST_VERSION,
+    frozenAt: opts.registry.frozenAt,
+    preregHash: preregHashOf(opts.preregText),
+    datasetHash: datasetHashOf(opts.registry),
+    provenanceHash: provenanceHashOf(opts.registry),
+    registry: opts.registry,
+    model: opts.model,
+    split: {
+      trainFamilies,
+      valFamilies,
+      hardNegativeCount,
+      usesAdversarialFixturesForFitting: false,
+      splitSeed: opts.splitSeed,
+      trainRatio: opts.trainRatio,
+      assignments: opts.assignments,
+      splitHash: splitHashOf(opts.assignments, opts.splitSeed, opts.trainRatio),
+    },
+    gate: opts.gate,
+    run: {
+      runnerVersion: opts.runnerVersion,
+      algorithmVersion: opts.algorithmVersion,
+      gitSha: opts.gitSha,
+      thresholdCandidates: [...opts.thresholdCandidates],
+      selectedThreshold: opts.selectedThreshold,
+      minTrainPrecision: opts.minTrainPrecision,
+      modelAttestationHash: attestationHash(opts.model),
+      outcomes: opts.outcomes,
+    },
+  };
+}
+
+function sameMetrics(a: CalibrationMetrics, b: CalibrationMetrics): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function validateCalibrationManifest(m: CalibrationManifest): { ok: boolean; violations: string[] } {
   const v: string[] = [];
   if (m.manifestVersion !== CALIBRATION_MANIFEST_VERSION) v.push(`manifestVersion must be ${CALIBRATION_MANIFEST_VERSION}`);
-  if (!m.preregHash || m.preregHash.length < 8) v.push("preregHash missing (must commit to a frozen pre-reg doc)");
-  // Hard rule: never fit on the adversarial viability fixtures.
-  if (m.split.usesAdversarialFixturesForFitting) v.push("split.usesAdversarialFixturesForFitting must be false (the 18 fixtures are viability-only; fitting on them overfits)");
-  // Leakage-safe: train/val families must be DISJOINT and both non-empty.
-  if (m.split.trainFamilies.length === 0) v.push("split.trainFamilies is empty");
-  if (m.split.valFamilies.length === 0) v.push("split.valFamilies is empty");
-  const trainSet = new Set(m.split.trainFamilies);
-  const overlap = m.split.valFamilies.filter((f) => trainSet.has(f));
-  if (overlap.length > 0) v.push(`family LEAKAGE: ${overlap.length} family/families in both train and validation (e.g. ${overlap.slice(0, 3).join(", ")})`);
-  // Hard negatives required.
-  if (m.split.hardNegativeCount < MIN_HARD_NEGATIVES) v.push(`split.hardNegativeCount ${m.split.hardNegativeCount} < ${MIN_HARD_NEGATIVES} required hard negatives`);
-  // Gate must be Wilson-LB based + have explicit stop conditions in range.
+  if (!m.preregHash || m.preregHash.length !== 64) v.push("preregHash must be a sha256 digest");
+  const registry = validateCalibrationRegistry(m.registry);
+  v.push(...registry.violations.map((x) => `registry: ${x}`));
+  if (datasetHashOf(m.registry) !== m.datasetHash) v.push("datasetHash does not match frozen rows");
+  if (provenanceHashOf(m.registry) !== m.provenanceHash) v.push("provenanceHash does not match frozen rows");
+  if (m.frozenAt !== m.registry.frozenAt) v.push("frozenAt does not match registry");
+  if (splitHashOf(m.split.assignments, m.split.splitSeed, m.split.trainRatio) !== m.split.splitHash) v.push("splitHash does not match row assignments, seed and ratio");
+  if (m.split.usesAdversarialFixturesForFitting) v.push("split.usesAdversarialFixturesForFitting must be false");
+  if (!Number.isInteger(m.split.splitSeed)) v.push("split.splitSeed must be an integer");
+  if (!Number.isFinite(m.split.trainRatio) || m.split.trainRatio <= 0 || m.split.trainRatio >= 1) v.push("split.trainRatio must be in (0, 1)");
+  if (
+    !m.model.model || !m.model.revision || !m.model.backend ||
+    !Number.isInteger(m.model.featureVersion) || m.model.featureVersion < 1
+  ) v.push("model attestation is incomplete or invalid");
+  const rows = new Map(m.registry.rows.map((row) => [row.rowId, row]));
+  const assigned = new Set<string>();
+  const familyCohort = new Map<string, "train" | "validation">();
+  for (const a of m.split.assignments) {
+    const row = rows.get(a.rowId);
+    if (!["train", "validation", "adversarial-regression"].includes(a.cohort)) v.push(`invalid split cohort for row ${a.rowId}`);
+    if (!row) v.push(`split assignment references unknown row ${a.rowId}`);
+    if (assigned.has(a.rowId)) v.push(`duplicate split assignment for row ${a.rowId}`);
+    assigned.add(a.rowId);
+    if (row && row.familyKey !== a.familyKey) v.push(`split family mismatch for row ${a.rowId}`);
+    if (a.cohort !== "adversarial-regression") {
+      const prior = familyCohort.get(a.familyKey);
+      if (prior && prior !== a.cohort) v.push(`family LEAKAGE: ${a.familyKey} appears in train and validation`);
+      familyCohort.set(a.familyKey, a.cohort);
+    }
+    if (row?.adversarialFixture && a.cohort !== "adversarial-regression") v.push(`adversarial fixture ${a.rowId} used for fitting`);
+    if (a.cohort === "adversarial-regression" && !row?.adversarialFixture) v.push(`non-adversarial row ${a.rowId} assigned to adversarial regression`);
+  }
+  if (assigned.size !== m.registry.rows.length) v.push("not every frozen row has exactly one split assignment");
+  const trainFamilies = [...familyCohort.entries()].filter(([, c]) => c === "train").map(([f]) => f).sort();
+  const valFamilies = [...familyCohort.entries()].filter(([, c]) => c === "validation").map(([f]) => f).sort();
+  if (JSON.stringify(trainFamilies) !== JSON.stringify([...m.split.trainFamilies].sort())) v.push("split.trainFamilies does not match row assignments");
+  if (JSON.stringify(valFamilies) !== JSON.stringify([...m.split.valFamilies].sort())) v.push("split.valFamilies does not match row assignments");
+  if (trainFamilies.length === 0) v.push("split.trainFamilies is empty");
+  if (valFamilies.length === 0) v.push("split.valFamilies is empty");
+  const hardNegativeCount = m.split.assignments.filter((a) => a.cohort === "validation" && rows.get(a.rowId)?.hardNegative).length;
+  if (hardNegativeCount !== m.split.hardNegativeCount) v.push("split.hardNegativeCount does not match frozen validation rows");
+  if (hardNegativeCount < MIN_HARD_NEGATIVES) v.push(`split.hardNegativeCount ${hardNegativeCount} < ${MIN_HARD_NEGATIVES}`);
+  const adversarialCount = m.registry.rows.filter((row) => row.adversarialFixture).length;
+  if (m.registry.kind === "organic-calibration" && adversarialCount !== ADVERSARIAL_FIXTURE_COUNT) {
+    v.push(`organic calibration requires exactly ${ADVERSARIAL_FIXTURE_COUNT} adversarial fixtures`);
+  }
   const g = m.gate;
   if (!(g.minWilsonLbPrecision > 0 && g.minWilsonLbPrecision <= 1)) v.push("gate.minWilsonLbPrecision must be in (0, 1]");
   if (!(g.maxHarmfulApplyRate >= 0 && g.maxHarmfulApplyRate < 1)) v.push("gate.maxHarmfulApplyRate must be in [0, 1)");
   if (!(g.minCacheHitRate >= 0 && g.minCacheHitRate <= 1)) v.push("gate.minCacheHitRate must be in [0, 1]");
   if (!(g.maxWarmLatencyP95Ms > 0)) v.push("gate.maxWarmLatencyP95Ms must be > 0");
   if (!(g.minValidationN > 0)) v.push("gate.minValidationN must be > 0");
-  // If metrics are present, the reported Wilson-LB must match the reported TP/FP.
-  if (m.metrics) {
-    const { truePositives: tp, falsePositives: fp, wilsonLbPrecision } = m.metrics.validation;
-    const recomputed = wilsonLowerBound(tp, tp + fp);
-    if (Math.abs(recomputed - wilsonLbPrecision) > 1e-6) v.push(`metrics.validation.wilsonLbPrecision (${wilsonLbPrecision}) != recomputed Wilson-LB (${recomputed.toFixed(6)})`);
+  if (m.run) {
+    if (!m.run.gitSha) v.push("run.gitSha missing");
+    if (m.run.runnerVersion !== CALIBRATION_RUNNER_VERSION) v.push(`run.runnerVersion must be ${CALIBRATION_RUNNER_VERSION}`);
+    if (m.run.algorithmVersion !== CALIBRATION_ALGORITHM_VERSION) v.push(`run.algorithmVersion must be ${CALIBRATION_ALGORITHM_VERSION}`);
+    if (m.run.modelAttestationHash !== attestationHash(m.model)) v.push("run.modelAttestationHash does not match model");
+    if (m.run.thresholdCandidates.length === 0) v.push("run.thresholdCandidates is empty");
+    if (new Set(m.run.thresholdCandidates).size !== m.run.thresholdCandidates.length) v.push("run.thresholdCandidates contains duplicates");
+    if (m.run.thresholdCandidates.some((x) => !Number.isFinite(x) || x < 0 || x > 1)) v.push("run.thresholdCandidates must be finite values in [0, 1]");
+    if (!Number.isFinite(m.run.minTrainPrecision) || m.run.minTrainPrecision <= 0 || m.run.minTrainPrecision > 1) v.push("run.minTrainPrecision must be in (0, 1]");
+    if (!m.run.thresholdCandidates.includes(m.run.selectedThreshold)) v.push("run.selectedThreshold is outside the frozen threshold grid");
+    for (const outcome of m.run.outcomes) {
+      if (!["applicable", "uncertain", "inapplicable"].includes(outcome.verdict)) v.push(`run outcome ${outcome.rowId}: invalid verdict`);
+      if (!Number.isFinite(outcome.confidence) || outcome.confidence < 0 || outcome.confidence > 1) v.push(`run outcome ${outcome.rowId}: confidence must be in [0, 1]`);
+      if (!Number.isFinite(outcome.latencyMs) || outcome.latencyMs < 0) v.push(`run outcome ${outcome.rowId}: latencyMs must be >= 0`);
+      if (!["fresh", "stale", "miss"].includes(outcome.cacheState)) v.push(`run outcome ${outcome.rowId}: invalid cacheState`);
+      if (typeof outcome.warmCompleted !== "boolean") v.push(`run outcome ${outcome.rowId}: warmCompleted must be boolean`);
+      if (outcome.warmLatencyMs !== undefined && (!Number.isFinite(outcome.warmLatencyMs) || outcome.warmLatencyMs < 0)) v.push(`run outcome ${outcome.rowId}: warmLatencyMs must be >= 0`);
+    }
+    const outcomeIds = new Set(m.run.outcomes.map((o) => o.rowId));
+    if (outcomeIds.size !== m.run.outcomes.length) v.push("duplicate run outcome rowId");
+    if (outcomeIds.size !== m.registry.rows.length || [...rows.keys()].some((id) => !outcomeIds.has(id))) v.push("run outcomes do not cover every frozen row exactly once");
+    if (!m.metrics) v.push("metrics missing for scored run");
+    else if (!sameMetrics(computeCalibrationMetrics(m), m.metrics)) v.push("metrics do not match row-level recomputation");
+  } else if (m.metrics) {
+    v.push("metrics present without run outcomes");
   }
   return { ok: v.length === 0, violations: v };
 }
 
 export type PromotionDecision = "promote" | "hold" | "reject";
 
-/**
- * Apply the frozen gate + stop conditions to a manifest's measured metrics. Returns
- * a conservative decision + the reasons. NEVER promotes a manifest that fails
- * validation or whose metrics are absent (a pre-reg has no results yet → "hold").
- */
 export function evaluatePromotion(m: CalibrationManifest): { decision: PromotionDecision; reasons: string[] } {
   const valid = validateCalibrationManifest(m);
   if (!valid.ok) return { decision: "reject", reasons: ["manifest invalid:", ...valid.violations] };
-  if (!m.metrics) return { decision: "hold", reasons: ["no measured metrics yet (frozen pre-registration only)"] };
+  if (!m.run || !m.metrics) return { decision: "hold", reasons: ["no measured metrics yet"] };
+  if (m.registry.kind !== "organic-calibration") return { decision: "hold", reasons: ["fixture-smoke datasets validate plumbing only; never promote"] };
   const reasons: string[] = [];
   const { validation: val, cache } = m.metrics;
   const g = m.gate;
-  // STOP conditions first (any trip → reject).
   if (val.n < g.minValidationN) reasons.push(`STOP: validation n=${val.n} < minValidationN=${g.minValidationN}`);
   if (val.harmfulApplyRate > g.maxHarmfulApplyRate) reasons.push(`STOP: harmfulApplyRate ${val.harmfulApplyRate} > ${g.maxHarmfulApplyRate}`);
   if (cache.hitRate < g.minCacheHitRate) reasons.push(`STOP: cache hitRate ${cache.hitRate} < ${g.minCacheHitRate}`);
   if (cache.warmLatencyP95Ms > g.maxWarmLatencyP95Ms) reasons.push(`STOP: warm P95 ${cache.warmLatencyP95Ms}ms > ${g.maxWarmLatencyP95Ms}ms`);
+  if (m.metrics.adversarialRegression.n !== ADVERSARIAL_FIXTURE_COUNT) reasons.push(`STOP: adversarial regression n=${m.metrics.adversarialRegression.n} != ${ADVERSARIAL_FIXTURE_COUNT}`);
+  if (!m.metrics.adversarialRegression.passed) reasons.push(`STOP: adversarial regression fired=${m.metrics.adversarialRegression.fired}`);
   if (reasons.length > 0) return { decision: "reject", reasons };
-  // The promotion gate: Wilson-LB precision must clear the bar.
   if (val.wilsonLbPrecision < g.minWilsonLbPrecision) {
-    return { decision: "hold", reasons: [`Wilson-LB precision ${val.wilsonLbPrecision.toFixed(3)} < gate ${g.minWilsonLbPrecision} — collect more validation or improve the model`] };
+    return { decision: "hold", reasons: [`Wilson-LB precision ${val.wilsonLbPrecision.toFixed(3)} < gate ${g.minWilsonLbPrecision}`] };
   }
-  return { decision: "promote", reasons: [`Wilson-LB precision ${val.wilsonLbPrecision.toFixed(3)} ≥ gate ${g.minWilsonLbPrecision}; all stop conditions clear`] };
+  return { decision: "promote", reasons: [`Wilson-LB precision ${val.wilsonLbPrecision.toFixed(3)} >= gate ${g.minWilsonLbPrecision}; all stop conditions clear`] };
 }
