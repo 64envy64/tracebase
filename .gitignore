@@ -83,3 +83,5 @@ bench-runs/file-memory-real-repos/transcripts/**/*.jsonl
 
 # E.1 R&D — local model weights (never committed)
 .models/
+.venv-bakeoff/
+.venv-cuda/

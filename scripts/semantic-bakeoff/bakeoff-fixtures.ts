@@ -49,4 +49,9 @@ export const BAKEOFF_FIXTURES: readonly BakeoffFixture[] = [
   // ── hard negatives (related vocabulary, different mechanism) ──
   { probeId: "float-hard", family: "float", label: "not-useful", candidate: FLOAT, query: Q("integer overflow wraps the running total to a negative number", "fixed width integer exceeds max value and wraps") },
   { probeId: "race-hard", family: "race", label: "not-useful", candidate: RACE, query: Q("test fails because a fixture file is missing on CI", "environment setup did not create the fixture path") },
+  // ── adversarial negatives: STRONG lexical overlap with the family, WRONG mechanism ──
+  { probeId: "sql-adv", family: "sql", label: "not-useful", candidate: SQL, query: Q("the sql query is slow and times out on large tables", "missing index causes a full table scan, not escaping") },
+  { probeId: "cache-adv", family: "cache", label: "not-useful", candidate: CACHE, query: Q("cache hit rate is low and memory pressure evicts entries", "working set exceeds cache capacity, not invalidation") },
+  { probeId: "obo-adv", family: "obo", label: "not-useful", candidate: OBO, query: Q("the array loop never runs because the array is empty", "empty input, not an off-by-one boundary") },
+  { probeId: "float-adv", family: "float", label: "not-useful", candidate: FLOAT, query: Q("floating point result prints with too many decimal places", "display formatting, not accumulation of rounding error") },
 ];
