@@ -54,6 +54,7 @@ const breakerDeps = (base: string, store: BlockStore) => ({
   readHoldoutConfig: () => null,
   readCanaryConfig: () => canary(1),
   readBreakerSnapshot: () => readBreakerSnapshot(base),
+  admitCanaryTreatment: () => admitCanaryExposure(base, store), // E.2.3: admission is MANDATORY for treatment
   noteCanaryActivity: () => noteCanaryExposure(base, store), // the FIX: exposure always refreshes
 });
 
@@ -227,5 +228,54 @@ describe("E.2.2 admission fail-off — treatment never served unless the breaker
       await provider.close?.();
       rmSync(base, { recursive: true, force: true });
     }
+  });
+});
+
+describe("E.2.3 MANDATORY admission in core — absent / false / throwing are equivalent fail-off", () => {
+  let base: string;
+  let store: BlockStore;
+  beforeEach(() => { base = tmpProject("tb-mand-"); store = freshStore(); });
+  afterEach(() => { store.close(); rmSync(base, { recursive: true, force: true }); });
+
+  // Common deps with the canary forced eligible (rate 1) and no env kills; the
+  // admit callback is the ONLY thing that varies across these cases.
+  const depsWith = (admit?: () => boolean) => ({
+    readHoldoutConfig: () => null,
+    readCanaryConfig: () => canary(1),
+    readBreakerSnapshot: () => readBreakerSnapshot(base),
+    ...(admit ? { admitCanaryTreatment: admit } : {}), // omitted ⇒ ABSENT callback
+  });
+  const exposures = () => store.readEvents({}).filter((e) => e.event === "reasoning.applicability_canary_exposure");
+  const injections = () => store.readEvents({}).filter((e) => e.event === "injection").length;
+
+  it("ABSENT admit callback → treatment downgraded to control (no injection, admissionFailed)", async () => {
+    const r = await runReasoningPatternsRecall(shadowServer(store), { problem: STRONG_MECH, runId: "r1" }, depsWith(undefined));
+    expect(r.canaryExposure?.arm).toBe("control");
+    expect(r.shouldInject).toBe(false);
+    expect(injections()).toBe(0);
+    expect((exposures()[0] as { admissionFailed?: boolean }).admissionFailed).toBe(true);
+  });
+
+  it("admit returns FALSE → downgraded to control", async () => {
+    const r = await runReasoningPatternsRecall(shadowServer(store), { problem: STRONG_MECH, runId: "r1" }, depsWith(() => false));
+    expect(r.canaryExposure?.arm).toBe("control");
+    expect(injections()).toBe(0);
+    expect((exposures()[0] as { admissionFailed?: boolean }).admissionFailed).toBe(true);
+  });
+
+  it("admit THROWS → contained, downgraded to control (exposure still recorded honestly, not swallowed)", async () => {
+    const r = await runReasoningPatternsRecall(shadowServer(store), { problem: STRONG_MECH, runId: "r1" }, depsWith(() => { throw new Error("admit blew up"); }));
+    expect(r.canaryExposure?.arm).toBe("control"); // NOT lost to the outer catch
+    expect(injections()).toBe(0);
+    expect(exposures().length).toBe(1); // a single exposure event, recorded as control
+    expect((exposures()[0] as { admissionFailed?: boolean }).admissionFailed).toBe(true);
+  });
+
+  it("admit returns TRUE (durably armed) → treatment served + injected", async () => {
+    const r = await runReasoningPatternsRecall(shadowServer(store), { problem: STRONG_MECH, runId: "r1" }, depsWith(() => admitCanaryExposure(base, store)));
+    expect(r.canaryExposure?.arm).toBe("treatment");
+    expect(r.shouldInject).toBe(true);
+    expect(injections()).toBeGreaterThanOrEqual(1);
+    expect((exposures()[0] as { admissionFailed?: boolean }).admissionFailed).toBeUndefined();
   });
 });

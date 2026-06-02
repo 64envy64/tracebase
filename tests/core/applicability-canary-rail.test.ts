@@ -49,7 +49,7 @@ describe("phase-d.4 applicability canary serving rail", () => {
 
   it("ENABLED + eligible + treatment (rate 1) injects the reranker block + emits exposure & injection", async () => {
     const { store, accId } = freshStore();
-    const r = await runReasoningPatternsRecall(shadowServer(store), { problem: STRONG_MECH, runId: "run1" }, { readHoldoutConfig: () => null, readCanaryConfig: () => enabledCanary(1) });
+    const r = await runReasoningPatternsRecall(shadowServer(store), { problem: STRONG_MECH, runId: "run1" }, { readHoldoutConfig: () => null, readCanaryConfig: () => enabledCanary(1), admitCanaryTreatment: () => true });
     expect(r.canaryExposure).toBeDefined();
     expect(r.canaryExposure!.arm).toBe("treatment");
     expect(r.canaryExposure!.blockId).toBe(accId);

@@ -34,7 +34,7 @@ describe("phase-d.4.1 canary shared-boundary parity", () => {
   it("the unified boundary applies the canary on BOTH retrieval modes (shadow + on)", async () => {
     for (const mode of ["shadow", "on"] as const) {
       const { store, accId } = freshStore();
-      const r = await runReasoningPatternsRecall(server(store, mode), { problem: STRONG_MECH, runId: `run-${mode}` }, { readHoldoutConfig: () => null, readCanaryConfig: () => enabled });
+      const r = await runReasoningPatternsRecall(server(store, mode), { problem: STRONG_MECH, runId: `run-${mode}` }, { readHoldoutConfig: () => null, readCanaryConfig: () => enabled, admitCanaryTreatment: () => true });
       expect(r.canaryExposure?.arm, mode).toBe("treatment");
       expect(r.canaryExposure?.blockId, mode).toBe(accId);
       expect(exposures(store).length, mode).toBe(1);
@@ -57,8 +57,8 @@ describe("phase-d.4.1 canary shared-boundary parity", () => {
   it("emits run-scoped exposures the ledger joins WITHOUT cross-run leakage", async () => {
     const { store, accId } = freshStore();
     const srv = server(store, "shadow");
-    await runReasoningPatternsRecall(srv, { problem: STRONG_MECH, runId: "runA" }, { readHoldoutConfig: () => null, readCanaryConfig: () => enabled });
-    await runReasoningPatternsRecall(srv, { problem: STRONG_MECH, runId: "runB" }, { readHoldoutConfig: () => null, readCanaryConfig: () => enabled });
+    await runReasoningPatternsRecall(srv, { problem: STRONG_MECH, runId: "runA" }, { readHoldoutConfig: () => null, readCanaryConfig: () => enabled, admitCanaryTreatment: () => true });
+    await runReasoningPatternsRecall(srv, { problem: STRONG_MECH, runId: "runB" }, { readHoldoutConfig: () => null, readCanaryConfig: () => enabled, admitCanaryTreatment: () => true });
 
     const exps = exposures(store) as Array<{ runId?: string; arm: string; blockId?: string }>;
     expect(exps.length).toBe(2);

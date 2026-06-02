@@ -30,6 +30,7 @@ import {
   refreshBreaker,
   readBreakerSnapshot,
   readBreakerState,
+  admitCanaryExposure,
   CANARY_BREAKER_FILE,
 } from "../../src/experiments/canary-breaker.js";
 import { buildPreflightReceipt, verifyReceiptForEnable, type PreflightInput } from "../../src/experiments/canary-preflight.js";
@@ -121,7 +122,7 @@ describe("phase-d.4.2 breaker + receipt $0 simulation matrix", () => {
     // Control: clear breaker → eligible treatment exposes.
     const s1 = new BlockStore(new Database(":memory:"));
     const accId = seedCorpus(s1);
-    const clear = await runReasoningPatternsRecall(shadowServer(s1), { problem: STRONG_MECH, runId: "c" }, { readHoldoutConfig: () => null, readCanaryConfig: () => canary(1), readBreakerSnapshot: () => readBreakerSnapshot(base) });
+    const clear = await runReasoningPatternsRecall(shadowServer(s1), { problem: STRONG_MECH, runId: "c" }, { readHoldoutConfig: () => null, readCanaryConfig: () => canary(1), readBreakerSnapshot: () => readBreakerSnapshot(base), admitCanaryTreatment: () => admitCanaryExposure(base, s1) });
     expect(clear.canaryExposure?.arm).toBe("treatment");
     expect(clear.blocks.find((h) => h.passesGate)?.block.id).toBe(accId);
     s1.close();

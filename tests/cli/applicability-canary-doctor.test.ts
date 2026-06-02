@@ -12,7 +12,7 @@ import Database from "better-sqlite3";
 import { BlockStore } from "../../src/core/block-store.js";
 import type { AnalyticsEvent } from "../../src/types.js";
 import { applicabilityCanaryDoctorCheck } from "../../src/cli/commands/doctor.js";
-import { refreshBreaker, canaryEffectiveStatus } from "../../src/experiments/canary-breaker.js";
+import { refreshBreaker, admitCanaryExposure, canaryEffectiveStatus, LIVE_HEARTBEAT_FRESHNESS_MS } from "../../src/experiments/canary-breaker.js";
 import { initConfig, enableApplicabilityCanary, CANARY_POLICY_VERSION, APPLICABILITY_CANARY_KILL_ENV as KILL } from "../../src/core/config.js";
 
 // Trip the breaker for `basePath` by re-deriving from a store with a harmful trial.
@@ -30,11 +30,20 @@ function tripBreaker(basePath: string): void {
   store.close();
 }
 
-// Create a CLEAN (non-tripped) breaker state — the "runtime heartbeat" of a
-// confirmed exposure. Empty ledger → counters 0 → not tripped → state present.
-function armBreakerClean(basePath: string): void {
+// HISTORICAL breaker state ONLY — a clean (non-tripped) breaker file written by an
+// old run, with NO runtime receipt. Per E.2.3 this must NOT read as LIVE_CONFIRMED
+// (a historical breaker file is not a live heartbeat).
+function writeHistoricalBreakerOnly(basePath: string): void {
   const store = new BlockStore(new Database(":memory:"));
   refreshBreaker(basePath, store, 1_780_000_000_000);
+  store.close();
+}
+
+// A confirmed, durably-admitted exposure at `nowMs` — the REAL runtime path. Writes
+// breaker state AND stamps the fresh runtime receipt (the bounded-freshness heartbeat).
+function armLive(basePath: string, nowMs: number = Date.now()): void {
+  const store = new BlockStore(new Database(":memory:"));
+  admitCanaryExposure(basePath, store, nowMs);
   store.close();
 }
 
@@ -64,13 +73,31 @@ describe("applicabilityCanaryDoctorCheck (D.4 persisted state)", () => {
     expect(c.message.toLowerCase()).toContain("no confirmed exposure");
   });
 
-  it("enabled + shadow on + runtime heartbeat → WARN LIVE_CONFIRMED — exposing", () => {
+  it("enabled + shadow on + FRESH runtime receipt → WARN LIVE_CONFIRMED — exposing", () => {
     enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.05 });
-    armBreakerClean(basePath); // confirmed exposure → breaker state present
+    armLive(basePath); // confirmed exposure NOW → fresh runtime receipt
     const c = applicabilityCanaryDoctorCheck(basePath, { TRACEBASE_REASONING_APPLICABILITY: "shadow" });
     expect(c.level).toBe("warn");
     expect(c.message).toContain("LIVE_CONFIRMED");
     expect(c.message.toLowerCase()).toContain("exposing");
+  });
+
+  it("a HISTORICAL breaker file alone (no receipt) is NOT LIVE → ARMED (E.2.3 honesty)", () => {
+    enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.05 });
+    writeHistoricalBreakerOnly(basePath); // old breaker state, no runtime receipt
+    const c = applicabilityCanaryDoctorCheck(basePath, { TRACEBASE_REASONING_APPLICABILITY: "shadow" });
+    expect(c.message).toContain("ARMED");
+    expect(c.message).not.toContain("LIVE_CONFIRMED");
+    expect(c.message.toLowerCase()).toContain("no confirmed exposure");
+  });
+
+  it("a STALE runtime receipt (past the freshness window) → ARMED, reported as stale", () => {
+    enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.05 });
+    armLive(basePath, Date.now() - LIVE_HEARTBEAT_FRESHNESS_MS - 60_000); // last exposure too old
+    const c = applicabilityCanaryDoctorCheck(basePath, { TRACEBASE_REASONING_APPLICABILITY: "shadow" });
+    expect(c.message).toContain("ARMED");
+    expect(c.message).not.toContain("LIVE_CONFIRMED");
+    expect(c.message.toLowerCase()).toContain("stale");
   });
 
   it("enabled but shadow OFF → WARN that it is INERT", () => {
@@ -105,7 +132,8 @@ describe("applicabilityCanaryDoctorCheck (D.4 persisted state)", () => {
   });
 });
 
-describe("canaryEffectiveStatus — ARMED / LIVE_CONFIRMED / INERT / TRIPPED (E.2.2 honesty)", () => {
+describe("canaryEffectiveStatus — ARMED / LIVE_CONFIRMED / INERT / TRIPPED (E.2.3 bounded-freshness)", () => {
+  const T = 1_780_000_000_000;
   let basePath: string;
   beforeEach(() => {
     basePath = realpathSync(((): string => { const p = join(tmpdir(), `tb-canary-eff-${randomUUID()}`); mkdirSync(p, { recursive: true }); return p; })());
@@ -116,16 +144,33 @@ describe("canaryEffectiveStatus — ARMED / LIVE_CONFIRMED / INERT / TRIPPED (E.
   it("INERT when configured-off", () => {
     expect(canaryEffectiveStatus(basePath, {}).status).toBe("INERT");
   });
-  it("ARMED when enabled + clear but NO heartbeat (was misleadingly 'LIVE')", () => {
+  it("ARMED when enabled + clear but NO receipt (never exposed)", () => {
     enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.05 });
-    expect(canaryEffectiveStatus(basePath, {}).status).toBe("ARMED");
+    const eff = canaryEffectiveStatus(basePath, {}, T);
+    expect(eff.status).toBe("ARMED");
+    expect(eff.heartbeatMs).toBeUndefined();
+    expect(eff.stale).toBeUndefined();
   });
-  it("LIVE_CONFIRMED once a runtime heartbeat (breaker state) is present", () => {
+  it("a HISTORICAL breaker file alone is NOT a live heartbeat → ARMED (E.2.3)", () => {
     enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.05 });
-    armBreakerClean(basePath);
-    const eff = canaryEffectiveStatus(basePath, {});
+    writeHistoricalBreakerOnly(basePath); // breaker present, NO runtime receipt
+    expect(canaryEffectiveStatus(basePath, {}, T).status).toBe("ARMED");
+  });
+  it("LIVE_CONFIRMED only with a FRESH runtime receipt (within the window)", () => {
+    enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.05 });
+    armLive(basePath, T);
+    const eff = canaryEffectiveStatus(basePath, {}, T + 1000); // 1s later → fresh
     expect(eff.status).toBe("LIVE_CONFIRMED");
-    expect(typeof eff.heartbeatMs).toBe("number");
+    expect(eff.heartbeatMs).toBe(T);
+    expect(eff.stale).toBeUndefined();
+  });
+  it("a STALE receipt (past the freshness window) → ARMED + stale, age preserved", () => {
+    enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.05 });
+    armLive(basePath, T);
+    const eff = canaryEffectiveStatus(basePath, {}, T + LIVE_HEARTBEAT_FRESHNESS_MS + 1); // just past window
+    expect(eff.status).toBe("ARMED");
+    expect(eff.stale).toBe(true);
+    expect(eff.heartbeatMs).toBe(T); // age still surfaced
   });
   it("INERT (not ARMED) when enabled but env-killed", () => {
     enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.05 });

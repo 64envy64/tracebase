@@ -75,7 +75,7 @@ describe("phase-d.4.1 canary $0 smoke matrix", () => {
   // ---- transport coverage: every entrypoint funnels through the one boundary ----
   it("[transport:MCP] enabled + eligible + treatment injects the reranker block + emits exposure", async () => {
     const { store, accId } = freshStore();
-    const r = await runReasoningPatternsRecall(shadowServer(store), { problem: STRONG_MECH, runId: "mcp" }, { readHoldoutConfig: () => null, readCanaryConfig: () => canary(1) });
+    const r = await runReasoningPatternsRecall(shadowServer(store), { problem: STRONG_MECH, runId: "mcp" }, { readHoldoutConfig: () => null, readCanaryConfig: () => canary(1), admitCanaryTreatment: () => true });
     expect(r.canaryExposure?.arm).toBe("treatment");
     expect(r.shouldInject).toBe(true);
     expect(r.blocks.find((h) => h.passesGate)?.block.id).toBe(accId);

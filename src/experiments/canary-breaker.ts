@@ -46,6 +46,23 @@ export const BREAKER_WINDOW_MS = 15 * 24 * 60 * 60 * 1000;
 /** Hard cap on events pulled per recompute — bounds the (cold) ingestion read. */
 export const BREAKER_EVENT_LIMIT = 200_000;
 
+/**
+ * The runtime SERVING receipt (E.2.3) — distinct from the breaker HEALTH state and
+ * from the preflight receipt. Stamped ONLY on a confirmed, durably-admitted
+ * treatment exposure, so its freshness is an HONEST "the runtime is serving now"
+ * heartbeat. The breaker state file is NOT such a heartbeat: it also advances on
+ * outcome ingestion and can be arbitrarily old, so its mere presence must not be
+ * read as "live".
+ */
+export const CANARY_RUNTIME_RECEIPT_FILE = "canary-runtime.json";
+export const CANARY_RUNTIME_RECEIPT_VERSION = 1 as const;
+/**
+ * Bounded freshness window. A runtime receipt older than this is NOT "live" — the
+ * serving runtime has not confirmed an exposure recently — so the effective status
+ * falls back to ARMED (configured, but serving unconfirmed NOW).
+ */
+export const LIVE_HEARTBEAT_FRESHNESS_MS = 24 * 60 * 60 * 1000; // 24h
+
 /** The canary-relevant event types the ledger join needs — the read is filtered to these. */
 const CANARY_EVENT_TYPES: AnalyticsEvent["event"][] = [
   "reasoning.applicability_comparison",
@@ -235,19 +252,71 @@ export function noteCanaryExposure(basePath: string, store: BlockStore, nowMs: n
   }
 }
 
+/** The runtime serving heartbeat — `lastExposureMs` advances ONLY on a confirmed,
+ *  durably-admitted treatment exposure (see admitCanaryExposure). */
+export interface CanaryRuntimeReceipt {
+  version: typeof CANARY_RUNTIME_RECEIPT_VERSION;
+  /** Wall-clock (ms) of the most recent confirmed, durably-admitted treatment exposure. */
+  lastExposureMs: number;
+  applicabilityFeatureVersion: number;
+}
+
+function runtimeReceiptPath(basePath: string): string {
+  return join(basePath, ".tracebase", CANARY_RUNTIME_RECEIPT_FILE);
+}
+
 /**
- * ADMISSION (E.2.2 fail-off). Durably init/refresh the breaker state and report
- * whether persistence SUCCEEDED. The caller serves a TREATMENT only when this
- * returns true — if the breaker state cannot be written durably (FS / SQLite
- * failure) it returns FALSE and the caller fails OFF (downgrades to control,
- * never injects). Unlike noteCanaryExposure, the failure is NOT silently swallowed
- * — it is surfaced as a false return the admission gate acts on.
+ * Stamp the runtime serving heartbeat atomically (temp + rename). BEST-EFFORT and
+ * observability-only: a failed receipt write must NEVER gate serving — it only makes
+ * the effective status UNDER-report (ARMED instead of LIVE_CONFIRMED), never over-report.
+ */
+function writeRuntimeReceipt(basePath: string, nowMs: number, featureVersion: number): void {
+  const p = runtimeReceiptPath(basePath);
+  mkdirSync(dirname(p), { recursive: true });
+  const tmp = `${p}.tmp`;
+  const receipt: CanaryRuntimeReceipt = { version: CANARY_RUNTIME_RECEIPT_VERSION, lastExposureMs: nowMs, applicabilityFeatureVersion: featureVersion };
+  writeFileSync(tmp, JSON.stringify(receipt, null, 2) + "\n");
+  renameSync(tmp, p);
+}
+
+/** Read the runtime receipt; null if absent OR malformed (either way → not live). */
+export function readRuntimeReceipt(basePath: string): CanaryRuntimeReceipt | null {
+  const p = runtimeReceiptPath(basePath);
+  if (!existsSync(p)) return null;
+  try {
+    const raw: unknown = JSON.parse(readFileSync(p, "utf8"));
+    if (!raw || typeof raw !== "object") return null;
+    const r = raw as Partial<CanaryRuntimeReceipt>;
+    if (r.version !== CANARY_RUNTIME_RECEIPT_VERSION || typeof r.lastExposureMs !== "number" || !Number.isFinite(r.lastExposureMs)) return null;
+    return r as CanaryRuntimeReceipt;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ADMISSION (E.2.2 fail-off + E.2.3 heartbeat). Durably init/refresh the breaker
+ * state and report whether persistence SUCCEEDED. The caller serves a TREATMENT
+ * only when this returns true — if the breaker state cannot be written durably
+ * (FS / SQLite failure) it returns FALSE and the caller fails OFF (downgrades to
+ * control, never injects). The failure is NOT silently swallowed — it is surfaced
+ * as a false return the admission gate acts on. On durable success it also stamps
+ * the runtime serving receipt (best-effort), which is the bounded-freshness
+ * heartbeat the effective status reads as LIVE_CONFIRMED.
  */
 export function admitCanaryExposure(basePath: string, store: BlockStore, nowMs: number = Date.now()): boolean {
   try {
     const state = refreshBreaker(basePath, store, nowMs); // atomic write; throws on FS/SQLite failure
     // Durability proof: the state file must be present + parseable after the write.
-    return readBreakerState(basePath) !== "malformed" && state.version === CANARY_BREAKER_VERSION;
+    const durable = readBreakerState(basePath) !== "malformed" && state.version === CANARY_BREAKER_VERSION;
+    if (!durable) return false;
+    // Confirmed admission → stamp the runtime heartbeat. Best-effort: never gates serving.
+    try {
+      writeRuntimeReceipt(basePath, nowMs, APPLICABILITY_FEATURE_VERSION);
+    } catch {
+      /* observability under-reports (ARMED) but serving proceeds — safe direction. */
+    }
+    return true;
   } catch {
     return false;
   }
@@ -257,29 +326,38 @@ export function admitCanaryExposure(basePath: string, store: BlockStore, nowMs: 
 export type CanaryEffectiveStatus = "ARMED" | "LIVE_CONFIRMED" | "INERT" | "TRIPPED";
 
 /**
- * Combine persisted config + env kills + breaker snapshot into ONE effective
- * status, shared by `canary status|health` and `doctor` so they never disagree.
- * HONEST observability (E.2.2): "enabled config" alone is NOT "live" — it is ARMED
- * until the serving runtime confirms it by writing breaker state (the runtime
- * heartbeat). Only then is it LIVE_CONFIRMED.
+ * Combine persisted config + env kills + breaker snapshot + the bounded-freshness
+ * runtime receipt into ONE effective status, shared by `canary status|health` and
+ * `doctor` so they never disagree. HONEST observability (E.2.3): "enabled config"
+ * alone is NOT "live", and a HISTORICAL breaker file is NOT a live heartbeat. Only a
+ * runtime receipt whose `lastExposureMs` is within LIVE_HEARTBEAT_FRESHNESS_MS counts
+ * as LIVE_CONFIRMED.
  *   • TRIPPED        — breaker latched (or malformed state → fail-off).
  *   • INERT          — configured-off / env-killed.
- *   • LIVE_CONFIRMED — enabled + clear + breaker state PRESENT (runtime has admitted
- *                      ≥1 exposure → genuinely serving).
- *   • ARMED          — enabled + clear but NO breaker state yet (configured to expose,
- *                      but no confirmed serving — the runtime may not be live).
+ *   • LIVE_CONFIRMED — enabled + clear + a FRESH runtime receipt (the serving runtime
+ *                      admitted an exposure within the freshness window → serving NOW).
+ *   • ARMED          — enabled + clear but NO fresh receipt (never exposed, OR the last
+ *                      confirmed exposure is stale → configured but serving unconfirmed).
+ * `heartbeatMs` is the receipt's lastExposureMs when present (fresh or stale), so a
+ * caller can report the age; `stale` is true when a receipt exists but is past the window.
  */
 export function canaryEffectiveStatus(
   basePath: string,
   env: NodeJS.ProcessEnv = process.env,
-): { status: CanaryEffectiveStatus; snapshot: CanaryBreakerSnapshot; killReason?: string; heartbeatMs?: number } {
+  nowMs: number = Date.now(),
+): { status: CanaryEffectiveStatus; snapshot: CanaryBreakerSnapshot; killReason?: string; heartbeatMs?: number; stale?: boolean } {
   const snapshot = readBreakerSnapshot(basePath);
   if (snapshot.tripped) return { status: "TRIPPED", snapshot, killReason: `breaker_tripped:${snapshot.reasons.join(",") || "latched"}` };
   const serving = resolveCanaryServingState(readApplicabilityCanaryConfig(basePath), env);
   if (serving.killReason) return { status: "INERT", snapshot, killReason: serving.killReason };
   if (!serving.enabled) return { status: "INERT", snapshot };
-  // enabled + not killed + not tripped → ARMED until a runtime heartbeat confirms it.
-  const state = readBreakerState(basePath);
-  if (state && state !== "malformed") return { status: "LIVE_CONFIRMED", snapshot, heartbeatMs: state.updatedAtMs };
+  // enabled + not killed + not tripped → LIVE_CONFIRMED only with a FRESH runtime
+  // receipt. A historical/stale receipt — or none — is ARMED (serving unconfirmed now).
+  const receipt = readRuntimeReceipt(basePath);
+  if (receipt) {
+    const fresh = nowMs - receipt.lastExposureMs <= LIVE_HEARTBEAT_FRESHNESS_MS;
+    if (fresh) return { status: "LIVE_CONFIRMED", snapshot, heartbeatMs: receipt.lastExposureMs };
+    return { status: "ARMED", snapshot, heartbeatMs: receipt.lastExposureMs, stale: true };
+  }
   return { status: "ARMED", snapshot };
 }

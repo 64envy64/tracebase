@@ -1157,10 +1157,12 @@ export class BlockServer {
     config: ApplicabilityCanaryConfig,
     opts?: {
       /**
-       * E.2.2 admission gate. Returns true iff the breaker can be DURABLY armed.
-       * A treatment is served ONLY when this returns true; on false the treatment
-       * is downgraded to control (baseline preserved, no injection). Called BEFORE
-       * the exposure event + injection so ordering reflects what is actually served.
+       * MANDATORY admission gate (E.2.3). Returns true iff the breaker can be
+       * DURABLY armed. A treatment is served ONLY when this returns true. Admission
+       * is MANDATORY in core: a callback that is ABSENT, returns FALSE, or THROWS
+       * are all equivalent fail-off cases — the treatment is downgraded to control
+       * (baseline preserved, no injection). Called BEFORE the exposure event +
+       * injection so the recorded arm + (absent) injection reflect what was served.
        */
       admitTreatment?: () => boolean;
     },
@@ -1178,15 +1180,26 @@ export class BlockServer {
       });
       if (!decision.exposed) return served; // disabled / holdout / ineligible → no-op (byte-identical)
 
-      // ── ADMISSION FAIL-OFF (E.2.2) ──────────────────────────────────────────
-      // A treatment is admissible ONLY if the breaker can be durably armed. If
-      // admission fails, downgrade to control BEFORE emitting the exposure event,
-      // so the recorded arm + the (absent) injection reflect what was served.
+      // ── MANDATORY ADMISSION FAIL-OFF (E.2.3) ────────────────────────────────
+      // A treatment is admissible ONLY if a durable admit callback returns true.
+      // Admission is MANDATORY: an ABSENT callback, a FALSE return, or a THROW are
+      // all equivalent fail-off cases → downgrade to control BEFORE emitting the
+      // exposure event, so the recorded arm + the (absent) injection reflect what
+      // was actually served. (A throwing gate is contained here, NOT swallowed by
+      // the outer catch, so the exposure is still recorded honestly as control.)
       let arm: "treatment" | "control" = decision.arm;
       let admissionFailed = false;
-      if (arm === "treatment" && opts?.admitTreatment && !opts.admitTreatment()) {
-        arm = "control";
-        admissionFailed = true;
+      if (arm === "treatment") {
+        let admitted = false;
+        try {
+          admitted = opts?.admitTreatment?.() === true; // absent → undefined → not admitted
+        } catch {
+          admitted = false; // a throwing admit gate fails OFF
+        }
+        if (!admitted) {
+          arm = "control";
+          admissionFailed = true;
+        }
       }
 
       const exposure: ApplicabilityCanaryExposureEvent = {
