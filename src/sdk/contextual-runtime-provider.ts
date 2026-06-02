@@ -46,7 +46,7 @@ import {
 import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
 import { runReasoningPatternsRecall } from "../server/reasoning-patterns-entry.js";
 import { findProjectRoot, readHoldoutConfig, readApplicabilityCanaryConfig } from "../core/config.js";
-import { readBreakerSnapshot, noteCanaryActivityIfActive } from "../experiments/canary-breaker.js";
+import { readBreakerSnapshot, noteCanaryActivityIfActive, noteCanaryExposure } from "../experiments/canary-breaker.js";
 import type { HoldoutConfig, ApplicabilityCanaryConfig } from "../types.js";
 import {
   collectInjectedFromQuery,
@@ -297,9 +297,10 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
     const result = await runReasoningPatternsRecall(this.blockServer, input, {
       readHoldoutConfig: this.readHoldoutConfig,
       readCanaryConfig: this.readCanaryConfig,
-      // D.4.2 — same circuit-breaker boundary as MCP/hook.
+      // D.4.2 + E.2.1 — same boundary as MCP/hook; exposure ALWAYS refreshes
+      // (noteCanaryExposure) so the first exposure bootstraps breaker state.
       readBreakerSnapshot: () => readBreakerSnapshot(this.projectBase),
-      noteCanaryActivity: () => noteCanaryActivityIfActive(this.projectBase, this.blockStore),
+      noteCanaryActivity: () => noteCanaryExposure(this.projectBase, this.blockStore),
     });
     return toReasoningPatternsStructured(result);
   }

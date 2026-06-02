@@ -219,6 +219,22 @@ export function noteCanaryActivityIfActive(basePath: string, store: BlockStore, 
   }
 }
 
+/**
+ * EXPOSURE-side ingestion (E.2.1 safety fix). A canary EXPOSURE ALWAYS refreshes —
+ * unconditionally — so the FIRST exposure atomically initialises the breaker state
+ * and monitoring begins from exposure #1. Load-bearing: previously EVERY ingestion
+ * path was gated by `existsSync`, so the first exposure never created state and the
+ * breaker could never trip — the canary served unguarded. Outcome-side ingestion
+ * stays gated (cheap no-op until a state exists). Best-effort; never throws.
+ */
+export function noteCanaryExposure(basePath: string, store: BlockStore, nowMs: number = Date.now()): void {
+  try {
+    refreshBreaker(basePath, store, nowMs);
+  } catch {
+    // A breaker refresh must never break serving.
+  }
+}
+
 /** The three distinct canary states the CLI/doctor surface. */
 export type CanaryEffectiveStatus = "LIVE" | "INERT" | "TRIPPED";
 

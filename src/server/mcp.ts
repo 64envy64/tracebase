@@ -36,7 +36,7 @@ import {
 } from "./mcp-v2-helpers.js";
 import { findProjectRoot, readCascadeConfig, readHoldoutConfig, readApplicabilityCanaryConfig } from "../core/config.js";
 import { runReasoningPatternsRecall } from "./reasoning-patterns-entry.js";
-import { readBreakerSnapshot, noteCanaryActivityIfActive } from "../experiments/canary-breaker.js";
+import { readBreakerSnapshot, noteCanaryActivityIfActive, noteCanaryExposure } from "../experiments/canary-breaker.js";
 
 /**
  * Options bag for `startMcpServer`. Keeps the signature open for
@@ -500,9 +500,11 @@ export async function startMcpServer(
         readHoldoutConfig: holdoutConfigLoader,
         readCascadeConfig: cascadeConfigLoader,
         readCanaryConfig: canaryConfigLoader,
-        // D.4.2 — circuit-breaker hot-path gate + post-exposure ingestion trigger.
+        // D.4.2 + E.2.1 — breaker hot-path gate + EXPOSURE-side ingestion. The
+        // exposure trigger ALWAYS refreshes (noteCanaryExposure) so the first
+        // exposure bootstraps breaker state; outcome-side stays gated below.
         readBreakerSnapshot: () => readBreakerSnapshot(projectBasePath),
-        noteCanaryActivity: () => noteCanaryActivityIfActive(projectBasePath, blockStore),
+        noteCanaryActivity: () => noteCanaryExposure(projectBasePath, blockStore),
       });
 
       const formatted = formatInjection(result, {

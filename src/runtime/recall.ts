@@ -32,7 +32,7 @@ import type { InjectionPayload } from "../core/build-injection-payload.js";
 import type { readCascadeConfig, readHoldoutConfig } from "../core/config.js";
 import type { ApplicabilityCanaryConfig } from "../types.js";
 
-import { readBreakerSnapshot, noteCanaryActivityIfActive } from "../experiments/canary-breaker.js";
+import { readBreakerSnapshot, noteCanaryExposure } from "../experiments/canary-breaker.js";
 import { detectToolPattern } from "../core/tool-loop-detect.js";
 import { buildInjectionPayload } from "../core/build-injection-payload.js";
 import { buildDriftAugmentation } from "../core/drift-trigger.js";
@@ -283,13 +283,13 @@ export async function recallForPrompt(
       readHoldoutConfig: holdoutLoader,
       ...(cascadeLoader ? { readCascadeConfig: cascadeLoader } : {}),
       ...(canaryLoader ? { readCanaryConfig: canaryLoader } : {}),
-      // D.4.2 — when the canary can engage, also wire the circuit breaker: a cheap
-      // hot-path snapshot gate + the post-exposure ingestion trigger. Same boundary
-      // as MCP/SDK; both read/write the project-local breaker state.
+      // D.4.2 + E.2.1 — breaker hot-path gate + EXPOSURE-side ingestion. The
+      // exposure trigger ALWAYS refreshes (noteCanaryExposure) so the first
+      // exposure bootstraps breaker state. Same boundary as MCP/SDK.
       ...(canaryLoader
         ? {
             readBreakerSnapshot: () => readBreakerSnapshot(opts.basePath),
-            noteCanaryActivity: () => noteCanaryActivityIfActive(opts.basePath, store),
+            noteCanaryActivity: () => noteCanaryExposure(opts.basePath, store),
           }
         : {}),
     },
