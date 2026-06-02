@@ -35,6 +35,13 @@ export interface HttpRerankClientOptions {
   warmDeadlineMs?: number;
   now?: () => number;
   fetchImpl?: typeof fetch;
+  /**
+   * E.2.2 — PINNED model attestation. When set, the client keys the cache from it
+   * IMMEDIATELY (no /v1/health round-trip), so a validated persisted cache is
+   * readable right after restart with NO network warm-up. Every response's
+   * attestation is also VALIDATED against it; a mismatch caches nothing.
+   */
+  pinnedAttestation?: ModelAttestation;
 }
 
 export interface HttpClientHealth {
@@ -44,6 +51,7 @@ export interface HttpClientHealth {
   cacheMiss: number;
   warmsScheduled: number;
   scannerBlocked: number;
+  attestationRejected: number;
 }
 
 export class HttpRerankProvider implements ApplicabilityProvider {
@@ -53,12 +61,13 @@ export class HttpRerankProvider implements ApplicabilityProvider {
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
   private reqSeq = 0;
-  private readonly health: HttpClientHealth = { servedCalls: 0, cacheFresh: 0, cacheStale: 0, cacheMiss: 0, warmsScheduled: 0, scannerBlocked: 0 };
+  private readonly health: HttpClientHealth = { servedCalls: 0, cacheFresh: 0, cacheStale: 0, cacheMiss: 0, warmsScheduled: 0, scannerBlocked: 0, attestationRejected: 0 };
 
   constructor(private readonly opts: HttpRerankClientOptions) {
     this.warm = opts.warmQueue ?? new WarmQueue({ maxConcurrent: 4, maxQueued: 64 });
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.now = opts.now ?? Date.now;
+    this.att = opts.pinnedAttestation ?? null; // pinned → cache keys work offline immediately
   }
   get featureVersion(): number {
     return this.att?.featureVersion ?? 0;
@@ -109,8 +118,12 @@ export class HttpRerankProvider implements ApplicabilityProvider {
   scheduleWarm(q: WireQuery, candidates: WireCandidate[]): void {
     if (candidates.length === 0) return;
     const qh = queryHash(q);
-    // Coalesce on the whole-request shape (query + candidate set), single-flight.
-    const flightKey = `${this.opts.tenant} ${qh} ${candidates.map((c) => c.blockId).sort().join(",")}`;
+    // Coalesce key is VERSION + CONTENT bound: tenant + model revision/featureVersion
+    // + queryHash + each candidate's content digest. A model-version OR candidate-
+    // content change yields a different flight key (no wrong coalescing).
+    const ver = this.att ? `${this.att.revision}@${this.att.featureVersion}` : "unpinned";
+    const sig = candidates.map((c) => `${c.blockId}:${candidateDigest(c)}`).sort().join(",");
+    const flightKey = `${this.opts.tenant} ${ver} ${qh} ${sig}`;
     this.health.warmsScheduled++;
     this.warm.schedule(flightKey, () => this.fetchAndCache(q, qh, candidates));
   }
@@ -126,7 +139,14 @@ export class HttpRerankProvider implements ApplicabilityProvider {
       if (!r.ok) return;
       const resp = decodeRerankResponse(await r.json(), { requestId, requestedBlockIds: new Set(candidates.map((c) => c.blockId)) });
       if (!resp) return; // strict decode / verification failed → cache nothing
-      this.att = resp.attestation; // learn/refresh attestation for future keys
+      // PINNED attestation validation: a response from a different model/revision/
+      // backend/featureVersion is REJECTED and cached nothing.
+      const pin = this.opts.pinnedAttestation;
+      if (pin && (resp.attestation.model !== pin.model || resp.attestation.revision !== pin.revision || resp.attestation.backend !== pin.backend || resp.attestation.featureVersion !== pin.featureVersion)) {
+        this.health.attestationRejected++;
+        return;
+      }
+      if (!pin) this.att = resp.attestation; // learn attestation only when not pinned
       const byId = new Map(candidates.map((c) => [c.blockId, c] as const));
       for (const res of resp.results) {
         const c = byId.get(res.blockId);

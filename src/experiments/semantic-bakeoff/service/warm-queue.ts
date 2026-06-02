@@ -1,9 +1,13 @@
 /**
- * Bounded, single-flight async warm scheduler (R&D). The "revalidate" half of the
- * two-plane overlay: it populates the cache for FUTURE lookups and NEVER affects
- * served output (fire-and-forget). Single-flight coalesces concurrent warms for
- * the same key (stampede coalescing); the queue is hard-bounded (overflow is
- * dropped + counted, never unbounded growth).
+ * Bounded FIFO single-flight warm scheduler (R&D, E.2.2). The "revalidate" half of
+ * the two-plane overlay — populates the cache for FUTURE lookups, NEVER affects
+ * served output. Real backpressure:
+ *   - at most `maxConcurrent` tasks run at once (active);
+ *   - excess waits in a bounded FIFO `pending` queue (`maxQueued`);
+ *   - a key already active OR pending is COALESCED (stampede protection);
+ *   - overflow past active+pending is dropped + counted;
+ *   - as an active task finishes, the next pending task is pumped (FIFO order);
+ *   - drain() awaits active + pending to fully settle.
  */
 export interface WarmQueueOptions {
   maxConcurrent: number;
@@ -11,44 +15,61 @@ export interface WarmQueueOptions {
 }
 
 export class WarmQueue {
-  private readonly inflight = new Map<string, Promise<void>>();
-  private active = 0;
+  private readonly active = new Map<string, Promise<void>>();
+  private readonly pending: { key: string; task: () => Promise<void> }[] = [];
+  private readonly pendingKeys = new Set<string>();
   private dropped = 0;
   private coalesced = 0;
   private scheduled = 0;
+
   constructor(private readonly opts: WarmQueueOptions) {}
 
-  /**
-   * Schedule a warm for `key`. If one is already in flight for `key`, COALESCE
-   * (no-op, stampede protection). If active >= capacity, DROP + count. Otherwise
-   * run async; the result only updates the cache — it never reaches served output.
-   */
   schedule(key: string, task: () => Promise<void>): void {
-    if (this.inflight.has(key)) {
-      this.coalesced++;
+    if (this.active.has(key) || this.pendingKeys.has(key)) {
+      this.coalesced++; // coalesce across BOTH active and pending
       return;
     }
-    if (this.active >= this.opts.maxConcurrent + this.opts.maxQueued) {
-      this.dropped++;
+    if (this.active.size < this.opts.maxConcurrent) {
+      this.scheduled++;
+      this.run(key, task);
       return;
     }
-    this.scheduled++;
-    this.active++;
+    if (this.pending.length < this.opts.maxQueued) {
+      this.scheduled++;
+      this.pending.push({ key, task });
+      this.pendingKeys.add(key);
+      return;
+    }
+    this.dropped++; // bounded: never grows past maxConcurrent + maxQueued
+  }
+
+  private run(key: string, task: () => Promise<void>): void {
     const p = task()
       .catch(() => undefined) // a warm failure is invisible to serving
       .finally(() => {
-        this.active--;
-        this.inflight.delete(key);
+        this.active.delete(key);
+        this.pump();
       });
-    this.inflight.set(key, p);
+    this.active.set(key, p);
   }
 
-  /** Test/shutdown aid: await all in-flight warms. */
+  private pump(): void {
+    while (this.active.size < this.opts.maxConcurrent && this.pending.length > 0) {
+      const next = this.pending.shift()!;
+      this.pendingKeys.delete(next.key);
+      this.run(next.key, next.task);
+    }
+  }
+
+  /** Await every active + pending task to settle. */
   async drain(): Promise<void> {
-    await Promise.all([...this.inflight.values()]);
+    while (this.active.size > 0 || this.pending.length > 0) {
+      this.pump();
+      await Promise.all([...this.active.values()]);
+    }
   }
 
-  stats(): { active: number; inflight: number; dropped: number; coalesced: number; scheduled: number } {
-    return { active: this.active, inflight: this.inflight.size, dropped: this.dropped, coalesced: this.coalesced, scheduled: this.scheduled };
+  stats(): { active: number; pending: number; dropped: number; coalesced: number; scheduled: number } {
+    return { active: this.active.size, pending: this.pending.length, dropped: this.dropped, coalesced: this.coalesced, scheduled: this.scheduled };
   }
 }

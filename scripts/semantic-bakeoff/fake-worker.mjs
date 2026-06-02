@@ -55,5 +55,9 @@ rl.on("line", (line) => {
     return;
   }
   if (m.type === "shutdown") process.exit(0);
-  // "cancel" → no-op (the host already resolved null on timeout).
+  if (m.type === "cancel") {
+    // Cooperative cancel: ack so the host does NOT recycle. Default (no env) is to
+    // IGNORE the cancel (simulating a stuck GPU forward → host recycles on grace).
+    if (process.env.FAKE_COOPERATIVE_CANCEL === "1") send({ v: V, id: m.cancelId, type: "cancelled" });
+  }
 });

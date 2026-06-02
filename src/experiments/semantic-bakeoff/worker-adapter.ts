@@ -49,6 +49,13 @@ export interface WorkerAdapterOptions {
   maxTokensPerField?: number;
   /** Restart a crashed worker on the next rank. Default true. */
   restartOnCrash?: boolean;
+  /**
+   * E.2.2 honest cancellation: after a deadline, the cooperative `cancel` is sent;
+   * if the worker hasn't freed the request within this grace window (a stuck GPU
+   * forward can't be interrupted cooperatively) the worker process is KILLED +
+   * recycled so its GPU capacity is released. Default 1000ms.
+   */
+  recycleGraceMs?: number;
   /** Worker env (no secrets; e.g. a model path). */
   env?: Record<string, string>;
   /** Injectable clock (tests). */
@@ -67,6 +74,8 @@ export interface WorkerHealth {
   concurrencyRejected: number;
   crashes: number;
   restarts: number;
+  /** Workers killed because a cancelled request stayed stuck past the grace window. */
+  recycles: number;
   /** Bounded recency ring of served-request latencies (ms). */
   latenciesMs: number[];
 }
@@ -86,11 +95,14 @@ export class PersistentWorkerProvider implements ApplicabilityProvider {
   private rl: Interface | null = null;
   private readyPromise: Promise<boolean> | null = null;
   private readonly pending = new Map<string, Pending>();
+  /** Requests whose deadline fired; the worker still holds the GPU until it frees them. */
+  private readonly awaitingCancel = new Set<string>();
+  private recycleTimer: ReturnType<typeof setTimeout> | undefined;
   private seq = 0;
   private readonly now: () => number;
   private readonly health: WorkerHealth = {
     state: "cold", model: null, featureVersion: null, requests: 0, results: 0, timeouts: 0,
-    errors: 0, scannerBlocked: 0, concurrencyRejected: 0, crashes: 0, restarts: 0, latenciesMs: [],
+    errors: 0, scannerBlocked: 0, concurrencyRejected: 0, crashes: 0, restarts: 0, recycles: 0, latenciesMs: [],
   };
 
   constructor(private readonly opts: WorkerAdapterOptions) {
@@ -159,6 +171,9 @@ export class PersistentWorkerProvider implements ApplicabilityProvider {
       this.pendingHandshake = null;
       return;
     }
+    // A late response for a cancelled request means the worker freed itself
+    // cooperatively → no recycle needed.
+    this.awaitingCancel.delete(msg.id);
     const p = this.pending.get(msg.id);
     if (!p) return;
     this.pending.delete(msg.id);
@@ -195,6 +210,32 @@ export class PersistentWorkerProvider implements ApplicabilityProvider {
       p.resolve(null); // every in-flight request fails open
     }
     this.pending.clear();
+    this.awaitingCancel.clear();
+    if (this.recycleTimer) {
+      clearTimeout(this.recycleTimer);
+      this.recycleTimer = undefined;
+    }
+  }
+
+  /**
+   * Arm a single recycle check. If, after the grace window, any cancelled request
+   * is still un-freed, the worker is stuck on the GPU — KILL it (onCrash respawns
+   * on the next rank), releasing GPU capacity. A cooperative worker that answers
+   * the cancel clears awaitingCancel before the grace and is NOT recycled.
+   */
+  private armRecycle(): void {
+    if (this.recycleTimer) return;
+    this.recycleTimer = setTimeout(() => {
+      this.recycleTimer = undefined;
+      if (this.awaitingCancel.size === 0) return;
+      this.health.recycles++;
+      this.awaitingCancel.clear();
+      try {
+        this.child?.kill(); // terminate → OS frees the GPU; onCrash respawns next rank
+      } catch {
+        /* already gone */
+      }
+    }, this.opts.recycleGraceMs ?? 1000);
   }
 
   async rank(
@@ -231,8 +272,12 @@ export class PersistentWorkerProvider implements ApplicabilityProvider {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         this.health.timeouts++;
-        this.write({ v: WORKER_PROTOCOL_VERSION, id: this.nextId(), type: "cancel", cancelId: id }); // best-effort cancellation
-        resolve(null); // strict deadline → fail open
+        this.write({ v: WORKER_PROTOCOL_VERSION, id: this.nextId(), type: "cancel", cancelId: id }); // cooperative cancel first
+        resolve(null); // strict deadline → fail open immediately (served path unblocked)
+        // Honest cancellation: the worker still holds the GPU. If it doesn't free
+        // this request within the grace window, RECYCLE it (kill → respawn).
+        this.awaitingCancel.add(id);
+        this.armRecycle();
       }, Math.max(1, ctx.deadlineMs));
       this.pending.set(id, { resolve, timer, startedAt: this.now() });
       if (!this.write(req)) {

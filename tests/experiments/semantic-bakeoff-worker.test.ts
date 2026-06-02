@@ -97,3 +97,26 @@ describe("PersistentWorkerProvider — scanner before transport + concurrency", 
     expect(rejected).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe("PersistentWorkerProvider — honest cancellation (recycle the real worker)", () => {
+  it("recycles (kills) a worker stuck past the cancel grace → GPU capacity released", async () => {
+    // FAKE_DELAY_MS huge + ignores cancel (default) → the cooperative cancel does
+    // nothing; the host must KILL the process to free it.
+    const p = mk({ FAKE_DELAY_MS: "5000" }, { recycleGraceMs: 80 });
+    const r = await p.rank(QUERY, [cand("b1")], ctx(20)); // deadline 20ms ≪ 5s delay
+    expect(r).toBeNull(); // fail open immediately
+    await new Promise((res) => setTimeout(res, 240)); // > deadline + grace
+    const h = p.healthSnapshot();
+    expect(h.recycles).toBeGreaterThanOrEqual(1); // worker killed
+    expect(h.state).toBe("crashed"); // recycled (respawns on next rank)
+  });
+
+  it("a COOPERATIVE worker (acks the cancel) is NOT recycled", async () => {
+    const p = mk({ FAKE_DELAY_MS: "5000", FAKE_COOPERATIVE_CANCEL: "1" }, { recycleGraceMs: 300 });
+    const r = await p.rank(QUERY, [cand("b1")], ctx(20));
+    expect(r).toBeNull();
+    await new Promise((res) => setTimeout(res, 150)); // < grace; worker already acked
+    expect(p.healthSnapshot().recycles).toBe(0); // freed cooperatively → not killed
+    expect(p.healthSnapshot().state).toBe("ready");
+  });
+});

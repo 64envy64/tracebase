@@ -49,7 +49,17 @@ export function createRerankService(backend: RerankBackend, opts: ServiceOptions
   };
 
   const server = createServer((req, res) => {
+    // PUBLIC liveness — no auth, no telemetry, no attestation leak. Just "alive".
     if (req.method === "GET" && req.url === "/v1/health") {
+      return send(res, 200, { ok: true, protocolVersion: RERANK_PROTOCOL_VERSION });
+    }
+    // AUTHENTICATED admin health — full attestation + telemetry, principal required.
+    if (req.method === "GET" && req.url === "/v1/admin/health") {
+      const admin = opts.authenticator.authenticate(req.headers);
+      if (!admin) {
+        telemetry.rejectedAuth++;
+        return send(res, 401, { error: "unauthorized" });
+      }
       return send(res, 200, { ok: true, attestation: backend.attestation, inFlight, telemetry } satisfies HealthDTO);
     }
     if (req.method !== "POST" || req.url !== "/v1/rerank") return send(res, 404, { error: "not_found" });
@@ -101,7 +111,8 @@ export function createRerankService(backend: RerankBackend, opts: ServiceOptions
       }
       if (inFlight >= concurrency) { telemetry.overloads++; return send(res, 503, { error: "overloaded" }); }
 
-      const deadlineMs = Math.min(maxDeadlineMs, dto.deadlineMs); // server min(client, cap)
+      // Effective deadline = min(client request, server cap, time-until-expiry).
+      const deadlineMs = Math.max(1, Math.min(maxDeadlineMs, dto.deadlineMs, dto.expiresAtMs - now()));
       inFlight++;
       const TIMEOUT = Symbol("t");
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -130,6 +141,13 @@ export function createRerankService(backend: RerankBackend, opts: ServiceOptions
     server,
     telemetry,
     listen: (port = 0) => new Promise<number>((resolve) => server.listen(port, "127.0.0.1", () => { const a = server.address(); resolve(typeof a === "object" && a ? a.port : port); })),
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    close: async () => {
+      try {
+        await backend.close?.(); // graceful backend shutdown (release worker/GPU)
+      } catch {
+        /* ignore */
+      }
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
   };
 }
