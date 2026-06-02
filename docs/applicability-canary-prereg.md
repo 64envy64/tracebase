@@ -116,3 +116,32 @@ covers this section too.
 - **Receipt privacy.** The receipt holds only a timestamp, prerequisite hashes,
   boolean check results, and bounded attribution counts — no prompt/body/path/token
   text and no secrets; the salt is never written to it.
+
+## 12. Operational corrections (Phase D.4.2)
+
+These close a receipt TOCTOU gap and add an automatic safety halt. They are part
+of the frozen plan; the receipt's `preregHash` covers this section too.
+- **Receipt v2 — no activation over a stale audit.** The activation digest now
+  binds EVERY dynamic readiness check (shadow, canary-off, versions, attribution,
+  privacy, kill, transport attestation) plus the failure-relevant bounded
+  diagnostics (crossRun, ambiguous, the matched privacy-pattern name) — not just
+  the static prerequisites. `canary enable` requires `stored.ok` AND a matching
+  live digest AND freshness AND a clean LIVE re-audit (`live.ok`). A cross-run or
+  privacy regression appearing AFTER a READY receipt now refuses activation
+  (previously the digest was identical and `live.ok` was never consulted). Pure
+  trial VOLUME is excluded from the digest so benign shadow activity in the 30-min
+  window doesn't invalidate a healthy receipt.
+- **Transport parity is attested, not probed.** The receipt reports transport
+  parity as a versioned BUILD-TIME attestation backed by the parity test-suite —
+  honest provenance, never a hardcoded runtime boolean.
+- **Privacy audit reuses the shared scanner.** The receipt privacy check runs the
+  shared leakage scanner (abs-paths + API keys + env-lines), not a bespoke path
+  regex, and records only the matched pattern NAME (content-free).
+- **Automatic circuit breaker.** A locally-persisted, crash-safe, LATCHED breaker
+  evaluates the frozen kill rules (§5–§7) from the D.3 ledger and, once any fires,
+  forces the canary OFF until an explicit reviewed `canary reset-breaker --ack`.
+  The env / global kill switches still win independently. The serving hot path
+  reads a cheap snapshot (never a full event scan); health is re-derived from a
+  bounded canary-only ledger window on canary exposure/outcome ingestion. A
+  malformed breaker state FAILS OFF. The breaker state is content-free and
+  cloud-stripped wholesale, same as every other local stream.
