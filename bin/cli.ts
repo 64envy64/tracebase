@@ -37,6 +37,7 @@ import { savingsCommand } from "../src/cli/commands/savings.js";
 import { distillCommand } from "../src/cli/commands/distill.js";
 import { verifyLoopCommand } from "../src/cli/commands/verify-loop.js";
 import { calibratorCommand } from "../src/cli/commands/calibrator.js";
+import { semanticCommand } from "../src/cli/commands/semantic.js";
 import { isInitialized } from "../src/core/config.js";
 
 // Read version from package.json at runtime
@@ -87,6 +88,7 @@ program.addCommand(savingsCommand);
 program.addCommand(distillCommand);
 program.addCommand(verifyLoopCommand);
 program.addCommand(calibratorCommand);
+program.addCommand(semanticCommand);
 
 // No args → guided quickstart instead of generic help
 if (process.argv.length <= 2) {

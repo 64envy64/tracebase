@@ -41,6 +41,7 @@
     "demo:yc:clean": "tsx scripts/yc-demo/setup.ts --clean",
     "eval:retrieval": "tsx eval/retrieval/runner.ts",
     "smoke:agent": "tsx scripts/agent-smoke.ts",
+    "smoke:capabilities": "tsx scripts/capability-matrix-smoke.ts",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
