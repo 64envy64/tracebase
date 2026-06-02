@@ -134,7 +134,8 @@ export const canaryCommand = new Command("canary")
         console.log();
         console.log(pc.bold(`Canary preflight — ${receipt.ok ? pc.green("READY") : pc.red("NOT READY")}`));
         for (const [k, v] of Object.entries(receipt.checks)) console.log(`  ${v ? pc.green("✓") : pc.red("✗")} ${k}`);
-        console.log(pc.dim(`  attribution: crossRun=${receipt.attribution.crossRun} ambiguous=${receipt.attribution.ambiguous} trials=${receipt.attribution.trials}`));
+        console.log(pc.dim(`  attribution: crossRun=${receipt.diagnostics.crossRun} ambiguous=${receipt.diagnostics.ambiguous} trials=${receipt.diagnostics.trials}${receipt.diagnostics.privacyPattern ? ` privacy=${receipt.diagnostics.privacyPattern}` : ""}`));
+        console.log(pc.dim(`  transport parity: build-time attested v${receipt.transportParityVersion} (mcp · hook · sdk)`));
         console.log(pc.dim(`  prereg hash: ${receipt.preregHash}  (receipt written to .tracebase/${CANARY_RECEIPT_FILE})`));
         console.log();
         if (receipt.ok) {
@@ -162,9 +163,10 @@ export const canaryCommand = new Command("canary")
             process.exit(1);
           }
           const stored: unknown = JSON.parse(readFileSync(rp, "utf8"));
-          // Re-derive the live prerequisite digest NOW; any drift since preflight refuses.
+          // Re-audit LIVE state NOW and verify against it: any drift since preflight
+          // (digest mismatch) OR a live readiness regression (live.ok=false) refuses.
           const live = runPreflight(projectBase, process.env, Date.now());
-          const verdict = verifyReceiptForEnable(stored, { prereqDigest: live.prereqDigest, nowMs: Date.now() });
+          const verdict = verifyReceiptForEnable(stored, { live, nowMs: Date.now() });
           if (!verdict.ok) {
             console.error(pc.red("Refused: ") + `preflight receipt ${verdict.reason}. Re-run \`canary preflight\` and review the changed prerequisites.`);
             process.exit(1);

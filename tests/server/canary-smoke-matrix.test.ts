@@ -249,11 +249,12 @@ describe("phase-d.4.1 canary $0 smoke matrix", () => {
   it("[receipt:missing/stale] enable is refused with no receipt and with an expired one", () => {
     const pf: PreflightInput = { preregText: "frozen prereg v1", events: [], canaryConfig: null, shadowEnabled: true, killEngaged: false, globalDisabled: false, policyVersion: CANARY_POLICY_VERSION, currentPolicyVersion: CANARY_POLICY_VERSION, applicabilityFeatureVersion: 1, currentApplicabilityFeatureVersion: 1, nowMs: 1_780_000_000_000 };
     const receipt = buildPreflightReceipt(pf);
+    const live = buildPreflightReceipt(pf); // clean live re-audit (same inputs)
     expect(receipt.ok).toBe(true);
-    expect(verifyReceiptForEnable(null, { prereqDigest: receipt.prereqDigest, nowMs: pf.nowMs })).toMatchObject({ ok: false, reason: "no_receipt" });
-    expect(verifyReceiptForEnable(receipt, { prereqDigest: receipt.prereqDigest, nowMs: pf.nowMs + RECEIPT_TTL_MS + 1 })).toMatchObject({ ok: false, reason: "expired" });
-    // sanity: a fresh, matching receipt authorises.
-    expect(verifyReceiptForEnable(receipt, { prereqDigest: receipt.prereqDigest, nowMs: pf.nowMs + 1000 }).ok).toBe(true);
+    expect(verifyReceiptForEnable(null, { live, nowMs: pf.nowMs })).toMatchObject({ ok: false, reason: "no_receipt" });
+    expect(verifyReceiptForEnable(receipt, { live, nowMs: pf.nowMs + RECEIPT_TTL_MS + 1 })).toMatchObject({ ok: false, reason: "expired" });
+    // sanity: a fresh, matching receipt authorises against a clean live re-audit.
+    expect(verifyReceiptForEnable(receipt, { live, nowMs: pf.nowMs + 1000 }).ok).toBe(true);
   });
 
   // ---- privacy: an exposure event never survives the cloud allowlist ----
