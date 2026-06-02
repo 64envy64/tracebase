@@ -108,6 +108,25 @@ describe("persistent cache — SQLite restart persistence", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("SQLite cache eviction is true LRU: a successful get protects the touched row", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tb-cache-lru-"));
+    const dbPath = join(dir, "cache.db");
+    let now = 1;
+    const cache = new SqliteSemanticCache(dbPath, { ttlMs: 100000, swrMs: 0, maxEntries: 2, now: () => now++ });
+    try {
+      cache.set("a", { verdict: "applicable", confidence: 1 });
+      cache.set("b", { verdict: "applicable", confidence: 1 });
+      expect(cache.get("a").state).toBe("fresh"); // touch a → b is now LRU
+      cache.set("c", { verdict: "applicable", confidence: 1 });
+      expect(cache.get("a").state).toBe("fresh");
+      expect(cache.get("b").state).toBe("miss");
+      expect(cache.get("c").state).toBe("fresh");
+    } finally {
+      cache.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("auth — tenant from verified principal, never the body", () => {
@@ -220,5 +239,49 @@ describe("server hardening — fail-open / 413 / overload / leak / timeout", () 
     const res = await fetch(`${url}/v1/rerank`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer tok-t1" }, body: JSON.stringify({ v: RERANK_PROTOCOL_VERSION, requestId: "x", deadlineMs: 100, expiresAtMs: 1, featureVersion: 1, query: QUERY, candidates: [{ blockId: "b1", mechanism: ["m"], situation: [], unlock: [] }] }) });
     expect(res.status).toBe(410);
     expect(svc.telemetry.rejectedExpired).toBe(1);
+  });
+});
+
+describe("client lifecycle — lookup-only hook mode + bounded close", () => {
+  it("lookup-only mode observes a miss without issuing a warm request", async () => {
+    const { url, svc } = await start();
+    const p = new HttpRerankProvider({
+      baseUrl: url,
+      authToken: "tok-t1",
+      cache: new InMemorySemanticCache({ ttlMs: 1000, swrMs: 0, maxEntries: 10 }),
+      warming: "disabled",
+    });
+    expect(await p.rank(QUERY, [cand("b1")], ctx())).toEqual([]);
+    await p.drainWarm();
+    expect(svc.telemetry.served).toBe(0);
+    expect(p.healthSnapshot().warmingSuppressed).toBe(1);
+  });
+
+  it("close aborts an in-flight warm after its bounded drain deadline", async () => {
+    const { url } = await start({ delayMs: 1000 });
+    const p = new HttpRerankProvider({
+      baseUrl: url,
+      authToken: "tok-t1",
+      cache: new InMemorySemanticCache({ ttlMs: 1000, swrMs: 0, maxEntries: 10 }),
+    });
+    await p.rank(QUERY, [cand("b1")], ctx());
+    await p.close({ drainDeadlineMs: 5 });
+    expect(p.healthSnapshot().warmAborted).toBeGreaterThanOrEqual(1);
+    expect(p.warmStats()).toMatchObject({ active: 0, pending: 0, accepting: false });
+  });
+
+  it("close stays bounded when a custom fetch violates AbortSignal semantics", async () => {
+    const ignoresAbort = (() => new Promise<Response>(() => undefined)) as unknown as typeof fetch;
+    const p = new HttpRerankProvider({
+      baseUrl: "http://unused",
+      authToken: "tok-t1",
+      cache: new InMemorySemanticCache({ ttlMs: 1000, swrMs: 0, maxEntries: 10 }),
+      fetchImpl: ignoresAbort,
+    });
+    await p.rank(QUERY, [cand("b1")], ctx());
+    const startedAt = Date.now();
+    await p.close({ drainDeadlineMs: 5 });
+    expect(Date.now() - startedAt).toBeLessThan(250);
+    expect(p.warmStats()).toMatchObject({ active: 1, pending: 0, accepting: false });
   });
 });

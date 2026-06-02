@@ -268,11 +268,10 @@ export async function recallForPrompt(
   // recallAsync(). When `cascadeLoader` is omitted or returns null,
   // the entry takes the synchronous recall() path internally and the
   // await resolves on the same tick.
-  // E.2.3 — semantic shadow overlay (hook root). Built per-invocation from env; reads
-  // the SHARED SWR cache that the long-lived MCP/SDK roots populate. Telemetry-only and
-  // closed right after the await (the comparison emits during it; the hook's own async
-  // warm is best-effort). Absent env ⇒ null ⇒ no lane (byte-identical serving).
-  const semanticShadow = createSemanticShadowProvider(opts.basePath);
+  // E.2.4 — hooks are intentionally LOOKUP-ONLY. They may observe the SHARED SWR
+  // cache populated by long-lived MCP/SDK roots, but never start async network work
+  // that would be discarded when this short-lived process closes its SQLite handle.
+  const semanticShadow = createSemanticShadowProvider(opts.basePath, process.env, { mode: "lookup-only" });
   const raw = await runReasoningPatternsRecall(
     server,
     {
@@ -303,7 +302,7 @@ export async function recallForPrompt(
       ...(semanticShadow ? { semanticShadowProvider: semanticShadow.provider } : {}),
     },
   );
-  semanticShadow?.close(); // comparison already emitted during the await; hook warm is best-effort
+  await semanticShadow?.close();
 
   // 0.7.0-rc.3 §rc.3 — file memory recall runs alongside the
   // pattern recall. K=3 default (FILE_HITS_DEFAULT_K). The file

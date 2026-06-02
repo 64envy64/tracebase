@@ -429,7 +429,7 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    this.semanticShadow?.close(); // close the SWR cache handle (no-op when lane off)
+    await this.semanticShadow?.close();
     this.blockStore.close();
   }
 

@@ -127,6 +127,11 @@ export function decodeRerankResponse(
 
 const sha16 = (s: string): string => createHash("sha256").update(s).digest("hex").slice(0, 16);
 
+/** Privacy-safe stable model identity for telemetry/manifests. Never contains credentials. */
+export function attestationHash(att: ModelAttestation): string {
+  return sha16(JSON.stringify([att.model, att.revision, att.backend, att.featureVersion]));
+}
+
 /** Stable hash of the query views (never the raw text leaves in the key). */
 export function queryHash(q: WireQuery): string {
   return sha16(JSON.stringify([q.literalText, q.causalText ?? ""]));

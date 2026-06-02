@@ -2781,6 +2781,8 @@ export interface ReasoningSemanticComparisonEvent extends EventBase {
   // Semantic reranker verdict on the top-ranked candidate (observation only).
   semanticProvider: string;
   semanticFeatureVersion: number;
+  /** Privacy-safe hash of model/revision/backend/featureVersion. Never raw credentials. */
+  semanticAttestationId?: string;
   semanticVerdict: "applicable" | "uncertain" | "inapplicable" | "none";
   semanticTopBlockId?: string;
   semanticConfidence?: number;
@@ -2795,6 +2797,31 @@ export interface ReasoningSemanticComparisonEvent extends EventBase {
    */
   fallback: "none" | "miss" | "timeout" | "error";
   latencyMs: number;
+  /** Cumulative local provider health at comparison time. LOCAL-ONLY. */
+  semanticHealth?: {
+    servedCalls: number;
+    cacheFresh: number;
+    cacheStale: number;
+    cacheMiss: number;
+    warmsScheduled: number;
+    warmsCompleted: number;
+    warmErrors: number;
+    warmAborted: number;
+    warmingSuppressed: number;
+    warmLatencyP95Ms: number;
+    scannerBlocked: number;
+    attestationRejected: number;
+  };
+  /** Bounded queue snapshot. LOCAL-ONLY; no payload content. */
+  warmQueue?: {
+    active: number;
+    pending: number;
+    dropped: number;
+    coalesced: number;
+    scheduled: number;
+    cancelled: number;
+    accepting: boolean;
+  };
 }
 
 /**

@@ -20,7 +20,7 @@ import type {
   ApplicabilityResult,
 } from "../../../core/applicability-reranker.js";
 import type { WireCandidate, WireQuery } from "../worker-protocol.js";
-import { RERANK_PROTOCOL_VERSION, queryHash, candidateDigest, cacheKey, credentialPartition, decodeRerankResponse, type RerankRequestDTO, type ModelAttestation } from "./protocol.js";
+import { RERANK_PROTOCOL_VERSION, queryHash, candidateDigest, cacheKey, credentialPartition, decodeRerankResponse, attestationHash, type RerankRequestDTO, type ModelAttestation } from "./protocol.js";
 import type { SemanticCache } from "./cache.js";
 import { WarmQueue } from "./warm-queue.js";
 
@@ -46,6 +46,12 @@ export interface HttpRerankClientOptions {
    * attestation is also VALIDATED against it; a mismatch caches nothing.
    */
   pinnedAttestation?: ModelAttestation;
+  /**
+   * Hook processes are short-lived and MUST stay lookup-only. Long-lived MCP/SDK
+   * roots keep warming enabled. This avoids starting network work that is thrown
+   * away when a hook closes its SQLite handle immediately after recall.
+   */
+  warming?: "enabled" | "disabled";
 }
 
 export interface HttpClientHealth {
@@ -54,6 +60,11 @@ export interface HttpClientHealth {
   cacheStale: number;
   cacheMiss: number;
   warmsScheduled: number;
+  warmsCompleted: number;
+  warmErrors: number;
+  warmAborted: number;
+  warmingSuppressed: number;
+  warmLatencyP95Ms: number;
   scannerBlocked: number;
   attestationRejected: number;
 }
@@ -67,7 +78,23 @@ export class HttpRerankProvider implements ApplicabilityProvider {
   /** Cache partition DERIVED from the credential — never independently settable. */
   private readonly partition: string;
   private reqSeq = 0;
-  private readonly health: HttpClientHealth = { servedCalls: 0, cacheFresh: 0, cacheStale: 0, cacheMiss: 0, warmsScheduled: 0, scannerBlocked: 0, attestationRejected: 0 };
+  private closed = false;
+  private readonly activeControllers = new Set<AbortController>();
+  private readonly warmLatenciesMs: number[] = [];
+  private readonly health: HttpClientHealth = {
+    servedCalls: 0,
+    cacheFresh: 0,
+    cacheStale: 0,
+    cacheMiss: 0,
+    warmsScheduled: 0,
+    warmsCompleted: 0,
+    warmErrors: 0,
+    warmAborted: 0,
+    warmingSuppressed: 0,
+    warmLatencyP95Ms: 0,
+    scannerBlocked: 0,
+    attestationRejected: 0,
+  };
 
   constructor(private readonly opts: HttpRerankClientOptions) {
     this.warm = opts.warmQueue ?? new WarmQueue({ maxConcurrent: 4, maxQueued: 64 });
@@ -82,11 +109,53 @@ export class HttpRerankProvider implements ApplicabilityProvider {
   healthSnapshot(): Readonly<HttpClientHealth> {
     return { ...this.health };
   }
+  attestationId(): string | null {
+    return this.att ? attestationHash(this.att) : null;
+  }
+  semanticAttestationId(): string | null {
+    return this.attestationId();
+  }
   warmStats(): ReturnType<WarmQueue["stats"]> {
     return this.warm.stats();
   }
+  semanticHealthSnapshot(): Readonly<HttpClientHealth> {
+    return this.healthSnapshot();
+  }
+  semanticWarmStats(): ReturnType<WarmQueue["stats"]> {
+    return this.warmStats();
+  }
   drainWarm(): Promise<void> {
     return this.warm.drain();
+  }
+
+  /**
+   * Stop new warm work, allow a bounded graceful drain, then abort anything still
+   * in flight. Safe to call repeatedly. The cache owner closes SQLite afterwards.
+   */
+  async close(opts: { drainDeadlineMs?: number } = {}): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    this.warm.stopAccepting();
+    const deadlineMs = Math.max(0, opts.drainDeadlineMs ?? 250);
+    if (await this.waitForWarmDrain(deadlineMs)) return;
+    this.warm.cancelPending();
+    for (const ac of this.activeControllers) ac.abort();
+    // A custom fetch implementation may violate AbortSignal semantics. Close
+    // remains bounded even then; late cache writes fail open after its owner
+    // closes the SQLite handle.
+    await this.waitForWarmDrain(Math.min(50, deadlineMs));
+  }
+
+  private async waitForWarmDrain(deadlineMs: number): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const drained = await Promise.race([
+      this.warm.drain().then(() => true),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), deadlineMs);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+    return drained;
   }
 
   private toWire(query: ApplicabilityQueryViews, candidates: readonly ApplicabilityCandidate[]): { q: WireQuery; wire: WireCandidate[] } {
@@ -124,6 +193,10 @@ export class HttpRerankProvider implements ApplicabilityProvider {
   /** ASYNC, bounded, single-flight. Populates the cache; NEVER affects served output. */
   scheduleWarm(q: WireQuery, candidates: WireCandidate[]): void {
     if (candidates.length === 0) return;
+    if (this.closed || this.opts.warming === "disabled") {
+      this.health.warmingSuppressed++;
+      return;
+    }
     const qh = queryHash(q);
     // Coalesce key is VERSION + CONTENT bound: tenant + model revision/featureVersion
     // + queryHash + each candidate's content digest. A model-version OR candidate-
@@ -131,8 +204,8 @@ export class HttpRerankProvider implements ApplicabilityProvider {
     const ver = this.att ? `${this.att.revision}@${this.att.featureVersion}` : "unpinned";
     const sig = candidates.map((c) => `${c.blockId}:${candidateDigest(c)}`).sort().join(",");
     const flightKey = `${this.partition} ${ver} ${qh} ${sig}`;
-    this.health.warmsScheduled++;
-    this.warm.schedule(flightKey, () => this.fetchAndCache(q, qh, candidates));
+    const status = this.warm.schedule(flightKey, () => this.fetchAndCache(q, qh, candidates));
+    if (status === "started" || status === "queued") this.health.warmsScheduled++;
   }
 
   private async fetchAndCache(q: WireQuery, qh: string, candidates: WireCandidate[]): Promise<void> {
@@ -140,17 +213,26 @@ export class HttpRerankProvider implements ApplicabilityProvider {
     const deadlineMs = this.opts.warmDeadlineMs ?? 2000;
     const body: RerankRequestDTO = { v: RERANK_PROTOCOL_VERSION, requestId, deadlineMs, expiresAtMs: this.now() + deadlineMs, featureVersion: this.att?.featureVersion ?? 1, query: q, candidates };
     const ac = new AbortController();
+    this.activeControllers.add(ac);
+    const startedAt = this.now();
     const timer = setTimeout(() => ac.abort(), deadlineMs);
     try {
       const r = await this.fetchImpl(`${this.opts.baseUrl}/v1/rerank`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${this.opts.authToken}` }, body: JSON.stringify(body), signal: ac.signal });
-      if (!r.ok) return;
+      if (!r.ok) {
+        this.health.warmErrors++;
+        return;
+      }
       const resp = decodeRerankResponse(await r.json(), { requestId, requestedBlockIds: new Set(candidates.map((c) => c.blockId)) });
-      if (!resp) return; // strict decode / verification failed → cache nothing
+      if (!resp) {
+        this.health.warmErrors++;
+        return; // strict decode / verification failed → cache nothing
+      }
       // PINNED attestation validation: a response from a different model/revision/
       // backend/featureVersion is REJECTED and cached nothing.
       const pin = this.opts.pinnedAttestation;
       if (pin && (resp.attestation.model !== pin.model || resp.attestation.revision !== pin.revision || resp.attestation.backend !== pin.backend || resp.attestation.featureVersion !== pin.featureVersion)) {
         this.health.attestationRejected++;
+        this.health.warmErrors++;
         return;
       }
       if (!pin) this.att = resp.attestation; // learn attestation only when not pinned
@@ -160,15 +242,27 @@ export class HttpRerankProvider implements ApplicabilityProvider {
         if (!c) continue;
         this.opts.cache.set(cacheKey({ partition: this.partition, revision: resp.attestation.revision, featureVersion: resp.attestation.featureVersion, queryHash: qh, candidateDigest: candidateDigest(c), blockId: res.blockId }), { verdict: res.verdict, confidence: res.confidence });
       }
-    } catch {
+      this.health.warmsCompleted++;
+    } catch (err) {
       // warm failures are invisible to serving
+      if (ac.signal.aborted) this.health.warmAborted++;
+      else {
+        void err;
+        this.health.warmErrors++;
+      }
     } finally {
       clearTimeout(timer);
+      this.activeControllers.delete(ac);
+      this.warmLatenciesMs.push(Math.max(0, this.now() - startedAt));
+      if (this.warmLatenciesMs.length > 256) this.warmLatenciesMs.shift();
+      const sorted = [...this.warmLatenciesMs].sort((a, b) => a - b);
+      this.health.warmLatencyP95Ms = sorted.length === 0 ? 0 : sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)]!;
     }
   }
 
   /** ApplicabilityProvider contract: lookupCached + scheduleWarm; returns immediately. */
   async rank(query: ApplicabilityQueryViews, candidates: readonly ApplicabilityCandidate[], _ctx: ApplicabilityContext): Promise<ApplicabilityResult[] | null> {
+    if (this.closed) return null;
     this.health.servedCalls++;
     const { q, wire } = this.toWire(query, candidates);
     if (detectLeakageExtended(JSON.stringify({ q, wire })) !== null) {

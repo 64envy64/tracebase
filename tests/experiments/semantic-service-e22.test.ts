@@ -70,6 +70,17 @@ describe("WarmQueue — real bounded FIFO", () => {
     await wq.drain();
     expect(order).toEqual(["1", "2", "3"]);
   });
+
+  it("stopAccepting rejects new work; cancelPending clears bounded backlog", () => {
+    const wq = new WarmQueue({ maxConcurrent: 1, maxQueued: 4 });
+    const never = () => new Promise<void>(() => undefined);
+    wq.schedule("active", never);
+    wq.schedule("queued", never);
+    wq.stopAccepting();
+    expect(wq.schedule("late", never)).toBe("closed");
+    expect(wq.cancelPending()).toBe(1);
+    expect(wq.stats()).toMatchObject({ active: 1, pending: 0, cancelled: 1, accepting: false });
+  });
 });
 
 describe("pinned attestation — immediate cache after restart + mismatch rejection", () => {

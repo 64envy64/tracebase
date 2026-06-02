@@ -24,7 +24,7 @@ import { FakeRerankBackend } from "../../src/experiments/semantic-bakeoff/servic
 import { HttpRerankProvider } from "../../src/experiments/semantic-bakeoff/service/client.js";
 import { SqliteSemanticCache } from "../../src/experiments/semantic-bakeoff/service/cache.js";
 import { FakeAuthenticator } from "../../src/experiments/semantic-bakeoff/service/auth.js";
-import { readSemanticShadowConfig } from "../../src/experiments/semantic-bakeoff/semantic-shadow.js";
+import { diagnoseSemanticShadowConfig, readSemanticShadowConfig } from "../../src/experiments/semantic-bakeoff/semantic-shadow.js";
 import type { ModelAttestation } from "../../src/experiments/semantic-bakeoff/service/protocol.js";
 import type { ApplicabilityProvider } from "../../src/core/applicability-reranker.js";
 import type { AnalyticsEvent } from "../../src/types.js";
@@ -71,8 +71,33 @@ describe("semantic shadow overlay — end-to-end runtime (telemetry-only, byte-i
   it("env gate: absent → off; URL+token → on", () => {
     expect(readSemanticShadowConfig({})).toBeNull();
     expect(readSemanticShadowConfig({ TRACEBASE_SEMANTIC_SHADOW_URL: "http://x" })).toBeNull(); // token missing
-    const cfg = readSemanticShadowConfig({ TRACEBASE_SEMANTIC_SHADOW_URL: "http://x", TRACEBASE_SEMANTIC_SHADOW_TOKEN: "k" });
-    expect(cfg).toEqual({ url: "http://x", token: "k" });
+    expect(readSemanticShadowConfig({ TRACEBASE_SEMANTIC_SHADOW_URL: "http://x", TRACEBASE_SEMANTIC_SHADOW_TOKEN: "k" })).toBeNull(); // pin missing
+    const cfg = readSemanticShadowConfig({
+      TRACEBASE_SEMANTIC_SHADOW_URL: "http://x",
+      TRACEBASE_SEMANTIC_SHADOW_TOKEN: "k",
+      TRACEBASE_SEMANTIC_SHADOW_ATTESTATION: JSON.stringify(pin),
+    });
+    expect(cfg).toEqual({ url: "http://x", token: "k", attestation: pin });
+  });
+
+  it("malformed attestation fails OFF; unpinned discovery needs an explicit dev flag", () => {
+    const base = { TRACEBASE_SEMANTIC_SHADOW_URL: "http://x", TRACEBASE_SEMANTIC_SHADOW_TOKEN: "k" };
+    expect(diagnoseSemanticShadowConfig({ ...base, TRACEBASE_SEMANTIC_SHADOW_ATTESTATION: "{broken" })).toEqual({
+      status: "invalid",
+      reason: "malformed-attestation",
+    });
+    expect(diagnoseSemanticShadowConfig({
+      ...base,
+      TRACEBASE_SEMANTIC_SHADOW_ATTESTATION: "{}",
+      TRACEBASE_SEMANTIC_SHADOW_ALLOW_UNPINNED: "1",
+    })).toEqual({
+      status: "invalid",
+      reason: "malformed-attestation",
+    });
+    expect(readSemanticShadowConfig({ ...base, TRACEBASE_SEMANTIC_SHADOW_ALLOW_UNPINNED: "1" })).toEqual({
+      url: "http://x",
+      token: "k",
+    });
   });
 
   it("serving is BYTE-IDENTICAL with the lane on vs off (only a telemetry event differs)", async () => {
@@ -107,6 +132,9 @@ describe("semantic shadow overlay — end-to-end runtime (telemetry-only, byte-i
     expect(e2.length).toBe(2);
     expect(e2[1]!.fallback).toBe("none"); // cache hit produced a verdict
     expect(["applicable", "uncertain", "inapplicable"]).toContain(e2[1]!.semanticVerdict);
+    expect(e2[1]!.semanticAttestationId).toMatch(/^[a-f0-9]{16}$/);
+    expect(e2[1]!.semanticHealth?.cacheFresh).toBeGreaterThanOrEqual(1);
+    expect(e2[1]!.warmQueue).toMatchObject({ active: 0, pending: 0 });
     p1.healthSnapshot && expect(p1.healthSnapshot().cacheFresh).toBeGreaterThanOrEqual(1);
 
     // RESTART: same corpus (same block ids), a NEW provider + cache CONNECTION on the

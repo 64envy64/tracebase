@@ -21,6 +21,8 @@ export class WarmQueue {
   private dropped = 0;
   private coalesced = 0;
   private scheduled = 0;
+  private cancelled = 0;
+  private accepting = true;
 
   constructor(private readonly opts: WarmQueueOptions) {
     // Validate bounds (E.2.3): maxConcurrent < 1 would make drain() hang forever
@@ -34,23 +36,28 @@ export class WarmQueue {
     }
   }
 
-  schedule(key: string, task: () => Promise<void>): void {
+  schedule(key: string, task: () => Promise<void>): "started" | "queued" | "coalesced" | "dropped" | "closed" {
+    if (!this.accepting) {
+      this.dropped++;
+      return "closed";
+    }
     if (this.active.has(key) || this.pendingKeys.has(key)) {
       this.coalesced++; // coalesce across BOTH active and pending
-      return;
+      return "coalesced";
     }
     if (this.active.size < this.opts.maxConcurrent) {
       this.scheduled++;
       this.run(key, task);
-      return;
+      return "started";
     }
     if (this.pending.length < this.opts.maxQueued) {
       this.scheduled++;
       this.pending.push({ key, task });
       this.pendingKeys.add(key);
-      return;
+      return "queued";
     }
     this.dropped++; // bounded: never grows past maxConcurrent + maxQueued
+    return "dropped";
   }
 
   private run(key: string, task: () => Promise<void>): void {
@@ -79,7 +86,29 @@ export class WarmQueue {
     }
   }
 
-  stats(): { active: number; pending: number; dropped: number; coalesced: number; scheduled: number } {
-    return { active: this.active.size, pending: this.pending.length, dropped: this.dropped, coalesced: this.coalesced, scheduled: this.scheduled };
+  /** Reject future schedules while allowing already-queued work to drain. */
+  stopAccepting(): void {
+    this.accepting = false;
+  }
+
+  /** Cancel pending work after a bounded graceful-drain deadline expires. */
+  cancelPending(): number {
+    const n = this.pending.length;
+    this.pending.length = 0;
+    this.pendingKeys.clear();
+    this.cancelled += n;
+    return n;
+  }
+
+  stats(): { active: number; pending: number; dropped: number; coalesced: number; scheduled: number; cancelled: number; accepting: boolean } {
+    return {
+      active: this.active.size,
+      pending: this.pending.length,
+      dropped: this.dropped,
+      coalesced: this.coalesced,
+      scheduled: this.scheduled,
+      cancelled: this.cancelled,
+      accepting: this.accepting,
+    };
   }
 }

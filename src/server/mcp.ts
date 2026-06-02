@@ -1044,14 +1044,14 @@ export async function startMcpServer(
   );
 
   // Graceful shutdown — use once() to avoid listener accumulation
-  const cleanup = () => {
+  const cleanup = async () => {
     layer.close();
-    semanticShadow?.close(); // close the SWR cache handle (no-op when lane off)
+    await semanticShadow?.close();
     blockStore.close();
     process.exit(0);
   };
-  process.once("SIGINT", cleanup);
-  process.once("SIGTERM", cleanup);
+  process.once("SIGINT", () => { void cleanup(); });
+  process.once("SIGTERM", () => { void cleanup(); });
 
   // Selftest: every tool is registered and every dependency (SDK,
   // SQLite, BlockStore, ReasoningLayer) initialized at this point.
@@ -1064,7 +1064,7 @@ export async function startMcpServer(
     // path hands it off to the transport, but selftest exits
     // immediately, and a dangling SQLite handle would look like a
     // leak in long-running test runners.
-    semanticShadow?.close();
+    await semanticShadow?.close();
     blockStore.close();
     process.stdout.write("READY\n");
     return;

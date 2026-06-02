@@ -47,6 +47,7 @@ import { resolveReasoningRetrievalMode, REASONING_RETRIEVAL_ENV } from "../../ex
 import { resolveReasoningEvidenceMode, REASONING_EVIDENCE_ENV } from "../../experiments/reasoning-evidence-rollout.js";
 import { resolveReasoningQueryCompilerMode, REASONING_QUERY_COMPILER_ENV } from "../../experiments/reasoning-query-compiler-rollout.js";
 import { resolveReasoningApplicabilityMode, REASONING_APPLICABILITY_ENV } from "../../experiments/reasoning-applicability-rollout.js";
+import { diagnoseSemanticShadowConfig, SEMANTIC_SHADOW_ALLOW_UNPINNED_ENV } from "../../experiments/semantic-bakeoff/semantic-shadow.js";
 
 /**
  * 0.6.0 — `info` added for purely diagnostic state that's
@@ -386,6 +387,8 @@ export function runDoctor(invocationPath: string): DoctorReport {
   checks.push(reasoningApplicabilityDoctorCheck());
   // --- Phase D.4 applicability canary serving state (persisted config + env kill).
   checks.push(applicabilityCanaryDoctorCheck(projectRoot));
+  // --- E.2.4 semantic shadow config. Malformed/missing pins fail OFF and surface here.
+  checks.push(semanticShadowDoctorCheck());
 
   // --- Live MCP boot probe
   //
@@ -1489,6 +1492,31 @@ export function applicabilityCanaryDoctorCheck(projectRoot?: string, env: NodeJS
     message: `Applicability canary ARMED (rate ${persisted.rate}, shadow on) — configured to expose but ${why}`,
     fix: "A fresh session serving an eligible query makes it LIVE_CONFIRMED; `tracebase canary disable` or " + APPLICABILITY_CANARY_KILL_ENV + "=off to stop.",
   };
+}
+
+/** E.2.4 semantic-shadow config diagnostic. Never reaches the network. */
+export function semanticShadowDoctorCheck(env: NodeJS.ProcessEnv = process.env): DoctorCheck {
+  const diagnosed = diagnoseSemanticShadowConfig(env);
+  if (diagnosed.status === "off") {
+    return { name: "semantic-shadow", level: "info", message: "Semantic shadow: off (default; no inference traffic)" };
+  }
+  if (diagnosed.status === "invalid") {
+    return {
+      name: "semantic-shadow",
+      level: "warn",
+      message: `Semantic shadow: disabled by invalid config (${diagnosed.reason})`,
+      fix: `Set URL + token + a valid pinned attestation JSON. Use ${SEMANTIC_SHADOW_ALLOW_UNPINNED_ENV}=1 only for explicit local discovery.`,
+    };
+  }
+  if (diagnosed.unpinnedDevMode) {
+    return {
+      name: "semantic-shadow",
+      level: "warn",
+      message: `Semantic shadow: unpinned local-discovery mode (${SEMANTIC_SHADOW_ALLOW_UNPINNED_ENV}=1)`,
+      fix: "Pin model, revision, backend and featureVersion before calibration or runtime shadow soak.",
+    };
+  }
+  return { name: "semantic-shadow", level: "info", message: "Semantic shadow: configured with pinned attestation (telemetry-only)" };
 }
 
 // ============================================================================

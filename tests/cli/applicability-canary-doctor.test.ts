@@ -11,7 +11,7 @@ import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import { BlockStore } from "../../src/core/block-store.js";
 import type { AnalyticsEvent } from "../../src/types.js";
-import { applicabilityCanaryDoctorCheck } from "../../src/cli/commands/doctor.js";
+import { applicabilityCanaryDoctorCheck, semanticShadowDoctorCheck } from "../../src/cli/commands/doctor.js";
 import { refreshBreaker, admitCanaryExposure, canaryEffectiveStatus, LIVE_HEARTBEAT_FRESHNESS_MS } from "../../src/experiments/canary-breaker.js";
 import { initConfig, enableApplicabilityCanary, CANARY_POLICY_VERSION, APPLICABILITY_CANARY_KILL_ENV as KILL } from "../../src/core/config.js";
 
@@ -129,6 +129,34 @@ describe("applicabilityCanaryDoctorCheck (D.4 persisted state)", () => {
     expect(c.message).toContain("TRIPPED");
     expect(c.message.toLowerCase()).toContain("harm_rate_exceeded");
     expect(c.fix).toContain("reset-breaker");
+  });
+});
+
+describe("semanticShadowDoctorCheck (E.2.4 fail-off config)", () => {
+  const pin = JSON.stringify({ model: "fake", revision: "rev-1", backend: "fake", featureVersion: 1 });
+
+  it("reports default-off without inference traffic", () => {
+    expect(semanticShadowDoctorCheck({})).toMatchObject({ level: "info" });
+  });
+
+  it("warns and stays disabled on a malformed attestation pin", () => {
+    const c = semanticShadowDoctorCheck({
+      TRACEBASE_SEMANTIC_SHADOW_URL: "http://x",
+      TRACEBASE_SEMANTIC_SHADOW_TOKEN: "tok",
+      TRACEBASE_SEMANTIC_SHADOW_ATTESTATION: "{broken",
+    });
+    expect(c.level).toBe("warn");
+    expect(c.message).toContain("malformed-attestation");
+  });
+
+  it("reports a pinned shadow lane as telemetry-only", () => {
+    const c = semanticShadowDoctorCheck({
+      TRACEBASE_SEMANTIC_SHADOW_URL: "http://x",
+      TRACEBASE_SEMANTIC_SHADOW_TOKEN: "tok",
+      TRACEBASE_SEMANTIC_SHADOW_ATTESTATION: pin,
+    });
+    expect(c.level).toBe("info");
+    expect(c.message).toContain("pinned");
   });
 });
 

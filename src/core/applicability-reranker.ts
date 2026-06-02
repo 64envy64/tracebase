@@ -125,6 +125,31 @@ export interface ApplicabilityContext {
 export interface ApplicabilityProvider {
   readonly name: string;
   readonly featureVersion: number;
+  /** Optional privacy-safe shadow-plane observability. Never affects serving. */
+  semanticAttestationId?(): string | null;
+  semanticHealthSnapshot?(): {
+    servedCalls: number;
+    cacheFresh: number;
+    cacheStale: number;
+    cacheMiss: number;
+    warmsScheduled: number;
+    warmsCompleted: number;
+    warmErrors: number;
+    warmAborted: number;
+    warmingSuppressed: number;
+    warmLatencyP95Ms: number;
+    scannerBlocked: number;
+    attestationRejected: number;
+  };
+  semanticWarmStats?(): {
+    active: number;
+    pending: number;
+    dropped: number;
+    coalesced: number;
+    scheduled: number;
+    cancelled: number;
+    accepting: boolean;
+  };
   rank(
     query: ApplicabilityQueryViews,
     candidates: readonly ApplicabilityCandidate[],

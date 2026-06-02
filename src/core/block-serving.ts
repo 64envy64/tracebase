@@ -1186,6 +1186,9 @@ export class BlockServer {
         semanticInjects && !v4Injects ? "reranker_only_apply" : !semanticInjects && v4Injects ? "reranker_withholds" : "none";
       const verdictCounts = { applicable: 0, uncertain: 0, inapplicable: 0 };
       for (const r of results ?? []) verdictCounts[r.verdict]++;
+      const health = provider.semanticHealthSnapshot?.();
+      const warmQueue = provider.semanticWarmStats?.();
+      const semanticAttestationId = provider.semanticAttestationId?.();
 
       const event: ReasoningSemanticComparisonEvent = {
         event: "reasoning.semantic_comparison",
@@ -1199,12 +1202,15 @@ export class BlockServer {
         ...(v4.topCandidateId ? { v4TopBlockId: v4.topCandidateId } : {}),
         semanticProvider: provider.name,
         semanticFeatureVersion: provider.featureVersion,
+        ...(semanticAttestationId ? { semanticAttestationId } : {}),
         semanticVerdict: verdict,
         ...(top ? { semanticTopBlockId: top.blockId, semanticConfidence: top.confidence } : {}),
         changedDecision,
         verdictCounts,
         fallback,
         latencyMs: Math.max(0, this.now() - t0),
+        ...(health ? { semanticHealth: health } : {}),
+        ...(warmQueue ? { warmQueue } : {}),
       };
       this.emitter.emit(event, query.runId ? { runId: query.runId } : undefined);
     } catch {

@@ -4,7 +4,7 @@
  *
  * CONTENT-FREE: stores only the cache KEY (which embeds tenant + model revision +
  * featureVersion + queryHash + candidate-content digest + blockId — all hashes/ids)
- * and a verdict + bounded confidence + fetch time. No query/candidate/snippet text
+ * and a verdict + bounded confidence + fetch/access times. No query/candidate/snippet text
  * is ever stored. A model-version OR candidate-content change yields a different
  * key ⇒ automatic invalidation; entries age out by TTL/SWR + an LRU cap.
  *
@@ -89,7 +89,12 @@ export class SqliteSemanticCache implements SemanticCache {
     this.db = typeof pathOrDb === "string" ? new Database(pathOrDb) : pathOrDb;
     this.now = opts.now ?? Date.now;
     this.db.pragma("journal_mode = WAL");
-    this.db.exec("CREATE TABLE IF NOT EXISTS semantic_cache (k TEXT PRIMARY KEY, verdict TEXT NOT NULL, confidence REAL NOT NULL, fetched_at INTEGER NOT NULL)");
+    this.db.exec("CREATE TABLE IF NOT EXISTS semantic_cache (k TEXT PRIMARY KEY, verdict TEXT NOT NULL, confidence REAL NOT NULL, fetched_at INTEGER NOT NULL, accessed_at INTEGER NOT NULL)");
+    const columns = this.db.prepare("PRAGMA table_info(semantic_cache)").all() as Array<{ name: string }>;
+    if (!columns.some((c) => c.name === "accessed_at")) {
+      this.db.exec("ALTER TABLE semantic_cache ADD COLUMN accessed_at INTEGER");
+      this.db.exec("UPDATE semantic_cache SET accessed_at = fetched_at WHERE accessed_at IS NULL");
+    }
   }
   get(key: string): { state: CacheState; value: SemanticCacheEntry | null } {
     const row = this.db.prepare("SELECT verdict, confidence, fetched_at AS f FROM semantic_cache WHERE k=?").get(key) as { verdict: Verdict; confidence: number; f: number } | undefined;
@@ -99,15 +104,17 @@ export class SqliteSemanticCache implements SemanticCache {
       this.db.prepare("DELETE FROM semantic_cache WHERE k=?").run(key);
       return { state, value: null };
     }
+    this.db.prepare("UPDATE semantic_cache SET accessed_at=? WHERE k=?").run(this.now(), key);
     return { state, value: { verdict: row.verdict, confidence: row.confidence, fetchedAtMs: row.f } };
   }
   set(key: string, value: { verdict: Verdict; confidence: number }): void {
-    this.db.prepare("INSERT INTO semantic_cache(k,verdict,confidence,fetched_at) VALUES(?,?,?,?) ON CONFLICT(k) DO UPDATE SET verdict=excluded.verdict, confidence=excluded.confidence, fetched_at=excluded.fetched_at")
-      .run(key, value.verdict, value.confidence, this.now());
-    // LRU-ish eviction: keep newest maxEntries by fetched_at.
+    const now = this.now();
+    this.db.prepare("INSERT INTO semantic_cache(k,verdict,confidence,fetched_at,accessed_at) VALUES(?,?,?,?,?) ON CONFLICT(k) DO UPDATE SET verdict=excluded.verdict, confidence=excluded.confidence, fetched_at=excluded.fetched_at, accessed_at=excluded.accessed_at")
+      .run(key, value.verdict, value.confidence, now, now);
+    // True LRU eviction: successful reads touch accessed_at.
     const n = (this.db.prepare("SELECT COUNT(*) c FROM semantic_cache").get() as { c: number }).c;
     if (n > this.opts.maxEntries) {
-      this.db.prepare("DELETE FROM semantic_cache WHERE k IN (SELECT k FROM semantic_cache ORDER BY fetched_at ASC LIMIT ?)").run(n - this.opts.maxEntries);
+      this.db.prepare("DELETE FROM semantic_cache WHERE k IN (SELECT k FROM semantic_cache ORDER BY accessed_at ASC LIMIT ?)").run(n - this.opts.maxEntries);
     }
   }
   size(): number {
