@@ -530,20 +530,37 @@ function composeSummary(opts: {
   parts.push(`${opts.role} (${opts.language}).`);
   if (opts.header.matched && opts.header.text.length > 0) {
     parts.push(opts.header.text);
-  } else if (opts.header.text.length > 0) {
+  } else if (opts.header.text.length > 0 && !isNoiseFirstLine(opts.header.text)) {
+    // Only surface a fallback first line when it carries signal. A bare
+    // `import …` / `package …` / `use …` line is path noise that dilutes
+    // the file's real vocabulary under bm25 — skip it.
     parts.push(`First line: ${opts.header.text}`);
   }
-  // Append a short symbols hint so the recall path has something
-  // even when the doc-comment is missing.
-  const hints: string[] = [];
-  if (opts.symbolsObj.exports?.length) {
-    hints.push(`exports: ${opts.symbolsObj.exports.slice(0, 4).join(", ")}`);
-  }
-  if (opts.symbolsObj.imports?.length) {
-    hints.push(`imports: ${opts.symbolsObj.imports.slice(0, 4).join(", ")}`);
-  }
-  if (hints.length > 0) parts.push(hints.join("; "));
+  // `defines:` carries the file's own identifier vocabulary — exported
+  // AND local top-level function/class/symbol names. This is the highest-
+  // value recall surface for code-navigation queries: a query naming the
+  // concept ("derivative") should match the file that defines
+  // `createDerivative` / `plainDerivative`, not a doc that merely shares a
+  // stemmed word. Exports lead (most relevant), then local symbols. Up to
+  // 12 names; the 600-char clamp is the final backstop.
+  const defines = uniq([
+    ...(opts.symbolsObj.exports ?? []),
+    ...(opts.symbolsObj.symbols ?? []),
+  ]).slice(0, 12);
+  if (defines.length > 0) parts.push(`defines: ${defines.join(", ")}`);
+  // Imports stay in the structured `symbols` JSON (dependency-surface
+  // queries can still hit them) but are kept OUT of the summary text:
+  // module specifiers like `../../utils/is.js` are recall noise.
   return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * True when a fallback "first line" is a bare import/module/declaration
+ * statement that carries no behavioural signal — surfacing it only dilutes
+ * the summary's term frequency for the file's real vocabulary.
+ */
+function isNoiseFirstLine(s: string): boolean {
+  return /^\s*(import\b|from\b|require\s*\(|use\b|package\b|#include|using\b|export\s+(?:\{|\*))/.test(s);
 }
 
 function pathRole(relPath: string): string {
@@ -569,4 +586,93 @@ function clamp(s: string, max: number): string {
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// ---------------------------------------------------------------------------
+// Symbol-level extraction (PLAN symbol-recall). Pure: name + kind + a short
+// signature line per top-level / exported symbol. Powers the indexed_symbols
+// table so a concept query ("record") can match a monolithic file that
+// defines `ZodRecord` even when the file summary never surfaced it.
+// ---------------------------------------------------------------------------
+
+export interface ExtractedSymbol {
+  name: string;
+  /** function | class | interface | type | enum | export | method | const */
+  kind: string;
+  /** Trimmed declaration line, clamped — no full bodies. */
+  signature: string;
+}
+
+/** Lines scanned per file for symbol extraction (bounded for huge files). */
+const SYMBOL_INDEX_MAX_LINES = 4000;
+/** Hard cap on symbols emitted per file. */
+const SYMBOL_INDEX_MAX_SYMBOLS = 300;
+/** Per-symbol signature clamp. */
+const SIGNATURE_MAX_CHARS = 140;
+
+/**
+ * Split an identifier into component words: camelCase / PascalCase, snake,
+ * kebab, digit boundaries. `createDerivative` → [create, Derivative];
+ * `ZodRecord` → [Zod, Record]; `parse_int` → [parse, int].
+ */
+export function splitIdentifier(id: string): string[] {
+  return id
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .split(/[_\-\s]+/)
+    .filter((w) => w.length > 0);
+}
+
+export function extractFileSymbols(content: string, language: FileLanguage): ExtractedSymbol[] {
+  if (language === "plain") return [];
+  const lines = content.split(/\r?\n/).slice(0, SYMBOL_INDEX_MAX_LINES);
+  const out: ExtractedSymbol[] = [];
+  const seen = new Set<string>();
+  const push = (name: string | undefined, kind: string, sig: string): void => {
+    if (out.length >= SYMBOL_INDEX_MAX_SYMBOLS) return;
+    if (!name || !/^[A-Za-z_$][\w$]*$/.test(name)) return;
+    const key = `${kind}:${name}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ name, kind, signature: sig.trim().replace(/\s+/g, " ").slice(0, SIGNATURE_MAX_CHARS) });
+  };
+
+  for (const raw of lines) {
+    if (out.length >= SYMBOL_INDEX_MAX_SYMBOLS) break;
+    const line = raw.trim();
+    switch (language) {
+      case "typescript":
+      case "javascript": {
+        let m: RegExpMatchArray | null;
+        if ((m = line.match(/^export\s+(?:async\s+)?(?:default\s+)?(?:const|let|var|function\*?|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/))) {
+          push(m[1], "export", line);
+        } else if ((m = line.match(/^(?:async\s+)?(?:function\*?|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/))) {
+          push(m[1], "decl", line);
+        } else if ((m = line.match(/^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*(?::[^=]+)?=>|[A-Za-z_$][\w$]*\s*=>)/))) {
+          push(m[1], line.startsWith("export") ? "export" : "fn", line);
+        }
+        break;
+      }
+      case "python": {
+        // Top-level AND nested (methods) — any-indent def/class.
+        let m: RegExpMatchArray | null;
+        if ((m = raw.match(/^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)/))) push(m[1], raw.startsWith(" ") || raw.startsWith("\t") ? "method" : "function", line);
+        else if ((m = raw.match(/^\s*class\s+([A-Za-z_]\w*)/))) push(m[1], "class", line);
+        break;
+      }
+      case "go": {
+        let m: RegExpMatchArray | null;
+        if ((m = line.match(/^func\s+(?:\([^)]*\)\s+)?([A-Za-z_]\w*)/))) push(m[1], "function", line);
+        else if ((m = line.match(/^type\s+([A-Za-z_]\w*)/))) push(m[1], "type", line);
+        break;
+      }
+      case "rust": {
+        let m: RegExpMatchArray | null;
+        if ((m = line.match(/^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)/))) push(m[1], "function", line);
+        else if ((m = line.match(/^(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum|trait|type)\s+([A-Za-z_]\w*)/))) push(m[1], "type", line);
+        break;
+      }
+    }
+  }
+  return out;
 }

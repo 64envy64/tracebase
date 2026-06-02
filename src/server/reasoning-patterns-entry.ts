@@ -17,9 +17,10 @@ import type {
   BlockServer,
   RecallV2Result,
 } from "../core/block-serving.js";
-import type { HoldoutConfig, CascadeConfig, BlockInvariants } from "../types.js";
+import type { HoldoutConfig, CascadeConfig, BlockInvariants, ApplicabilityCanaryConfig } from "../types.js";
 import { buildHoldoutInput } from "../experiments/serving.js";
 import { shouldUseCascade } from "../experiments/cascade-rollout.js";
+import { resolveCanaryServingState } from "../core/config.js";
 
 export interface ReasoningPatternsArgs {
   /** Free-text problem description. */
@@ -62,6 +63,24 @@ export interface ReasoningPatternsDeps {
    * in once B1.2 ships; test fixtures can stub it.
    */
   readCascadeConfig?: () => CascadeConfig | null;
+  /**
+   * Phase D.4 — fresh-per-task loader for the persisted applicability-canary
+   * config, so `tracebase canary enable|disable` takes effect without restart.
+   * Optional/absent → the canary rail is never engaged (byte-identical serving).
+   */
+  readCanaryConfig?: () => ApplicabilityCanaryConfig | null;
+  /**
+   * Phase D.4.2 — cheap hot-path read of the latched circuit-breaker snapshot
+   * (tripped + reasons). A tripped breaker forces the canary OFF regardless of
+   * config; a malformed breaker state fails OFF. Absent → no breaker gate.
+   */
+  readBreakerSnapshot?: () => { tripped: boolean; reasons: string[] };
+  /**
+   * Phase D.4.2 — ingestion trigger fired AFTER a canary exposure. Re-derives the
+   * breaker health from a bounded canary-only ledger window and latches if a
+   * frozen kill rule fired. Best-effort; must never throw on the serving path.
+   */
+  noteCanaryActivity?: () => void;
   /** Deterministic fingerprint factory. Overridable for tests. */
   fingerprintFactory?: (
     problem: string,
@@ -125,9 +144,71 @@ export async function runReasoningPatternsRecall(
   // orthogonal — a query can be in the cascade arm AND in the holdout
   // cohort simultaneously, in which case shadow semantics win and no
   // injection fires regardless of which recall variant ran.
-  const cascadeConfig = deps.readCascadeConfig ? deps.readCascadeConfig() : null;
-  if (shouldUseCascade(problemFingerprint, cascadeConfig)) {
-    return blockServer.recallAsync(query);
+  // Phase C hybrid retrieval rollout — orthogonal to the cascade decision.
+  //   off    → serve the existing sparse path unchanged.
+  //   on     → serve the fused hybrid slate (recallHybrid; fail-open to sparse).
+  //   shadow → serve the existing sparse path unchanged, then compute the
+  //            hybrid comparison side-by-side and emit local-only telemetry.
+  const retrievalMode = blockServer.retrievalRollout;
+  if (retrievalMode === "on") {
+    const served = await blockServer.recallHybrid(query);
+    return applyShadowLanesAndCanary(blockServer, query, served, deps, problemFingerprint, retrievalMode);
   }
-  return blockServer.recall(query);
+
+  const cascadeConfig = deps.readCascadeConfig ? deps.readCascadeConfig() : null;
+  const served = shouldUseCascade(problemFingerprint, cascadeConfig)
+    ? await blockServer.recallAsync(query)
+    : blockServer.recall(query);
+  return applyShadowLanesAndCanary(blockServer, query, served, deps, problemFingerprint, retrievalMode);
+}
+
+/**
+ * The ONE shared post-recall orchestration boundary (Phase D.4.1). Runs the
+ * shadow lanes (hybrid comparison / query-compiler / applicability) and the
+ * explicit-opt-in canary on the served result, identically for EVERY transport
+ * (MCP, inject-context hook, SDK contextual runtime) and BOTH retrieval modes —
+ * so there is exactly one place eligibility + exposure are decided. Every lane
+ * is independently gated; when all are off this returns `served` untouched, so
+ * the disabled path is byte-identical.
+ */
+async function applyShadowLanesAndCanary(
+  blockServer: BlockServer,
+  query: BlockRecallQuery,
+  served: RecallV2Result,
+  deps: ReasoningPatternsDeps,
+  problemFingerprint: string,
+  retrievalMode: "off" | "shadow" | "on",
+): Promise<RecallV2Result> {
+  if (retrievalMode === "shadow") {
+    await blockServer.emitHybridComparison(query, served.queryId);
+  }
+  // Phase D.1 — two-view query-compiler comparison (orthogonal shadow lane).
+  if (blockServer.queryCompilerRollout === "shadow") {
+    const summary = await blockServer.emitQueryCompilerComparison(query, served.queryId);
+    if (summary) served.shadowQueryCompiler = summary;
+  }
+  // Phase D.2 — applicability-reranker comparison (orthogonal shadow lane).
+  if (blockServer.applicabilityRollout === "shadow") {
+    const summary = await blockServer.emitApplicabilityComparison(query, served.queryId);
+    if (summary) served.shadowApplicability = summary;
+  }
+  // Phase D.4 — explicit opt-in applicability canary (apply-only). Default OFF:
+  // the rail engages ONLY when a persisted config is enabled AND no env/global
+  // kill switch is set. It reads the D.2 shadow verdict above; eligible only when
+  // V4 abstained and the reranker said `applicable`. Disabled ⇒ byte-identical.
+  if (deps.readCanaryConfig) {
+    // D.4.2 — the latched breaker is a third orthogonal OFF gate (after env/global
+    // kill). Read the cheap snapshot on the hot path; resolveCanaryServingState
+    // folds it in. A tripped/malformed breaker ⇒ disabled ⇒ byte-identical serving.
+    const breaker = deps.readBreakerSnapshot?.();
+    const serving = resolveCanaryServingState(deps.readCanaryConfig(), process.env, breaker);
+    if (serving.enabled && serving.config) {
+      const result = blockServer.applyApplicabilityCanary(query, served, problemFingerprint, serving.config);
+      // Ingestion trigger: a canary exposure happened → refresh breaker health
+      // from the ledger (off the hot path; best-effort).
+      if (result.canaryExposure) deps.noteCanaryActivity?.();
+      return result;
+    }
+  }
+  return served;
 }

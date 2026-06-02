@@ -1,4 +1,4 @@
-import type { CascadeConfig, HoldoutConfig, TraceBaseConfig } from "../types.js";
+import type { ApplicabilityCanaryConfig, CascadeConfig, HoldoutConfig, TraceBaseConfig } from "../types.js";
 import { ReasoningLayer } from "../core/engine.js";
 import Database from "better-sqlite3";
 import { BlockStore } from "../core/block-store.js";
@@ -10,6 +10,11 @@ import {
   buildRerankerFromCascadeConfig,
   extractCascadeKnobs,
 } from "../experiments/cascade-rollout.js";
+import { routerServingOptions } from "../experiments/reasoning-router-rollout.js";
+import { reasoningRetrievalOptions } from "../experiments/reasoning-retrieval-rollout.js";
+import { reasoningEvidenceOptions } from "../experiments/reasoning-evidence-rollout.js";
+import { reasoningQueryCompilerOptions } from "../experiments/reasoning-query-compiler-rollout.js";
+import { reasoningApplicabilityOptions } from "../experiments/reasoning-applicability-rollout.js";
 import {
   computeCascadeComparison,
   type CascadeComparison,
@@ -29,8 +34,9 @@ import {
   type OutcomeStructured,
   type StorePatternStructured,
 } from "./mcp-v2-helpers.js";
-import { findProjectRoot, readCascadeConfig, readHoldoutConfig } from "../core/config.js";
+import { findProjectRoot, readCascadeConfig, readHoldoutConfig, readApplicabilityCanaryConfig } from "../core/config.js";
 import { runReasoningPatternsRecall } from "./reasoning-patterns-entry.js";
+import { readBreakerSnapshot, noteCanaryActivityIfActive } from "../experiments/canary-breaker.js";
 
 /**
  * Options bag for `startMcpServer`. Keeps the signature open for
@@ -113,6 +119,9 @@ export async function startMcpServer(
     readHoldoutConfig(projectBasePath);
   const cascadeConfigLoader: () => CascadeConfig | null = () =>
     readCascadeConfig(projectBasePath);
+  // Phase D.4 — fresh-per-call canary config loader (default off; explicit opt-in).
+  const canaryConfigLoader: () => ApplicabilityCanaryConfig | null = () =>
+    readApplicabilityCanaryConfig(projectBasePath);
 
   // B1.2: construct the reranker ONCE at boot from the cascade config.
   // This is the only thing in the cascade pipeline that's process-
@@ -130,6 +139,16 @@ export async function startMcpServer(
     gateThreshold: resolveProductionGateThreshold(),
     reranker,
     ...cascadeKnobs,
+    // Router V2 rollout (TRACEBASE_REASONING_ROUTER=off|shadow|on); default off.
+    ...routerServingOptions(),
+    // Phase C hybrid retrieval rollout (TRACEBASE_REASONING_RETRIEVAL=off|shadow|on); default off.
+    ...reasoningRetrievalOptions(),
+    // Phase C.2 ServingEvidenceV3 rollout (TRACEBASE_REASONING_EVIDENCE=off|shadow); default off.
+    ...reasoningEvidenceOptions(),
+    // Phase D.1 two-view query-compiler rollout (TRACEBASE_REASONING_QUERY_COMPILER=off|shadow); default off.
+    ...reasoningQueryCompilerOptions(),
+    // Phase D.2 applicability-reranker rollout (TRACEBASE_REASONING_APPLICABILITY=off|shadow); default off.
+    ...reasoningApplicabilityOptions(),
   });
   const eventEmitter = new EventEmitter(blockStore);
 
@@ -480,6 +499,10 @@ export async function startMcpServer(
       const result = await runReasoningPatternsRecall(blockServer, args, {
         readHoldoutConfig: holdoutConfigLoader,
         readCascadeConfig: cascadeConfigLoader,
+        readCanaryConfig: canaryConfigLoader,
+        // D.4.2 — circuit-breaker hot-path gate + post-exposure ingestion trigger.
+        readBreakerSnapshot: () => readBreakerSnapshot(projectBasePath),
+        noteCanaryActivity: () => noteCanaryActivityIfActive(projectBasePath, blockStore),
       });
 
       const formatted = formatInjection(result, {
@@ -634,6 +657,8 @@ export async function startMcpServer(
         ...(args.durationMs !== undefined ? { durationMs: args.durationMs } : {}),
         ...(args.runId ? { runId: args.runId } : {}),
       });
+      // D.4.2 — outcome-side breaker ingestion (gated to canary-active; no-op when off).
+      noteCanaryActivityIfActive(projectBasePath, blockStore);
 
       // Every-run-learning loop: outcome just landed → maybe refit the
       // calibrator. The function is internally cheap (one COUNT(*) when

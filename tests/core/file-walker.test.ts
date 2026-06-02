@@ -89,6 +89,42 @@ describe("walkWorkspace — exclusions", () => {
     );
   });
 
+  it("excludes virtualenv / dependency-env / tool-cache trees", () => {
+    plant("src/main.py", "def f(): pass");
+    plant(".venv/lib/python3.12/site-packages/pip/_vendor/rich/console.py", "leaked");
+    plant("venv/bin/activate_this.py", "leaked");
+    plant("env/lib/pkg.py", "leaked");
+    plant(".env/lib/pkg.py", "leaked");
+    plant("project/site-packages/dep.py", "leaked");
+    plant("project/dist-packages/dep.py", "leaked");
+    plant("src/__pycache__/cached.py", "leaked");
+    plant(".tox/py312/x.py", "leaked");
+    plant(".nox/sess/x.py", "leaked");
+    plant(".pytest_cache/v/x.py", "leaked");
+    plant(".mypy_cache/x.py", "leaked");
+    plant(".ruff_cache/x.py", "leaked");
+    const yielded = walkWorkspace({ root }).files.map((f) => f.relPath);
+    expect(yielded).toEqual(["src/main.py"]);
+  });
+
+  it("does NOT exclude source paths with venv/env/site-like substrings", () => {
+    // Exclusion is exact directory-basename match — a SOURCE file or a dir
+    // whose name merely contains the substring must survive.
+    plant("src/environment.ts", "export const e = 1;");
+    plant("src/venv_helper.py", "def h(): pass");
+    plant("src/site.ts", "export const s = 1;");
+    plant("environments/prod.ts", "export const p = 1;");
+    plant("src/dist_packages_util.ts", "export const u = 1;");
+    const yielded = walkWorkspace({ root }).files.map((f) => f.relPath).sort();
+    expect(yielded).toEqual([
+      "environments/prod.ts",
+      "src/dist_packages_util.ts",
+      "src/environment.ts",
+      "src/site.ts",
+      "src/venv_helper.py",
+    ].sort());
+  });
+
   it("excludes binary suffixes regardless of size", () => {
     plant("img.png", "fake-png-bytes");
     plant("font.woff2", "fake-font-bytes");

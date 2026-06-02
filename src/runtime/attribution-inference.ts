@@ -52,7 +52,9 @@ import type { BlockStore } from "../core/block-store.js";
 import type { AnalyticsEvent, ReasoningBlock } from "../types.js";
 import { jaccardSimilarity } from "../core/fingerprint.js";
 import { emitAgentUsed, emitOutcome } from "../core/analytics.js";
+import { noteCanaryActivityIfActive } from "../experiments/canary-breaker.js";
 import { strengthFromMatchSignal } from "./attribution-evidence.js";
+import { maybeRefitCalibrator, type RefitOutcome } from "../lifecycle/calibrator-refit.js";
 
 /**
  * Default lookback window for injection events when inferring uses
@@ -305,6 +307,22 @@ export type EmitInferenceOptions = InferOptions & {
    * never write a fake `resolved=true` on an inconclusive turn.
    */
   allowOutcomeEmission?: boolean;
+  /**
+   * When an inferred outcome is emitted, also give the calibrator a chance to
+   * refit on the accumulated evidence (persist-only — there is no live server
+   * on the Stop-hook path; the next boot serves the refit). Default on; set
+   * false to suppress (e.g. eval determinism). This is the "inferred outcomes
+   * participate in refit when policy allows" path.
+   */
+  refitOnOutcome?: boolean;
+  /** Refit threshold override (default DEFAULT_REFIT_THRESHOLD). */
+  refitThreshold?: number;
+  /**
+   * D.4.2 — project root for the canary circuit breaker. When set AND an inferred
+   * outcome landed, the breaker re-derives health from the ledger (gated to the
+   * canary-active case). Absent → no breaker ingestion on the Stop-hook path.
+   */
+  breakerBasePath?: string;
 };
 
 export type EmitInferenceReport = {
@@ -313,6 +331,8 @@ export type EmitInferenceReport = {
   outcomeEmitted: number;
   /** queryIds we credited an `agent_used` event for, useful for logs. */
   creditedQueryIds: string[];
+  /** Calibrator refit outcome, when an inferred outcome triggered one. */
+  refit?: RefitOutcome;
 };
 
 /**
@@ -389,10 +409,34 @@ export function applyInferenceAndEmit(
     }
   }
 
+  // C3 — inferred outcomes participate in calibration. When policy allowed
+  // outcome emission and at least one inferred outcome landed, refit the
+  // calibrator on the accumulated evidence. Persist-only (no live server on
+  // this path); the next boot serves the new model. Best-effort — a refit
+  // failure never breaks attribution.
+  let refit: RefitOutcome | undefined;
+  if (opts.allowOutcomeEmission === true && outcomeEmitted > 0 && opts.refitOnOutcome !== false) {
+    try {
+      refit = maybeRefitCalibrator({
+        store,
+        ...(opts.refitThreshold !== undefined ? { refitThreshold: opts.refitThreshold } : {}),
+      });
+    } catch {
+      // attribution must not break on a calibrator hiccup
+    }
+  }
+
+  // D.4.2 — outcome-side breaker ingestion for the Stop-hook (inferred) path.
+  // Gated to canary-active (no breaker file ⇒ cheap no-op); best-effort.
+  if (opts.breakerBasePath && outcomeEmitted > 0) {
+    noteCanaryActivityIfActive(opts.breakerBasePath, store);
+  }
+
   return {
     inferredUses: uses,
     agentUsedEmitted,
     outcomeEmitted,
     creditedQueryIds: Array.from(credited),
+    ...(refit ? { refit } : {}),
   };
 }

@@ -26,13 +26,14 @@
  *      to a user whose project hasn't been wired up.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { initConfig } from "../../src/core/config.js";
 import { BlockStore } from "../../src/core/block-store.js";
 import { createBlock } from "../../src/core/block.js";
+import { indexWorkspace } from "../../src/core/file-indexer.js";
 import { parseStdinPayload, runInjectContext } from "../../src/cli/commands/inject-context.js";
 import type { StoreBlockInput } from "../../src/types.js";
 
@@ -79,6 +80,28 @@ function envelope(out: { envelope: string }): {
   systemMessage?: string;
 } {
   return JSON.parse(out.envelope);
+}
+
+// Index a tiny project with a doc file AND a source file, both mentioning
+// the same term, so recall has to choose between them.
+function indexDocAndSource(): void {
+  const cfg = initConfig(projectDir);
+  mkdirSync(join(projectDir, "src"), { recursive: true });
+  writeFileSync(
+    join(projectDir, "README.md"),
+    "# Project\n\nDocumentation about computing a derivative and the contributing guide.\n",
+  );
+  writeFileSync(
+    join(projectDir, "src", "calc.ts"),
+    "/** derivative engine */\nexport function computeDerivative(x: number) { return x }\nfunction plainDerivative() {}\n",
+  );
+  const db = new Database(cfg.storagePath);
+  const store = new BlockStore(db);
+  try {
+    indexWorkspace(store, { root: projectDir });
+  } finally {
+    store.close();
+  }
 }
 
 function storeActive(store: BlockStore, input: StoreBlockInput): void {
@@ -143,17 +166,19 @@ describe("runInjectContext — silent injection path", () => {
     expect(ctx).not.toContain("<sub>Audit:");
   });
 
-  it("records injection events only for ids that survived the hook budget", async () => {
+  it("records exactly one retrieval + one injection event for an injected block", async () => {
     const config = initConfig(projectDir);
     const db = new Database(config.storagePath);
     const store = new BlockStore(db);
+    // Single-injection serving authorizes only the top candidate, so the prior
+    // two-near-duplicate + hook-budget scenario no longer applies — one clearly
+    // matching block injects and is recorded.
     storeActive(store, PY_BLOCK);
-    storeActive(store, PY_BLOCK_ALT);
     store.close();
 
     const out = await runInjectContext(
       { path: projectDir, budget: 1 },
-      { prompt: "pytest collection wrong package sys.path shadow helper duplicate" },
+      { prompt: "pytest collects the wrong package when sys.path has a shadowing module" },
     );
     const ctx = envelope(out).hookSpecificOutput.additionalContext;
     const queryId = /<tracebase queryId="([^"]+)">/.exec(ctx)?.[1];
@@ -927,5 +952,59 @@ describe("runInjectContext — TRACEBASE_DISABLED kill switch", () => {
       if (prev === undefined) delete process.env.TRACEBASE_DISABLED;
       else process.env.TRACEBASE_DISABLED = prev;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Explicit retrievalQuery bypass of the MIN_PROMPT_CHARS length gate (D1)
+//
+// An integration may supply a deliberately focused `retrievalQuery` that is
+// shorter than MIN_PROMPT_CHARS. It bypasses ONLY the trivial-prompt length
+// gate — it still flows through the same serving threshold + ranking, and
+// the ordinary `prompt` path keeps MIN_PROMPT_CHARS unchanged.
+// ---------------------------------------------------------------------------
+
+describe("runInjectContext — explicit retrievalQuery length-gate bypass", () => {
+  it("ordinary short prompt is STILL suppressed by MIN_PROMPT_CHARS", async () => {
+    indexDocAndSource();
+    // 'derivative' (10 chars) < MIN_PROMPT_CHARS(40), no retrievalQuery →
+    // trivial-gated as before. The normal prompt path is unchanged.
+    const out = await runInjectContext({ path: projectDir }, { prompt: "derivative" });
+    expect(envelope(out).hookSpecificOutput.additionalContext).toBe("");
+  });
+
+  it("explicit SHORT retrievalQuery is allowed (bypasses the length gate)", async () => {
+    indexDocAndSource();
+    // prompt 'hi' would normally suppress; the explicit retrievalQuery
+    // 'derivative' is intentional → recall runs and injects the source.
+    const out = await runInjectContext(
+      { path: projectDir },
+      { prompt: "hi", retrievalQuery: "derivative" },
+    );
+    const ctx = envelope(out).hookSpecificOutput.additionalContext;
+    expect(ctx).toContain("<file_memory>");
+    expect(ctx).toContain("calc.ts");
+  });
+
+  it("explicit retrievalQuery STILL respects normal relevance (no match → no inject)", async () => {
+    indexDocAndSource();
+    // Bypassing the LENGTH gate must not bypass the relevance/serving path:
+    // a short but unrelated query matches nothing → empty injection.
+    const out = await runInjectContext(
+      { path: projectDir },
+      { prompt: "hi", retrievalQuery: "zzqqx" },
+    );
+    expect(envelope(out).hookSpecificOutput.additionalContext).toBe("");
+  });
+
+  it("retrievalQuery 'derivative' recalls source, NOT README/docs", async () => {
+    indexDocAndSource();
+    const out = await runInjectContext(
+      { path: projectDir },
+      { prompt: "hi", retrievalQuery: "derivative" },
+    );
+    const ctx = envelope(out).hookSpecificOutput.additionalContext;
+    expect(ctx).toContain("calc.ts");
+    expect(ctx).not.toContain("README.md");
   });
 });

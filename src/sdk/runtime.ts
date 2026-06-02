@@ -44,6 +44,7 @@ import {
   loadConfig,
   readCascadeConfig,
   readHoldoutConfig,
+  readApplicabilityCanaryConfig,
 } from "../core/config.js";
 import { boundField, detectLeakageExtended } from "../core/guard.js";
 import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
@@ -51,11 +52,17 @@ import {
   buildRerankerFromCascadeConfig,
   extractCascadeKnobs,
 } from "../experiments/cascade-rollout.js";
+import { routerServingOptions } from "../experiments/reasoning-router-rollout.js";
+import { reasoningRetrievalOptions } from "../experiments/reasoning-retrieval-rollout.js";
+import { reasoningEvidenceOptions } from "../experiments/reasoning-evidence-rollout.js";
+import { reasoningQueryCompilerOptions } from "../experiments/reasoning-query-compiler-rollout.js";
+import { reasoningApplicabilityOptions } from "../experiments/reasoning-applicability-rollout.js";
 import {
   recallForPrompt,
   shouldQueryForPrompt,
   type CascadeLoader,
   type HoldoutLoader,
+  type CanaryLoader,
 } from "../runtime/recall.js";
 import { observeToolBatch } from "../runtime/observe-tools.js";
 import {
@@ -108,6 +115,8 @@ interface ConnectionBundle {
   holdoutLoader: HoldoutLoader;
   /** B1.2: hot cascade-config loader for the rollout gate. */
   cascadeLoader: CascadeLoader;
+  /** D.4.1: hot applicability-canary config loader (default off). */
+  canaryLoader: CanaryLoader;
 }
 
 const DIGEST_TTL_DAYS = 14;
@@ -202,10 +211,21 @@ export function createRuntime(
       gateThreshold: resolveProductionGateThreshold(),
       reranker,
       ...cascadeKnobs,
+      // Router V2 rollout (TRACEBASE_REASONING_ROUTER=off|shadow|on); default off.
+      ...routerServingOptions(),
+      // Phase C hybrid retrieval rollout (TRACEBASE_REASONING_RETRIEVAL=off|shadow|on); default off.
+      ...reasoningRetrievalOptions(),
+      // Phase C.2 ServingEvidenceV3 rollout (TRACEBASE_REASONING_EVIDENCE=off|shadow); default off.
+      ...reasoningEvidenceOptions(),
+      // Phase D.1 two-view query-compiler rollout (TRACEBASE_REASONING_QUERY_COMPILER=off|shadow); default off.
+      ...reasoningQueryCompilerOptions(),
+      // Phase D.2 applicability-reranker rollout (TRACEBASE_REASONING_APPLICABILITY=off|shadow); default off.
+      ...reasoningApplicabilityOptions(),
     });
     const holdoutLoader: HoldoutLoader = () => readHoldoutConfig(basePath);
     const cascadeLoader: CascadeLoader = () => readCascadeConfig(basePath);
-    connection = { db, store, server, basePath, holdoutLoader, cascadeLoader };
+    const canaryLoader: CanaryLoader = () => readApplicabilityCanaryConfig(basePath);
+    connection = { db, store, server, basePath, holdoutLoader, cascadeLoader, canaryLoader };
     return connection;
   }
 
@@ -439,6 +459,7 @@ export function createRuntime(
         servingProfile: input.servingProfile ?? options.servingProfile,
       },
       conn.cascadeLoader,
+      conn.canaryLoader,
     );
 
     const events: BadgeEvent[] = [];
@@ -582,6 +603,8 @@ export function createRuntime(
           allowOutcomeEmission:
             result.blockId !== null ||
             inferResolvedOutcomeFromTranscript(assistantBounded),
+          // D.4.2 — feed the inferred outcome to the canary breaker.
+          breakerBasePath: conn.basePath,
         });
         // markDirty so the next coordinator cycle sees the new
         // analytics events even if the user only calls afterRun

@@ -40,7 +40,13 @@ import type { IsotonicModel } from "./isotonic.js";
 
 export interface MaybeRefitOptions {
   store: BlockStore;
-  server: BlockServer;
+  /**
+   * Live server to hot-swap on refit (MCP path). OPTIONAL: the Stop-hook /
+   * inference path has no live server — the fitted model is still persisted, and
+   * the next server boot loads it via `loadBlockCalibrator` (featureVersion-
+   * guarded), so "every run teaches the next run" holds without a hot-swap.
+   */
+  server?: BlockServer;
   /**
    * How many fresh outcome events trigger a refit. Default 20 — matches
    * `fitCalibratorFromEvents`'s minSample floor so the first refit can
@@ -93,7 +99,11 @@ export function maybeRefitCalibrator(opts: MaybeRefitOptions): RefitOutcome {
     return { status: "skipped", reason: "insufficient-sample", freshOutcomes };
   }
 
-  opts.server.setCalibrator(isotonicCalibrator(model));
+  // Hot-swap only when a live server is present; otherwise the persisted model
+  // (saved by fitAndSaveBlockCalibrator above) is served on the next boot.
+  if (opts.server) {
+    opts.server.setCalibrator(isotonicCalibrator(model), model.featureVersion ?? "identity");
+  }
 
   // Emit a marker event so the dashboard can count refits over time.
   // Best-effort — a sink failure must not undo the swap above.

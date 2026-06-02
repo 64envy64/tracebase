@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { randomBytes, randomUUID } from "node:crypto";
 import { join, dirname } from "node:path";
-import type { CascadeConfig, ExperimentConfig, HoldoutConfig, TraceBaseConfig } from "../types.js";
+import type { ApplicabilityCanaryConfig, CascadeConfig, ExperimentConfig, HoldoutConfig, TraceBaseConfig } from "../types.js";
 
 const CONFIG_DIR = ".tracebase";
 const CONFIG_FILE = "config.json";
@@ -420,6 +420,117 @@ export function readHoldoutConfig(basePath: string): HoldoutConfig | null {
   return extractHoldoutConfig(raw);
 }
 
+// ---------------------------------------------------------------------------
+// Phase D.4 — applicability canary configuration helpers (explicit opt-in)
+// ---------------------------------------------------------------------------
+
+/**
+ * Hard ceiling on the canary treatment rate, matching the frozen pre-registration
+ * (docs/applicability-canary-prereg.md §3). Enforced in config, CLI, parsing AND
+ * extraction — a higher rate is REJECTED (never silently clamped), and a persisted
+ * config above the cap collapses to off (treated as malformed/out-of-policy).
+ */
+export const MAX_CANARY_RATE = 0.05;
+/** Default canary rate on first explicit enable (== the cap; small by design). */
+export const DEFAULT_CANARY_RATE = 0.05;
+/** The reranker policy version the operator must acknowledge to enable. */
+export const CANARY_POLICY_VERSION = "deterministic-applicability.v1";
+/** Env var that may ONLY DISABLE the canary (never enable). */
+export const APPLICABILITY_CANARY_KILL_ENV = "TRACEBASE_APPLICABILITY_CANARY";
+
+export interface EnableCanaryInput {
+  /** Treatment rate in (0, 1]. Defaults to DEFAULT_CANARY_RATE. */
+  rate?: number;
+  /**
+   * The operator's explicit acknowledgement of the policy version being served.
+   * MUST equal CANARY_POLICY_VERSION — there is no way to enable without it, so a
+   * stale script cannot silently activate an unintended policy.
+   */
+  policyAck: string;
+  saltFactory?: () => string;
+  now?: () => Date;
+}
+
+/**
+ * Enable the applicability canary — the ONLY path to activation. Requires an
+ * explicit `policyAck` matching the current policy version, so enabling is never
+ * accidental. Idempotent + field-preserving (salt/createdAt kept across
+ * re-enables), mirroring `enableHoldoutExperiment`. Returns null if no config
+ * file exists yet (run `tracebase init` first).
+ */
+export function enableApplicabilityCanary(basePath: string, input: EnableCanaryInput): ApplicabilityCanaryConfig | null {
+  const rate = input.rate ?? DEFAULT_CANARY_RATE;
+  if (!Number.isFinite(rate) || rate <= 0 || rate > MAX_CANARY_RATE) {
+    throw new Error(`canary rate must be in (0, ${MAX_CANARY_RATE}]; got ${rate} (the pre-reg cap is ${MAX_CANARY_RATE} — rates are never clamped)`);
+  }
+  if (input.policyAck !== CANARY_POLICY_VERSION) {
+    throw new Error(`canary enable requires --ack ${CANARY_POLICY_VERSION} (got ${JSON.stringify(input.policyAck)}); refusing to activate without an explicit policy acknowledgement`);
+  }
+  const nowIso = (input.now ?? (() => new Date()))().toISOString();
+  const raw = readConfigFileRaw(basePath);
+  if (raw === null) return null;
+  const existing = extractApplicabilityCanaryConfig(raw);
+  const saltFactory = input.saltFactory ?? generateHoldoutSalt;
+  const next: ApplicabilityCanaryConfig = {
+    enabled: true,
+    rate,
+    salt: existing?.salt ?? saltFactory(),
+    policyVersion: CANARY_POLICY_VERSION,
+    createdAt: existing?.createdAt ?? nowIso,
+    updatedAt: nowIso,
+  };
+  writeExperimentField(basePath, raw, { applicabilityCanary: next });
+  return next;
+}
+
+/** Disable the canary, preserving salt/createdAt for future re-enable. Idempotent. */
+export function disableApplicabilityCanary(basePath: string, input: { now?: () => Date } = {}): ApplicabilityCanaryConfig | null {
+  const raw = readConfigFileRaw(basePath);
+  if (raw === null) return null;
+  const existing = extractApplicabilityCanaryConfig(raw);
+  if (!existing) return null;
+  const nowIso = (input.now ?? (() => new Date()))().toISOString();
+  const next: ApplicabilityCanaryConfig = { ...existing, enabled: false, updatedAt: nowIso };
+  writeExperimentField(basePath, raw, { applicabilityCanary: next });
+  return next;
+}
+
+/** Read the persisted canary config, or null if never configured / malformed. */
+export function readApplicabilityCanaryConfig(basePath: string): ApplicabilityCanaryConfig | null {
+  const raw = readConfigFileRaw(basePath);
+  if (raw === null) return null;
+  return extractApplicabilityCanaryConfig(raw);
+}
+
+/**
+ * Resolve the EFFECTIVE canary serving state from the persisted config, the
+ * environment, and (optionally) the circuit-breaker snapshot. Three orthogonal
+ * OFF gates, in precedence order:
+ *   1. TRACEBASE_DISABLED=1 — global kill.
+ *   2. TRACEBASE_APPLICABILITY_CANARY=off/0/false/disabled — env kill (disable-only).
+ *   3. The latched circuit breaker (D.4.2) — tripped ⇒ OFF until a reviewed reset.
+ * The env / global kills are checked FIRST so they always WIN (their killReason
+ * is reported even if the breaker is also tripped or has been reset). The env can
+ * NEVER enable — only the persisted config (set via explicit CLI) can.
+ */
+export function resolveCanaryServingState(
+  persisted: ApplicabilityCanaryConfig | null,
+  env: NodeJS.ProcessEnv = process.env,
+  breaker?: { tripped: boolean; reasons?: string[] } | null,
+): { enabled: boolean; config: ApplicabilityCanaryConfig | null; killReason?: string } {
+  if (env.TRACEBASE_DISABLED === "1") return { enabled: false, config: persisted, killReason: "TRACEBASE_DISABLED=1" };
+  const kill = (env[APPLICABILITY_CANARY_KILL_ENV] ?? "").trim().toLowerCase();
+  if (kill === "off" || kill === "0" || kill === "false" || kill === "disabled") {
+    return { enabled: false, config: persisted, killReason: `${APPLICABILITY_CANARY_KILL_ENV}=${kill}` };
+  }
+  // Latched breaker: once tripped, OFF regardless of config — until a reviewed reset.
+  if (breaker?.tripped) {
+    const why = breaker.reasons && breaker.reasons.length > 0 ? breaker.reasons.join(",") : "tripped";
+    return { enabled: false, config: persisted, killReason: `breaker_tripped:${why}` };
+  }
+  return { enabled: !!persisted?.enabled, config: persisted };
+}
+
 /**
  * Read the current cascade config from disk, or `null` if the project
  * has never configured one (or the stored payload is malformed). May-
@@ -662,6 +773,10 @@ function writeExperimentField(
     if (experiment.cascade === undefined) delete merged.cascade;
     else merged.cascade = serializeCascade(experiment.cascade);
   }
+  if ("applicabilityCanary" in experiment) {
+    if (experiment.applicabilityCanary === undefined) delete merged.applicabilityCanary;
+    else merged.applicabilityCanary = serializeApplicabilityCanary(experiment.applicabilityCanary);
+  }
   if (Object.keys(merged).length === 0) {
     delete raw.experiment;
   } else {
@@ -682,7 +797,36 @@ function serializeExperimentConfig(exp: ExperimentConfig): Record<string, unknow
   const out: Record<string, unknown> = {};
   if (exp.holdout) out.holdout = serializeHoldout(exp.holdout);
   if (exp.cascade) out.cascade = serializeCascade(exp.cascade);
+  if (exp.applicabilityCanary) out.applicabilityCanary = serializeApplicabilityCanary(exp.applicabilityCanary);
   return out;
+}
+
+function serializeApplicabilityCanary(c: ApplicabilityCanaryConfig): Record<string, unknown> {
+  return { enabled: c.enabled, rate: c.rate, salt: c.salt, policyVersion: c.policyVersion, createdAt: c.createdAt, updatedAt: c.updatedAt };
+}
+
+/** Pull an ApplicabilityCanaryConfig out of raw `experiment.applicabilityCanary`. */
+function extractApplicabilityCanaryConfig(raw: Record<string, unknown>): ApplicabilityCanaryConfig | null {
+  const exp = raw.experiment;
+  if (!exp || typeof exp !== "object") return null;
+  const c = (exp as Record<string, unknown>).applicabilityCanary;
+  if (!c || typeof c !== "object") return null;
+  const o = c as Record<string, unknown>;
+  if (
+    typeof o.enabled !== "boolean" ||
+    typeof o.rate !== "number" ||
+    typeof o.salt !== "string" ||
+    typeof o.policyVersion !== "string" ||
+    typeof o.createdAt !== "string" ||
+    typeof o.updatedAt !== "string"
+  ) {
+    return null;
+  }
+  // Fail-safe: a persisted rate outside (0, MAX_CANARY_RATE] is out-of-policy
+  // (hand-edited / future-version) → collapse the whole config to off rather than
+  // silently serving above the pre-reg cap.
+  if (!Number.isFinite(o.rate) || o.rate <= 0 || o.rate > MAX_CANARY_RATE) return null;
+  return { enabled: o.enabled, rate: o.rate, salt: o.salt, policyVersion: o.policyVersion, createdAt: o.createdAt, updatedAt: o.updatedAt };
 }
 
 function serializeHoldout(h: HoldoutConfig): Record<string, unknown> {

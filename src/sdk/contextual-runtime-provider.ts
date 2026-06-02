@@ -32,6 +32,11 @@
 
 import { BlockStore } from "../core/block-store.js";
 import { BlockServer, resolveProductionGateThreshold } from "../core/block-serving.js";
+import { routerServingOptions } from "../experiments/reasoning-router-rollout.js";
+import { reasoningRetrievalOptions } from "../experiments/reasoning-retrieval-rollout.js";
+import { reasoningEvidenceOptions } from "../experiments/reasoning-evidence-rollout.js";
+import { reasoningQueryCompilerOptions } from "../experiments/reasoning-query-compiler-rollout.js";
+import { reasoningApplicabilityOptions } from "../experiments/reasoning-applicability-rollout.js";
 import {
   EventEmitter,
   emitAgentUsed,
@@ -40,8 +45,9 @@ import {
 } from "../core/analytics.js";
 import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
 import { runReasoningPatternsRecall } from "../server/reasoning-patterns-entry.js";
-import { findProjectRoot, readHoldoutConfig } from "../core/config.js";
-import type { HoldoutConfig } from "../types.js";
+import { findProjectRoot, readHoldoutConfig, readApplicabilityCanaryConfig } from "../core/config.js";
+import { readBreakerSnapshot, noteCanaryActivityIfActive } from "../experiments/canary-breaker.js";
+import type { HoldoutConfig, ApplicabilityCanaryConfig } from "../types.js";
 import {
   collectInjectedFromQuery,
   CONTEXTUAL_RUNTIME_PROTOCOL,
@@ -250,6 +256,10 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
   private readonly blockServer: BlockServer;
   private readonly eventEmitter: EventEmitter;
   private readonly readHoldoutConfig: () => HoldoutConfig | null;
+  /** Phase D.4.1 — fresh-per-task canary loader (default off; same boundary as MCP/hook). */
+  private readonly readCanaryConfig: () => ApplicabilityCanaryConfig | null;
+  /** Phase D.4.2 — project root for the circuit-breaker snapshot/refresh. */
+  private readonly projectBase: string;
   private closed = false;
 
   constructor(opts: CreateTracebaseRuntimeProviderOptions) {
@@ -257,15 +267,27 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
     this.blockServer = new BlockServer(this.blockStore, {
       calibrator: loadBlockCalibrator(this.blockStore),
       gateThreshold: resolveProductionGateThreshold(),
+      // Router V2 rollout (TRACEBASE_REASONING_ROUTER=off|shadow|on); default off.
+      ...routerServingOptions(),
+      // Phase C hybrid retrieval rollout (TRACEBASE_REASONING_RETRIEVAL=off|shadow|on); default off.
+      ...reasoningRetrievalOptions(),
+      // Phase C.2 ServingEvidenceV3 rollout (TRACEBASE_REASONING_EVIDENCE=off|shadow); default off.
+      ...reasoningEvidenceOptions(),
+      // Phase D.1 two-view query-compiler rollout (TRACEBASE_REASONING_QUERY_COMPILER=off|shadow); default off.
+      ...reasoningQueryCompilerOptions(),
+      // Phase D.2 applicability-reranker rollout (TRACEBASE_REASONING_APPLICABILITY=off|shadow); default off.
+      ...reasoningApplicabilityOptions(),
     });
     this.eventEmitter = new EventEmitter(this.blockStore);
+    const projectBase = opts.basePath ?? findProjectRoot(process.cwd()) ?? process.cwd();
     if (opts.readHoldoutConfig) {
       this.readHoldoutConfig = opts.readHoldoutConfig;
     } else {
-      const projectBase =
-        opts.basePath ?? findProjectRoot(process.cwd()) ?? process.cwd();
       this.readHoldoutConfig = () => readHoldoutConfig(projectBase);
     }
+    // Canary is config-driven (no env-enable), so it always reads the project config.
+    this.readCanaryConfig = () => readApplicabilityCanaryConfig(projectBase);
+    this.projectBase = projectBase;
   }
 
   async beforeTask(input: BeforeTaskInput): Promise<BeforeTaskResult> {
@@ -274,6 +296,10 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
     // recall() path internally — the await resolves on the same tick.
     const result = await runReasoningPatternsRecall(this.blockServer, input, {
       readHoldoutConfig: this.readHoldoutConfig,
+      readCanaryConfig: this.readCanaryConfig,
+      // D.4.2 — same circuit-breaker boundary as MCP/hook.
+      readBreakerSnapshot: () => readBreakerSnapshot(this.projectBase),
+      noteCanaryActivity: () => noteCanaryActivityIfActive(this.projectBase, this.blockStore),
     });
     return toReasoningPatternsStructured(result);
   }
@@ -321,6 +347,8 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
       ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
       ...(input.runId ? { runId: input.runId } : {}),
     });
+    // D.4.2 — outcome-side breaker ingestion (gated to canary-active; no-op when off).
+    noteCanaryActivityIfActive(this.projectBase, this.blockStore);
 
     return {
       protocol: CONTEXTUAL_RUNTIME_PROTOCOL,

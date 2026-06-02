@@ -131,6 +131,14 @@ type CaptureSituation =
 // Soft caps. Intentionally loose on input reading (we'll still cap
 // rendered field lengths at store time) but strict on the "did this
 // turn do real work?" gate.
+/**
+ * Version stamps on every heuristic capture, so a stored block is auditable
+ * back to the capture pipeline + distiller that produced it. Bump on any change
+ * to the extraction heuristics.
+ */
+export const CAPTURE_VERSION = "capture-heuristic-1";
+export const HEURISTIC_DISTILLER_VERSION = "heuristic-extract-1";
+
 const MIN_TASK_CHARS = 80;
 const MIN_OUTCOME_CHARS = 300;
 const MIN_MECHANISM_CHARS = 80;
@@ -409,6 +417,8 @@ export function runCaptureTurn(
           allowOutcomeEmission:
             blockResult !== null ||
             inferResolvedOutcomeFromTranscript(transcript.lastAssistantText),
+          // D.4.2 — let the Stop-hook (inferred) outcome feed the canary breaker.
+          breakerBasePath: basePath,
         });
         inferredUseCount = report.agentUsedEmitted;
       } catch (err) {
@@ -723,9 +733,16 @@ export function extractPattern(
   // missing a capture is far cheaper than injecting a noisy
   // pattern on every future prompt.
   const trimmedUser = userText.trim();
-  if (!isPatternShapedUserText(trimmedUser)) return null;
+  // 0.9.x — normalize the user turn before choosing a `situation`: drop
+  // operational scaffolding (working-directory headers, command lines, bare
+  // filesystem paths, rule/bullet boilerplate) so the situation reflects the
+  // actual PROBLEM, not a tool/harness preamble. Fully generic — the predicates
+  // are line shapes, not repo- or benchmark-specific phrases. Fails closed: an
+  // all-boilerplate / path-only turn yields no meaningful text → not stored.
+  const meaningfulUser = meaningfulText(trimmedUser);
+  if (!isPatternShapedUserText(meaningfulUser)) return null;
 
-  const situation = firstSentence(userText).slice(0, MAX_SITUATION);
+  const situation = firstSentence(meaningfulUser).slice(0, MAX_SITUATION);
   if (situation.length < 20) return null;
 
   const cleaned = stripCodeBlocks(assistantText).trim();
@@ -734,21 +751,25 @@ export function extractPattern(
     .split(/\n{2,}/)
     .map((p) => p.trim())
     .filter((p) => p.length >= 20);
-  if (paragraphs.length === 0) return null;
 
-  const mechanism = paragraphs[0]!.slice(0, MAX_FIELD);
-  if (mechanism.length < MIN_MECHANISM_CHARS) return null;
+  // 0.9.x — markdown/label-aware extraction first: real agents emit
+  // "## Root Cause", "**Root cause:**", or "Fix: ..." sections. Recognize the
+  // cause section as the mechanism and the fix section as the unlock; fall back
+  // to the legacy first-paragraph + action-line split when no labels are present
+  // (preserves the original behaviour for plain prose turns).
+  let mechanism = bodyForLabel(cleaned, CAUSE_LABEL_RE) ?? paragraphs[0] ?? null;
+  if (!mechanism || mechanism.length < MIN_MECHANISM_CHARS) return null;
+  mechanism = mechanism.slice(0, MAX_FIELD);
 
-  // 0.5.6 §4 — drop the mechanism.slice fallback. It produced a
-  // degenerate "unlock" that was just the back half of the
-  // mechanism, which surfaced as noisy reasoning_blocks where
-  // mechanism + unlock told the same story. A real reusable
-  // pattern needs an action line OR a distinct second paragraph;
-  // turns missing both are not pattern-shaped.
-  const unlock =
+  // A real reusable pattern needs a distinct action: a Fix/Solution section, an
+  // imperative action line, or a distinct second paragraph. Turns missing all
+  // three are not pattern-shaped.
+  let unlock =
+    bodyForLabel(cleaned, FIX_LABEL_RE) ??
     findActionLine(cleaned) ??
-    (paragraphs[1] ? paragraphs[1]!.slice(0, MAX_FIELD) : null);
+    (paragraphs[1] ?? null);
   if (!unlock || unlock.length < MIN_UNLOCK_CHARS) return null;
+  unlock = unlock.slice(0, MAX_FIELD);
 
   const verification =
     findVerificationLine(cleaned) ??
@@ -757,8 +778,12 @@ export function extractPattern(
   return {
     situation,
     mechanism,
-    unlock: unlock.slice(0, MAX_FIELD),
+    unlock,
     verification: verification.slice(0, MAX_FIELD),
+    // Heuristic capture — stamp the truthful distiller + versions for audit.
+    distilledBy: "rule",
+    captureVersion: CAPTURE_VERSION,
+    distillerVersion: HEURISTIC_DISTILLER_VERSION,
   };
 }
 
@@ -775,6 +800,84 @@ function stripCodeBlocks(text: string): string {
   // mechanism/unlock extraction with verbatim snippets the next
   // retrieval can't usefully match against. Inline backticks stay.
   return text.replace(/```[\s\S]*?```/g, "").replace(/\n{3,}/g, "\n\n");
+}
+
+// 0.9.x — concept-level labels (NOT repo/benchmark phrases) for recognizing the
+// cause vs. fix sections in normal markdown agent output.
+const CAUSE_LABEL_RE = /\b(root\s*cause|cause|diagnosis|why|the\s+problem|the\s+issue|reason)\b/i;
+const FIX_LABEL_RE = /\b(fix|solution|resolution|the\s+change|what\s+(?:i|we)\s+(?:did|changed|fixed)|patch|repair|approach)\b/i;
+
+// Line shapes that are operational scaffolding rather than the substance of a
+// task — skipped when selecting the capture `situation`. Generic by design
+// (line shapes, not repo/benchmark phrases).
+const BOILERPLATE_LINE_RES: readonly RegExp[] = [
+  /^[-*•\d.)\s]+$/,                                                       // list marker only
+  /^[-*•]\s/,                                                            // bullet item
+  /\b(working\s+director(?:y|ies)|current\s+(?:working\s+)?director(?:y|ies)|\bcwd\b)\b/i,
+  /\b(?:operate|work|stay|run)\s+(?:strictly\s+)?(?:only\s+)?(?:inside|within|in)\b/i,
+  /^(?:do not|don'?t|never|always|please|note|rules?|notes?|constraints?|instructions?|machine[- ]?rules?)\b/i,
+  /^end (?:your )?(?:response|answer|reply)\b/i,
+  /\brun (?:the )?(?:failing )?tests?\b.*[:`]/i,                          // "Run the test with: ..."
+  /^\$\s|^>\s/,                                                          // shell prompt
+  // command INVOCATION: tool at start AND a flag later (so prose merely starting
+  // with a tool name — "pytest is picking up the wrong package …" — is NOT stripped).
+  /^(?:\$\s*)?(?:sudo\s+)?(?:npx|npm|pnpm|yarn|node|python3?|pytest|cargo|go|make|bun|deno|mocha|vitest|jest)\b[^\n]*\s-{1,2}\w/i,
+  /^[~/.]?[\w@.\-]+(?:[\\/][\w@.\-]+){1,}\/?$/,                          // bare filesystem path
+];
+function isBoilerplateLine(line: string): boolean {
+  const l = line.trim();
+  if (l.length === 0) return true;
+  return BOILERPLATE_LINE_RES.some((re) => re.test(l));
+}
+// Strip operational scaffolding lines so the `situation` seed reflects the real
+// problem, not a tool/harness preamble. Used ONLY to choose the situation seed —
+// the privacy scanner remains the final authority over stored block content.
+function meaningfulText(userText: string): string {
+  return userText
+    .split(/\n/)
+    .filter((line) => !isBoilerplateLine(line))
+    .join("\n")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+}
+function stripMd(s: string): string {
+  return s.replace(/^#{1,6}\s+/gm, "").replace(/\*\*/g, "").replace(/`/g, "").trim();
+}
+// Prose body following a markdown heading or bold/plain label matching `labelRe`:
+// handles "## Root Cause\n<body>", "**Root cause:** <body>", "Root cause: <body>".
+// Returns null when no such labelled section exists (caller falls back to the
+// legacy paragraph split).
+function bodyForLabel(text: string, labelRe: RegExp): string | null {
+  const lines = text.split(/\n/);
+  const headingLabel = (s: string): string | null => {
+    const h = /^#{1,6}\s+(.+?)\s*$/.exec(s) ?? /^\*\*(.+?):?\*\*:?\s*$/.exec(s);
+    return h ? h[1]! : null;
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim();
+    const head = headingLabel(line);
+    if (head && labelRe.test(head)) {
+      const body: string[] = [];
+      for (let j = i + 1; j < lines.length; j++) {
+        if (headingLabel(lines[j]!.trim())) break;
+        body.push(lines[j]!);
+      }
+      const joined = stripMd(body.join("\n"));
+      if (joined.length >= 20) return joined;
+    }
+    const inline = /^(?:\*\*)?([A-Za-z][A-Za-z /]{2,40}?)(?:\*\*)?:\s*(\S.*)$/.exec(line);
+    if (inline && labelRe.test(inline[1]!) && stripMd(inline[2]!).length >= 20) {
+      const body = [inline[2]!];
+      for (let j = i + 1; j < lines.length; j++) {
+        const l = lines[j]!.trim();
+        if (!l || headingLabel(l) || /^(?:\*\*)?[A-Za-z][A-Za-z /]{2,40}?(?:\*\*)?:\s*\S/.test(l)) break;
+        body.push(l);
+      }
+      const joined = stripMd(body.join(" "));
+      if (joined.length >= 20) return joined;
+    }
+  }
+  return null;
 }
 
 function findActionLine(text: string): string | null {

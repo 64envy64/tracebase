@@ -555,3 +555,204 @@ describe("recallFiles — FTS5-backed file memory recall", () => {
     ).not.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// recallFiles — code-navigation recall quality (box-6 hardening)
+// ---------------------------------------------------------------------------
+
+describe("recallFiles — doc exclusion + OR-join + stop-words", () => {
+  it("excludes doc/README/markdown hits for a code query by default", () => {
+    // Both files mention the stemmed term, but only the source file is the
+    // navigation target. A prose doc must NOT out-rank / crowd it.
+    plant("CONTRIBUTING.md", "# Contributing\n\nReport bugs about the parser and authentication here.\n");
+    plant("src/auth.ts", "/** Authentication parser */\nexport function authenticate() {}\n");
+    indexWorkspace(store, { root });
+    const hits = recallFiles(store, { prompt: "authentication parser" });
+    const paths = hits.map((h) => h.relPath);
+    expect(paths).toContain("src/auth.ts");
+    expect(paths).not.toContain("CONTRIBUTING.md");
+  });
+
+  it("includes docs when the query has explicit doc intent", () => {
+    plant("README.md", "# Project\n\nInstallation and contributing guide for authentication.\n");
+    plant("src/auth.ts", "/** Authentication */\nexport function authenticate() {}\n");
+    indexWorkspace(store, { root });
+    // "readme" is an unambiguous doc-intent token → docs allowed back in.
+    const hits = recallFiles(store, { prompt: "readme authentication" });
+    expect(hits.map((h) => h.relPath)).toContain("README.md");
+  });
+
+  it("OR-joins multi-term queries so each single-responsibility file matches", () => {
+    // Neither file contains BOTH terms; the old ≤3-word AND join returned
+    // nothing. OR + bm25 must surface both.
+    plant("src/derivative.ts", "/** derivative */\nexport function derivative() {}\n");
+    plant("src/typed.ts", "/** typed function checker */\nexport function typed() {}\n");
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "derivative typed" }).map((h) => h.relPath);
+    expect(paths).toContain("src/derivative.ts");
+    expect(paths).toContain("src/typed.ts");
+  });
+
+  it("strips stop-words / tool-names so the real term dominates", () => {
+    plant("src/widget.ts", "/** widget rendering */\nexport function renderWidget() {}\n");
+    indexWorkspace(store, { root });
+    // Mostly stop-words + tool-names; only "widget" carries signal.
+    const hits = recallFiles(store, { prompt: "please can you read the file and edit the widget" });
+    expect(hits.map((h) => h.relPath)).toContain("src/widget.ts");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// recallFiles — test-class exclusion + filename boost (source-first pass)
+// ---------------------------------------------------------------------------
+
+describe("recallFiles — source-first ranking", () => {
+  it("recalls the SOURCE file, not its test, for a feature query", () => {
+    // Both the source and its test match "derivative"; the test repeats the
+    // feature term across test names and would out-rank the source under
+    // bm25. A 'where is the fix' query must surface the implementation.
+    plant("src/function/algebra/derivative.js", "/** derivative */\nexport function createDerivative() {}\nfunction plainDerivative() {}\n");
+    plant("test/unit-tests/function/algebra/derivative.test.js",
+      "describe('derivative', () => { it('derivative a', () => {}); it('derivative b', () => {}); it('derivative c', () => {}); });\n");
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "derivative" }).map((h) => h.relPath);
+    expect(paths).toContain("src/function/algebra/derivative.js");
+    expect(paths).not.toContain("test/unit-tests/function/algebra/derivative.test.js");
+    // filename boost: exact-basename match ranks the source FIRST.
+    expect(paths[0]).toBe("src/function/algebra/derivative.js");
+  });
+
+  it("recovers test files when the query has explicit test intent", () => {
+    plant("src/derivative.js", "/** derivative */\nexport function createDerivative() {}\n");
+    plant("test/derivative.test.js", "describe('derivative', () => { it('x', () => {}); });\n");
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "derivative test" }).map((h) => h.relPath);
+    expect(paths).toContain("test/derivative.test.js");
+  });
+
+  it("excludes tests/data fixtures by default", () => {
+    plant("src/black/linegen.py", "# line generation\ndef transform_line(): pass\n");
+    plant("tests/data/cases/guard.py", "match x:\n    case 1 if guard: pass\n");
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "linegen" }).map((h) => h.relPath);
+    expect(paths).not.toContain("tests/data/cases/guard.py");
+  });
+
+  it("filename boost lifts the canonical file over a same-stem sibling", () => {
+    // Under bm25 a shorter sibling can out-rank the long canonical file; an
+    // exact-basename match to the query token must win.
+    plant("src/_win32_console.ts", "/** console helpers for win32 console console */\nexport function x() {}\n");
+    plant("src/console.ts",
+      "/** console */\nexport function print() {}\n" + "// console rendering logic\n".repeat(40));
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "console" }).map((h) => h.relPath);
+    expect(paths[0]).toBe("src/console.ts");
+  });
+
+  it("multi-word basename overlap boosts (from-json-schema for 'json schema')", () => {
+    plant("src/from-json-schema.ts", "/** convert */\nexport function fromJsonSchema() {}\n");
+    plant("src/util.ts", "/** json schema helpers everywhere json schema json schema */\nexport function u() {}\n");
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "json schema" }).map((h) => h.relPath);
+    expect(paths[0]).toBe("src/from-json-schema.ts");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// recallFiles — SYMBOL-level recall (monolithic files)
+// ---------------------------------------------------------------------------
+
+describe("recallFiles — symbol-level recall", () => {
+  it("recalls a monolithic file via a symbol the file summary never surfaced", () => {
+    // A big file whose first 12 symbols (all that the file SUMMARY shows) are
+    // generic; the concept symbol `ZodRecord` is far down the list, so the
+    // file-summary FTS alone cannot match "record". The per-symbol index +
+    // camelCase split ("ZodRecord" → record) must roll up to the file.
+    const dummies = Array.from({ length: 15 }, (_, i) => `export class Thing${i} {}`).join("\n");
+    plant("packages/zod/src/schemas.ts",
+      "/** core schema primitives */\n" + dummies + "\nexport class ZodRecord {}\nexport class ZodTransform {}\n");
+    plant("src/unrelated.ts", "/** helpers */\nexport function helper() {}\n");
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "record" }).map((h) => h.relPath);
+    expect(paths).toContain("packages/zod/src/schemas.ts");
+  });
+
+  it("Python repo recall does not surface .venv dependency-env copies", () => {
+    // A virtualenv vendors copies of libraries (pip bundles rich). The real
+    // project source must win; the .venv/site-packages copies must be absent.
+    plant("rich/console.py", "# console\nclass Console:\n    def print(self): pass\ndef get_console(): pass\n");
+    plant(".venv/lib/python3.12/site-packages/pip/_vendor/rich/console.py", "# vendored\nclass Console:\n    def print(self): pass\n");
+    plant("lib/site-packages/rich/console.py", "# vendored2\nclass Console: pass\n");
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "console" }).map((h) => h.relPath);
+    expect(paths).toContain("rich/console.py");
+    expect(paths.some((p) => p.includes(".venv"))).toBe(false);
+    expect(paths.some((p) => p.includes("site-packages"))).toBe(false);
+  });
+
+  it("symbol rollup still honours test suppression (no test file via symbol)", () => {
+    // A test file may define a symbol matching the query; without test intent
+    // it must NOT be surfaced via the symbol path.
+    plant("src/widget.ts", "/** widget */\nexport function renderWidget() {}\n");
+    plant("test/widget.test.ts", "export function renderWidget() {}\ndescribe('renderWidget', () => {});\n");
+    indexWorkspace(store, { root });
+    const paths = recallFiles(store, { prompt: "renderWidget" }).map((h) => h.relPath);
+    expect(paths).toContain("src/widget.ts");
+    expect(paths).not.toContain("test/widget.test.ts");
+  });
+
+  // -------------------------------------------------------------------------
+  // matched-symbol payload path (0.8.x). A symbol-rollup hit carries the
+  // matched symbol(s) (name + signature) so the injection payload can show
+  // the span and the agent jumps to it instead of grepping to locate it in a
+  // monolithic file. A basename/summary-only hit must NOT invent a span.
+  // -------------------------------------------------------------------------
+
+  it("carries matchedSymbols (name + signature) on a deep symbol-rollup hit", () => {
+    // The file is reachable for "record" ONLY via the symbol index: its first
+    // 12 symbols (all the summary `defines:` shows) are generic `Thing{i}`,
+    // and `record` is far down — exactly the zod-0e960108 monolith shape.
+    const dummies = Array.from({ length: 15 }, (_, i) => `export class Thing${i} {}`).join("\n");
+    plant("packages/zod/src/schemas.ts",
+      "/** core schema primitives */\n" + dummies +
+      "\nexport function record<Key extends ZodRecordKey, Value extends SomeType>(key: Key, value: Value) {}\n");
+    plant("src/unrelated.ts", "/** helpers */\nexport function helper() {}\n");
+    indexWorkspace(store, { root });
+
+    const hit = recallFiles(store, { prompt: "record" })
+      .find((h) => h.relPath === "packages/zod/src/schemas.ts");
+    expect(hit).toBeDefined();
+    expect(hit!.matchedSymbols).toBeDefined();
+    const rec = hit!.matchedSymbols!.find((s) => s.name === "record");
+    expect(rec).toBeDefined();
+    expect(rec!.signature).toContain("function record");
+  });
+
+  it("does NOT invent matchedSymbols on a basename/summary-only hit", () => {
+    // 'widget' matches by basename + summary, but the file defines no symbol
+    // whose name/tokens are 'widget' (the function is renderThing). The hit
+    // must surface WITHOUT a fabricated matchedSymbols span.
+    plant("src/widget.ts", "/** widget rendering module */\nexport function renderThing() {}\n");
+    indexWorkspace(store, { root });
+
+    const hit = recallFiles(store, { prompt: "widget" })
+      .find((h) => h.relPath === "src/widget.ts");
+    expect(hit).toBeDefined();
+    expect(hit!.matchedSymbols).toBeUndefined();
+  });
+
+  it("dedupes matched symbols by name within a file (class + function share a name)", () => {
+    // extractFileSymbols dedupes by kind:name, so a class `record` and a
+    // function `record` produce TWO rows with the same NAME. The rollup must
+    // collapse them to a single matchedSymbols entry.
+    plant("src/schemas.ts",
+      "export class record {}\nexport function record(a: unknown) { return a; }\n");
+    indexWorkspace(store, { root });
+
+    const hit = recallFiles(store, { prompt: "record" })
+      .find((h) => h.relPath === "src/schemas.ts");
+    expect(hit).toBeDefined();
+    expect(hit!.matchedSymbols).toBeDefined();
+    expect(hit!.matchedSymbols!.filter((s) => s.name === "record").length).toBe(1);
+  });
+});

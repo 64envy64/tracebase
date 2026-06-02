@@ -30,7 +30,9 @@ import type { BlockServer, RecallV2Result } from "../core/block-serving.js";
 import type { ToolPatternSignal } from "../core/tool-loop-detect.js";
 import type { InjectionPayload } from "../core/build-injection-payload.js";
 import type { readCascadeConfig, readHoldoutConfig } from "../core/config.js";
+import type { ApplicabilityCanaryConfig } from "../types.js";
 
+import { readBreakerSnapshot, noteCanaryActivityIfActive } from "../experiments/canary-breaker.js";
 import { detectToolPattern } from "../core/tool-loop-detect.js";
 import { buildInjectionPayload } from "../core/build-injection-payload.js";
 import { buildDriftAugmentation } from "../core/drift-trigger.js";
@@ -66,6 +68,13 @@ export type HoldoutLoader = () => ReturnType<typeof readHoldoutConfig>;
  * `tracebase cascade set-rate` takes effect without a restart.
  */
 export type CascadeLoader = () => ReturnType<typeof readCascadeConfig>;
+
+/**
+ * Phase D.4.1 — sibling loader for the persisted applicability-canary config.
+ * Hot-loaded per prompt so `tracebase canary enable|disable` takes effect
+ * without a restart, identically across the hook and SDK transports.
+ */
+export type CanaryLoader = () => ApplicabilityCanaryConfig | null;
 
 export interface RecallForPromptOptions {
   /** User prompt — already extracted, leakage-bounded by the caller. */
@@ -161,6 +170,12 @@ export async function recallForPrompt(
   holdoutLoader: HoldoutLoader,
   opts: RecallForPromptOptions,
   cascadeLoader?: CascadeLoader,
+  /**
+   * Phase D.4.1 — fresh-per-task loader for the persisted applicability-canary
+   * config. Optional/absent ⇒ the canary rail never engages (byte-identical).
+   * Threaded identically through the MCP, hook and SDK transports.
+   */
+  canaryLoader?: CanaryLoader,
 ): Promise<RecallForPromptResult> {
   const recallScope = opts.sessionId ? sessionScope(opts.sessionId) : "project";
 
@@ -267,6 +282,16 @@ export async function recallForPrompt(
     {
       readHoldoutConfig: holdoutLoader,
       ...(cascadeLoader ? { readCascadeConfig: cascadeLoader } : {}),
+      ...(canaryLoader ? { readCanaryConfig: canaryLoader } : {}),
+      // D.4.2 — when the canary can engage, also wire the circuit breaker: a cheap
+      // hot-path snapshot gate + the post-exposure ingestion trigger. Same boundary
+      // as MCP/SDK; both read/write the project-local breaker state.
+      ...(canaryLoader
+        ? {
+            readBreakerSnapshot: () => readBreakerSnapshot(opts.basePath),
+            noteCanaryActivity: () => noteCanaryActivityIfActive(opts.basePath, store),
+          }
+        : {}),
     },
   );
 

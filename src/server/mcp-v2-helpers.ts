@@ -418,6 +418,12 @@ export interface StoreReasoningPatternArgs {
   framework?: string;
   errorType?: string;
   apiSurface?: string[];
+  /** Who/what distilled this pattern. Defaults to "rule" (heuristic capture). */
+  distilledBy?: "llm" | "rule" | "manual";
+  /** Capture-pipeline version stamp (audit). */
+  captureVersion?: string;
+  /** Distiller version / name stamp (audit). */
+  distillerVersion?: string;
   /**
    * queryId from the get_reasoning_patterns call that triggered this
    * capture. Used as the origin case ref's `traceId` for audit — so
@@ -508,7 +514,12 @@ export function storeReasoningPattern(
       // sourceTaskId for audit; a fresh UUID is fine (no query to link).
       sourceTaskId: args.queryId ?? randomUUID(),
       extractedFrom: "trajectory",
-      distilledBy: "llm",
+      // Default "rule": the runtime capture path is heuristic. Callers that
+      // genuinely ran an LLM distiller (or an agent authoring by hand) pass
+      // the accurate value — stamping "llm" unconditionally was a provenance lie.
+      distilledBy: args.distilledBy ?? "rule",
+      ...(args.captureVersion ? { captureVersion: args.captureVersion } : {}),
+      ...(args.distillerVersion ? { distillerVersion: args.distillerVersion } : {}),
     },
   };
 

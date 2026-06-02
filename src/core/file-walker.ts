@@ -129,6 +129,24 @@ const EXCLUDED_DIR_BASENAMES = new Set<string>([
   ".cache",
   ".pnpm-store",
   ".turbo",
+  // Python virtualenvs + dependency trees + tool caches. These hold
+  // installed third-party packages (often vendoring other libraries, e.g.
+  // pip bundles `rich`), not the project's own source — indexing them
+  // pollutes recall with dependency junk. Matched by EXACT directory
+  // basename, so a source file like `environment.ts` or a dir named
+  // `environments/` is unaffected.
+  ".venv",
+  "venv",
+  ".env",
+  "env",
+  "site-packages",
+  "dist-packages",
+  "__pycache__",
+  ".tox",
+  ".nox",
+  ".pytest_cache",
+  ".mypy_cache",
+  ".ruff_cache",
 ]);
 
 /**

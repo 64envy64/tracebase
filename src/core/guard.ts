@@ -265,3 +265,21 @@ export function detectPromptInjectionPatterns(corpus: string): string | null {
   }
   return null;
 }
+
+/**
+ * Replace every leakage / prompt-injection span with a `[redacted]` marker.
+ * Used to sanitize free-text BEFORE it crosses the retrieval-provider DTO
+ * boundary (so a remote adapter never receives a path / secret / injection
+ * payload even inside the bounded retrieval intent). Pure, never throws; a
+ * clean string is returned unchanged. The marker tokenizes to harmless noise,
+ * so scrubbing a query never helps it match.
+ */
+export function scrubSensitiveSpans(text: string): string {
+  if (typeof text !== "string" || text.length === 0) return typeof text === "string" ? text : "";
+  let out = text;
+  for (const { re } of [...LEAKAGE_PATTERNS_EXTENDED, ...PROMPT_INJECTION_PATTERNS]) {
+    const flags = re.flags.includes("g") ? re.flags : `${re.flags}g`;
+    out = out.replace(new RegExp(re.source, flags), " [redacted] ");
+  }
+  return out;
+}

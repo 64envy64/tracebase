@@ -910,3 +910,187 @@ describe("sanitizeForCloud — unknown mechanisms families are dropped", () => {
     expect(serialized).not.toContain("\"secret\"");
   });
 });
+
+describe("sanitizeForCloud — Router V2 shadow comparison never reaches the cloud", () => {
+  it("strips a router.shadow_comparison-shaped object whole (local-only stream)", () => {
+    // The shadow comparison stream is intentionally NOT part of UsageMetrics.
+    // Even if a future refactor accidentally bubbled one into a cloud sample,
+    // the allowlist has no entry for it → it is dropped entirely. This locks
+    // that block ids, query hashes, and family stats stay on the machine.
+    const out = sanitizeForCloud({
+      installationId: "inst-1",
+      routerShadow: {
+        queryHash: "q_abc123",
+        v1TopBlockId: "block-uuid-1",
+        v2TopBlockId: "block-uuid-2",
+        familyCount: 3,
+        topFamilySupport: 2,
+        v2OverheadMs: 2,
+      },
+      metrics: {
+        // Also reject it if it tries to ride inside metrics.
+        routerShadow: { v2TopBlockId: "block-uuid-3", redactedFieldCount: 0 },
+      },
+    }) as { installationId?: string; routerShadow?: unknown; metrics?: { routerShadow?: unknown } };
+
+    expect(out.installationId).toBe("inst-1"); // allowlisted envelope field survives
+    expect(out.routerShadow).toBeUndefined(); // whole shadow object dropped
+    expect(out.metrics?.routerShadow).toBeUndefined();
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain("block-uuid"); // no opaque ids reach the wire
+    expect(serialized).not.toContain("q_abc123"); // no query hash reaches the wire
+  });
+
+  it("strips a retrieval.hybrid_comparison-shaped object whole (Phase C, local-only)", () => {
+    const out = sanitizeForCloud({
+      installationId: "inst-1",
+      retrievalHybrid: {
+        queryHash: "q_xyz789",
+        provider: "deterministic-local",
+        sparseTopBlockId: "block-uuid-1",
+        hybridTopBlockId: "block-uuid-2",
+        semanticOnly: 2,
+        rankMovement: 3,
+      },
+      metrics: { retrievalHybrid: { provider: "deterministic-local", hybridTopBlockId: "block-uuid-3" } },
+    }) as { installationId?: string; retrievalHybrid?: unknown; metrics?: { retrievalHybrid?: unknown } };
+    expect(out.installationId).toBe("inst-1");
+    expect(out.retrievalHybrid).toBeUndefined();
+    expect(out.metrics?.retrievalHybrid).toBeUndefined();
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain("block-uuid");
+    expect(serialized).not.toContain("q_xyz789");
+  });
+
+  it("strips a reasoning.evidence_comparison-shaped object whole (Phase C.2, local-only)", () => {
+    const out = sanitizeForCloud({
+      installationId: "inst-1",
+      evidenceComparison: {
+        queryHash: "q_evid42",
+        v3TopBlockId: "block-uuid-9",
+        servedTopBlockId: "block-uuid-8",
+        lane: "semantic-license",
+        licenseReason: "structured-corroborated",
+        licensedCandidates: 2,
+      },
+      metrics: { evidenceComparison: { lane: "semantic-license", v3TopBlockId: "block-uuid-7" } },
+    }) as { installationId?: string; evidenceComparison?: unknown; metrics?: { evidenceComparison?: unknown } };
+    expect(out.installationId).toBe("inst-1");
+    expect(out.evidenceComparison).toBeUndefined();
+    expect(out.metrics?.evidenceComparison).toBeUndefined();
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain("block-uuid");
+    expect(serialized).not.toContain("q_evid42");
+    expect(serialized).not.toContain("semantic-license");
+  });
+
+  it("strips a V4 contrastive comparison-shaped object whole (Phase C.3, local-only)", () => {
+    const out = sanitizeForCloud({
+      installationId: "inst-1",
+      evidenceComparison: {
+        queryHash: "q_v4hash",
+        v3TopBlockId: "block-uuid-3",
+        v4TopBlockId: "block-uuid-4",
+        v4LicenseReason: "ambiguous-sibling",
+        v4DiscriminativeSupport: 0.4,
+        v4HasCompetitor: true,
+        v4FamilySeparation: 0.12,
+      },
+      metrics: { evidenceComparison: { v4LicenseReason: "no-competitor", v4TopBlockId: "block-uuid-5" } },
+    }) as { installationId?: string; evidenceComparison?: unknown; metrics?: { evidenceComparison?: unknown } };
+    expect(out.installationId).toBe("inst-1");
+    expect(out.evidenceComparison).toBeUndefined();
+    expect(out.metrics?.evidenceComparison).toBeUndefined();
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain("block-uuid");
+    expect(serialized).not.toContain("q_v4hash");
+    expect(serialized).not.toContain("ambiguous-sibling");
+    expect(serialized).not.toContain("no-competitor");
+  });
+
+  it("strips a query_compiler_comparison-shaped object whole (Phase D.1, local-only)", () => {
+    const out = sanitizeForCloud({
+      installationId: "inst-1",
+      queryCompiler: {
+        queryHash: "q_d1hash",
+        compiler: "structured-two-view.v1",
+        literalViewHash: "q_litview",
+        causalViewHash: "q_causview",
+        causalV4TopBlockId: "block-uuid-d1",
+        causalSemanticOnly: 3,
+        causalAddedDecision: true,
+      },
+      metrics: { queryCompiler: { literalViewHash: "q_litview2", causalV4TopBlockId: "block-uuid-d2" } },
+    }) as { installationId?: string; queryCompiler?: unknown; metrics?: { queryCompiler?: unknown } };
+    expect(out.installationId).toBe("inst-1");
+    expect(out.queryCompiler).toBeUndefined();
+    expect(out.metrics?.queryCompiler).toBeUndefined();
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain("block-uuid");
+    expect(serialized).not.toContain("q_d1hash");
+    expect(serialized).not.toContain("q_litview");
+    expect(serialized).not.toContain("q_causview");
+    expect(serialized).not.toContain("structured-two-view");
+  });
+
+  it("strips an applicability_comparison-shaped object whole (Phase D.2, local-only)", () => {
+    const out = sanitizeForCloud({
+      installationId: "inst-1",
+      applicability: {
+        queryHash: "q_d2hash",
+        v4TopBlockId: "block-uuid-a",
+        applicabilityTopBlockId: "block-uuid-b",
+        applicabilityVerdict: "applicable",
+        applicabilityProvider: "deterministic-applicability.v1",
+        changedDecision: "reranker_only_apply",
+      },
+      metrics: { applicability: { applicabilityVerdict: "inapplicable", applicabilityTopBlockId: "block-uuid-c" } },
+    }) as { installationId?: string; applicability?: unknown; metrics?: { applicability?: unknown } };
+    expect(out.installationId).toBe("inst-1");
+    expect(out.applicability).toBeUndefined();
+    expect(out.metrics?.applicability).toBeUndefined();
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain("block-uuid");
+    expect(serialized).not.toContain("q_d2hash");
+    expect(serialized).not.toContain("reranker_only_apply");
+    expect(serialized).not.toContain("deterministic-applicability");
+  });
+
+  it("strips an applicability ledger / replay payload whole (Phase D.3, local-only)", () => {
+    const out = sanitizeForCloud({
+      installationId: "inst-1",
+      applicabilityLedger: {
+        trials: [{ queryHash: "q_d3hash", candidateBlockId: "block-uuid-l", observability: "counterfactual_unobserved", label: "helpful" }],
+        policies: { reranker: { identifiable: { precisionAtObservedFire: 1 } } },
+      },
+      applicabilityReplay: { policy: "reranker", corpus: { organic: 3 } },
+      metrics: { applicabilityLedger: { candidateBlockId: "block-uuid-m" } },
+    }) as { installationId?: string; applicabilityLedger?: unknown; applicabilityReplay?: unknown; metrics?: { applicabilityLedger?: unknown } };
+    expect(out.installationId).toBe("inst-1");
+    expect(out.applicabilityLedger).toBeUndefined();
+    expect(out.applicabilityReplay).toBeUndefined();
+    expect(out.metrics?.applicabilityLedger).toBeUndefined();
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain("block-uuid");
+    expect(serialized).not.toContain("q_d3hash");
+    expect(serialized).not.toContain("counterfactual_unobserved");
+  });
+
+  it("strips a canary exposure / config payload whole (Phase D.4, local-only)", () => {
+    const out = sanitizeForCloud({
+      installationId: "inst-1",
+      canaryExposure: { queryHash: "q_d4hash", unitHash: "u_abc123", blockId: "block-uuid-c", arm: "treatment", propensity: 0.05, policyVersion: "deterministic-applicability.v1" },
+      applicabilityCanary: { enabled: true, rate: 0.05, salt: "secret-salt-xyz", policyVersion: "deterministic-applicability.v1" },
+      metrics: { canaryExposure: { unitHash: "u_def456", blockId: "block-uuid-d" } },
+    }) as { installationId?: string; canaryExposure?: unknown; applicabilityCanary?: unknown; metrics?: { canaryExposure?: unknown } };
+    expect(out.installationId).toBe("inst-1");
+    expect(out.canaryExposure).toBeUndefined();
+    expect(out.applicabilityCanary).toBeUndefined();
+    expect(out.metrics?.canaryExposure).toBeUndefined();
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain("block-uuid");
+    expect(serialized).not.toContain("q_d4hash");
+    expect(serialized).not.toContain("u_abc123");
+    expect(serialized).not.toContain("secret-salt-xyz");
+  });
+});

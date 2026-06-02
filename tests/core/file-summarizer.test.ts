@@ -255,3 +255,40 @@ describe("summarizeFile — plain text + edge cases", () => {
     expect(out.summary).toContain("feature/index.ts");
   });
 });
+
+describe("summarizeFile — recall-surface enrichment (box-6)", () => {
+  it("surfaces exported AND local symbols in the summary `defines:` list", () => {
+    // No doc comment — the file opens with an import. The summary must
+    // still carry the file's own identifier vocabulary so a code query
+    // ("derivative") matches it, not just files that share a stemmed word.
+    const content = [
+      "import { isConstantNode } from '../../utils/is.js'",
+      "export const createDerivative = factory('derivative', [], () => {})",
+      "function plainDerivative (expr) { return expr }",
+    ].join("\n");
+    const out = summarizeFile({ relPath: "src/function/algebra/derivative.js", content });
+    expect(out.summary).toContain("defines:");
+    expect(out.summary).toContain("createDerivative");
+    expect(out.summary).toContain("plainDerivative");
+  });
+
+  it("omits a noisy import-only fallback first line from the summary", () => {
+    const content = "import { foo } from './foo.js'\nexport function bar() {}\n";
+    const out = summarizeFile({ relPath: "src/bar.ts", content });
+    // The bare `import …` first line is recall noise — it must NOT appear
+    // as a "First line:" blurb; the symbol vocabulary carries the signal.
+    expect(out.summary).not.toContain("First line: import");
+    expect(out.summary).toContain("defines:");
+    expect(out.summary).toContain("bar");
+  });
+
+  it("keeps a meaningful (non-import) fallback first line", () => {
+    // Only import/from/require/use/package lines are treated as noise. A
+    // plain statement first line still carries signal and is preserved.
+    const content = "const VERSION = computeVersion()\nexport function go() {}\n";
+    const out = summarizeFile({ relPath: "src/x.ts", content });
+    expect(out.summary).toContain("First line: const VERSION = computeVersion()");
+    expect(out.summary).toContain("defines:");
+    expect(out.summary).toContain("go");
+  });
+});

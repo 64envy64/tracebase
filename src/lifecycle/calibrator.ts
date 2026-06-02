@@ -25,6 +25,7 @@ import {
   predictIsotonic,
   type IsotonicModel,
 } from "./isotonic.js";
+import { SERVING_FEATURE_VERSION } from "../core/serving-confidence.js";
 import {
   effectiveAttributionStrength,
   meetsHelpfulThreshold,
@@ -124,14 +125,22 @@ export function fitCalibratorFromEvents(
       strength !== undefined &&
       meetsHelpfulThreshold(strength) &&
       outcome.resolved;
-    training.push({ x: inj.score, y: helpful ? 1 : 0 });
+    // C3 migration — train on the evidence-confidence signal the gate actually
+    // consumed. Production injections always carry it; the fallback to the
+    // legacy `score` covers only pre-migration / synthetic events. The
+    // feature-version stamp below + the `loadBlockCalibrator` guard are the
+    // serve-time safety that keeps a stale-domain model from being applied.
+    const x = inj.evidenceConfidence ?? inj.score;
+    training.push({ x, y: helpful ? 1 : 0 });
   }
 
   const minSample = opts.minSample ?? 20;
   if (training.length < minSample) return null;
 
   const now = (opts.now ?? Date.now)();
-  return fitIsotonic(training, now);
+  // Stamp the feature-schema version so the load guard can reject this model
+  // once the schema evolves (forward-compat for embeddings / proximity).
+  return { ...fitIsotonic(training, now), featureVersion: SERVING_FEATURE_VERSION };
 }
 
 /**
@@ -170,7 +179,14 @@ export function fitAndSaveBlockCalibrator(
  */
 export function loadBlockCalibrator(store: BlockStore): Calibrator {
   const model = store.loadCalibrator<IsotonicModel>(BLOCK_CALIBRATOR_NAME);
-  return model ? isotonicCalibrator(model) : identityBlockCalibrator;
+  // Refuse to serve a calibrator trained under a different (or absent)
+  // feature-schema version — its input domain no longer matches what the gate
+  // serves, so applying it would mis-calibrate. Fall back to identity until a
+  // current-version model is fitted.
+  if (!model || model.featureVersion !== SERVING_FEATURE_VERSION) {
+    return identityBlockCalibrator;
+  }
+  return isotonicCalibrator(model);
 }
 
 // ---------------------------------------------------------------------------

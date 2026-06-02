@@ -21,8 +21,12 @@ import {
   normalizeInstallAgents,
   readCascadeConfig,
   readHoldoutConfig,
+  readApplicabilityCanaryConfig,
+  resolveCanaryServingState,
+  APPLICABILITY_CANARY_KILL_ENV,
 } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
+import { readBreakerSnapshot } from "../../experiments/canary-breaker.js";
 import type { CascadeConfig, TraceBaseConfig } from "../../types.js";
 import { MiniLMReranker } from "../../core/rerankers/minilm.js";
 import {
@@ -38,6 +42,11 @@ import {
   type InstallAgent,
 } from "../install-targets.js";
 import { readHookHealth } from "../hook-self-heal.js";
+import { resolveReasoningRouterMode, REASONING_ROUTER_ENV } from "../../experiments/reasoning-router-rollout.js";
+import { resolveReasoningRetrievalMode, REASONING_RETRIEVAL_ENV } from "../../experiments/reasoning-retrieval-rollout.js";
+import { resolveReasoningEvidenceMode, REASONING_EVIDENCE_ENV } from "../../experiments/reasoning-evidence-rollout.js";
+import { resolveReasoningQueryCompilerMode, REASONING_QUERY_COMPILER_ENV } from "../../experiments/reasoning-query-compiler-rollout.js";
+import { resolveReasoningApplicabilityMode, REASONING_APPLICABILITY_ENV } from "../../experiments/reasoning-applicability-rollout.js";
 
 /**
  * 0.6.0 — `info` added for purely diagnostic state that's
@@ -359,6 +368,24 @@ export function runDoctor(invocationPath: string): DoctorReport {
   // download via @xenova/transformers cache). We NEVER auto-`npm
   // install` native deps; missing-dep FAIL emits the exact command.
   appendCascadeRerankerCheck(checks, projectRoot);
+
+  // --- Router V2 rollout (TRACEBASE_REASONING_ROUTER) — diagnostic surface.
+  //
+  // resolveReasoningRouterMode() returns diagnostics that the runtime
+  // construction path (routerServingOptions) intentionally does not log on the
+  // hot path; doctor is the operator-facing surface for them. A typo'd env value
+  // fails safe to `off`, and is reported here as a WARN so it isn't silent.
+  checks.push(reasoningRouterDoctorCheck());
+  // --- Phase C hybrid retrieval rollout (TRACEBASE_REASONING_RETRIEVAL).
+  checks.push(reasoningRetrievalDoctorCheck());
+  // --- Phase C.2 ServingEvidenceV3 rollout (TRACEBASE_REASONING_EVIDENCE).
+  checks.push(reasoningEvidenceDoctorCheck());
+  // --- Phase D.1 two-view query-compiler rollout (TRACEBASE_REASONING_QUERY_COMPILER).
+  checks.push(reasoningQueryCompilerDoctorCheck());
+  // --- Phase D.2 applicability-reranker rollout (TRACEBASE_REASONING_APPLICABILITY).
+  checks.push(reasoningApplicabilityDoctorCheck());
+  // --- Phase D.4 applicability canary serving state (persisted config + env kill).
+  checks.push(applicabilityCanaryDoctorCheck(projectRoot));
 
   // --- Live MCP boot probe
   //
@@ -1202,6 +1229,249 @@ function appendAgentIntegrationChecks(
 
 function stateAbbrev(s: HookEventState): string {
   return s === "canonical" ? "ok" : s;
+}
+
+/**
+ * Router V2 rollout diagnostic check. Reads TRACEBASE_REASONING_ROUTER and
+ * reports the effective mode; a typo fails safe to `off` and is surfaced as a
+ * WARN (never silent). The message is static operator-facing text — no prompt,
+ * path, or the raw (possibly-arbitrary) env value is echoed. Exported for tests.
+ */
+export function reasoningRouterDoctorCheck(env: NodeJS.ProcessEnv = process.env): DoctorCheck {
+  const { mode, diagnostics } = resolveReasoningRouterMode(env);
+  const invalid = diagnostics.some((d) => d.includes("ignored"));
+  if (invalid) {
+    return {
+      name: "reasoning-router",
+      level: "warn",
+      message: `Router V2 rollout: invalid ${REASONING_ROUTER_ENV} value — defaulted to off (serving V1 only)`,
+      fix: `Set ${REASONING_ROUTER_ENV} to one of: off | shadow | on.`,
+    };
+  }
+  if (mode === "shadow") {
+    return {
+      name: "reasoning-router",
+      level: "info",
+      message: "Router V2 rollout: shadow (serving V1; computing V2 side-by-side for comparison telemetry)",
+    };
+  }
+  if (mode === "on") {
+    return {
+      name: "reasoning-router",
+      level: "pass",
+      message: "Router V2 rollout: on (serving V2-family; fails open to V1)",
+    };
+  }
+  return {
+    name: "reasoning-router",
+    level: "info",
+    message: "Router V2 rollout: off (serving V1 only; default)",
+  };
+}
+
+/**
+ * Phase C hybrid retrieval rollout diagnostic. Reads TRACEBASE_REASONING_RETRIEVAL
+ * and reports the effective mode; a typo fails safe to `off` and is surfaced as
+ * a WARN. Static operator-facing text — no prompt/path/raw value echoed.
+ * Exported for tests.
+ */
+export function reasoningRetrievalDoctorCheck(env: NodeJS.ProcessEnv = process.env): DoctorCheck {
+  const { mode, diagnostics } = resolveReasoningRetrievalMode(env);
+  const invalid = diagnostics.some((d) => d.includes("ignored"));
+  if (invalid) {
+    return {
+      name: "reasoning-retrieval",
+      level: "warn",
+      message: `Hybrid retrieval rollout: invalid ${REASONING_RETRIEVAL_ENV} value — defaulted to off (sparse FTS only)`,
+      fix: `Set ${REASONING_RETRIEVAL_ENV} to one of: off | shadow | on.`,
+    };
+  }
+  if (mode === "shadow") {
+    return {
+      name: "reasoning-retrieval",
+      level: "info",
+      message: "Hybrid retrieval rollout: shadow (serving sparse FTS; computing sparse-vs-hybrid comparison)",
+    };
+  }
+  if (mode === "on") {
+    return {
+      name: "reasoning-retrieval",
+      level: "pass",
+      message: "Hybrid retrieval rollout: on (serving fused sparse⊕semantic; fails open to sparse)",
+    };
+  }
+  return {
+    name: "reasoning-retrieval",
+    level: "info",
+    message: "Hybrid retrieval rollout: off (sparse FTS only; default)",
+  };
+}
+
+/**
+ * Phase C.2 ServingEvidenceV3 rollout diagnostic. off/shadow only — `on` is not
+ * permitted (V3 is shadow-only) and a typo fails safe to off. Static text;
+ * exported for tests.
+ */
+export function reasoningEvidenceDoctorCheck(env: NodeJS.ProcessEnv = process.env): DoctorCheck {
+  const { mode, diagnostics } = resolveReasoningEvidenceMode(env);
+  const refused = diagnostics.some((d) => d.includes("not permitted"));
+  const invalid = diagnostics.some((d) => d.includes("ignored"));
+  if (refused) {
+    return {
+      name: "reasoning-evidence",
+      level: "warn",
+      message: `Evidence V3 rollout: ${REASONING_EVIDENCE_ENV}=on is not permitted (V3 is shadow-only) — using off`,
+      fix: `Set ${REASONING_EVIDENCE_ENV} to off or shadow.`,
+    };
+  }
+  if (invalid) {
+    return {
+      name: "reasoning-evidence",
+      level: "warn",
+      message: `Evidence V3 rollout: invalid ${REASONING_EVIDENCE_ENV} value — defaulted to off`,
+      fix: `Set ${REASONING_EVIDENCE_ENV} to off or shadow.`,
+    };
+  }
+  if (mode === "shadow") {
+    return {
+      name: "reasoning-evidence",
+      level: "info",
+      message: "Evidence rollout: shadow (serving V1/V2; computing V3 semantic-license + V4 contrastive comparison)",
+    };
+  }
+  return {
+    name: "reasoning-evidence",
+    level: "info",
+    message: "Evidence V3 rollout: off (serving V1/V2; default)",
+  };
+}
+
+/**
+ * Phase D.1 two-view query-compiler rollout diagnostic. off/shadow only — `on`
+ * is not permitted (the causal candidate lane is shadow-only) and a typo fails
+ * safe to off. Static text; exported for tests.
+ */
+export function reasoningQueryCompilerDoctorCheck(env: NodeJS.ProcessEnv = process.env): DoctorCheck {
+  const { mode, diagnostics } = resolveReasoningQueryCompilerMode(env);
+  const refused = diagnostics.some((d) => d.includes("not permitted"));
+  const invalid = diagnostics.some((d) => d.includes("ignored"));
+  if (refused) {
+    return {
+      name: "reasoning-query-compiler",
+      level: "warn",
+      message: `Query-compiler rollout: ${REASONING_QUERY_COMPILER_ENV}=on is not permitted (causal lane is shadow-only) — using off`,
+      fix: `Set ${REASONING_QUERY_COMPILER_ENV} to off or shadow.`,
+    };
+  }
+  if (invalid) {
+    return {
+      name: "reasoning-query-compiler",
+      level: "warn",
+      message: `Query-compiler rollout: invalid ${REASONING_QUERY_COMPILER_ENV} value — defaulted to off`,
+      fix: `Set ${REASONING_QUERY_COMPILER_ENV} to off or shadow.`,
+    };
+  }
+  if (mode === "shadow") {
+    return {
+      name: "reasoning-query-compiler",
+      level: "info",
+      message: "Query-compiler rollout: shadow (serving unchanged; comparing sparse / literal-hybrid / literal+causal candidate slates)",
+    };
+  }
+  return {
+    name: "reasoning-query-compiler",
+    level: "info",
+    message: "Query-compiler rollout: off (candidate generation byte-identical; default)",
+  };
+}
+
+/**
+ * Phase D.2 applicability-reranker rollout diagnostic. off/shadow only — `on` is
+ * not permitted (the §4.5 reranker is shadow-only) and a typo fails safe to off.
+ * Static text; exported for tests.
+ */
+export function reasoningApplicabilityDoctorCheck(env: NodeJS.ProcessEnv = process.env): DoctorCheck {
+  const { mode, diagnostics } = resolveReasoningApplicabilityMode(env);
+  const refused = diagnostics.some((d) => d.includes("not permitted"));
+  const invalid = diagnostics.some((d) => d.includes("ignored"));
+  if (refused) {
+    return {
+      name: "reasoning-applicability",
+      level: "warn",
+      message: `Applicability rollout: ${REASONING_APPLICABILITY_ENV}=on is not permitted (reranker is shadow-only) — using off`,
+      fix: `Set ${REASONING_APPLICABILITY_ENV} to off or shadow.`,
+    };
+  }
+  if (invalid) {
+    return {
+      name: "reasoning-applicability",
+      level: "warn",
+      message: `Applicability rollout: invalid ${REASONING_APPLICABILITY_ENV} value — defaulted to off`,
+      fix: `Set ${REASONING_APPLICABILITY_ENV} to off or shadow.`,
+    };
+  }
+  if (mode === "shadow") {
+    return {
+      name: "reasoning-applicability",
+      level: "info",
+      message: "Applicability rollout: shadow (serving unchanged; comparing V4 action vs the memory-applicability reranker verdict)",
+    };
+  }
+  return {
+    name: "reasoning-applicability",
+    level: "info",
+    message: "Applicability rollout: off (serving byte-identical; default)",
+  };
+}
+
+/**
+ * Phase D.4 applicability-canary serving diagnostic. Reads the PERSISTED config
+ * + the env kill switch + the shadow-rollout coherence and reports the EFFECTIVE
+ * state: a live canary serves a bounded sample, so an active canary is a `warn`
+ * (the operator must be aware). Default-off is `info`. Reads project config when
+ * `projectRoot` is given; env-only otherwise. Exported for tests.
+ */
+export function applicabilityCanaryDoctorCheck(projectRoot?: string, env: NodeJS.ProcessEnv = process.env): DoctorCheck {
+  const persisted = projectRoot ? readApplicabilityCanaryConfig(projectRoot) : null;
+  // D.4.2 — a latched (or malformed → fail-off) circuit breaker is reported FIRST
+  // and distinctly as TRIPPED: the canary has auto-halted on a frozen kill rule.
+  const breaker = projectRoot ? readBreakerSnapshot(projectRoot) : { tripped: false, reasons: [] };
+  if (breaker.tripped) {
+    const why = breaker.reasons.join(", ") || "latched";
+    return {
+      name: "applicability-canary",
+      level: "warn",
+      message: `Applicability canary TRIPPED by circuit breaker (${why}) — not exposing`,
+      fix: "Review `tracebase canary health`; after addressing the cause, run `tracebase canary reset-breaker --ack reset-breaker.v1`.",
+    };
+  }
+  const serving = resolveCanaryServingState(persisted, env);
+  if (!persisted?.enabled) {
+    return { name: "applicability-canary", level: "info", message: "Applicability canary: off (default; serving byte-identical)" };
+  }
+  if (!serving.enabled) {
+    return {
+      name: "applicability-canary",
+      level: "info",
+      message: `Applicability canary: configured (rate ${persisted.rate}) but DISABLED by ${serving.killReason ?? "kill switch"} — not exposing`,
+    };
+  }
+  // Persisted-enabled AND not killed → the rail is LIVE. It is inert without the
+  // shadow rollout (no reranker verdict), so flag that explicitly.
+  const shadowOn = (env.TRACEBASE_REASONING_APPLICABILITY ?? "").trim().toLowerCase() === "shadow";
+  if (!shadowOn) {
+    return {
+      name: "applicability-canary",
+      level: "warn",
+      message: `Applicability canary ENABLED (rate ${persisted.rate}) but TRACEBASE_REASONING_APPLICABILITY!=shadow — the canary is INERT (no reranker verdict to act on)`,
+      fix: "Set TRACEBASE_REASONING_APPLICABILITY=shadow, or run `tracebase canary disable` to stop the experiment.",
+    };
+  }
+  return {
+    name: "applicability-canary",
+    level: "warn",
+    message: `Applicability canary LIVE — exposing rate ${persisted.rate} (policy ${persisted.policyVersion}); emergency stop: \`tracebase canary disable\` or ${APPLICABILITY_CANARY_KILL_ENV}=off`,
+  };
 }
 
 // ============================================================================

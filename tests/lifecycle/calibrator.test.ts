@@ -11,6 +11,7 @@ import {
 } from "../../src/lifecycle/calibrator.js";
 import { predictIsotonic } from "../../src/lifecycle/isotonic.js";
 import { BlockServer } from "../../src/core/block-serving.js";
+import { SERVING_FEATURE_VERSION } from "../../src/core/serving-confidence.js";
 import { createBlock } from "../../src/core/block.js";
 import type { ReasoningBlock, StoreBlockInput } from "../../src/types.js";
 
@@ -66,6 +67,10 @@ function seedTrainingEvents(
       event: "injection",
       blockId,
       score,
+      // Post-migration the calibrator trains on the evidence signal; mirror
+      // the seeded `score` as evidenceConfidence so the x-domain is preserved.
+      evidenceConfidence: score,
+      featureVersion: SERVING_FEATURE_VERSION,
     });
     const resolved = score >= helpfulThreshold;
     if (resolved) {
@@ -111,7 +116,7 @@ function seedEventsAtScore(
     });
     store.appendEvent({
       ts: ts + 1, queryId: qid, event: "injection",
-      blockId, score,
+      blockId, score, evidenceConfidence: score, featureVersion: SERVING_FEATURE_VERSION,
     });
     const helpful = i < helpfulCount;
     if (helpful) {
@@ -323,9 +328,6 @@ describe("isotonicCalibrator + BlockServer", () => {
 
     const calibrator = loadBlockCalibrator(store);
 
-    // Single-block retrieval → query-level normalization gives top
-    // score = 1.0. Identity returns 1.0; trained calibrator at 1.0
-    // returns ~0.5 because the training pooled half-helpful there.
     const identityServer = new BlockServer(store, {
       calibrator: identityBlockCalibrator, emitEvents: false,
     });
@@ -333,9 +335,16 @@ describe("isotonicCalibrator + BlockServer", () => {
 
     const identityResult = identityServer.recall({ text: "metaclass inspect" });
     const calibratedResult = calibratedServer.recall({ text: "metaclass inspect" });
-    expect(identityResult.blocks[0].calibratedProb).toBe(1);
-    // Isotonic pooled to y=0.5 at x=1.0.
-    expect(calibratedResult.blocks[0].calibratedProb).toBeCloseTo(0.5, 1);
+    // Post-migration: calibratedProb = calibrate(evidenceConfidence), NOT the
+    // legacy always-1.0 normalized rank score. A strong two-token match yields
+    // high (but sub-1.0) evidence; identity passes it through, while the trained
+    // curve — which pooled only half-helpful at the high end — drags it down.
+    const identityProb = identityResult.blocks[0]!.calibratedProb;
+    const trainedProb = calibratedResult.blocks[0]!.calibratedProb;
+    expect(identityProb).toBeGreaterThan(0.5);
+    expect(identityProb).toBeLessThan(1);
+    expect(trainedProb).toBeLessThan(identityProb);
+    expect(trainedProb).toBeGreaterThan(0);
   });
 
   it("a strict gate + trained calibrator rejects a block that identity would pass", () => {

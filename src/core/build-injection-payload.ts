@@ -31,7 +31,8 @@
  * for any external consumer that wants the audit ribbons.
  */
 import type { RecallV2Result, BlockHit, FactHit } from "./block-serving.js";
-import type { FileHit } from "./file-indexer.js";
+import type { FileHit, MatchedSymbol } from "./file-indexer.js";
+import { detectLeakageExtended, detectPromptInjectionPatterns } from "./guard.js";
 
 export interface BuildInjectionPayloadOptions {
   /**
@@ -159,6 +160,15 @@ const CHUNK_MAX_HARD_CEILING = 4;
 const CHARS_PER_TOKEN = 4;
 /** Per-file-line clamp inside the `<file_memory>` section. */
 const FILE_LINE_MAX_CHARS = 220;
+/**
+ * Per-symbol signature clamp inside the `matched:` prefix. Tighter than the
+ * 140-char stored cap — the agent needs the shape (name + opening signature),
+ * not the full generic tail. The whole file line is still clamped at
+ * FILE_LINE_MAX_CHARS, so the total `<file_memory>` char budget is preserved.
+ */
+const MATCHED_SIGNATURE_MAX_CHARS = 100;
+/** Matched symbols rendered per file line (the agent needs the span, not a list). */
+const MATCHED_SYMBOLS_RENDERED = 2;
 /** Per-chunk-line clamp inside the `<context_fold>` section. */
 const CHUNK_LINE_MAX_CHARS = 280;
 
@@ -567,11 +577,65 @@ function renderFactSilent(hit: FactHit): string {
  * line: `• <relPath>: <summary>` clamped to FILE_LINE_MAX_CHARS.
  * The full `<file_memory>` wrapper is added by the caller so the
  * tag bytes count once per section, not per line.
+ *
+ * 0.8.x — when the hit surfaced via the symbol-rollup tier it carries
+ * `matchedSymbols`; we prefix the line with a `matched: <name> — <signature>`
+ * span (1–2 symbols) so the agent jumps straight to the declaration instead of
+ * grepping to locate it inside a monolithic file. The matched span comes FIRST
+ * so, if the line is clamped, the summary tail is what's dropped — not the
+ * span the agent actually needs. Basename/summary-only hits have no
+ * `matchedSymbols` and render exactly as before.
  */
 function renderFileSilent(hit: FileHit): string {
   const summary = trimSentence(hit.summary);
-  const raw = `• ${hit.relPath}: ${summary}`;
+  const matched = renderMatchedSymbols(hit.matchedSymbols);
+  const raw = matched
+    ? `• ${hit.relPath}: ${matched} ${summary}`
+    : `• ${hit.relPath}: ${summary}`;
   return clampFileLine(raw);
+}
+
+/**
+ * Render the `matched: …` span from a FileHit's matched symbols. Deterministic:
+ * dedupe by name, keep the first (best-bm25) `MATCHED_SYMBOLS_RENDERED`,
+ * clamp each signature. Returns "" when there is nothing to render.
+ *
+ * Defense-in-depth: `indexed_symbols` signatures are extracted separately from
+ * the file summary, so the write-time leakage/injection scan (run over the
+ * summary corpus) didn't necessarily see this exact text. We re-scan the
+ * rendered fragment and drop it (fall back to a summary-only line) on any hit,
+ * so a secret-shaped or prompt-injection-shaped signature can never reach the
+ * prompt via the matched-symbol path.
+ */
+function renderMatchedSymbols(symbols: MatchedSymbol[] | undefined): string {
+  if (!symbols || symbols.length === 0) return "";
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const s of symbols) {
+    const name = collapseWs(s.name);
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    const sig = clampSignature(collapseWs(s.signature));
+    parts.push(sig ? `${name} — ${sig}` : name);
+    if (parts.length >= MATCHED_SYMBOLS_RENDERED) break;
+  }
+  if (parts.length === 0) return "";
+  const rendered = `matched: ${parts.join("; ")}.`;
+  if (detectLeakageExtended(rendered) || detectPromptInjectionPatterns(rendered)) {
+    return "";
+  }
+  return rendered;
+}
+
+function clampSignature(s: string): string {
+  if (s.length <= MATCHED_SIGNATURE_MAX_CHARS) return s;
+  const slice = s.slice(0, MATCHED_SIGNATURE_MAX_CHARS);
+  const lastSpace = slice.lastIndexOf(" ");
+  return (lastSpace > MATCHED_SIGNATURE_MAX_CHARS - 30 ? slice.slice(0, lastSpace) : slice) + "…";
+}
+
+function collapseWs(s: string): string {
+  return (s ?? "").replace(/\s+/g, " ").trim();
 }
 
 function clampFileLine(s: string): string {

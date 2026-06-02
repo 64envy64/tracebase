@@ -965,3 +965,219 @@ describe("capture-pre-tool-use — privacy invariants", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// 0.9.x — hardened supervision: mode dispatch, tier ladder, mtime bypass
+// ---------------------------------------------------------------------------
+
+describe("capture-pre-tool-use — 0.9.x hardened supervision", () => {
+  function setMode(mode: "warn" | "soft" | "strict"): void {
+    const cfgPath = join(workDir, ".tracebase", "config.json");
+    const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
+    cfg.toolSupervision = { ...(cfg.toolSupervision ?? {}), mode };
+    writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+  }
+
+  function readArgKeyForHardened(toolName: string, toolInput: Record<string, unknown>, cwd: string = "/work/repo"): string {
+    const cfg = loadConfig(workDir);
+    const db = new Database(cfg.storagePath);
+    const store = new BlockStore(db);
+    try {
+      const result = observeToolBatch(store, {
+        sessionId: "session-deadbeef-0001",
+        cwd,
+        workspaceSalt: getOrMintWorkspaceSalt(workDir)!,
+        toolCalls: [{ toolName, toolInput }],
+      });
+      const row = store.rawDb
+        .prepare("SELECT arg_key FROM tool_observations WHERE id = ?")
+        .get(result.ids[0]!) as { arg_key: string };
+      return row.arg_key;
+    } finally {
+      db.close();
+    }
+  }
+
+  function seedCacheHardened(records: Array<{ argKey: string; toolName: string; sessionId: string; ts: number }>): void {
+    const cache = new RecentToolCache();
+    for (const r of records) cache.append(r);
+    cache.flush(workDir);
+  }
+
+  // 1. mode="warn": even after many dups, never blocks; just systemMessage.
+  it("mode='warn' never blocks regardless of dup count", () => {
+    setMode("warn");
+    const argKey = readArgKeyForHardened("Read", { file_path: "/work/repo/src/auth.ts" });
+    const now = Date.now();
+    seedCacheHardened([
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 1000 },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 800 },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 600 },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 400 },
+    ]);
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
+    expect(out.blocked).toBe(false);
+    const env = JSON.parse(out.envelope) as { decision?: string; systemMessage?: string };
+    expect(env.decision).toBeUndefined();
+    expect(env.systemMessage).toMatch(/reused/);
+  });
+
+  // 2. mode="soft" with 2-3 dups → soft-redirect (decision:block with soft reason).
+  it("mode='soft' issues soft-redirect on 2nd-3rd duplicate", () => {
+    setMode("soft");
+    const argKey = readArgKeyForHardened("Read", { file_path: "/work/repo/src/auth.ts" });
+    const now = Date.now();
+    seedCacheHardened([
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 1000 },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 800 },
+    ]); // 2 prior dups → tier=soft
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
+    expect(out.blocked).toBe(true);
+    const env = JSON.parse(out.envelope) as { decision?: string; reason?: string };
+    expect(env.decision).toBe("block");
+    expect(env.reason).toMatch(/soft-redirect/);
+  });
+
+  // 3. mode="soft" with 4+ dups → still soft-redirect (does NOT escalate to hard block).
+  it("mode='soft' degrades 4+ dups to soft-redirect (no hard block)", () => {
+    setMode("soft");
+    const argKey = readArgKeyForHardened("Read", { file_path: "/work/repo/src/auth.ts" });
+    const now = Date.now();
+    seedCacheHardened([
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 1000 },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 800 },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 600 },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 400 },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 200 },
+    ]);
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
+    expect(out.blocked).toBe(true);
+    const env = JSON.parse(out.envelope) as { reason?: string };
+    expect(env.reason).toMatch(/soft-redirect/);
+    expect(env.reason).not.toMatch(/strict tier/);
+  });
+
+  // 4. mode="strict" with 4+ dups → hard block (different reason copy).
+  it("mode='strict' escalates 4+ dups to hard block", () => {
+    setMode("strict");
+    const argKey = readArgKeyForHardened("Read", { file_path: "/work/repo/src/auth.ts" });
+    const now = Date.now();
+    seedCacheHardened([
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 1000 },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 800 },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 600 },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 400 },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 200 },
+    ]);
+    const out = runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
+    expect(out.blocked).toBe(true);
+    const env = JSON.parse(out.envelope) as { reason?: string };
+    expect(env.reason).toMatch(/strict tier/);
+    expect(env.reason).toMatch(/Stop re-running/);
+  });
+
+  // 5. mtime bypass: file is newer than every prior obs → allow + emit allowed_after_edit.
+  it("mtime bypass: post-edit re-read is allowed (legitimate)", () => {
+    setMode("strict");
+    // Create a real file in the workspace whose mtime is "now".
+    const realPath = join(workDir, "auth.ts");
+    writeFileSync(realPath, "export function auth() { return true; }\n");
+    // Use workDir as cwd so the argKey HMAC matches what capture-pre-tool-use
+    // computes when it processes a stdin with cwd: workDir.
+    const argKey = readArgKeyForHardened("Read", { file_path: realPath }, workDir);
+    // Prior observations are from BEFORE the file's current mtime.
+    const longAgo = Date.now() - 60_000;
+    seedCacheHardened([
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: longAgo },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: longAgo + 1 },
+    ]);
+    // Stdin uses the real path so mtime check fires.
+    const stdin = Buffer.from(
+      JSON.stringify({
+        hook_event_name: "PreToolUse",
+        session_id: "session-deadbeef-0001",
+        cwd: workDir,
+        tool_name: "Read",
+        tool_input: { file_path: realPath },
+      }),
+    );
+    const out = runCapturePreToolUse({ path: workDir }, stdin);
+    expect(out.blocked).toBe(false);
+    const env = JSON.parse(out.envelope);
+    expect(env.decision).toBeUndefined(); // bypassed → empty envelope
+    // verify allowed_after_edit event was emitted
+    const events = readEvents("tool_supervision.allowed_after_edit");
+    expect(events.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // 6. mtime check NOT triggered when file mtime is older than prior obs ts.
+  it("no mtime bypass when prior obs is newer than file mtime", () => {
+    setMode("strict");
+    const realPath = join(workDir, "stale.ts");
+    writeFileSync(realPath, "// old\n");
+    // Wait a moment to ensure mtime is in the past relative to seeded ts.
+    const fileMtime = Date.now() - 5000; // simulate file from 5s ago
+    // We can't easily set file mtime exactly; use a path that exists
+    // and seed observations in the FUTURE relative to the file's mtime.
+    const argKey = readArgKeyForHardened("Read", { file_path: realPath }, workDir);
+    const now = Date.now();
+    seedCacheHardened([
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now + 60_000 },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now + 60_001 },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now + 60_002 },
+    ]);
+    const stdin = Buffer.from(
+      JSON.stringify({
+        hook_event_name: "PreToolUse",
+        session_id: "session-deadbeef-0001",
+        cwd: workDir,
+        tool_name: "Read",
+        tool_input: { file_path: realPath },
+      }),
+    );
+    const out = runCapturePreToolUse({ path: workDir }, stdin);
+    // 3 prior dups + no mtime bypass + mode=strict → soft-redirect (priorDupCount=3 → soft tier)
+    expect(out.blocked).toBe(true);
+    // No allowed_after_edit event
+    const events = readEvents("tool_supervision.allowed_after_edit");
+    expect(events.length).toBe(0);
+    void fileMtime;
+  });
+
+  // 7. Env override TRACEBASE_TOOL_MODE wins over config.
+  it("env TRACEBASE_TOOL_MODE overrides config", () => {
+    setMode("warn"); // config says warn
+    process.env.TRACEBASE_TOOL_MODE = "strict"; // env says strict
+    try {
+      const argKey = readArgKeyForHardened("Read", { file_path: "/work/repo/src/auth.ts" });
+      const now = Date.now();
+      seedCacheHardened([
+        { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 1000 },
+        { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 800 },
+        { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 600 },
+        { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 400 },
+        { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 200 },
+      ]);
+      const out = runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
+      expect(out.blocked).toBe(true);
+      const env = JSON.parse(out.envelope) as { reason?: string };
+      expect(env.reason).toMatch(/strict tier/);
+    } finally {
+      delete process.env.TRACEBASE_TOOL_MODE;
+    }
+  });
+
+  // 8. cache_hit event emitted when soft-redirect tier serves.
+  it("emits cache_hit event when soft-redirect serves", () => {
+    setMode("soft");
+    const argKey = readArgKeyForHardened("Read", { file_path: "/work/repo/src/auth.ts" });
+    const now = Date.now();
+    seedCacheHardened([
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 800 },
+      { argKey, toolName: "Read", sessionId: "session-deadbeef-0001", ts: now - 600 },
+    ]);
+    runCapturePreToolUse({ path: workDir }, loadFixture("read.json"));
+    const events = readEvents("tool_supervision.cache_hit");
+    expect(events.length).toBeGreaterThanOrEqual(1);
+  });
+});

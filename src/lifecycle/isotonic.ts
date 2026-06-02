@@ -34,6 +34,14 @@ export interface IsotonicModel {
   n: number;
   /** Epoch ms when the model was fitted. */
   fittedAt: number;
+  /**
+   * Serving feature-schema version the training inputs were drawn from.
+   * `loadBlockCalibrator` refuses to serve a model whose version does not
+   * match the current schema, so a calibrator trained on a stale input
+   * domain (e.g. the legacy normalized rank score) is never used. Optional
+   * for back-compat with models persisted before versioning.
+   */
+  featureVersion?: number;
 }
 
 /**

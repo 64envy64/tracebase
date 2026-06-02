@@ -41,3 +41,42 @@ www/out/
 # demo-tasks/<id>/state-<variant>/ before each verifier run. The
 # JSON outputs and summary.md under demo-runs/ stay tracked.
 demo-runs/**/*-workspace/
+
+# Bench raw artifacts — regenerable from scripts/<bench>-bench/ and
+# bench-runs/<bench>/tasks/. Reports stay in bench-results/, fixtures
+# and PRE-REGISTRATION live in bench-runs/<bench>/ root.
+bench-runs/**/workspaces/
+bench-runs/**/ablation-workspaces/
+bench-runs/**/prompts/
+bench-runs/**/ablation-prompts/
+bench-runs/**/training-prompts/
+bench-runs/**/test-prompts/
+bench-runs/**/probe-injections/
+# lift store DB is seeded from distillates via scripts/lift-bench/seed-captured-store.ts —
+# the distillates JSONL is the source-of-truth, the DB is derived.
+bench-runs/lift/store/
+
+# SWE-bench per-instance trajectory dumps — tens of MB of step-by-step
+# agent state per run. Findings (.md), preds.json, predictions.jsonl,
+# tracebase.*.json summaries and exit_statuses_*.yaml stay versioned.
+eval/swebench/results*/**/*.traj.json
+
+# Path A real-agent harness: raw per-instance Claude Code transcripts
+# (50-200KB jsonl each, agent-state and tool I/O). Per PRE-REGISTRATION-PATH-A.md
+# §"Resolved at lock", raw transcripts stay local-only; per-trajectory
+# JSON summaries under results/ are committed. The `*` glob captures
+# 03 (`tool-supervision-path-a/`) and 04 (`tool-supervision-path-a-04/`)
+# variants under one rule.
+bench-runs/tool-supervision-path-a*/transcripts/**/*.jsonl
+# Internal Phase A pass-flag file used by smoke-04.ts to gate Phase B.
+bench-runs/tool-supervision-path-a-04/results/.phase-a-passed
+
+# File-memory real-repos bench (PRE-REGISTRATION-REAL-REPOS.md). Cloned
+# repos + per-task workspaces + raw transcripts are all heavy and
+# regenerable from repo-pool.json + candidate-pool.json + selected-tasks.json
+# + harness scripts. Per-trajectory JSON summaries under results/ are
+# committed; raw artifacts are not.
+bench-runs/file-memory-real-repos/repos/
+bench-runs/file-memory-real-repos/workspaces/
+bench-runs/file-memory-real-repos/venvs/
+bench-runs/file-memory-real-repos/transcripts/**/*.jsonl

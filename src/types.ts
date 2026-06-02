@@ -304,6 +304,35 @@ export interface ExperimentConfig {
    * runtime-tunable experimental knob lives under one roof.
    */
   cascade?: CascadeConfig;
+  /**
+   * Phase D.4 — explicit opt-in applicability canary state. A sibling of
+   * `holdout` under the shared `experiment` namespace. DEFAULT ABSENT (off):
+   * the canary serving rail is a no-op until an operator explicitly enables it
+   * with a rate + policy acknowledgement. An env var may only DISABLE it.
+   */
+  applicabilityCanary?: ApplicabilityCanaryConfig;
+}
+
+/**
+ * Persisted state of the applicability canary on this local project (Phase D.4).
+ * Parallels `HoldoutConfig`: the salt is generated once on first enable and
+ * preserved across disable / re-enable so assignment is stable. The canary is
+ * APPLY-ONLY in D.4 — it exposes the reranker-selected block when baseline V4
+ * abstains; it never enables reranker withholds.
+ */
+export interface ApplicabilityCanaryConfig {
+  /** When false, the canary serving rail is a no-op (byte-identical serving). */
+  enabled: boolean;
+  /** Treatment fraction in (0, 1]. Ignored when `enabled === false`. */
+  rate: number;
+  /** Deterministic assignment salt; stable for the project lifetime. */
+  salt: string;
+  /** The reranker policy version this canary serves (logged on every exposure). */
+  policyVersion: string;
+  /** ISO timestamp of first-ever enable. Preserved across re-enables. */
+  createdAt: string;
+  /** ISO timestamp of the last state change. */
+  updatedAt: string;
 }
 
 /**
@@ -954,6 +983,10 @@ export interface BlockProvenance {
   distilledAt: number;
   distilledBy: "llm" | "rule" | "manual";
   distilledWithModel?: string;
+  /** Version of the capture pipeline that produced this block (audit). */
+  captureVersion?: string;
+  /** Version / name of the distiller that produced this block (audit). */
+  distillerVersion?: string;
   /** Link back to the full trace if retained. */
   parentTraceId?: string;
   /**
@@ -1658,6 +1691,9 @@ export type AnalyticsEvent =
   | FileMemoryRecalledEvent
   | ToolSupervisionWarnedEvent
   | ToolSupervisionSuppressedEvent
+  | ToolSupervisionAllowedAfterEditEvent
+  | ToolSupervisionCacheHitEvent
+  | ToolSupervisionWouldBlockEvent
   | LoopRedirectedEvent
   | LoopFallbackEvent
   | ContextFoldedEvent
@@ -1681,7 +1717,23 @@ export type AnalyticsEvent =
   // behaviour so the dashboard can show *why* captures fail
   // (validation, leakage, store error) instead of pretending nothing
   // went wrong.
-  | CaptureErrorEvent;
+  | CaptureErrorEvent
+  // Router V2 (rollout=shadow) — one event per recall comparing the served V1
+  // decision with the side-by-side V2-family decision on the SAME candidate
+  // slate. Privacy-safe (queryHash + opaque block ids + counts; no prompt /
+  // body / path). Local-only: never part of the cloud UsageMetrics aggregate.
+  | RouterShadowComparisonEvent
+  // Phase C hybrid retrieval (TRACEBASE_REASONING_RETRIEVAL=shadow) — one event
+  // per recall comparing the sparse FTS slate with the fused sparse⊕semantic
+  // slate (and the decision on each). Privacy-safe + local-only, same contract.
+  | RetrievalHybridComparisonEvent
+  // Phase C.2 ServingEvidenceV3 (TRACEBASE_REASONING_EVIDENCE=shadow) — one event
+  // per recall comparing the served V1/V2 decision with the shadow V3
+  // semantic-license decision. Privacy-safe + local-only, same contract.
+  | ReasoningEvidenceComparisonEvent
+  | ReasoningQueryCompilerComparisonEvent
+  | ReasoningApplicabilityComparisonEvent
+  | ApplicabilityCanaryExposureEvent;
 
 interface EventBase {
   ts: number;
@@ -1696,8 +1748,49 @@ interface EventBase {
   runId?: string;
 }
 
+/**
+ * Privacy-safe serving-decision telemetry, stamped on EVERY retrieval event
+ * (inject, abstain, and zero-hit alike). Carries the gate's inputs + outputs
+ * so an offline aggregator can report fire-rate, precision@fire, abstention
+ * reasons, latency, and calibration coverage WITHOUT persisting the raw prompt
+ * (only `queryHash`). Optional on the event for back-compat with pre-telemetry
+ * rows — old readers ignore it, and old rows simply lack it.
+ */
+export interface ServingTelemetry {
+  /** Correlates with the retrieval event's queryId. */
+  retrievalId: string;
+  /** Non-reversible hash of the prompt — never the raw text. */
+  queryHash: string;
+  /** Optional retrieval scope (e.g. "repo:org/app"). */
+  scope?: string;
+  /** Active blocks in the store at decision time. */
+  corpusSize: number;
+  /** Candidates the ranker returned for the decision. */
+  candidateCount: number;
+  /** Top candidate's absolute evidence confidence. */
+  evidenceConfidence: number;
+  /** Top-vs-second evidence margin. */
+  margin: number;
+  /** Calibrated P(helpful) for the top candidate. */
+  calibratedProb: number;
+  /** Whether the layer injected or abstained. */
+  decision: "inject" | "abstain";
+  /** Abstention reason, or "injected". */
+  reason: string;
+  /** Serving feature-schema version. */
+  featureVersion: number;
+  /** Calibrator model version, or "identity" when unfitted. */
+  calibratorVersion: number | "identity";
+  /** Wall-clock recall latency in ms. */
+  latencyMs: number;
+  /** Block IDs actually injected (empty on abstain / shadow). */
+  injectedBlockIds: string[];
+}
+
 export interface RetrievalEvent extends EventBase {
   event: "retrieval";
+  /** Serving-decision telemetry (Phase 1). Optional for back-compat. */
+  serving?: ServingTelemetry;
   /**
    * Top-K block candidates AFTER the full cascade
    * (BM25 → rerank → MMR). `rerankerScore` + `rerankerRank` are
@@ -1801,6 +1894,15 @@ export interface InjectionEvent extends EventBase {
   score: number;
   /** Calibrated probability of helpful, if calibrator has been fit. */
   calibratedProb?: number;
+  /**
+   * Absolute evidence confidence (serving-confidence feature v1) the gate
+   * consumed for this injection. Optional for back-compat with pre-migration
+   * events. The block calibrator trains ONLY on events carrying this field,
+   * so legacy max-normalized rank-score events never pollute the v1 curve.
+   */
+  evidenceConfidence?: number;
+  /** Serving feature-schema version this injection's evidence was computed under. */
+  featureVersion?: number;
 }
 
 export interface AgentUsedEvent extends EventBase {
@@ -2140,6 +2242,48 @@ export interface ToolSupervisionSuppressedEvent extends EventBase {
 }
 
 /**
+ * 0.9.x hardened supervision — emitted when the mtime-bypass branch
+ * fires (Read-family safe-read whose target file's mtime is newer than
+ * every prior matching observation in the session window). The tool is
+ * allowed through as a legitimate post-edit re-read; no badge, no block.
+ */
+export interface ToolSupervisionAllowedAfterEditEvent extends EventBase {
+  event: "tool_supervision.allowed_after_edit";
+  argKey: string;
+  toolName: string;
+  mode: "warn" | "soft" | "strict";
+}
+
+/**
+ * 0.9.x hardened supervision — emitted when the soft-redirect tier
+ * serves a prior-output reference (`decision:"block"` with reason text
+ * directing the agent to the prior output). Fires alongside `warned`
+ * (mode: "block") on the same call; both events count as one
+ * tier-ladder firing in aggregators.
+ */
+export interface ToolSupervisionCacheHitEvent extends EventBase {
+  event: "tool_supervision.cache_hit";
+  argKey: string;
+  toolName: string;
+  mode: "warn" | "soft" | "strict";
+  /** Number of prior matching observations (>=2 by construction). */
+  priorDupCount: number;
+}
+
+/**
+ * 0.9.x hardened supervision — counterfactual telemetry: emitted when
+ * the current mode did NOT block but `mode=strict` would have (i.e.
+ * `priorDupCount >= 4`). Lets the dashboard show "strict would have
+ * gated N more calls here" without changing the agent's trajectory.
+ */
+export interface ToolSupervisionWouldBlockEvent extends EventBase {
+  event: "tool_supervision.would_block";
+  argKey: string;
+  toolName: string;
+  mode: "warn" | "soft" | "strict";
+}
+
+/**
  * rc.5 — loop redirect fired with a recall-backed anchor.
  *
  * `signal` mirrors the existing `ToolPatternKind` vocabulary
@@ -2342,4 +2486,302 @@ export interface CaptureErrorEvent extends EventBase {
   reason: "validation" | "unknown";
   /** Bounded to 200 chars to keep payload size predictable. */
   message: string;
+}
+
+/** How the served V1 decision and the shadow V2-family decision compared. */
+export type RouterShadowAgreement =
+  | "agree_abstain"
+  | "agree_inject_same"
+  | "agree_inject_diff"
+  | "v1_only_inject"
+  | "v2_only_inject";
+
+/**
+ * Closed-enum reason the shadow V2 decision fell open to V1. CLOSED on purpose:
+ * a raw exception message could embed an absolute path / secret / prompt
+ * fragment, which must never reach analytics_events, reports, cloud payloads,
+ * or committed fixtures. The raw message is surfaced (if at all) only on
+ * ephemeral stderr behind TRACEBASE_DEBUG.
+ */
+export type RouterShadowFallback = "error" | "validation" | "timeout" | "unknown";
+
+/**
+ * Router V2 shadow comparison — emitted once per recall when
+ * `TRACEBASE_REASONING_ROUTER=shadow`. Records the served V1 decision next to
+ * the side-by-side V2-family decision computed on the SAME bounded candidate
+ * slate. Privacy-safe by construction: a non-reversible `queryHash`, opaque
+ * block ids, and counts only — no prompt, body, code, or path. LOCAL-ONLY:
+ * this event is never part of the cloud `UsageMetrics` aggregate (the cloud
+ * allowlist drops anything shaped like it; see tests/cli/cloud-allowlist.test).
+ */
+export interface RouterShadowComparisonEvent extends EventBase {
+  event: "router.shadow_comparison";
+  queryHash: string;
+  corpusSize: number;
+  candidateCount: number;
+
+  // Served decision (V1 in shadow mode).
+  v1Action: "inject" | "abstain";
+  v1Reason: string;
+  v1TopBlockId?: string;
+  v1Confidence: number;
+  v1Margin: number;
+  v1FeatureVersion: number;
+  v1LatencyMs: number;
+
+  // Side-by-side V2-family decision (computed, never served in shadow mode).
+  v2Action: "inject" | "abstain";
+  v2Reason: string;
+  v2TopBlockId?: string;
+  v2Confidence: number;
+  v2Margin: number;
+  v2FeatureVersion: number;
+  v2LatencyMs: number;
+  /** Extra wall-clock the shadow V2 decision added (the overhead of shadow mode). */
+  v2OverheadMs: number;
+
+  agreement: RouterShadowAgreement;
+
+  // Family signals from the V2 decision.
+  resolverName: string;
+  familyCount: number;
+  topFamilySupport: number;
+  topFamilySourceDiversity: number;
+  topFamilyContradiction: number;
+  runnerUpFamilyConfidence: number;
+  familyMargin: number;
+  /** Transitive bridge merges the resolver refused on this slate. */
+  bridgesPrevented: number;
+
+  /** Body fields the V2 privacy guard redacted across the candidate slate. */
+  redactedFieldCount: number;
+
+  /**
+   * Closed-enum reason the V2 decision fell open to V1. Never a raw exception
+   * message (which could leak a path/secret/prompt). Set only on fallback.
+   */
+  v2FallbackReason?: RouterShadowFallback;
+}
+
+/** Closed-enum outcome of the semantic provider call (never a raw error). */
+export type RetrievalFallback = "none" | "unavailable" | "timeout" | "error";
+
+/** How the sparse-slate decision compared to the hybrid-slate decision. */
+export type RetrievalDecisionAgreement =
+  | "agree_abstain"
+  | "agree_inject_same"
+  | "agree_inject_diff"
+  | "sparse_only_inject"
+  | "hybrid_only_inject";
+
+/**
+ * Phase C hybrid retrieval comparison — emitted once per recall when
+ * `TRACEBASE_REASONING_RETRIEVAL=shadow`. Compares the served sparse-FTS slate
+ * with the fused sparse⊕semantic slate and the decision each produces. Privacy-
+ * safe by construction: a non-reversible `queryHash`, opaque block ids, counts,
+ * and closed enums only — NO raw query, body, vector, path, or exception text.
+ * LOCAL-ONLY: never part of the cloud `UsageMetrics` aggregate.
+ */
+export interface RetrievalHybridComparisonEvent extends EventBase {
+  event: "retrieval.hybrid_comparison";
+  queryHash: string;
+  corpusSize: number;
+  /** Name of the semantic provider (e.g. "deterministic-local"); never a vendor secret. */
+  provider: string;
+  /** Closed-enum outcome of the provider call. */
+  fallback: RetrievalFallback;
+  /** Wall-clock of the semantic provider call. */
+  providerLatencyMs: number;
+  /** Total hybrid overhead (provider + fusion + the two side decisions). */
+  hybridLatencyMs: number;
+
+  // Slate shape.
+  sparseSlateSize: number;
+  semanticSlateSize: number;
+  /** Distinct blocks in the fused slate (before the top-N cut). */
+  hybridSlateSize: number;
+  /** Blocks in BOTH sparse and semantic lists. */
+  overlap: number;
+  /** Blocks only the semantic provider surfaced (the recall lever). */
+  semanticOnly: number;
+  /** Rank movement of the served (top-N) fused slate vs the sparse order. */
+  rankMovement: number;
+
+  // Decision comparison (the configured serving mode applied to each slate).
+  sparseAction: "inject" | "abstain";
+  hybridAction: "inject" | "abstain";
+  sparseTopBlockId?: string;
+  hybridTopBlockId?: string;
+  decisionAgreement: RetrievalDecisionAgreement;
+  /** Serving feature version of the decision (1 = V1, 2 = V2-family). */
+  featureVersion: number;
+}
+
+/** How the served V1/V2 decision compared to the shadow V3 decision. */
+export type EvidenceComparisonAgreement =
+  | "agree_abstain"
+  | "agree_inject_same"
+  | "agree_inject_diff"
+  | "v2_only_inject"
+  | "v3_only_inject";
+
+/** Closed-enum outcome of computing the shadow V3 decision (never a raw error). */
+export type EvidenceFallback = "none" | "error";
+
+/**
+ * Phase C.2 ServingEvidenceV3 comparison — emitted once per recall when
+ * `TRACEBASE_REASONING_EVIDENCE=shadow`. Compares the served V1/V2 decision with
+ * the shadow V3 semantic-license decision on the SAME candidate slate. Privacy-
+ * safe (queryHash + opaque ids + counts + closed enums; no raw query/body/path).
+ * LOCAL-ONLY: never part of the cloud `UsageMetrics` aggregate.
+ */
+export interface ReasoningEvidenceComparisonEvent extends EventBase {
+  event: "reasoning.evidence_comparison";
+  queryHash: string;
+  corpusSize: number;
+  candidateCount: number;
+  // Served decision (V1/V2).
+  servedAction: "inject" | "abstain";
+  servedReason: string;
+  servedTopBlockId?: string;
+  servedFeatureVersion: number;
+  // Shadow V3 decision.
+  v3Action: "inject" | "abstain";
+  v3Reason: string;
+  v3TopBlockId?: string;
+  /** Lane of the V3-selected candidate ("lexical" | "semantic-license"). */
+  lane: string;
+  /** License reason of the V3-selected candidate (closed enum, stored as string). */
+  licenseReason: string;
+  agreement: EvidenceComparisonAgreement;
+  /** Candidates the semantic provider surfaced (provenance.semanticOnly). */
+  semanticOnlyCandidates: number;
+  /** Candidates the V3 license made eligible (structured-corroborated). */
+  licensedCandidates: number;
+  /** Body fields redacted across the slate (privacy audit; 0 on a clean corpus). */
+  redactedFieldCount: number;
+  fallback: EvidenceFallback;
+  latencyMs: number;
+  // Shadow V4 decision (Phase C.3 contrastive lane). Present when V4 is computed
+  // in shadow alongside V3. Bounded numerics + closed enums only — no raw tokens.
+  v4Action?: "inject" | "abstain";
+  v4Reason?: string;
+  v4TopBlockId?: string;
+  /** License reason of the V4-selected candidate (closed enum incl. ambiguous-sibling/no-competitor). */
+  v4LicenseReason?: string;
+  /** Discriminative support of the V4-selected candidate vs its nearest sibling ∈ [0,1]. */
+  v4DiscriminativeSupport?: number;
+  /** Whether V4 found a competing sibling/family to contrast against. */
+  v4HasCompetitor?: boolean;
+  /** Family-margin (top − runner-up family confidence) at the V4 decision ∈ [0,1]. */
+  v4FamilySeparation?: number;
+  /** Candidates V4 contrastively licensed (structured-corroborated after the gap). */
+  v4LicensedCandidates?: number;
+}
+
+/** Closed-enum outcome of the query-compiler comparison (never a raw error). */
+export type QueryCompilerFallback = "none" | "error";
+
+/**
+ * Phase D.1 two-view query-compiler comparison — emitted once per recall when
+ * `TRACEBASE_REASONING_QUERY_COMPILER=shadow`. Compares candidate generation
+ * across three slates (sparse baseline / literal-hybrid / literal+causal), each
+ * adjudicated by the shadow V4 decision. Privacy-safe (queryHash + view hashes +
+ * opaque block ids + counts + closed enums; NO raw query/body/path/tokens).
+ * LOCAL-ONLY: never part of the cloud `UsageMetrics` aggregate.
+ */
+export interface ReasoningQueryCompilerComparisonEvent extends EventBase {
+  event: "reasoning.query_compiler_comparison";
+  queryHash: string;
+  compiler: string;
+  literalViewHash: string;
+  causalViewHash?: string;
+  corpusSize: number;
+  // Candidate slate sizes per arm.
+  sparseSlateSize: number;
+  literalSlateSize: number;
+  causalSlateSize: number;
+  /** Candidates the literal-view semantic lane surfaced that FTS missed. */
+  literalSemanticOnly: number;
+  /** Candidates the causal-view semantic lane surfaced that FTS+literal missed. */
+  causalSemanticOnly: number;
+  /** Did the cascade actually invoke the causal lane (fast slate insufficient)? */
+  causalLaneInvoked: boolean;
+  // Shadow V4 decision per arm.
+  sparseV4Action: "inject" | "abstain";
+  literalV4Action: "inject" | "abstain";
+  causalV4Action: "inject" | "abstain";
+  sparseV4TopBlockId?: string;
+  literalV4TopBlockId?: string;
+  causalV4TopBlockId?: string;
+  /** True when the causal arm injected where BOTH sparse and literal abstained (the lift). */
+  causalAddedDecision: boolean;
+  /** Closed retrieval-provider fallback class for the causal lane. */
+  providerFallback: string;
+  fallback: QueryCompilerFallback;
+  /** Incremental wall-clock cost of compiling + the causal lane (ms). */
+  incrementalLatencyMs: number;
+}
+
+/** Closed-enum outcome of running the applicability reranker (never a raw error). */
+export type ApplicabilityFallback = "none" | "timeout" | "error";
+/** How the reranker's verdict would change the V4 decision (shadow only). */
+export type ApplicabilityChangedDecision = "none" | "reranker_only_apply" | "reranker_withholds";
+
+/**
+ * Phase D.2 memory-applicability reranker comparison — emitted once per recall
+ * when `TRACEBASE_REASONING_APPLICABILITY=shadow`. Compares the served V4 action
+ * with the shadow reranker verdict over the top-N family prototypes. Privacy-safe
+ * (queryHash + opaque block ids + counts + closed enums + bounded numerics; NO
+ * raw query/body/path/token text). LOCAL-ONLY: never part of cloud UsageMetrics.
+ */
+export interface ReasoningApplicabilityComparisonEvent extends EventBase {
+  event: "reasoning.applicability_comparison";
+  queryHash: string;
+  corpusSize: number;
+  candidateCount: number;
+  // Served V4 decision (the baseline).
+  v4Action: "inject" | "abstain";
+  v4TopBlockId?: string;
+  // Shadow reranker verdict on the top-ranked prototype.
+  applicabilityProvider: string;
+  applicabilityFeatureVersion: number;
+  applicabilityVerdict: "applicable" | "uncertain" | "inapplicable" | "none";
+  applicabilityTopBlockId?: string;
+  /** Bounded reranker confidence (NOT a serving confidence). */
+  applicabilityConfidence?: number;
+  /** Whether the reranker verdict would have changed the V4 decision (shadow). */
+  changedDecision: ApplicabilityChangedDecision;
+  /** Verdict distribution across all scored prototypes. */
+  verdictCounts: { applicable: number; uncertain: number; inapplicable: number };
+  /** Reason-enum distribution across all scored prototypes. */
+  reasonCounts: Record<string, number>;
+  fallback: ApplicabilityFallback;
+  latencyMs: number;
+}
+
+/**
+ * Phase D.4 — applicability canary exposure event. Emitted once per ELIGIBLE
+ * query when the explicit-opt-in canary is enabled (both arms). Records the
+ * deterministic assignment so the D.3 ledger can off-policy-correct. Privacy-
+ * safe (queryHash + opaque unit/block ids + closed enums + bounded numbers; NO
+ * raw query/body/path/token). LOCAL-ONLY: never part of cloud UsageMetrics.
+ */
+export interface ApplicabilityCanaryExposureEvent extends EventBase {
+  event: "reasoning.applicability_canary_exposure";
+  queryHash: string;
+  /** Opaque hash of the assignment unit (problem fingerprint) — never the raw fp. */
+  unitHash: string;
+  arm: "treatment" | "control";
+  /** P(treatment) for this unit under the active rate (logged for off-policy correction). */
+  propensity: number;
+  policyVersion: string;
+  applicabilityFeatureVersion: number;
+  servedFeatureVersion?: number;
+  /** The reranker-selected block (opaque). Injected only in the treatment arm. */
+  blockId?: string;
+  /** Why the query was eligible for the canary (closed enum, stored as string). */
+  eligibilityReason: string;
+  /** True iff this exposure produces an attributable per-block outcome (treatment). */
+  outcomeCompatible: boolean;
 }
