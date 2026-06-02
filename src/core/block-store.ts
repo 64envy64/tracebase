@@ -623,10 +623,23 @@ const V2_MIGRATIONS: Record<number, MigrationStep[]> = {
     `ALTER TABLE reasoning_blocks ADD COLUMN verification TEXT`,
   ],
   // v16 → v17: capture + distiller version stamps for provenance audit.
-  // Additive nullable columns; existing rows read back as undefined.
+  // Additive nullable columns; existing rows read back as undefined. Use the
+  // probe-then-add helper so partially upgraded databases remain safe to reopen.
   17: [
-    `ALTER TABLE reasoning_blocks ADD COLUMN prov_capture_version TEXT`,
-    `ALTER TABLE reasoning_blocks ADD COLUMN prov_distiller_version TEXT`,
+    (db) =>
+      addColumnIfMissing(
+        db,
+        "reasoning_blocks",
+        "prov_capture_version",
+        "TEXT",
+      ),
+    (db) =>
+      addColumnIfMissing(
+        db,
+        "reasoning_blocks",
+        "prov_distiller_version",
+        "TEXT",
+      ),
   ],
   // v3 → v4: add calibrator_models table for persisted isotonic (etc.)
   // models. Additive; existing rows untouched.

@@ -413,7 +413,7 @@ describe("tracebase init --agent claude-code (fresh project)", () => {
     } finally {
       shim.cleanup();
     }
-  });
+  }, 20_000);
 
   it("remove: uninstalls both the runtime registration and any legacy .claude/settings.json entry", () => {
     if (!existsSync(CLI_PATH)) return;

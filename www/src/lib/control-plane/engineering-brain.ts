@@ -22,7 +22,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { Pool, type PoolConfig } from "pg";
+import type { Pool, PoolConfig } from "pg";
 import { getControlPlaneStore } from "@/lib/control-plane/store";
 import type {
   AgentHost,
@@ -296,7 +296,12 @@ async function createStore(): Promise<EngineeringBrainStore> {
   await getControlPlaneStore().catch(() => null);
   const config = resolvePoolConfig();
   if (config) {
-    return new PostgresEngineeringBrainStore(config);
+    // Keep the file-mode fallback genuinely dependency-light. The dashboard
+    // owns `pg`, but root-package tests intentionally exercise file mode
+    // without installing dashboard dependencies.
+    const pgModuleName = "pg";
+    const { Pool: PgPool } = await import(pgModuleName) as typeof import("pg");
+    return new PostgresEngineeringBrainStore(new PgPool(config));
   }
   if (process.env.NODE_ENV === "production") {
     throw new Error("Engineering Brain storage requires Postgres in production.");
@@ -392,8 +397,8 @@ function optionalIso(value: unknown): string | undefined {
 class PostgresEngineeringBrainStore implements EngineeringBrainStore {
   private readonly pool: Pool;
 
-  constructor(config: PoolConfig) {
-    this.pool = new Pool(config);
+  constructor(pool: Pool) {
+    this.pool = pool;
   }
 
   async listIntegrations(workspaceId: string): Promise<IntegrationRecord[]> {

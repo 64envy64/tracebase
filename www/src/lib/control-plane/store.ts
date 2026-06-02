@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { Pool, type PoolClient, type PoolConfig } from "pg";
+import type { Pool, PoolClient, PoolConfig } from "pg";
 import { generateApiKeyMaterial, parseApiKey, verifyApiKeySecret } from "@/lib/control-plane/crypto";
 import type {
   ControlPlaneApiKey,
@@ -358,7 +358,12 @@ export function getControlPlaneStore(): Promise<ControlPlaneStore> {
 async function createStore(): Promise<ControlPlaneStore> {
   const postgresConfig = resolvePostgresPoolConfig();
   if (postgresConfig) {
-    const store = new PostgresControlPlaneStore(postgresConfig);
+    // `pg` belongs to the production control plane. Defer loading it so the
+    // local file fallback stays usable from the root package without the
+    // dashboard dependency tree installed.
+    const pgModuleName = "pg";
+    const { Pool: PgPool } = await import(pgModuleName) as typeof import("pg");
+    const store = new PostgresControlPlaneStore(new PgPool(postgresConfig));
     await store.init();
     return store;
   }
@@ -377,10 +382,8 @@ async function createStore(): Promise<ControlPlaneStore> {
 class PostgresControlPlaneStore implements ControlPlaneStore {
   private readonly pool: Pool;
 
-  constructor(config: PoolConfig) {
-    this.pool = new Pool({
-      ...config,
-    });
+  constructor(pool: Pool) {
+    this.pool = pool;
   }
 
   async init(): Promise<void> {
