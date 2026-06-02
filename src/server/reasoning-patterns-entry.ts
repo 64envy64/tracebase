@@ -69,6 +69,18 @@ export interface ReasoningPatternsDeps {
    * Optional/absent → the canary rail is never engaged (byte-identical serving).
    */
   readCanaryConfig?: () => ApplicabilityCanaryConfig | null;
+  /**
+   * Phase D.4.2 — cheap hot-path read of the latched circuit-breaker snapshot
+   * (tripped + reasons). A tripped breaker forces the canary OFF regardless of
+   * config; a malformed breaker state fails OFF. Absent → no breaker gate.
+   */
+  readBreakerSnapshot?: () => { tripped: boolean; reasons: string[] };
+  /**
+   * Phase D.4.2 — ingestion trigger fired AFTER a canary exposure. Re-derives the
+   * breaker health from a bounded canary-only ledger window and latches if a
+   * frozen kill rule fired. Best-effort; must never throw on the serving path.
+   */
+  noteCanaryActivity?: () => void;
   /** Deterministic fingerprint factory. Overridable for tests. */
   fingerprintFactory?: (
     problem: string,
@@ -185,9 +197,17 @@ async function applyShadowLanesAndCanary(
   // kill switch is set. It reads the D.2 shadow verdict above; eligible only when
   // V4 abstained and the reranker said `applicable`. Disabled ⇒ byte-identical.
   if (deps.readCanaryConfig) {
-    const serving = resolveCanaryServingState(deps.readCanaryConfig());
+    // D.4.2 — the latched breaker is a third orthogonal OFF gate (after env/global
+    // kill). Read the cheap snapshot on the hot path; resolveCanaryServingState
+    // folds it in. A tripped/malformed breaker ⇒ disabled ⇒ byte-identical serving.
+    const breaker = deps.readBreakerSnapshot?.();
+    const serving = resolveCanaryServingState(deps.readCanaryConfig(), process.env, breaker);
     if (serving.enabled && serving.config) {
-      return blockServer.applyApplicabilityCanary(query, served, problemFingerprint, serving.config);
+      const result = blockServer.applyApplicabilityCanary(query, served, problemFingerprint, serving.config);
+      // Ingestion trigger: a canary exposure happened → refresh breaker health
+      // from the ledger (off the hot path; best-effort).
+      if (result.canaryExposure) deps.noteCanaryActivity?.();
+      return result;
     }
   }
   return served;

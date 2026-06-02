@@ -417,6 +417,8 @@ export function runCaptureTurn(
           allowOutcomeEmission:
             blockResult !== null ||
             inferResolvedOutcomeFromTranscript(transcript.lastAssistantText),
+          // D.4.2 — let the Stop-hook (inferred) outcome feed the canary breaker.
+          breakerBasePath: basePath,
         });
         inferredUseCount = report.agentUsedEmitted;
       } catch (err) {

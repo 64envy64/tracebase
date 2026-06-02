@@ -52,6 +52,7 @@ import type { BlockStore } from "../core/block-store.js";
 import type { AnalyticsEvent, ReasoningBlock } from "../types.js";
 import { jaccardSimilarity } from "../core/fingerprint.js";
 import { emitAgentUsed, emitOutcome } from "../core/analytics.js";
+import { noteCanaryActivityIfActive } from "../experiments/canary-breaker.js";
 import { strengthFromMatchSignal } from "./attribution-evidence.js";
 import { maybeRefitCalibrator, type RefitOutcome } from "../lifecycle/calibrator-refit.js";
 
@@ -316,6 +317,12 @@ export type EmitInferenceOptions = InferOptions & {
   refitOnOutcome?: boolean;
   /** Refit threshold override (default DEFAULT_REFIT_THRESHOLD). */
   refitThreshold?: number;
+  /**
+   * D.4.2 — project root for the canary circuit breaker. When set AND an inferred
+   * outcome landed, the breaker re-derives health from the ledger (gated to the
+   * canary-active case). Absent → no breaker ingestion on the Stop-hook path.
+   */
+  breakerBasePath?: string;
 };
 
 export type EmitInferenceReport = {
@@ -417,6 +424,12 @@ export function applyInferenceAndEmit(
     } catch {
       // attribution must not break on a calibrator hiccup
     }
+  }
+
+  // D.4.2 — outcome-side breaker ingestion for the Stop-hook (inferred) path.
+  // Gated to canary-active (no breaker file ⇒ cheap no-op); best-effort.
+  if (opts.breakerBasePath && outcomeEmitted > 0) {
+    noteCanaryActivityIfActive(opts.breakerBasePath, store);
   }
 
   return {

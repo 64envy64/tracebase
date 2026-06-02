@@ -46,6 +46,7 @@ import {
 import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
 import { runReasoningPatternsRecall } from "../server/reasoning-patterns-entry.js";
 import { findProjectRoot, readHoldoutConfig, readApplicabilityCanaryConfig } from "../core/config.js";
+import { readBreakerSnapshot, noteCanaryActivityIfActive } from "../experiments/canary-breaker.js";
 import type { HoldoutConfig, ApplicabilityCanaryConfig } from "../types.js";
 import {
   collectInjectedFromQuery,
@@ -257,6 +258,8 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
   private readonly readHoldoutConfig: () => HoldoutConfig | null;
   /** Phase D.4.1 — fresh-per-task canary loader (default off; same boundary as MCP/hook). */
   private readonly readCanaryConfig: () => ApplicabilityCanaryConfig | null;
+  /** Phase D.4.2 — project root for the circuit-breaker snapshot/refresh. */
+  private readonly projectBase: string;
   private closed = false;
 
   constructor(opts: CreateTracebaseRuntimeProviderOptions) {
@@ -284,6 +287,7 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
     }
     // Canary is config-driven (no env-enable), so it always reads the project config.
     this.readCanaryConfig = () => readApplicabilityCanaryConfig(projectBase);
+    this.projectBase = projectBase;
   }
 
   async beforeTask(input: BeforeTaskInput): Promise<BeforeTaskResult> {
@@ -293,6 +297,9 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
     const result = await runReasoningPatternsRecall(this.blockServer, input, {
       readHoldoutConfig: this.readHoldoutConfig,
       readCanaryConfig: this.readCanaryConfig,
+      // D.4.2 — same circuit-breaker boundary as MCP/hook.
+      readBreakerSnapshot: () => readBreakerSnapshot(this.projectBase),
+      noteCanaryActivity: () => noteCanaryActivityIfActive(this.projectBase, this.blockStore),
     });
     return toReasoningPatternsStructured(result);
   }
@@ -340,6 +347,8 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
       ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
       ...(input.runId ? { runId: input.runId } : {}),
     });
+    // D.4.2 — outcome-side breaker ingestion (gated to canary-active; no-op when off).
+    noteCanaryActivityIfActive(this.projectBase, this.blockStore);
 
     return {
       protocol: CONTEXTUAL_RUNTIME_PROTOCOL,

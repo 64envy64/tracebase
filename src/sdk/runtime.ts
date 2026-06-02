@@ -603,6 +603,8 @@ export function createRuntime(
           allowOutcomeEmission:
             result.blockId !== null ||
             inferResolvedOutcomeFromTranscript(assistantBounded),
+          // D.4.2 — feed the inferred outcome to the canary breaker.
+          breakerBasePath: conn.basePath,
         });
         // markDirty so the next coordinator cycle sees the new
         // analytics events even if the user only calls afterRun

@@ -503,20 +503,30 @@ export function readApplicabilityCanaryConfig(basePath: string): ApplicabilityCa
 }
 
 /**
- * Resolve the EFFECTIVE canary serving state from the persisted config + the
- * environment. The env var may ONLY DISABLE (kill switch): any of off/0/false/
- * disabled forces the canary off regardless of the persisted config. The env can
- * NEVER enable — only the persisted config (set via explicit CLI) can. Also
- * honours TRACEBASE_DISABLED as a global kill.
+ * Resolve the EFFECTIVE canary serving state from the persisted config, the
+ * environment, and (optionally) the circuit-breaker snapshot. Three orthogonal
+ * OFF gates, in precedence order:
+ *   1. TRACEBASE_DISABLED=1 — global kill.
+ *   2. TRACEBASE_APPLICABILITY_CANARY=off/0/false/disabled — env kill (disable-only).
+ *   3. The latched circuit breaker (D.4.2) — tripped ⇒ OFF until a reviewed reset.
+ * The env / global kills are checked FIRST so they always WIN (their killReason
+ * is reported even if the breaker is also tripped or has been reset). The env can
+ * NEVER enable — only the persisted config (set via explicit CLI) can.
  */
 export function resolveCanaryServingState(
   persisted: ApplicabilityCanaryConfig | null,
   env: NodeJS.ProcessEnv = process.env,
+  breaker?: { tripped: boolean; reasons?: string[] } | null,
 ): { enabled: boolean; config: ApplicabilityCanaryConfig | null; killReason?: string } {
   if (env.TRACEBASE_DISABLED === "1") return { enabled: false, config: persisted, killReason: "TRACEBASE_DISABLED=1" };
   const kill = (env[APPLICABILITY_CANARY_KILL_ENV] ?? "").trim().toLowerCase();
   if (kill === "off" || kill === "0" || kill === "false" || kill === "disabled") {
     return { enabled: false, config: persisted, killReason: `${APPLICABILITY_CANARY_KILL_ENV}=${kill}` };
+  }
+  // Latched breaker: once tripped, OFF regardless of config — until a reviewed reset.
+  if (breaker?.tripped) {
+    const why = breaker.reasons && breaker.reasons.length > 0 ? breaker.reasons.join(",") : "tripped";
+    return { enabled: false, config: persisted, killReason: `breaker_tripped:${why}` };
   }
   return { enabled: !!persisted?.enabled, config: persisted };
 }
