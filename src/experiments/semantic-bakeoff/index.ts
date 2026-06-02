@@ -10,3 +10,14 @@ export * from "./types.js";
 export { runProbe, runBakeoff, scanProbeDTO, DEFAULT_BAKEOFF_DEADLINE_MS } from "./boundary.js";
 export { DeterministicFakeProvider, type FakeProviderOptions } from "./fake-provider.js";
 export { CANDIDATE_MANIFEST, manifestDigest, type CandidateManifestEntry, type CandidateKind, type CandidateStatus } from "./manifest.js";
+export { PersistentWorkerProvider, type WorkerAdapterOptions, type WorkerHealth } from "./worker-adapter.js";
+export {
+  WORKER_PROTOCOL_VERSION,
+  parseWorkerLine,
+  serializeRequest,
+  type WorkerRequest,
+  type WorkerResponse,
+  type WireCandidate,
+  type WireQuery,
+  type WireResult,
+} from "./worker-protocol.js";
