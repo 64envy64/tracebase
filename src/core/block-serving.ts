@@ -1155,6 +1155,15 @@ export class BlockServer {
     served: RecallV2Result,
     fingerprint: string,
     config: ApplicabilityCanaryConfig,
+    opts?: {
+      /**
+       * E.2.2 admission gate. Returns true iff the breaker can be DURABLY armed.
+       * A treatment is served ONLY when this returns true; on false the treatment
+       * is downgraded to control (baseline preserved, no injection). Called BEFORE
+       * the exposure event + injection so ordering reflects what is actually served.
+       */
+      admitTreatment?: () => boolean;
+    },
   ): RecallV2Result {
     try {
       const shadow = served.shadowApplicability;
@@ -1169,6 +1178,17 @@ export class BlockServer {
       });
       if (!decision.exposed) return served; // disabled / holdout / ineligible → no-op (byte-identical)
 
+      // ── ADMISSION FAIL-OFF (E.2.2) ──────────────────────────────────────────
+      // A treatment is admissible ONLY if the breaker can be durably armed. If
+      // admission fails, downgrade to control BEFORE emitting the exposure event,
+      // so the recorded arm + the (absent) injection reflect what was served.
+      let arm: "treatment" | "control" = decision.arm;
+      let admissionFailed = false;
+      if (arm === "treatment" && opts?.admitTreatment && !opts.admitTreatment()) {
+        arm = "control";
+        admissionFailed = true;
+      }
+
       const exposure: ApplicabilityCanaryExposureEvent = {
         event: "reasoning.applicability_canary_exposure",
         ts: this.now(),
@@ -1176,22 +1196,23 @@ export class BlockServer {
         ...(query.runId ? { runId: query.runId } : {}),
         queryHash: queryHash(query.text),
         unitHash: decision.unitHash,
-        arm: decision.arm,
+        arm,
         propensity: decision.propensity,
         policyVersion: decision.policyVersion,
         applicabilityFeatureVersion: this.applicabilityProvider.featureVersion,
         blockId: decision.blockId,
         eligibilityReason: decision.eligibilityReason,
-        outcomeCompatible: decision.outcomeCompatible,
+        outcomeCompatible: arm === "treatment" ? decision.outcomeCompatible : false,
+        ...(admissionFailed ? { admissionFailed: true } : {}),
       };
       this.emitter.emit(exposure, query.runId ? { runId: query.runId } : undefined);
 
-      if (decision.arm !== "treatment") {
-        // Control: preserve the baseline abstain; record the (non-injecting) exposure.
+      if (arm !== "treatment") {
+        // Control (incl. admission-downgraded): preserve baseline abstain; no injection.
         return { ...served, canaryExposure: { arm: "control", blockId: decision.blockId, propensity: decision.propensity, unitHash: decision.unitHash } };
       }
 
-      // Treatment: inject the reranker-selected block (if it still resolves).
+      // Treatment (admitted): inject the reranker-selected block (if it still resolves).
       const block = this.store.getBlock(decision.blockId);
       if (!block) return { ...served, canaryExposure: { arm: "treatment", blockId: decision.blockId, propensity: decision.propensity, unitHash: decision.unitHash } };
       const hit: BlockHit = { block, score: 1, calibratedProb: 1, evidenceConfidence: 1, passesGate: true, refs: [] };

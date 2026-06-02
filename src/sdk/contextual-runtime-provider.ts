@@ -46,7 +46,7 @@ import {
 import { loadBlockCalibrator } from "../lifecycle/calibrator.js";
 import { runReasoningPatternsRecall } from "../server/reasoning-patterns-entry.js";
 import { findProjectRoot, readHoldoutConfig, readApplicabilityCanaryConfig } from "../core/config.js";
-import { readBreakerSnapshot, noteCanaryActivityIfActive, noteCanaryExposure } from "../experiments/canary-breaker.js";
+import { readBreakerSnapshot, noteCanaryActivityIfActive, noteCanaryExposure, admitCanaryExposure } from "../experiments/canary-breaker.js";
 import type { HoldoutConfig, ApplicabilityCanaryConfig } from "../types.js";
 import {
   collectInjectedFromQuery,
@@ -241,6 +241,12 @@ export interface CreateTracebaseRuntimeProviderOptions {
    * deterministic experiment without writing a config file.
    */
   readHoldoutConfig?: () => HoldoutConfig | null;
+  /**
+   * Override the canary config loader. TEST seam only (e.g. force rate 1 for a
+   * deterministic treatment in the bootstrap regression). Production always reads
+   * the persisted project config.
+   */
+  readCanaryConfig?: () => ApplicabilityCanaryConfig | null;
 }
 
 /**
@@ -285,8 +291,9 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
     } else {
       this.readHoldoutConfig = () => readHoldoutConfig(projectBase);
     }
-    // Canary is config-driven (no env-enable), so it always reads the project config.
-    this.readCanaryConfig = () => readApplicabilityCanaryConfig(projectBase);
+    // Canary is config-driven (no env-enable); reads the project config unless a
+    // test injects an override (e.g. to force a deterministic treatment).
+    this.readCanaryConfig = opts.readCanaryConfig ?? (() => readApplicabilityCanaryConfig(projectBase));
     this.projectBase = projectBase;
   }
 
@@ -297,9 +304,10 @@ export class TracebaseRuntimeProvider implements ContextualRuntimeProvider {
     const result = await runReasoningPatternsRecall(this.blockServer, input, {
       readHoldoutConfig: this.readHoldoutConfig,
       readCanaryConfig: this.readCanaryConfig,
-      // D.4.2 + E.2.1 — same boundary as MCP/hook; exposure ALWAYS refreshes
-      // (noteCanaryExposure) so the first exposure bootstraps breaker state.
+      // D.4.2 + E.2.1 + E.2.2 — same boundary as MCP/hook; admission fail-off arms
+      // the breaker durably before a treatment; exposure-side refresh counts it.
       readBreakerSnapshot: () => readBreakerSnapshot(this.projectBase),
+      admitCanaryTreatment: () => admitCanaryExposure(this.projectBase, this.blockStore),
       noteCanaryActivity: () => noteCanaryExposure(this.projectBase, this.blockStore),
     });
     return toReasoningPatternsStructured(result);

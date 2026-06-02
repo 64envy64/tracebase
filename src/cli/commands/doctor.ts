@@ -26,7 +26,7 @@ import {
   APPLICABILITY_CANARY_KILL_ENV,
 } from "../../core/config.js";
 import { BlockStore } from "../../core/block-store.js";
-import { readBreakerSnapshot } from "../../experiments/canary-breaker.js";
+import { readBreakerSnapshot, canaryEffectiveStatus } from "../../experiments/canary-breaker.js";
 import type { CascadeConfig, TraceBaseConfig } from "../../types.js";
 import { MiniLMReranker } from "../../core/rerankers/minilm.js";
 import {
@@ -1467,10 +1467,22 @@ export function applicabilityCanaryDoctorCheck(projectRoot?: string, env: NodeJS
       fix: "Set TRACEBASE_REASONING_APPLICABILITY=shadow, or run `tracebase canary disable` to stop the experiment.",
     };
   }
+  // E.2.2 — honest ARMED vs LIVE_CONFIRMED (agrees with `canary status|health`):
+  // enabled+shadow alone is ARMED; LIVE_CONFIRMED needs a runtime heartbeat
+  // (breaker state written by the serving runtime on a confirmed exposure).
+  const eff = projectRoot ? canaryEffectiveStatus(projectRoot, env).status : "ARMED";
+  if (eff === "LIVE_CONFIRMED") {
+    return {
+      name: "applicability-canary",
+      level: "warn",
+      message: `Applicability canary LIVE_CONFIRMED — exposing rate ${persisted.rate} (runtime heartbeat present); emergency stop: \`tracebase canary disable\` or ${APPLICABILITY_CANARY_KILL_ENV}=off`,
+    };
+  }
   return {
     name: "applicability-canary",
     level: "warn",
-    message: `Applicability canary LIVE — exposing rate ${persisted.rate} (policy ${persisted.policyVersion}); emergency stop: \`tracebase canary disable\` or ${APPLICABILITY_CANARY_KILL_ENV}=off`,
+    message: `Applicability canary ARMED (rate ${persisted.rate}, shadow on) — configured to expose but NO confirmed exposure yet (no runtime heartbeat; the serving runtime may not be live)`,
+    fix: "A fresh session serving an eligible query makes it LIVE_CONFIRMED; `tracebase canary disable` or " + APPLICABILITY_CANARY_KILL_ENV + "=off to stop.",
   };
 }
 

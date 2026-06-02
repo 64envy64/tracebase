@@ -140,12 +140,12 @@ function parseRateArg(value: string): number {
   return n;
 }
 
-function renderCanary(c: ApplicabilityCanaryConfig): void {
+function renderCanary(c: ApplicabilityCanaryConfig, effStatus?: CanaryEffectiveStatus, killReason?: string): void {
   const state = c.enabled ? pc.green("enabled") : pc.yellow("disabled");
   const ratePct = (c.rate * 100).toFixed(c.rate < 0.1 ? 2 : 0);
-  const serving = resolveCanaryServingState(c);
   console.log(`  canary     ${state}` + pc.dim(` rate=${ratePct}% policy=${c.policyVersion} salt=${c.salt.slice(0, 6)}…`));
-  console.log(pc.dim(`             effective: ${serving.enabled ? pc.red("LIVE — exposing") : "not exposing"}${serving.killReason ? ` (${serving.killReason})` : ""}`));
+  const eff = effStatus ? renderStatus(effStatus) : c.enabled ? pc.yellow("ARMED?") : "not exposing";
+  console.log(pc.dim(`             effective: ${eff}${killReason ? ` (${killReason})` : ""}`));
   console.log(pc.dim(`             since ${c.createdAt} · updated ${c.updatedAt}`));
 }
 
@@ -227,7 +227,9 @@ export const canaryCommand = new Command("canary")
           }
           console.log();
           console.log(pc.bold(pc.red("⚠ Applicability canary ENABLED — it will serve injections to a bounded sample")));
-          renderCanary(next);
+          const effEnabled = canaryEffectiveStatus(projectBase, process.env);
+          renderCanary(next, effEnabled.status, effEnabled.killReason);
+          if (effEnabled.status === "ARMED") console.log(pc.dim("  (ARMED — no confirmed exposure yet; LIVE_CONFIRMED once the serving runtime admits one.)"));
           console.log();
           console.log(pc.dim("Apply-only: exposes the reranker block when V4 abstains. Requires TRACEBASE_REASONING_APPLICABILITY=shadow to have a verdict."));
           console.log(pc.dim(`Emergency stop: \`npx tracebase-ai canary disable\` or ${APPLICABILITY_CANARY_KILL_ENV}=off`));
@@ -252,7 +254,7 @@ export const canaryCommand = new Command("canary")
           return;
         }
         console.log(pc.bold("Applicability canary disabled"));
-        renderCanary(next);
+        renderCanary(next, canaryEffectiveStatus(projectBase, process.env).status);
         console.log();
       }),
   )
@@ -287,7 +289,7 @@ export const canaryCommand = new Command("canary")
           console.log();
           return;
         }
-        renderCanary(current);
+        renderCanary(current, eff.status, eff.killReason);
         trippedNote();
         console.log();
       }),
@@ -367,11 +369,14 @@ export const canaryCommand = new Command("canary")
       }),
   );
 
-/** Colorise the three effective canary states for the health/status surfaces. */
+/** Colorise the effective canary states. ARMED ≠ LIVE_CONFIRMED — honest (E.2.2):
+ *  ARMED = configured but no confirmed runtime serving; LIVE_CONFIRMED = breaker
+ *  heartbeat present (the runtime has admitted ≥1 exposure). */
 function renderStatus(status: CanaryEffectiveStatus): string {
   if (status === "TRIPPED") return pc.red("TRIPPED");
-  if (status === "LIVE") return pc.red("LIVE — exposing");
-  return pc.dim("INERT");
+  if (status === "LIVE_CONFIRMED") return pc.red("LIVE_CONFIRMED — exposing");
+  if (status === "ARMED") return pc.yellow("ARMED — configured, awaiting confirmed exposure");
+  return pc.dim("INERT — not exposing");
 }
 
 /** Format a rate metric (0..1) or null as a short string. */

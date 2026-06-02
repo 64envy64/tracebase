@@ -28,6 +28,7 @@ import {
   readBreakerState,
   noteCanaryExposure,
   noteCanaryActivityIfActive,
+  admitCanaryExposure,
   resetBreaker,
   CANARY_BREAKER_FILE,
 } from "../../src/experiments/canary-breaker.js";
@@ -122,25 +123,106 @@ describe("E.2.1 breaker bootstrap — hook + SDK transports also create state on
     }
   });
 
-  it("[SDK] the contextual provider bootstraps breaker state on the first exposure", async () => {
+  it("[SDK] FORCED treatment durably persists breaker state (tightened — not tolerant)", async () => {
     const base = tmpProject("tb-boot-sdk-");
     const dbPath = join(base, "store.db");
     const seedStore = new BlockStore(new Database(dbPath));
     seed(seedStore);
     seedStore.close();
     initConfig(base);
-    enableApplicabilityCanary(base, { policyAck: CANARY_POLICY_VERSION, rate: 0.05 });
     process.env.TRACEBASE_REASONING_APPLICABILITY = "shadow";
     process.env.TRACEBASE_REASONING_RETRIEVAL = "shadow";
-    const provider = new TracebaseRuntimeProvider({ storagePath: dbPath, basePath: base });
+    // FORCE treatment with a rate-1 canary override (test seam) → deterministic exposure.
+    const provider = new TracebaseRuntimeProvider({ storagePath: dbPath, basePath: base, readCanaryConfig: () => canary(1) });
     try {
       await provider.beforeTask({ problem: STRONG_MECH, runId: "s1" });
-      // The SDK exposure path is wired to noteCanaryExposure → state exists iff it exposed.
       const st = readBreakerState(base);
+      expect(st).not.toBeNull(); // REQUIRE persisted state (admission durably armed)
       expect(st).not.toBe("malformed");
-      // Either it exposed (state created) — the bootstrap fix — or it abstained (no state); assert the fix when it exposed.
-      if (st !== null) expect(readBreakerSnapshot(base).tripped).toBe(false);
-      else expect(st).toBeNull();
+      const ro = new BlockStore(new Database(dbPath, { readonly: true }));
+      expect(ro.readEvents({}).filter((e) => e.event === "injection").length).toBeGreaterThanOrEqual(1); // treatment served
+      ro.close();
+    } finally {
+      await provider.close?.();
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("E.2.2 admission fail-off — treatment never served unless the breaker is durably armed", () => {
+  // Occupy the atomic-write temp path with a directory → writeStateAtomic's
+  // writeFileSync fails (EISDIR) while the (absent) state reads as clear.
+  const breakFsWrite = (base: string) => mkdirSync(join(base, ".tracebase", `${CANARY_BREAKER_FILE}.tmp`), { recursive: true });
+
+  it("admitCanaryExposure: false on FS write failure / throwing store; true + persists on success", () => {
+    const b1 = tmpProject("tb-adm-fs-");
+    breakFsWrite(b1);
+    const store = freshStore();
+    expect(admitCanaryExposure(b1, store)).toBe(false); // write fails → false (NOT silently swallowed)
+    expect(readBreakerSnapshot(b1).tripped).toBe(false); // snapshot still clear (nothing written)
+    const b2 = tmpProject("tb-adm-thr-");
+    const throwing = { readEvents: () => { throw new Error("sqlite read fail"); } } as unknown as BlockStore;
+    expect(admitCanaryExposure(b2, throwing)).toBe(false);
+    const b3 = tmpProject("tb-adm-ok-");
+    expect(admitCanaryExposure(b3, store)).toBe(true);
+    expect(readBreakerState(b3)).not.toBeNull();
+    store.close();
+    [b1, b2, b3].forEach((b) => rmSync(b, { recursive: true, force: true }));
+  });
+
+  it("[MCP boundary] a persistence failure downgrades treatment → control, no injection, admissionFailed", async () => {
+    const base = tmpProject("tb-adm-mcp-");
+    const store = freshStore();
+    const throwing = { readEvents: () => { throw new Error("sqlite read fail"); } } as unknown as BlockStore;
+    const r = await runReasoningPatternsRecall(shadowServer(store), { problem: STRONG_MECH, runId: "r1" }, {
+      readHoldoutConfig: () => null,
+      readCanaryConfig: () => canary(1),
+      readBreakerSnapshot: () => readBreakerSnapshot(base),
+      admitCanaryTreatment: () => admitCanaryExposure(base, throwing), // durable arm FAILS
+      noteCanaryActivity: () => undefined,
+    });
+    expect(r.canaryExposure?.arm).toBe("control"); // downgraded
+    expect(r.shouldInject).toBe(false); // treatment NOT served
+    const exp = store.readEvents({}).filter((e) => e.event === "reasoning.applicability_canary_exposure");
+    expect(exp.length).toBe(1);
+    expect((exp[0] as { admissionFailed?: boolean }).admissionFailed).toBe(true);
+    expect(store.readEvents({}).filter((e) => e.event === "injection").length).toBe(0);
+    store.close();
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it("[hook] a breaker write failure → treatment downgraded, no injection", async () => {
+    const base = tmpProject("tb-adm-hook-");
+    breakFsWrite(base);
+    const store = freshStore();
+    try {
+      await recallForPrompt(shadowServer(store), store, () => null, { prompt: STRONG_MECH, basePath: base, sessionId: "h1" }, undefined, () => canary(1));
+      expect(store.readEvents({}).filter((e) => e.event === "injection").length).toBe(0); // not served
+      const exp = store.readEvents({}).filter((e) => e.event === "reasoning.applicability_canary_exposure");
+      expect(exp.length).toBe(1);
+      expect((exp[0] as { arm: string }).arm).toBe("control");
+    } finally {
+      store.close();
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("[SDK] forced treatment + breaker write failure → downgraded, no injection", async () => {
+    const base = tmpProject("tb-adm-sdk-");
+    const dbPath = join(base, "store.db");
+    const seedStore = new BlockStore(new Database(dbPath));
+    seed(seedStore);
+    seedStore.close();
+    initConfig(base);
+    breakFsWrite(base);
+    process.env.TRACEBASE_REASONING_APPLICABILITY = "shadow";
+    process.env.TRACEBASE_REASONING_RETRIEVAL = "shadow";
+    const provider = new TracebaseRuntimeProvider({ storagePath: dbPath, basePath: base, readCanaryConfig: () => canary(1) });
+    try {
+      await provider.beforeTask({ problem: STRONG_MECH, runId: "s1" });
+      const ro = new BlockStore(new Database(dbPath, { readonly: true }));
+      expect(ro.readEvents({}).filter((e) => e.event === "injection").length).toBe(0); // downgraded → no treatment injection
+      ro.close();
     } finally {
       await provider.close?.();
       rmSync(base, { recursive: true, force: true });

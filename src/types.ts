@@ -2784,4 +2784,11 @@ export interface ApplicabilityCanaryExposureEvent extends EventBase {
   eligibilityReason: string;
   /** True iff this exposure produces an attributable per-block outcome (treatment). */
   outcomeCompatible: boolean;
+  /**
+   * E.2.2 admission fail-off: true when an eligible TREATMENT was DOWNGRADED to
+   * control because the breaker could not be durably armed (the reranker block was
+   * NOT injected — baseline preserved). Records the persistence failure instead of
+   * silently swallowing it.
+   */
+  admissionFailed?: boolean;
 }

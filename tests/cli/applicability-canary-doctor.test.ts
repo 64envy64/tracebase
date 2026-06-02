@@ -30,6 +30,14 @@ function tripBreaker(basePath: string): void {
   store.close();
 }
 
+// Create a CLEAN (non-tripped) breaker state — the "runtime heartbeat" of a
+// confirmed exposure. Empty ledger → counters 0 → not tripped → state present.
+function armBreakerClean(basePath: string): void {
+  const store = new BlockStore(new Database(":memory:"));
+  refreshBreaker(basePath, store, 1_780_000_000_000);
+  store.close();
+}
+
 describe("applicabilityCanaryDoctorCheck (D.4 persisted state)", () => {
   let basePath: string;
   beforeEach(() => {
@@ -48,12 +56,21 @@ describe("applicabilityCanaryDoctorCheck (D.4 persisted state)", () => {
     expect(applicabilityCanaryDoctorCheck(undefined, {}).level).toBe("info");
   });
 
-  it("enabled + shadow on → WARN that it is LIVE / exposing", () => {
+  it("enabled + shadow on but NO heartbeat → WARN ARMED (not LIVE — honest E.2.2)", () => {
     enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.05 });
     const c = applicabilityCanaryDoctorCheck(basePath, { TRACEBASE_REASONING_APPLICABILITY: "shadow" });
     expect(c.level).toBe("warn");
-    expect(c.message.toLowerCase()).toContain("live");
-    expect(c.message.toLowerCase()).toContain("disable");
+    expect(c.message).toContain("ARMED");
+    expect(c.message.toLowerCase()).toContain("no confirmed exposure");
+  });
+
+  it("enabled + shadow on + runtime heartbeat → WARN LIVE_CONFIRMED — exposing", () => {
+    enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.05 });
+    armBreakerClean(basePath); // confirmed exposure → breaker state present
+    const c = applicabilityCanaryDoctorCheck(basePath, { TRACEBASE_REASONING_APPLICABILITY: "shadow" });
+    expect(c.level).toBe("warn");
+    expect(c.message).toContain("LIVE_CONFIRMED");
+    expect(c.message.toLowerCase()).toContain("exposing");
   });
 
   it("enabled but shadow OFF → WARN that it is INERT", () => {
@@ -88,7 +105,7 @@ describe("applicabilityCanaryDoctorCheck (D.4 persisted state)", () => {
   });
 });
 
-describe("canaryEffectiveStatus — LIVE / INERT / TRIPPED", () => {
+describe("canaryEffectiveStatus — ARMED / LIVE_CONFIRMED / INERT / TRIPPED (E.2.2 honesty)", () => {
   let basePath: string;
   beforeEach(() => {
     basePath = realpathSync(((): string => { const p = join(tmpdir(), `tb-canary-eff-${randomUUID()}`); mkdirSync(p, { recursive: true }); return p; })());
@@ -99,11 +116,18 @@ describe("canaryEffectiveStatus — LIVE / INERT / TRIPPED", () => {
   it("INERT when configured-off", () => {
     expect(canaryEffectiveStatus(basePath, {}).status).toBe("INERT");
   });
-  it("LIVE when enabled + no kill + breaker clear", () => {
+  it("ARMED when enabled + clear but NO heartbeat (was misleadingly 'LIVE')", () => {
     enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.05 });
-    expect(canaryEffectiveStatus(basePath, {}).status).toBe("LIVE");
+    expect(canaryEffectiveStatus(basePath, {}).status).toBe("ARMED");
   });
-  it("INERT (not TRIPPED) when enabled but env-killed", () => {
+  it("LIVE_CONFIRMED once a runtime heartbeat (breaker state) is present", () => {
+    enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.05 });
+    armBreakerClean(basePath);
+    const eff = canaryEffectiveStatus(basePath, {});
+    expect(eff.status).toBe("LIVE_CONFIRMED");
+    expect(typeof eff.heartbeatMs).toBe("number");
+  });
+  it("INERT (not ARMED) when enabled but env-killed", () => {
     enableApplicabilityCanary(basePath, { policyAck: CANARY_POLICY_VERSION, rate: 0.05 });
     expect(canaryEffectiveStatus(basePath, { [KILL]: "off" }).status).toBe("INERT");
   });

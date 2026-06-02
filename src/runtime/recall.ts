@@ -32,7 +32,7 @@ import type { InjectionPayload } from "../core/build-injection-payload.js";
 import type { readCascadeConfig, readHoldoutConfig } from "../core/config.js";
 import type { ApplicabilityCanaryConfig } from "../types.js";
 
-import { readBreakerSnapshot, noteCanaryExposure } from "../experiments/canary-breaker.js";
+import { readBreakerSnapshot, noteCanaryExposure, admitCanaryExposure } from "../experiments/canary-breaker.js";
 import { detectToolPattern } from "../core/tool-loop-detect.js";
 import { buildInjectionPayload } from "../core/build-injection-payload.js";
 import { buildDriftAugmentation } from "../core/drift-trigger.js";
@@ -289,6 +289,7 @@ export async function recallForPrompt(
       ...(canaryLoader
         ? {
             readBreakerSnapshot: () => readBreakerSnapshot(opts.basePath),
+            admitCanaryTreatment: () => admitCanaryExposure(opts.basePath, store),
             noteCanaryActivity: () => noteCanaryExposure(opts.basePath, store),
           }
         : {}),

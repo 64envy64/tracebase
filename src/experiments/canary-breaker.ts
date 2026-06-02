@@ -235,24 +235,51 @@ export function noteCanaryExposure(basePath: string, store: BlockStore, nowMs: n
   }
 }
 
-/** The three distinct canary states the CLI/doctor surface. */
-export type CanaryEffectiveStatus = "LIVE" | "INERT" | "TRIPPED";
+/**
+ * ADMISSION (E.2.2 fail-off). Durably init/refresh the breaker state and report
+ * whether persistence SUCCEEDED. The caller serves a TREATMENT only when this
+ * returns true — if the breaker state cannot be written durably (FS / SQLite
+ * failure) it returns FALSE and the caller fails OFF (downgrades to control,
+ * never injects). Unlike noteCanaryExposure, the failure is NOT silently swallowed
+ * — it is surfaced as a false return the admission gate acts on.
+ */
+export function admitCanaryExposure(basePath: string, store: BlockStore, nowMs: number = Date.now()): boolean {
+  try {
+    const state = refreshBreaker(basePath, store, nowMs); // atomic write; throws on FS/SQLite failure
+    // Durability proof: the state file must be present + parseable after the write.
+    return readBreakerState(basePath) !== "malformed" && state.version === CANARY_BREAKER_VERSION;
+  } catch {
+    return false;
+  }
+}
+
+/** The distinct canary states the CLI/doctor surface (E.2.2: ARMED vs LIVE_CONFIRMED). */
+export type CanaryEffectiveStatus = "ARMED" | "LIVE_CONFIRMED" | "INERT" | "TRIPPED";
 
 /**
  * Combine persisted config + env kills + breaker snapshot into ONE effective
- * status, shared by `canary status|health` and `doctor` so they never disagree:
- *   • TRIPPED — the breaker is latched (or its state is malformed → fail-off).
- *   • LIVE    — config enabled AND no env/global kill AND breaker clear: exposing.
- *   • INERT   — configured-off / env-killed (but not tripped): not exposing.
+ * status, shared by `canary status|health` and `doctor` so they never disagree.
+ * HONEST observability (E.2.2): "enabled config" alone is NOT "live" — it is ARMED
+ * until the serving runtime confirms it by writing breaker state (the runtime
+ * heartbeat). Only then is it LIVE_CONFIRMED.
+ *   • TRIPPED        — breaker latched (or malformed state → fail-off).
+ *   • INERT          — configured-off / env-killed.
+ *   • LIVE_CONFIRMED — enabled + clear + breaker state PRESENT (runtime has admitted
+ *                      ≥1 exposure → genuinely serving).
+ *   • ARMED          — enabled + clear but NO breaker state yet (configured to expose,
+ *                      but no confirmed serving — the runtime may not be live).
  */
 export function canaryEffectiveStatus(
   basePath: string,
   env: NodeJS.ProcessEnv = process.env,
-): { status: CanaryEffectiveStatus; snapshot: CanaryBreakerSnapshot; killReason?: string } {
+): { status: CanaryEffectiveStatus; snapshot: CanaryBreakerSnapshot; killReason?: string; heartbeatMs?: number } {
   const snapshot = readBreakerSnapshot(basePath);
   if (snapshot.tripped) return { status: "TRIPPED", snapshot, killReason: `breaker_tripped:${snapshot.reasons.join(",") || "latched"}` };
   const serving = resolveCanaryServingState(readApplicabilityCanaryConfig(basePath), env);
-  return serving.killReason
-    ? { status: "INERT", snapshot, killReason: serving.killReason }
-    : { status: serving.enabled ? "LIVE" : "INERT", snapshot };
+  if (serving.killReason) return { status: "INERT", snapshot, killReason: serving.killReason };
+  if (!serving.enabled) return { status: "INERT", snapshot };
+  // enabled + not killed + not tripped → ARMED until a runtime heartbeat confirms it.
+  const state = readBreakerState(basePath);
+  if (state && state !== "malformed") return { status: "LIVE_CONFIRMED", snapshot, heartbeatMs: state.updatedAtMs };
+  return { status: "ARMED", snapshot };
 }

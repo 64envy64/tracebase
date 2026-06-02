@@ -81,6 +81,13 @@ export interface ReasoningPatternsDeps {
    * frozen kill rule fired. Best-effort; must never throw on the serving path.
    */
   noteCanaryActivity?: () => void;
+  /**
+   * Phase E.2.2 — admission gate. Returns true iff the breaker can be DURABLY
+   * armed; a canary TREATMENT is served only when this returns true (else it is
+   * downgraded to control, no injection). Wired to admitCanaryExposure by every
+   * transport. Absent ⇒ no admission gate (legacy/tests).
+   */
+  admitCanaryTreatment?: () => boolean;
   /** Deterministic fingerprint factory. Overridable for tests. */
   fingerprintFactory?: (
     problem: string,
@@ -203,9 +210,13 @@ async function applyShadowLanesAndCanary(
     const breaker = deps.readBreakerSnapshot?.();
     const serving = resolveCanaryServingState(deps.readCanaryConfig(), process.env, breaker);
     if (serving.enabled && serving.config) {
-      const result = blockServer.applyApplicabilityCanary(query, served, problemFingerprint, serving.config);
-      // Ingestion trigger: a canary exposure happened → refresh breaker health
-      // from the ledger (off the hot path; best-effort).
+      // E.2.2 — pass the admission gate: a TREATMENT is served only if the breaker
+      // can be durably armed (else applyApplicabilityCanary downgrades to control).
+      const result = blockServer.applyApplicabilityCanary(query, served, problemFingerprint, serving.config, {
+        ...(deps.admitCanaryTreatment ? { admitTreatment: deps.admitCanaryTreatment } : {}),
+      });
+      // Best-effort post-exposure refresh (counts the just-emitted exposure; the
+      // durable arming already happened in the admission gate for treatments).
       if (result.canaryExposure) deps.noteCanaryActivity?.();
       return result;
     }
