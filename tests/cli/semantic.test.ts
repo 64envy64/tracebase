@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BlockStore } from "../../src/core/block-store.js";
 import { initConfig, loadConfig } from "../../src/core/config.js";
 import {
+  runSemanticDogfoodPreflight,
   runSemanticObservationExport,
   runSemanticRegistryExport,
   runSemanticShadowSoakExport,
@@ -53,6 +54,40 @@ describe("semantic operator CLI helpers", () => {
     expect(report.traffic).toBe(1);
     expect(report.residual.recoveryRate).toBe(1);
     expect(report.providers).toEqual(["http"]);
+  });
+
+  it("preflights dogfood collection before init and writes a privacy-safe blocker artifact", async () => {
+    const uninitializedDir = mkdtempSync(join(tmpdir(), "tb-semantic-preflight-"));
+    try {
+      const outPath = join(uninitializedDir, "out", "preflight.json");
+      const report = await runSemanticDogfoodPreflight({
+        path: uninitializedDir,
+        env: { TRACEBASE_SEMANTIC_SHADOW_TOKEN: "not-a-secret-in-report-123456" },
+        outPath,
+      });
+
+      expect(report.verdict).toBe("blocked");
+      expect(report.project).toEqual({ initialized: false, storageExists: false });
+      expect(report.env).toEqual({
+        shadowUrlSet: false,
+        shadowTokenSet: true,
+        shadowAttestationSet: false,
+        allowUnpinnedDevMode: false,
+      });
+      expect(report.blockers).toContain("project is not initialized");
+      expect(report.blockers).toContain("TRACEBASE_SEMANTIC_SHADOW_URL is not set");
+      expect(report.blockers).toContain("TRACEBASE_SEMANTIC_SHADOW_ATTESTATION is not set");
+      expect(report.blockers).toContain("semantic sidecar doctor is invalid");
+      expect(report.nextActions.length).toBeGreaterThan(0);
+      expect(report.privacyTelemetrySafe).toBe(true);
+
+      const raw = readFileSync(outPath, "utf8");
+      expect(raw).not.toContain(uninitializedDir);
+      expect(raw).not.toContain("not-a-secret-in-report");
+      expect(JSON.parse(raw)).toEqual(report);
+    } finally {
+      rmSync(uninitializedDir, { recursive: true, force: true });
+    }
   });
 
   it("combines doctor status and local events into a conservative soak verdict", async () => {

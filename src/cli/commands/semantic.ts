@@ -19,6 +19,7 @@ import {
 } from "../../analytics/semantic-shadow-soak.js";
 import { BlockStore } from "../../core/block-store.js";
 import { findConfigDir, loadConfig } from "../../core/config.js";
+import { detectLeakageExtended } from "../../core/guard.js";
 import type { AnalyticsEvent } from "../../types.js";
 import {
   freezeOrganicCalibrationRegistry,
@@ -26,6 +27,12 @@ import {
   type FrozenOrganicCalibrationExport,
 } from "../../experiments/semantic-bakeoff/calibration/organic-export.js";
 import { probeSemanticShadow, type SemanticShadowDoctorReport } from "../../experiments/semantic-bakeoff/service/doctor.js";
+import {
+  SEMANTIC_SHADOW_ALLOW_UNPINNED_ENV,
+  SEMANTIC_SHADOW_ATTESTATION_ENV,
+  SEMANTIC_SHADOW_TOKEN_ENV,
+  SEMANTIC_SHADOW_URL_ENV,
+} from "../../experiments/semantic-bakeoff/semantic-shadow.js";
 import { parseSince } from "./events.js";
 
 interface BaseOptions {
@@ -56,6 +63,11 @@ interface SoakOptions extends BaseOptions {
   allowUnpinnedDevMode?: boolean;
 }
 
+interface DogfoodPreflightOptions extends BaseOptions {
+  out?: string;
+  allowUnpinnedDevMode?: boolean;
+}
+
 export interface RunSemanticShadowReportOptions {
   path: string;
   since?: string;
@@ -68,6 +80,34 @@ export interface RunSemanticShadowSoakCheckOptions extends RunSemanticShadowRepo
 
 export interface RunSemanticShadowSoakExportOptions extends RunSemanticShadowSoakCheckOptions {
   outPath: string;
+}
+
+export interface SemanticDogfoodPreflightReport {
+  generatedAt: string;
+  verdict: "ready-to-collect" | "blocked";
+  project: {
+    initialized: boolean;
+    storageExists: boolean;
+  };
+  env: {
+    shadowUrlSet: boolean;
+    shadowTokenSet: boolean;
+    shadowAttestationSet: boolean;
+    allowUnpinnedDevMode: boolean;
+  };
+  doctor: SemanticShadowDoctorReport;
+  soak: SemanticShadowSoakReport;
+  blockers: string[];
+  nextActions: string[];
+  shadowOnly: true;
+  servingPromoted: false;
+  privacyTelemetrySafe: boolean;
+}
+
+export interface RunSemanticDogfoodPreflightOptions extends RunSemanticShadowReportOptions {
+  env?: NodeJS.ProcessEnv;
+  outPath?: string;
+  allowUnpinnedDevMode?: boolean;
 }
 
 export interface RunSemanticObservationExportOptions extends RunSemanticShadowReportOptions {
@@ -93,6 +133,32 @@ function readSemanticEvents(path: string, since?: string): AnalyticsEvent[] {
       ...(since ? { afterTs: parseSince(since) } : {}),
       limit: 1_000_000,
     });
+  } finally {
+    db.close();
+  }
+}
+
+function readSemanticEventsIfAvailable(path: string, since?: string): {
+  initialized: boolean;
+  storageExists: boolean;
+  events: AnalyticsEvent[];
+} {
+  const configDir = findConfigDir(path);
+  if (!configDir) return { initialized: false, storageExists: false, events: [] };
+  const cfg = loadConfig(path);
+  if (!existsSync(cfg.storagePath)) return { initialized: true, storageExists: false, events: [] };
+  const db = new Database(cfg.storagePath, { readonly: true });
+  try {
+    const store = new BlockStore(db, { skipMigrate: true });
+    return {
+      initialized: true,
+      storageExists: true,
+      events: store.readEvents({
+        eventType: "reasoning.semantic_comparison",
+        ...(since ? { afterTs: parseSince(since) } : {}),
+        limit: 1_000_000,
+      }),
+    };
   } finally {
     db.close();
   }
@@ -131,6 +197,104 @@ export async function runSemanticShadowSoakExport(
 ): Promise<SemanticShadowSoakReport> {
   const report = await runSemanticShadowSoakCheck(options);
   writeJsonAtomic(options.outPath, report);
+  return report;
+}
+
+function sidecarTelemetryDirty(report: Extract<SemanticShadowDoctorReport, { status: "ready" }>): string[] {
+  const telemetry = report.telemetry;
+  const blockers: string[] = [];
+  if (telemetry.rejectedAuth > 0) blockers.push("sidecar auth rejection counter is non-zero");
+  if (telemetry.rejectedLeak > 0) blockers.push("sidecar leakage rejection counter is non-zero");
+  if (telemetry.rejectedMalformed > 0) blockers.push("sidecar malformed-request counter is non-zero");
+  if (telemetry.rejectedTooLarge > 0) blockers.push("sidecar payload-too-large counter is non-zero");
+  if (telemetry.rejectedExpired > 0) blockers.push("sidecar expired-request counter is non-zero");
+  if (telemetry.quotaExceeded > 0) blockers.push("sidecar quota counter is non-zero");
+  if (telemetry.timeouts > 0) blockers.push("sidecar timeout counter is non-zero");
+  if (telemetry.overloads > 0) blockers.push("sidecar overload counter is non-zero");
+  if (telemetry.backendErrors > 0) blockers.push("sidecar backend-error counter is non-zero");
+  return blockers;
+}
+
+function dogfoodNextActions(blockers: readonly string[]): string[] {
+  if (blockers.length === 0) {
+    return [
+      "restart the long-lived TraceBase MCP/SDK runtime with the semantic shadow env set",
+      "use TraceBase normally until semantic shadow traffic reaches the soak floor",
+      "run `tracebase semantic soak-check --since <window> --out <artifact.json>` and preserve the artifact",
+    ];
+  }
+  const actions = new Set<string>();
+  for (const blocker of blockers) {
+    if (blocker.includes("project is not initialized")) actions.add("run `npx tracebase-ai init` in the project before dogfood collection");
+    if (blocker.includes("TRACEBASE_SEMANTIC_SHADOW")) actions.add("set TRACEBASE_SEMANTIC_SHADOW_URL, TOKEN, and pinned ATTESTATION in the long-lived runtime environment");
+    if (blocker.includes("doctor")) actions.add("start the semantic sidecar and verify `tracebase semantic doctor` returns ready");
+    if (blocker.includes("unpinned")) actions.add("pin TRACEBASE_SEMANTIC_SHADOW_ATTESTATION before production-like dogfood");
+    if (blocker.includes("counter")) actions.add("restart the sidecar or investigate dirty sidecar telemetry before starting a fresh soak window");
+    if (blocker.includes("privacy")) actions.add("inspect the preflight report path; do not share or commit a failed privacy scan artifact");
+  }
+  if (actions.size === 0) actions.add("fix the listed blocker, then rerun `tracebase semantic dogfood-preflight`");
+  return [...actions].sort();
+}
+
+export async function runSemanticDogfoodPreflight(
+  options: RunSemanticDogfoodPreflightOptions,
+): Promise<SemanticDogfoodPreflightReport> {
+  const env = options.env ?? process.env;
+  const eventState = readSemanticEventsIfAvailable(options.path, options.since);
+  const doctor = await runSemanticShadowDoctor(env);
+  const shadow = aggregateSemanticShadow(eventState.events);
+  const soak = evaluateSemanticShadowSoak({ doctor, shadow }, {
+    thresholds: {
+      allowUnpinnedDevMode: options.allowUnpinnedDevMode === true,
+    },
+  });
+  const envSummary = {
+    shadowUrlSet: Boolean((env[SEMANTIC_SHADOW_URL_ENV] ?? "").trim()),
+    shadowTokenSet: Boolean((env[SEMANTIC_SHADOW_TOKEN_ENV] ?? "").trim()),
+    shadowAttestationSet: Boolean((env[SEMANTIC_SHADOW_ATTESTATION_ENV] ?? "").trim()),
+    allowUnpinnedDevMode: (env[SEMANTIC_SHADOW_ALLOW_UNPINNED_ENV] ?? "").trim() === "1" ||
+      options.allowUnpinnedDevMode === true,
+  };
+  const blockers: string[] = [];
+  if (!eventState.initialized) blockers.push("project is not initialized");
+  if (!envSummary.shadowUrlSet) blockers.push(`${SEMANTIC_SHADOW_URL_ENV} is not set`);
+  if (!envSummary.shadowTokenSet) blockers.push(`${SEMANTIC_SHADOW_TOKEN_ENV} is not set`);
+  if (!envSummary.shadowAttestationSet && !envSummary.allowUnpinnedDevMode) {
+    blockers.push(`${SEMANTIC_SHADOW_ATTESTATION_ENV} is not set`);
+  }
+  if (doctor.status !== "ready") blockers.push(`semantic sidecar doctor is ${doctor.status}`);
+  if (doctor.status === "ready") {
+    if (!envSummary.allowUnpinnedDevMode && doctor.unpinnedDevMode) {
+      blockers.push("semantic sidecar is running unpinned");
+    }
+    blockers.push(...sidecarTelemetryDirty(doctor));
+  }
+
+  const reportWithoutPrivacy = {
+    generatedAt: new Date().toISOString(),
+    verdict: "blocked" as const,
+    project: {
+      initialized: eventState.initialized,
+      storageExists: eventState.storageExists,
+    },
+    env: envSummary,
+    doctor,
+    soak,
+    blockers,
+    nextActions: [] as string[],
+    shadowOnly: true as const,
+    servingPromoted: false as const,
+  };
+  const privacyTelemetrySafe = detectLeakageExtended(JSON.stringify(reportWithoutPrivacy)) === null;
+  if (!privacyTelemetrySafe) blockers.push("dogfood preflight report failed privacy scan");
+  const report: SemanticDogfoodPreflightReport = {
+    ...reportWithoutPrivacy,
+    verdict: blockers.length === 0 ? "ready-to-collect" : "blocked",
+    blockers: blockers.sort(),
+    nextActions: dogfoodNextActions(blockers),
+    privacyTelemetrySafe,
+  };
+  if (options.outPath) writeJsonAtomic(options.outPath, report);
   return report;
 }
 
@@ -250,6 +414,27 @@ function printSoakReport(report: SemanticShadowSoakReport): void {
   }
 }
 
+function printDogfoodPreflightReport(report: SemanticDogfoodPreflightReport): void {
+  console.log(pc.bold("Semantic shadow dogfood preflight"));
+  const verdict = report.verdict === "ready-to-collect" ? pc.green("READY TO COLLECT") : pc.yellow("BLOCKED");
+  console.log(pc.dim("  verdict:            ") + verdict);
+  console.log(pc.dim("  project initialized:") + " " + String(report.project.initialized));
+  console.log(pc.dim("  storage exists:     ") + String(report.project.storageExists));
+  console.log(pc.dim("  shadow env:         ") +
+    `url=${report.env.shadowUrlSet} token=${report.env.shadowTokenSet} ` +
+    `attestation=${report.env.shadowAttestationSet}`);
+  console.log(pc.dim("  doctor:             ") + report.doctor.status);
+  console.log(pc.dim("  current traffic:    ") + report.soak.shadow.traffic);
+  if (report.blockers.length === 0) {
+    console.log(pc.green("  blockers:           none"));
+  } else {
+    console.log(pc.yellow("  blockers:"));
+    for (const blocker of report.blockers) console.log(pc.yellow("    - " + blocker));
+  }
+  console.log(pc.dim("  next:"));
+  for (const action of report.nextActions) console.log(pc.dim("    - " + action));
+}
+
 function fail(error: unknown): void {
   console.error(pc.red("Error: ") + (error instanceof Error ? error.message : String(error)));
   process.exitCode = 1;
@@ -277,6 +462,33 @@ export const semanticCommand = new Command("semantic")
             }
           }
           if (report.status !== "ready" && report.status !== "off") process.exitCode = 1;
+        } catch (error) {
+          fail(error);
+        }
+      }),
+  )
+  .addCommand(
+    new Command("dogfood-preflight")
+      .description("Check whether semantic shadow dogfood collection can start safely")
+      .option("-p, --path <path>", "project root", process.cwd())
+      .option("--since <when>", "window start: relative (7d / 1h / 30m) or ISO / epoch ms")
+      .option("--json", "machine-readable JSON output")
+      .option("--out <path>", "write the privacy-safe preflight JSON atomically")
+      .option("--allow-unpinned-dev-mode", "allow unpinned sidecar attestation for local development only")
+      .action(async (opts: DogfoodPreflightOptions) => {
+        try {
+          const report = await runSemanticDogfoodPreflight({
+            path: opts.path,
+            ...(opts.since ? { since: opts.since } : {}),
+            ...(opts.out ? { outPath: opts.out } : {}),
+            ...(opts.allowUnpinnedDevMode ? { allowUnpinnedDevMode: true } : {}),
+          });
+          if (opts.json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+          else {
+            printDogfoodPreflightReport(report);
+            if (opts.out) console.log(pc.dim("  output:             ") + opts.out);
+          }
+          if (report.verdict !== "ready-to-collect") process.exitCode = 1;
         } catch (error) {
           fail(error);
         }
