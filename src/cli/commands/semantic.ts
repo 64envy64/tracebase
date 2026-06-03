@@ -45,6 +45,7 @@ interface ObservationExportOptions extends BaseOptions {
 }
 
 interface SoakOptions extends BaseOptions {
+  out?: string;
   minTraffic?: string;
   minV4Abstain?: string;
   minResidualRecovery?: string;
@@ -63,6 +64,10 @@ export interface RunSemanticShadowReportOptions {
 export interface RunSemanticShadowSoakCheckOptions extends RunSemanticShadowReportOptions {
   env?: NodeJS.ProcessEnv;
   thresholds?: Partial<SemanticShadowSoakThresholds>;
+}
+
+export interface RunSemanticShadowSoakExportOptions extends RunSemanticShadowSoakCheckOptions {
+  outPath: string;
 }
 
 export interface RunSemanticObservationExportOptions extends RunSemanticShadowReportOptions {
@@ -119,6 +124,14 @@ export async function runSemanticShadowSoakCheck(
   const shadow = runSemanticShadowReport(options);
   const doctor = await runSemanticShadowDoctor(options.env);
   return evaluateSemanticShadowSoak({ doctor, shadow }, { thresholds: options.thresholds });
+}
+
+export async function runSemanticShadowSoakExport(
+  options: RunSemanticShadowSoakExportOptions,
+): Promise<SemanticShadowSoakReport> {
+  const report = await runSemanticShadowSoakCheck(options);
+  writeJsonAtomic(options.outPath, report);
+  return report;
 }
 
 export function runSemanticRegistryExport(
@@ -275,6 +288,7 @@ export const semanticCommand = new Command("semantic")
       .option("-p, --path <path>", "project root", process.cwd())
       .option("--since <when>", "window start: relative (7d / 1h / 30m) or ISO / epoch ms")
       .option("--json", "machine-readable JSON output")
+      .option("--out <path>", "write the full privacy-safe soak report JSON atomically")
       .option("--min-traffic <n>", "minimum semantic comparison events")
       .option("--min-v4-abstain <n>", "minimum V4-abstain residual observations")
       .option("--min-residual-recovery <n>", "minimum semantic applicable residual observations")
@@ -290,8 +304,12 @@ export const semanticCommand = new Command("semantic")
             ...(opts.since ? { since: opts.since } : {}),
             thresholds: buildSoakThresholds(opts),
           });
+          if (opts.out) writeJsonAtomic(opts.out, report);
           if (opts.json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
-          else printSoakReport(report);
+          else {
+            printSoakReport(report);
+            if (opts.out) console.log(pc.dim("  output:             ") + opts.out);
+          }
           if (report.verdict !== "ready") process.exitCode = 1;
         } catch (error) {
           fail(error);

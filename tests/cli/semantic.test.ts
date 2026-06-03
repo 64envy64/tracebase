@@ -8,6 +8,7 @@ import { initConfig, loadConfig } from "../../src/core/config.js";
 import {
   runSemanticObservationExport,
   runSemanticRegistryExport,
+  runSemanticShadowSoakExport,
   runSemanticShadowSoakCheck,
   runSemanticShadowReport,
 } from "../../src/cli/commands/semantic.js";
@@ -67,6 +68,27 @@ describe("semantic operator CLI helpers", () => {
     expect(report.servingPromoted).toBe(false);
     expect(JSON.stringify(report)).not.toContain("literalText");
     expect(JSON.stringify(report)).not.toContain("credential");
+  });
+
+  it("writes a privacy-safe soak artifact even when the gate is not ready", async () => {
+    const outPath = join(projectDir, "out", "semantic-soak.json");
+    const report = await runSemanticShadowSoakExport({
+      path: projectDir,
+      env: {},
+      outPath,
+      thresholds: { minTraffic: 1, minV4Abstain: 1, minWarmCompletions: 0 },
+    });
+
+    const saved = JSON.parse(readFileSync(outPath, "utf8")) as typeof report;
+    expect(saved.verdict).toBe("not-ready");
+    expect(saved.doctor.status).toBe("off");
+    expect(saved.shadowOnly).toBe(true);
+    expect(saved.servingPromoted).toBe(false);
+    expect(saved.blockers).toEqual(report.blockers);
+    const raw = readFileSync(outPath, "utf8");
+    expect(raw).not.toContain("literalText");
+    expect(raw).not.toContain("candidate");
+    expect(raw).not.toContain("credential");
   });
 
   it("exports privacy-safe observation skeletons without payload content", () => {
