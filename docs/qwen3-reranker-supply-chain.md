@@ -37,6 +37,10 @@ API: `https://huggingface.co/api/models/Qwen/Qwen3-Reranker-0.6B?blobs=true`.
 - The weights live under `.models/` (gitignored) — never committed, never on the
   serving path. The frozen D.5 runtime (`interesting-mcclintock-a69a77`) and the
   live dogfood MCP do **not** reference this model.
+- E.2.7 packages the shadow-only sidecar under `deploy/semantic-sidecar/`. The
+  contract verifier checks digest-pinned base images, offline hash-locked Python
+  wheelhouse installs, non-root runtime, public liveness-only healthchecks, and
+  semantic-serving promotion disabled.
 - Inference runs in a **separate Python worker process** (`qwen-worker.py`) behind
   the provider-agnostic JSONL adapter, with the host scanning every DTO before
   transport. The worker is spawned only by the offline bakeoff, never by serving.

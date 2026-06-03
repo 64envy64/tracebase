@@ -1,0 +1,16 @@
+*
+!package.json
+!package-lock.json
+!tsconfig.json
+!tsconfig.check.json
+!tsup.config.ts
+!bin
+!bin/**
+!src
+!src/**
+!scripts
+!scripts/semantic-bakeoff
+!scripts/semantic-bakeoff/qwen-worker.py
+!deploy
+!deploy/semantic-sidecar
+!deploy/semantic-sidecar/**

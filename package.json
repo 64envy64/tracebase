@@ -7,7 +7,8 @@
   "types": "dist/index.d.ts",
   "bin": {
     "tracebase": "dist/cli.js",
-    "tracebase-ai": "dist/cli.js"
+    "tracebase-ai": "dist/cli.js",
+    "tracebase-semantic-sidecar": "dist/semantic-sidecar.js"
   },
   "exports": {
     ".": {
@@ -43,7 +44,9 @@
     "smoke:agent": "tsx scripts/agent-smoke.ts",
     "smoke:capabilities": "tsx scripts/capability-matrix-smoke.ts",
     "smoke:semantic-ops": "tsx scripts/semantic-bakeoff/semantic-ops-smoke.ts",
-    "semantic:sidecar": "tsx scripts/semantic-bakeoff/serve-sidecar.ts",
+    "semantic:sidecar": "tsx bin/semantic-sidecar.ts",
+    "semantic:sidecar:verify-supply-chain": "tsx scripts/semantic-bakeoff/verify-sidecar-supply-chain.ts",
+    "semantic:sidecar:prepare-wheelhouse": "tsx scripts/semantic-bakeoff/prepare-sidecar-wheelhouse.ts",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

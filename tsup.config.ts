@@ -40,6 +40,15 @@ export default defineConfig([
     banner: { js: "#!/usr/bin/env node" },
     external: EXTERNALS,
   },
+  // Customer-managed semantic sidecar entrypoint. This stays shadow-only and
+  // is packaged separately so Docker/runtime entrypoints do not depend on tsx
+  // or source-tree layout.
+  {
+    entry: { "semantic-sidecar": "bin/semantic-sidecar.ts" },
+    format: ["cjs"],
+    target: "node18",
+    external: EXTERNALS,
+  },
   // MiniLM reranker worker. The bundled runtime resolves this as a
   // sibling of index/mcp/cli in dist, so keep the filename stable.
   {

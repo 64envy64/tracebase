@@ -85,3 +85,5 @@ bench-runs/file-memory-real-repos/transcripts/**/*.jsonl
 .models/
 .venv-bakeoff/
 .venv-cuda/
+deploy/semantic-sidecar/wheelhouse/*
+!deploy/semantic-sidecar/wheelhouse/.gitkeep

@@ -15,6 +15,7 @@ export { WarmQueue, type WarmQueueOptions } from "./warm-queue.js";
 export { createRerankService, type RerankService, type ServiceOptions } from "./server.js";
 export { HttpRerankProvider, type HttpRerankClientOptions, type HttpClientHealth } from "./client.js";
 export { probeSemanticShadow, type SemanticShadowDoctorReport } from "./doctor.js";
+export { runSemanticSidecarCli } from "./sidecar-cli.js";
 export {
   diagnoseSemanticSidecarConfig,
   fileSha256,

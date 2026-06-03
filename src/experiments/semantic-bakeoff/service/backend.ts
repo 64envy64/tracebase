@@ -3,6 +3,8 @@
  * and a Qwen-local backend (wraps the persistent worker). The service is
  * backend-agnostic — it speaks only this interface.
  */
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { PersistentWorkerProvider } from "../worker-adapter.js";
 import type { WireQuery, WireCandidate, WireResult } from "../worker-protocol.js";
 import type { ModelAttestation } from "./protocol.js";
@@ -55,6 +57,16 @@ export class FakeRerankBackend implements RerankBackend {
   }
 }
 
+function resolveDefaultQwenWorkerScript(): string {
+  const launchedFrom = process.argv[1] ? dirname(resolve(process.argv[1])) : process.cwd();
+  const candidates = [
+    resolve(process.cwd(), "scripts/semantic-bakeoff/qwen-worker.py"),
+    resolve(launchedFrom, "../scripts/semantic-bakeoff/qwen-worker.py"),
+    resolve(launchedFrom, "../../scripts/semantic-bakeoff/qwen-worker.py"),
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+}
+
 /**
  * Qwen local backend — wraps the persistent worker (qwen-worker.py). Only used
  * when the pinned weights are present; tests use the fake. Maps the wire DTO
@@ -63,11 +75,11 @@ export class FakeRerankBackend implements RerankBackend {
 export class QwenRerankBackend implements RerankBackend {
   readonly attestation: ModelAttestation;
   private readonly provider: PersistentWorkerProvider;
-  constructor(opts: { command: string; modelDir: string; revision: string; featureVersion?: number }) {
+  constructor(opts: { command: string; modelDir: string; revision: string; featureVersion?: number; workerScript?: string }) {
     this.attestation = { model: "Qwen/Qwen3-Reranker-0.6B", revision: opts.revision, featureVersion: opts.featureVersion ?? 1, backend: "qwen-local" };
     this.provider = new PersistentWorkerProvider({
       command: opts.command,
-      args: [new URL("../../../../scripts/semantic-bakeoff/qwen-worker.py", import.meta.url).pathname.replace(/^\//, "")],
+      args: [opts.workerScript ?? resolveDefaultQwenWorkerScript()],
       name: "qwen-local",
       handshakeTimeoutMs: 240_000,
       concurrency: 4,

@@ -10,6 +10,7 @@ import {
 } from "../../src/experiments/semantic-bakeoff/service/protocol.js";
 import {
   QWEN_MODEL_REVISION,
+  SIDECAR_QWEN_WORKER_SCRIPT_ENV,
   diagnoseSemanticSidecarConfig,
   startSemanticSidecar,
   verifyQwenArtifact,
@@ -98,6 +99,35 @@ describe("semantic sidecar operations", () => {
       reasons: ["TRACEBASE_SEMANTIC_SIDECAR_QWEN_REVISION must equal the pinned supply-chain revision"],
     });
     expect(QWEN_MODEL_REVISION).toHaveLength(40);
+  });
+
+  it("validates an explicit qwen worker script path for packaged runtimes", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tb-qwen-worker-script-"));
+    dirs.push(dir);
+    const worker = join(dir, "qwen-worker.py");
+    const missing = join(dir, "missing-worker.py");
+    const base = {
+      TRACEBASE_SEMANTIC_SIDECAR_BACKEND: "qwen-local",
+      TRACEBASE_SEMANTIC_SIDECAR_TOKEN: token,
+      TRACEBASE_SEMANTIC_SIDECAR_TENANT: "team-a",
+      TRACEBASE_SEMANTIC_SIDECAR_QWEN_MODEL_DIR: ".models/qwen",
+      TRACEBASE_SEMANTIC_SIDECAR_QWEN_REVISION: QWEN_MODEL_REVISION,
+    };
+    expect(diagnoseSemanticSidecarConfig({
+      ...base,
+      [SIDECAR_QWEN_WORKER_SCRIPT_ENV]: missing,
+    })).toMatchObject({
+      status: "invalid",
+      reasons: [`${SIDECAR_QWEN_WORKER_SCRIPT_ENV} must point at an existing qwen-worker.py`],
+    });
+    writeFileSync(worker, "print('worker')\n", "utf8");
+    expect(diagnoseSemanticSidecarConfig({
+      ...base,
+      [SIDECAR_QWEN_WORKER_SCRIPT_ENV]: worker,
+    })).toMatchObject({
+      status: "configured",
+      config: { qwen: { workerScript: worker } },
+    });
   });
 
   it("refuses a missing or substituted qwen artifact before worker startup", async () => {

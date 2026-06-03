@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "targetPlatform": "linux/amd64",
+  "baseImages": {
+    "nodeBuilder": "docker.io/library/node:22-bookworm-slim@sha256:32b9e321f262db540d55ac10dc529667cf4737546e097cdd36a843c62bcbf423",
+    "pytorchRuntime": "docker.io/pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee"
+  },
+  "node": {
+    "entrypoint": "dist/semantic-sidecar.js",
+    "binary": "tracebase-semantic-sidecar"
+  },
+  "qwen": {
+    "repo": "Qwen/Qwen3-Reranker-0.6B",
+    "revision": "e61197ed45024b0ed8a2d74b80b4d909f1255473",
+    "trustRemoteCode": false,
+    "requiredFiles": [
+      {
+        "path": "model.safetensors",
+        "sha256": "27cd75a405b9c1b46b59abfd88aaa209e6fed2a1972cde9b70e7659537c5e65b"
+      },
+      {
+        "path": "tokenizer.json",
+        "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+      }
+    ]
+  },
+  "python": {
+    "installMode": "offline-wheelhouse",
+    "wheelhouse": "deploy/semantic-sidecar/wheelhouse",
+    "requirementsInput": "deploy/semantic-sidecar/python-requirements.in",
+    "requirementsLock": "deploy/semantic-sidecar/wheelhouse/requirements.lock.txt",
+    "requiresHashes": true,
+    "topLevelPins": [
+      "transformers==4.51.3",
+      "safetensors==0.5.3"
+    ]
+  },
+  "runtimePolicy": {
+    "semanticServingPromotion": false,
+    "shadowOnly": true,
+    "publicHealthContainsTelemetry": false,
+    "requiresPinnedAttestation": true
+  }
+}

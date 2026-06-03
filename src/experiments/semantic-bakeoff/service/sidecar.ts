@@ -24,6 +24,7 @@ export const SIDECAR_ALLOW_FAKE_ENV = "TRACEBASE_SEMANTIC_SIDECAR_ALLOW_FAKE";
 export const SIDECAR_QWEN_COMMAND_ENV = "TRACEBASE_SEMANTIC_SIDECAR_QWEN_COMMAND";
 export const SIDECAR_QWEN_MODEL_DIR_ENV = "TRACEBASE_SEMANTIC_SIDECAR_QWEN_MODEL_DIR";
 export const SIDECAR_QWEN_REVISION_ENV = "TRACEBASE_SEMANTIC_SIDECAR_QWEN_REVISION";
+export const SIDECAR_QWEN_WORKER_SCRIPT_ENV = "TRACEBASE_SEMANTIC_SIDECAR_QWEN_WORKER_SCRIPT";
 
 export const QWEN_MODEL_REVISION = "e61197ed45024b0ed8a2d74b80b4d909f1255473";
 export const QWEN_MODEL_SHA256 = "27cd75a405b9c1b46b59abfd88aaa209e6fed2a1972cde9b70e7659537c5e65b";
@@ -34,7 +35,7 @@ export interface SemanticSidecarConfig {
   port: number;
   token: string;
   tenant: string;
-  qwen?: { command: string; modelDir: string; revision: string };
+  qwen?: { command: string; modelDir: string; revision: string; workerScript?: string };
   quota: { ratePerSec: number; burst: number };
 }
 
@@ -81,10 +82,14 @@ export function diagnoseSemanticSidecarConfig(env: NodeJS.ProcessEnv = process.e
     const modelDir = (env[SIDECAR_QWEN_MODEL_DIR_ENV] ?? "").trim();
     const revision = (env[SIDECAR_QWEN_REVISION_ENV] ?? QWEN_MODEL_REVISION).trim();
     const command = (env[SIDECAR_QWEN_COMMAND_ENV] ?? "python").trim();
+    const workerScript = (env[SIDECAR_QWEN_WORKER_SCRIPT_ENV] ?? "").trim();
     if (!modelDir) reasons.push(`${SIDECAR_QWEN_MODEL_DIR_ENV} must point at the verified model directory`);
     if (revision !== QWEN_MODEL_REVISION) reasons.push(`${SIDECAR_QWEN_REVISION_ENV} must equal the pinned supply-chain revision`);
     if (!command) reasons.push(`${SIDECAR_QWEN_COMMAND_ENV} must be non-empty`);
-    if (modelDir && command && revision === QWEN_MODEL_REVISION) qwen = { modelDir, command, revision };
+    if (workerScript && !existsSync(workerScript)) reasons.push(`${SIDECAR_QWEN_WORKER_SCRIPT_ENV} must point at an existing qwen-worker.py`);
+    if (modelDir && command && revision === QWEN_MODEL_REVISION && (!workerScript || existsSync(workerScript))) {
+      qwen = { modelDir, command, revision, ...(workerScript ? { workerScript } : {}) };
+    }
   }
   if (reasons.length > 0 || !host || port === null) return { status: "invalid", reasons };
   return {
