@@ -12,6 +12,11 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import pc from "picocolors";
 import { collectSemanticShadowObservations, type SemanticShadowObservationSkeleton } from "../../analytics/semantic-shadow-observations.js";
 import { aggregateSemanticShadow, type SemanticShadowReport } from "../../analytics/semantic-shadow-report.js";
+import {
+  evaluateSemanticShadowSoak,
+  type SemanticShadowSoakReport,
+  type SemanticShadowSoakThresholds,
+} from "../../analytics/semantic-shadow-soak.js";
 import { BlockStore } from "../../core/block-store.js";
 import { findConfigDir, loadConfig } from "../../core/config.js";
 import type { AnalyticsEvent } from "../../types.js";
@@ -39,9 +44,25 @@ interface ObservationExportOptions extends BaseOptions {
   out: string;
 }
 
+interface SoakOptions extends BaseOptions {
+  minTraffic?: string;
+  minV4Abstain?: string;
+  minResidualRecovery?: string;
+  minWarmCompletions?: string;
+  maxLatencyP95Ms?: string;
+  maxWarmLatencyP95Ms?: string;
+  maxWarmQueuePending?: string;
+  allowUnpinnedDevMode?: boolean;
+}
+
 export interface RunSemanticShadowReportOptions {
   path: string;
   since?: string;
+}
+
+export interface RunSemanticShadowSoakCheckOptions extends RunSemanticShadowReportOptions {
+  env?: NodeJS.ProcessEnv;
+  thresholds?: Partial<SemanticShadowSoakThresholds>;
 }
 
 export interface RunSemanticObservationExportOptions extends RunSemanticShadowReportOptions {
@@ -90,6 +111,14 @@ function writeJsonAtomic(path: string, value: unknown): void {
 
 export function runSemanticShadowReport(options: RunSemanticShadowReportOptions): SemanticShadowReport {
   return aggregateSemanticShadow(readSemanticEvents(options.path, options.since));
+}
+
+export async function runSemanticShadowSoakCheck(
+  options: RunSemanticShadowSoakCheckOptions,
+): Promise<SemanticShadowSoakReport> {
+  const shadow = runSemanticShadowReport(options);
+  const doctor = await runSemanticShadowDoctor(options.env);
+  return evaluateSemanticShadowSoak({ doctor, shadow }, { thresholds: options.thresholds });
 }
 
 export function runSemanticRegistryExport(
@@ -151,6 +180,63 @@ function printReport(report: SemanticShadowReport): void {
   }
 }
 
+function parseNonNegativeInt(value: string | undefined, flag: string): number | undefined {
+  if (value === undefined) return undefined;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) throw new Error(`${flag} must be a non-negative integer`);
+  return n;
+}
+
+function buildSoakThresholds(opts: SoakOptions): Partial<SemanticShadowSoakThresholds> {
+  const thresholds: Partial<SemanticShadowSoakThresholds> = {};
+  const minTraffic = parseNonNegativeInt(opts.minTraffic, "--min-traffic");
+  const minV4Abstain = parseNonNegativeInt(opts.minV4Abstain, "--min-v4-abstain");
+  const minResidualRecovery = parseNonNegativeInt(opts.minResidualRecovery, "--min-residual-recovery");
+  const minWarmCompletions = parseNonNegativeInt(opts.minWarmCompletions, "--min-warm-completions");
+  const maxLatencyP95Ms = parseNonNegativeInt(opts.maxLatencyP95Ms, "--max-latency-p95-ms");
+  const maxWarmLatencyP95Ms = parseNonNegativeInt(opts.maxWarmLatencyP95Ms, "--max-warm-latency-p95-ms");
+  const maxWarmQueuePending = parseNonNegativeInt(opts.maxWarmQueuePending, "--max-warm-queue-pending");
+  if (minTraffic !== undefined) thresholds.minTraffic = minTraffic;
+  if (minV4Abstain !== undefined) thresholds.minV4Abstain = minV4Abstain;
+  if (minResidualRecovery !== undefined) thresholds.minSemanticResidualRecovery = minResidualRecovery;
+  if (minWarmCompletions !== undefined) thresholds.minWarmCompletions = minWarmCompletions;
+  if (maxLatencyP95Ms !== undefined) thresholds.maxLatencyP95Ms = maxLatencyP95Ms;
+  if (maxWarmLatencyP95Ms !== undefined) thresholds.maxWarmLatencyP95Ms = maxWarmLatencyP95Ms;
+  if (maxWarmQueuePending !== undefined) thresholds.maxWarmQueuePending = maxWarmQueuePending;
+  if (opts.allowUnpinnedDevMode) thresholds.allowUnpinnedDevMode = true;
+  return thresholds;
+}
+
+function printSoakReport(report: SemanticShadowSoakReport): void {
+  console.log(pc.bold("Semantic shadow soak check"));
+  const verdict = report.verdict === "ready" ? pc.green("READY") : pc.yellow("NOT READY");
+  console.log(pc.dim("  verdict:            ") + verdict);
+  console.log(pc.dim("  shadow-only:        ") + String(report.shadowOnly));
+  console.log(pc.dim("  serving promoted:   ") + String(report.servingPromoted));
+  console.log(pc.dim("  doctor:             ") + report.doctor.status);
+  if (report.doctor.status === "ready") {
+    console.log(pc.dim("  attestation:        ") + report.doctor.attestationId);
+    console.log(pc.dim("  sidecar served:     ") + report.doctor.telemetry.served);
+  }
+  console.log(pc.dim("  traffic:            ") + report.shadow.traffic);
+  console.log(pc.dim("  V4 abstain:         ") + report.shadow.baseline.abstain);
+  console.log(
+    pc.dim("  residual recovery:  ") +
+      `${report.shadow.residual.semanticApplicable}/${report.shadow.residual.v4Abstain}`,
+  );
+  console.log(pc.dim("  latency p95:        ") + `${report.shadow.latencyMs.p95}ms`);
+  console.log(
+    pc.dim("  warm completed:     ") +
+      String(report.shadow.latestHealth?.warmsCompleted ?? 0),
+  );
+  if (report.blockers.length === 0) {
+    console.log(pc.green("  blockers:           none"));
+  } else {
+    console.log(pc.yellow("  blockers:"));
+    for (const blocker of report.blockers) console.log(pc.yellow("    - " + blocker));
+  }
+}
+
 function fail(error: unknown): void {
   console.error(pc.red("Error: ") + (error instanceof Error ? error.message : String(error)));
   process.exitCode = 1;
@@ -178,6 +264,35 @@ export const semanticCommand = new Command("semantic")
             }
           }
           if (report.status !== "ready" && report.status !== "off") process.exitCode = 1;
+        } catch (error) {
+          fail(error);
+        }
+      }),
+  )
+  .addCommand(
+    new Command("soak-check")
+      .description("Evaluate shadow-only sidecar soak readiness from doctor + local telemetry")
+      .option("-p, --path <path>", "project root", process.cwd())
+      .option("--since <when>", "window start: relative (7d / 1h / 30m) or ISO / epoch ms")
+      .option("--json", "machine-readable JSON output")
+      .option("--min-traffic <n>", "minimum semantic comparison events")
+      .option("--min-v4-abstain <n>", "minimum V4-abstain residual observations")
+      .option("--min-residual-recovery <n>", "minimum semantic applicable residual observations")
+      .option("--min-warm-completions <n>", "minimum completed cache warm operations")
+      .option("--max-latency-p95-ms <n>", "maximum comparison p95 latency in ms")
+      .option("--max-warm-latency-p95-ms <n>", "maximum warm p95 latency in ms")
+      .option("--max-warm-queue-pending <n>", "maximum pending warm queue items at sample time")
+      .option("--allow-unpinned-dev-mode", "allow unpinned sidecar attestation for local development only")
+      .action(async (opts: SoakOptions) => {
+        try {
+          const report = await runSemanticShadowSoakCheck({
+            path: opts.path,
+            ...(opts.since ? { since: opts.since } : {}),
+            thresholds: buildSoakThresholds(opts),
+          });
+          if (opts.json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+          else printSoakReport(report);
+          if (report.verdict !== "ready") process.exitCode = 1;
         } catch (error) {
           fail(error);
         }

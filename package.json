@@ -44,6 +44,7 @@
     "smoke:agent": "tsx scripts/agent-smoke.ts",
     "smoke:capabilities": "tsx scripts/capability-matrix-smoke.ts",
     "smoke:semantic-ops": "tsx scripts/semantic-bakeoff/semantic-ops-smoke.ts",
+    "smoke:semantic-soak": "tsx scripts/semantic-bakeoff/semantic-soak-smoke.ts",
     "semantic:sidecar": "tsx bin/semantic-sidecar.ts",
     "semantic:sidecar:verify-supply-chain": "tsx scripts/semantic-bakeoff/verify-sidecar-supply-chain.ts",
     "semantic:sidecar:prepare-wheelhouse": "tsx scripts/semantic-bakeoff/prepare-sidecar-wheelhouse.ts",

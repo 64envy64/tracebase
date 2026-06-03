@@ -8,6 +8,7 @@ import { initConfig, loadConfig } from "../../src/core/config.js";
 import {
   runSemanticObservationExport,
   runSemanticRegistryExport,
+  runSemanticShadowSoakCheck,
   runSemanticShadowReport,
 } from "../../src/cli/commands/semantic.js";
 import type { ReasoningSemanticComparisonEvent } from "../../src/types.js";
@@ -51,6 +52,21 @@ describe("semantic operator CLI helpers", () => {
     expect(report.traffic).toBe(1);
     expect(report.residual.recoveryRate).toBe(1);
     expect(report.providers).toEqual(["http"]);
+  });
+
+  it("combines doctor status and local events into a conservative soak verdict", async () => {
+    const report = await runSemanticShadowSoakCheck({
+      path: projectDir,
+      env: {},
+      thresholds: { minTraffic: 1, minV4Abstain: 1, minWarmCompletions: 0 },
+    });
+    expect(report.verdict).toBe("not-ready");
+    expect(report.doctor.status).toBe("off");
+    expect(report.shadow.traffic).toBe(1);
+    expect(report.shadowOnly).toBe(true);
+    expect(report.servingPromoted).toBe(false);
+    expect(JSON.stringify(report)).not.toContain("literalText");
+    expect(JSON.stringify(report)).not.toContain("credential");
   });
 
   it("exports privacy-safe observation skeletons without payload content", () => {
