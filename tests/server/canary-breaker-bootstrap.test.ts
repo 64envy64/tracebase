@@ -84,7 +84,11 @@ describe("E.2.1 breaker bootstrap — first EXPOSURE creates state (MCP boundary
     noteCanaryActivityIfActive(base, store, 3);
     const snap = readBreakerSnapshot(base);
     expect(snap.tripped).toBe(true);
-    expect(snap.reasons).toContain("harm_rate_exceeded");
+    expect(snap.reasons.length).toBeGreaterThan(0);
+    const state = readBreakerState(base);
+    if (!state || state === "malformed") throw new Error("expected valid breaker state");
+    expect(state.counters.treatmentHarmful).toBe(1);
+    expect(state.lastVerdict.reasons).toContain("harm_rate_exceeded");
     store.close();
   });
 

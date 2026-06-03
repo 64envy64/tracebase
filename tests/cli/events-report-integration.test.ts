@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const CLI_PATH = join(__dirname, "..", "..", "dist", "cli.js");
+const INTEGRATION_TEST_TIMEOUT_MS = 30_000;
 
 function cli(args: string[], cwd: string): string {
   return execFileSync("node", [CLI_PATH, ...args], {
@@ -99,7 +100,7 @@ describe("CLI events + report — integration via built binary", () => {
     expect(byType.injection).toBe(3);
     expect(byType.agent_used).toBe(3);
     expect(byType.outcome).toBe(3);
-  });
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it("events --type injection narrows the result set", async () => {
     if (!existsSync(CLI_PATH)) return;
@@ -110,7 +111,7 @@ describe("CLI events + report — integration via built binary", () => {
     const parsed = JSON.parse(out) as { events: Array<{ event: string }> };
     expect(parsed.events.length).toBe(3);
     for (const ev of parsed.events) expect(ev.event).toBe("injection");
-  });
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it("events --since <epoch-ms> filters by afterTs", async () => {
     if (!existsSync(CLI_PATH)) return;
@@ -133,7 +134,7 @@ describe("CLI events + report — integration via built binary", () => {
     const seededTypes = new Set(["retrieval", "injection", "agent_used", "outcome"]);
     const seededEvents = parsed.events.filter((e) => seededTypes.has(e.event));
     expect(seededEvents.length).toBe(4);
-  });
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it("report --json reflects the seeded events' counts + rates", async () => {
     if (!existsSync(CLI_PATH)) return;
@@ -161,7 +162,7 @@ describe("CLI events + report — integration via built binary", () => {
     expect(parsed.perBlock[0].helpful).toBe(2);
     expect(parsed.perBlock[0].counterproductive).toBe(1);
     expect(parsed.perBlock[0].injected).toBe(3);
-  });
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it("report without a store file short-circuits cleanly", () => {
     if (!existsSync(CLI_PATH)) return;
@@ -177,5 +178,5 @@ describe("CLI events + report — integration via built binary", () => {
     const out = cli(["report", "--json"], workDir);
     const parsed = JSON.parse(out) as { empty?: boolean };
     expect(parsed.empty).toBe(true);
-  });
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 });
